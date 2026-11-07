@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/source-semantics/target-source-program.js";
 import { sourceSequenceConsumptionRoot, sourceSequenceInputChoice } from "../../packages/target-api/dist/source-navigation/sequence-inputs.js";
 import { createSourceNodeInventory, createSourceSyntaxDomain } from "../../packages/target-api/dist/source-navigation/node-inventory.js";
 import { selectSourceNativeValueGuard } from "../../packages/target-api/dist/source-semantics/native-value-guards.js";
@@ -13,7 +14,7 @@ function fixture(text) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics).slice(0, 2048));
   assert.equal(checked.extensionDiagnostics.length, 0, "the original program has no extension rejection");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const foreign = checked.getSourceFile("/src/foreign.ts");
   assert.equal(file !== undefined && foreign !== undefined, true, "both original checked files exist");
@@ -25,8 +26,9 @@ function fixture(text) {
     const children = source.ast.children(node).filter(child => child !== undefined);
     for (let index = children.length - 1; index >= 0; index -= 1) pending.push(children[index]);
   }
+  // The value-flow context: Host navigation, retained flow conditions and value facts (no checker service, I3).
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    semanticsFor: node => source.semantics.forNode(node) };
+    flowConditions: reference => source.flowConditions(reference), values: source.facts.values };
   return { checked, source, file, foreign, nodes, context };
 }
 
@@ -97,14 +99,14 @@ test("guarded members retain finite deep conditions and the binding's entire ori
   const current = fixture(`declare function isArray(value: unknown): boolean; declare function observe(value: unknown): void;
     const operands = [${Array(count - 1).fill("!true").join(",")}];
     function run(value: unknown): void { if (!!isArray(value)) observe(value); }`);
-  const call = current.nodes.map(node => current.source.semantics.forNode(node).operations.call(node))
-    .find(operation => current.source.ast.text(operation?.sourceCallee.expression) === "observe");
-  const reference = call?.sourceArguments[0]?.expression;
+  const call = current.nodes.map(node => current.source.navigation.call(node))
+    .find(operation => operation !== undefined && current.source.ast.text(operation.callee) === "observe");
+  const reference = call?.arguments[0];
   assert.equal(reference !== undefined, true, "the original observed argument exists");
-  const flow = current.source.semantics.forNode(reference).operations.flowConditions(reference);
+  const flow = current.source.flowConditions(reference);
   const condition = flow?.conditions[0]?.expression;
   const guardCall = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
-    current.source.ast.text(current.source.semantics.forNode(node).operations.call(node)?.sourceCallee.expression) === "isArray");
+    current.source.ast.text(current.source.navigation.call(node)?.callee) === "isArray");
   assert.equal(condition !== undefined && current.source.ast.is.IsPrefixUnaryExpression(condition) && guardCall !== undefined, true);
   const operands = current.nodes.filter(node => current.source.ast.is.IsPrefixUnaryExpression(node) &&
     current.source.ast.kindName(current.source.ast.as.AsPrefixUnaryExpression(node)?.Operand) === "KindTrueKeyword");
@@ -115,9 +117,9 @@ test("guarded members retain finite deep conditions and the binding's entire ori
     AsPrefixUnaryExpression: node => links.has(node) ? { Operand: links.get(node) }
       : current.source.ast.as.AsPrefixUnaryExpression(node) } };
   const selected = selectSourceGuardedValueMembers({ ...current.context, ast }, reference, ["array", "other"], expression => {
-    const operation = current.source.semantics.forNode(expression).operations.call(expression);
-    return current.source.ast.text(operation?.sourceCallee.expression) === "isArray" && operation.sourceArguments[0] !== undefined
-      ? { sourceOperand: operation.sourceArguments[0].expression, predicate: "array" } : undefined;
+    const operation = current.source.navigation.call(expression);
+    return operation !== undefined && current.source.ast.text(operation.callee) === "isArray" && operation.arguments[0] !== undefined
+      ? { sourceOperand: operation.arguments[0], predicate: "array" } : undefined;
   }, (member, predicate) => member === predicate);
   assert.deepEqual(selected, ["array"]);
   assert.equal(Object.isFrozen(selected), true);
@@ -158,10 +160,10 @@ test("finite syntax owners reject foreign operands, cyclic children and cyclic p
       : guards.source.ast.as.AsPrefixUnaryExpression(node) } };
   assert.equal(selectSourceNativeGuardResult({ ...guards.context, ast: booleanCycle }, negation,
     () => undefined, () => undefined, () => undefined), undefined, "native guard results reject cycles");
-  const observed = guards.nodes.map(node => guards.source.semantics.forNode(node).operations.call(node))
-    .find(operation => guards.source.ast.text(operation?.sourceCallee.expression) === "observe");
-  const reference = observed?.sourceArguments[0]?.expression;
-  const condition = guards.source.semantics.forNode(reference).operations.flowConditions(reference)?.conditions[0]?.expression;
+  const observed = guards.nodes.map(node => guards.source.navigation.call(node))
+    .find(operation => operation !== undefined && guards.source.ast.text(operation.callee) === "observe");
+  const reference = observed?.arguments[0];
+  const condition = guards.source.flowConditions(reference)?.conditions[0]?.expression;
   assert.equal(condition !== undefined && guards.source.ast.is.IsPrefixUnaryExpression(condition), true);
   const valueCycle = { ...guards.source.ast, as: { ...guards.source.ast.as,
     AsPrefixUnaryExpression: node => node === condition ? { Operand: condition }

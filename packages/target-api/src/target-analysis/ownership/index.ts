@@ -24,6 +24,7 @@ export type { SourceDeclarationNativeTaskScope } from "./native-tasks.js";
 export type { SourceDeclarationContinuationFlowSelection } from "./flow.js";
 export type {
   SourceDeclarationOwnershipCause, SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipContract,
+  SourceDeclarationOwnershipComponent, SourceFormalBorrowRegion,
   SourceDeclarationOwnershipEvidence, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipRows, SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipPremises,
   SourceDeclarationRetentionPremise, SourceDeclarationRetentionSelection, SourceDeclarationRetentionReadSelection,

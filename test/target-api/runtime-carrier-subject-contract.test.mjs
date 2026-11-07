@@ -19,8 +19,10 @@ test("shared Tsonic exposes source semantics and never owns target runtime carri
 
   assert.match(
     sourceProgramTypes,
-    /export interface TargetSourceProgram \{[\s\S]*readonly sourceFacts: ReadonlySourceFactResolver;[\s\S]*readonly navigation: SourceProgramNavigation;[\s\S]*readonly semantics: SourceProgramSemantics;/u,
+    /export interface HostSourceProgram \{[\s\S]*readonly sourceFacts: ReadonlySourceFactResolver;[\s\S]*readonly navigation: SourceProgramNavigation;[\s\S]*readonly facts: SourceProgramFacts;/u,
   );
+  // The Host program carries no checker services (I3): no semantics member.
+  assert.doesNotMatch(sourceProgramTypes, /readonly semantics:/u);
   assert.doesNotMatch(productSource, /\b(?:TargetTypeRef|RuntimeCarrierFact|getRuntimeCarrierFact|getSelectedTargetCall)\b/u);
   assert.doesNotMatch(productSource, /kind:\s*["']target-named["']/u);
 });

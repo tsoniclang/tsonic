@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import type { Node } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, tsonicCoreLangModule, tsonicCoreTypesModule, tsonicAttributeBuilderFactKey, createSourceCoreSession, createCleanSourceCoreSession, argumentMode, flowState, assertAttributeApplication, callExpression, propertyCallExpression, firstCallArgument, typeReference, variableDeclaration, variableInitializer, typeReferenceName, sourceCoreFacts, checkSource, sourceAst, getSourceFact, definedDiagnostics, numberSort } from "./source-extension.fixtures.js";
 
@@ -178,7 +179,9 @@ test("source-core handles source primitive array destructured parameters", () =>
   assert.ok(checkSource(session).getSourceFile("/src/index.ts") !== undefined);
 });
 
-test("source-core reports non-storage diagnostics for byref markers", () => {
+// N8 (b), C-2496: a reference marker over a non-storage argument is a Host refusal (TSONIC_ARGUMENT_MARKER_NOT_PLACE,
+// published in SourceProgramFacts.refusals()); Legacy and the source-core extension originate no Source refusal for it.
+test("source-core leaves non-storage byref marker arguments to the Host refusal", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { writeonlyref, readwriteref, readonlyref } from "@tsonic/core/lang.js";
 
@@ -191,21 +194,19 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
   const checked = checkSource(session);
   const diagnostics = definedDiagnostics(checked.diagnostics);
   assert.deepEqual(diagnostics, []);
-  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode).sort(), [
-    "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
-    "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
-    "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
-  ]);
-  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [
-    9901101,
-    9901101,
-    9901101,
-  ]);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), []);
+  const refusals = createHostSourceProgramFixture(checked).facts.refusals()
+    .filter(refusal => refusal.code === "TSONIC_ARGUMENT_MARKER_NOT_PLACE");
+  assert.equal(refusals.length, 3);
 
   for (const calleeText of ["writeonlyref", "readwriteref", "readonlyref"]) {
     const call = callExpression(session, sourceFile, calleeText);
     assert.notEqual(getSourceFact(session, call, argumentPassingFactKey), undefined);
     assert.equal(getSourceFact(session, firstCallArgument(session, call), argumentPassingFactKey), undefined);
+    const refusal = refusals.find(entry => entry.related === call);
+    assert.ok(refusal, calleeText);
+    assert.equal(refusal.site, firstCallArgument(session, call));
+    assert.match(refusal.message, new RegExp(`^${calleeText}\\(\\.\\.\\.\\) requires a storage expression\\.$`, "u"));
   }
 });
 

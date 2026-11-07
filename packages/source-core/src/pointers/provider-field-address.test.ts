@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageQuery } from "@tsonic/target-api/analysis";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import { createSourceSemanticsVirtualModuleProvider } from "../extension/semantics-virtual-modules.js";
 import { memorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 
@@ -49,8 +48,8 @@ test("provider field addresses preserve scoped location dependencies after aggre
     initialize(context) { context.registerSourceDeclarationProvider(provider); } }] });
   assert.equal(checked.diagnostics.length === 0 && checked.extensionDiagnostics.length === 0, true,
     "The complete original provider program has checked source evidence.");
-  const source = createTargetSourceProgram(checked);
-  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const source = createHostSourceProgramFixture(checked);
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
   const reads = memoryCalls(checked, "loadptr");
   assert.equal(reads.length, 4);
   for (const call of reads) {

@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDirectCreation, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
@@ -50,7 +50,7 @@ type SourceStorageRelationState = Map<SourceStorageRelation, number> & {
 
 type SourceStorageNormalizationWitness = SourceStorageRelationWitness & { readonly actual: boolean };
 
-export function createSourceStorageRelationEvaluation(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageRelationEvaluation(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: ReturnType<typeof createSourceStorageScopes>,
   equations: ReturnType<typeof createSourceStorageEquations>, reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   keys: ReturnType<typeof createSourceStorageScopedKeys>, evaluationQueries: ReturnType<typeof createSourceStorageGraphQueries>,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
+import { createHostSourceProgramFixture } from "../../source-semantics/host-program-fixtures.js";
 import { createSourceDeclarationControlFlow, createSourceControlFlowDomain } from "./graph.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
@@ -18,7 +18,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
       ${declaration} { ${body} }`,
   }, compilerOptions: { strict: true, target: "esnext", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "resource fixture is a checked source program");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "resource fixture source exists");
   const nodes: Node[] = [];
@@ -205,7 +205,7 @@ test("direct resource lists require their lexical cleanup route instead of immed
   const list = current.nodes.find(node => current.source.ast.is.IsVariableDeclarationList(node) &&
     current.source.ast.variableDeclarationKind(node) === "using");
   assert.equal(list !== undefined, true, "the real checked declaration list is retained");
-  assert.throws(() => sourceFlowStatement({ source: current.source } as Parameters<typeof sourceFlowStatement>[0],
+  assert.throws(() => sourceFlowStatement({ source: current.source } as unknown as Parameters<typeof sourceFlowStatement>[0],
     list!, current.graph.exit, {} as Parameters<typeof sourceFlowStatement>[3]),
   error => error instanceof SourceFlowFailure && error.message === "Resource acquisition requires its checked lexical cleanup scope.");
 });

@@ -1,7 +1,12 @@
-import type { Node, SourceFile, Type, TypePropertyInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import type { SourceStructuralMemberPair } from "../../../source-semantics/structural-members.js";
-import { sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
+import { sourceAnalysisArms, sourceAnalysisIncludesFile, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm,
+  sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import {
+  sourcePresentStorageArms, sourceStorageComponents, sourceStorageIsScalarType, sourceStorageMemberCorrespondence,
+  sourceStorageMemberPairFor, sourceStorageMembers, sourceStorageSubjectType, sourceStorageTypesEqual,
+  type SourceStorageMemberPair,
+} from "../model/components.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
@@ -9,84 +14,77 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
+import { sourceStorageCallReceiver } from "./invocation-inputs.js";
+
+type Descriptor = SourceTypeDescriptor;
 
 interface MemberIndex {
   aggregateReady: boolean;
-  members: readonly SourceStructuralMemberPair[] | undefined;
+  members: readonly SourceStorageMemberPair[] | undefined;
   readonly declarations: Map<Node, {
-    readonly member: SourceStructuralMemberPair;
+    readonly member: SourceStorageMemberPair;
     readonly originals: readonly Node[];
   } | undefined>;
 }
 
-const noMembers: readonly SourceStructuralMemberPair[] = Object.freeze([]);
+const noMembers: readonly SourceStorageMemberPair[] = Object.freeze([]);
 
+/** A member a spread or rest copies: its Host member name, optionality, read type and declarations. */
 export interface SourceStorageSpreadMember {
-  readonly property: TypePropertyInfo;
+  readonly name: string;
+  readonly optional: boolean;
+  readonly type: Descriptor;
   readonly declarations: readonly Node[];
 }
 
-// A member read through a receiver typed T | undefined | null reads the member of T: the nullish constituents have no
-// members, so member correspondence is computed against the non-nullish receiver type.
-function memberDestination(semantics: ReturnType<TargetSourceProgram["semantics"]["forFile"]>, receiverType: Type): Type | undefined {
-  return semantics.types.isUnion(receiverType) ? semantics.types.nonNullableType(receiverType) : receiverType;
+// A member read through a receiver typed T | undefined | null reads the member of T: absent arms have no members, so
+// member correspondence is computed against the present arm (or the whole type when several arms are present).
+function memberDestination(receiverType: Descriptor): Descriptor | undefined {
+  const arms = sourcePresentStorageArms(receiverType);
+  return arms.length === 0 ? undefined : arms.length === 1 ? arms[0] : receiverType;
+}
+
+/** The authored member name of a member or element declaration (Host property-name facts). */
+function memberName(source: SourceAnalysisProgram, declaration: Node): string | undefined {
+  const name = source.ast.name(declaration);
+  const selected = name === undefined ? undefined : source.facts.analyses.propertyName(name);
+  return selected?.kind === "resolved" ? selected.name : undefined;
 }
 
 export function createSourceStorageMemberFlow(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ) {
-  const selections = new Map<SourceFile, Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>>();
-  const physicalMember = (member: SourceStructuralMemberPair, contract: SourceStructuralMemberPair | undefined): SourceStructuralMemberPair => {
-    const allocated: SourceStructuralMemberPair = member.kind === "absent" && contract?.kind === "present" &&
-      contract.source.property.optional ? Object.freeze({ kind: "present", destination: member.destination, source: contract.source }) : member;
-    return allocated.kind === "present" && contract?.kind === "present" && contract.source.property.readonly
-      ? Object.freeze({ ...allocated, source: Object.freeze({ ...allocated.source,
-        property: Object.freeze({ ...allocated.source.property, readonly: true }) }) }) : allocated;
-  };
-  const indexFor = (file: SourceFile, from: Type, to: Type, contextual: Type | undefined,
-    selection: "aggregate" | Node): MemberIndex | undefined => {
+  const { ast } = source;
+  // An object literal's Host type is already its contextual (destination) type (values.type), so member storage is
+  // selected from the owner's Host type alone; no separate contextual contract is consulted (B4 decision).
+  const selections = new Map<SourceFile, Map<Descriptor, Map<Descriptor, MemberIndex>>>();
+  const indexFor = (file: SourceFile, from: Descriptor, to: Descriptor, selection: "aggregate" | Node): MemberIndex | undefined => {
     const sources = selections.get(file);
-    const contexts = sources?.get(from);
-    const destinations = contexts?.get(contextual);
+    const destinations = sources?.get(from);
     const existing = destinations?.get(to);
     if (selection === "aggregate" ? existing?.aggregateReady : existing?.declarations.has(selection)) return existing;
     const rows = budget.createRows();
     let published = false;
     try {
-      const queries = source.semantics.forFile(file);
-      const contextualMember = (declaration: Node): SourceStructuralMemberPair | undefined => contextual === undefined
-        ? undefined : queries.types.structuralMember(contextual, to, declaration, "correspondence");
-      let aggregate: readonly SourceStructuralMemberPair[] | undefined;
-      let selectedMember: { readonly member: SourceStructuralMemberPair; readonly originals: readonly Node[] } | undefined;
+      let aggregate: readonly SourceStorageMemberPair[] | undefined;
+      let selectedMember: { readonly member: SourceStorageMemberPair; readonly originals: readonly Node[] } | undefined;
       if (selection === "aggregate") {
-        const selected = queries.types.structuralMembers(from, to, "correspondence");
+        const selected = sourceStorageMemberCorrespondence(source, from, to, "correspondence");
         if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") aggregate = noMembers;
         if (selected.kind === "available") {
           if (!rows.add(1 + selected.members.length)) return undefined;
-          const members: SourceStructuralMemberPair[] = [];
-          for (const member of selected.members) {
-            if (!budget.step()) return undefined;
-            const declaration = member.destination.declarations[0];
-            members.push(physicalMember(member, declaration === undefined ? undefined : contextualMember(declaration)));
-          }
-          aggregate = Object.freeze(members);
+          aggregate = selected.members;
         }
       } else {
         if (!budget.step()) return undefined;
-        const selected = queries.types.structuralMember(from, to, selection, "correspondence");
-        if (selected !== undefined) {
+        const member = sourceStorageMemberPairFor(source, from, to, selection, "correspondence");
+        if (member !== undefined) {
           if (!rows.add(2)) return undefined;
-          const member = physicalMember(selected, contextualMember(selection));
-          let selectedDeclaration = false;
-          for (const declaration of member.destination.declarations) {
-            if (!budget.step()) return undefined;
-            selectedDeclaration ||= declaration === selection;
-          }
-          if (!selectedDeclaration) return undefined;
+          if (!member.destination.declarations.includes(selection)) return undefined;
           const originals = new Set<Node>();
           if (member.kind === "present") for (const original of member.source.declarations) {
             if (!budget.step()) return undefined;
@@ -100,16 +98,14 @@ export function createSourceStorageMemberFlow(
         if (!rows.add(1)) return undefined;
       }
       if (budget.failure() !== undefined || existing === undefined &&
-        !rows.add(1 + (sources === undefined ? 1 : 0) + (contexts === undefined ? 1 : 0) + (destinations === undefined ? 1 : 0))) return undefined;
+        !rows.add(1 + (sources === undefined ? 1 : 0) + (destinations === undefined ? 1 : 0))) return undefined;
       const index = existing ?? { aggregateReady: false, members: undefined, declarations: new Map() };
       if (selection === "aggregate") { index.members = aggregate; index.aggregateReady = true; }
       else index.declarations.set(selection, selectedMember);
-      const retainedSources = sources ?? new Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>();
-      const retainedContexts = contexts ?? new Map<Type | undefined, Map<Type, MemberIndex>>();
-      const retainedDestinations = destinations ?? new Map<Type, MemberIndex>();
+      const retainedSources = sources ?? new Map<Descriptor, Map<Descriptor, MemberIndex>>();
+      const retainedDestinations = destinations ?? new Map<Descriptor, MemberIndex>();
       retainedDestinations.set(to, index);
-      retainedContexts.set(contextual, retainedDestinations);
-      retainedSources.set(from, retainedContexts);
+      retainedSources.set(from, retainedDestinations);
       selections.set(file, retainedSources);
       published = true;
       return index;
@@ -117,45 +113,45 @@ export function createSourceStorageMemberFlow(
       if (!published) rows.release();
     }
   };
-  const receiverSelection = (owner: SourceStorageSubject, receiverType: Type) => {
+  const receiverSelection = (owner: SourceStorageSubject, receiverType: Descriptor) => {
     if (!budget.step()) return undefined;
     const file = sourceFileFor(owner);
     const checked = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || checked === undefined) return undefined;
-    const semantics = source.semantics.forFile(file);
-    const type = memberDestination(semantics, checked);
-    const destinationType = memberDestination(semantics, receiverType);
+    const type = memberDestination(checked);
+    const destinationType = memberDestination(receiverType);
     if (type === undefined || destinationType === undefined) return undefined;
-    const contextual = owner.projection.length === 0 && source.ast.is.IsObjectLiteralExpression(owner.node)
-      ? semantics.types.contextualType(owner.node)?.selectedType : undefined;
-    const refinement = semantics.types.isUnion(type) ? semantics.types.refinement(type, destinationType) : undefined;
-    const selectedType = !semantics.types.isUnion(type) ? type
-      : refinement?.kind === "members" && refinement.types.length === 1 ? refinement.types[0] : undefined;
-    return { file, type, destinationType, contextual, selectedType };
+    // A union owner reads through the one arm the receiver's type selects (equal Host arm), else no single arm.
+    const arms = sourcePresentStorageArms(type);
+    const destinationArms = sourcePresentStorageArms(destinationType);
+    const matching = arms.length === 1 ? arms
+      : arms.filter(arm => destinationArms.some(candidate => sourceStorageTypesEqual(arm, candidate)));
+    const selectedType = matching.length === 1 ? matching[0] : undefined;
+    return { file, type, destinationType, selectedType };
   };
-  const aggregateIndex = (owner: SourceStorageSubject, receiverType: Type): MemberIndex | undefined => {
+  const aggregateIndex = (owner: SourceStorageSubject, receiverType: Descriptor): MemberIndex | undefined => {
     const selected = receiverSelection(owner, receiverType);
     return selected?.selectedType === undefined ? undefined
-      : indexFor(selected.file, selected.selectedType, selected.destinationType, selected.contextual, "aggregate");
+      : indexFor(selected.file, selected.selectedType, selected.destinationType, "aggregate");
   };
-  const excludes = (owner: SourceStorageSubject, destinationType: Type): boolean => aggregateIndex(owner, destinationType)?.members === noMembers;
-  const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: Type) => {
+  const excludes = (owner: SourceStorageSubject, destinationType: Descriptor): boolean => aggregateIndex(owner, destinationType)?.members === noMembers;
+  const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor) => {
     const selected = receiverSelection(owner, receiverType);
     if (selected === undefined) return undefined;
-    const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType,
-      selected.contextual, declaration)?.declarations.get(declaration);
+    const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType, declaration)
+      ?.declarations.get(declaration);
     for (const original of entry?.originals ?? []) {
       if (!budget.step() || !retainCheckedContext(original, selected.file)) return undefined;
     }
     return entry;
   };
-  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): SourceStructuralMemberPair | undefined =>
+  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor): SourceStorageMemberPair | undefined =>
     selectedMember(owner, declaration, receiverType)?.member;
-  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): readonly Node[] | undefined => {
+  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor): readonly Node[] | undefined => {
     const entry = selectedMember(owner, declaration, receiverType);
     return entry?.member.kind === "present" ? entry.originals : undefined;
   };
-  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: Type): {
+  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: Descriptor): {
     readonly members: readonly { readonly declaration: Node; readonly bindings: Bindings }[]; readonly absent: boolean;
   } | undefined => {
     if (!lineage.complete || lineage.classes.length === 0) return undefined;
@@ -168,9 +164,9 @@ export function createSourceStorageMemberFlow(
       if (excludes(receiver, destinationType)) { excluded++; continue; }
       const member = memberFor(receiver, declaration, destinationType);
       if (member === undefined) return undefined;
-      if (member.kind === "absent") { absent ||= member.destination.property.optional; continue; }
-      const physical = member.source.declarations.filter(original => !source.ast.hasModifierKind(original, "static") &&
-        sourceMemberOwner(source.ast, original) === captured.subject.node);
+      if (member.kind === "absent") { absent ||= member.destination.optional; continue; }
+      const physical = member.source.declarations.filter(original => !ast.hasModifierKind(original, "static") &&
+        sourceMemberOwner(ast, original) === captured.subject.node);
       if (physical.length === 0) continue;
       return Object.freeze({ members: Object.freeze(physical.map(declaration => Object.freeze({ declaration, bindings: captured.bindings }))),
         absent: false });
@@ -183,11 +179,11 @@ export function createSourceStorageMemberFlow(
     for (const constructor of nativeBase.constructors) {
       if (!budget.step()) return undefined;
       let receiver: SourceStorageSubject | undefined;
-      if (source.ast.is.IsConstructSignatureDeclaration(constructor)) receiver = subject(constructor, "return");
-      else if (source.ast.is.IsConstructorDeclaration(constructor)) {
-        const owner = source.ast.parent(constructor);
-        if (owner === undefined || owner !== nativeBase.subject.node || source.ast.body(constructor) !== undefined ||
-          !source.ast.is.IsClassDeclaration(owner) && !source.ast.is.IsClassExpression(owner) ||
+      if (ast.is.IsConstructSignatureDeclaration(constructor)) receiver = subject(constructor, "return");
+      else if (ast.is.IsConstructorDeclaration(constructor)) {
+        const owner = ast.parent(constructor);
+        if (owner === undefined || owner !== nativeBase.subject.node || ast.body(constructor) !== undefined ||
+          !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner) ||
           source.navigation.isProjectDeclaration(owner)) return undefined;
         receiver = subject(owner, "receiver");
       } else return undefined;
@@ -196,7 +192,7 @@ export function createSourceStorageMemberFlow(
       const physical: Node[] = [];
       for (const original of member.source.declarations) {
         if (!budget.step()) return undefined;
-        if (!source.ast.hasModifierKind(original, "static")) physical.push(original);
+        if (!ast.hasModifierKind(original, "static")) physical.push(original);
       }
       if (physical.length === 0 || originals !== undefined && originals.length !== physical.length) return undefined;
       if (originals !== undefined) for (const candidate of physical) {
@@ -214,87 +210,88 @@ export function createSourceStorageMemberFlow(
     });
   };
   const restExcludedKeys = (rest: Node): ReadonlySet<string> | undefined => {
-    const owner = sourceStorageObjectRestOwner(rest, source.ast);
-    const pattern = owner === undefined ? undefined : source.ast.name(owner);
+    const owner = sourceStorageObjectRestOwner(rest, ast);
+    const pattern = owner === undefined ? undefined : ast.name(owner);
     if (pattern === undefined) return undefined;
-    const queries = source.semantics.forNode(rest);
     const keys = new Set<string>();
-    for (const element of source.ast.elements(pattern)) {
+    for (const element of ast.elements(pattern)) {
       if (!budget.step() || element === undefined) return undefined;
       if (element === rest) continue;
-      if (!source.ast.is.IsBindingElement(element)) return undefined;
-      const binding = source.ast.as.AsBindingElement(element);
-      const name = binding?.PropertyName ?? source.ast.name(element);
-      const key = name === undefined ? undefined : queries.operations.propertyName(name);
-      if (key === undefined) return undefined;
+      if (!ast.is.IsBindingElement(element)) return undefined;
+      const binding = ast.as.AsBindingElement(element);
+      const name = binding?.PropertyName ?? ast.name(element);
+      const key = name === undefined ? undefined : source.facts.analyses.propertyName(name);
+      if (key?.kind !== "resolved") return undefined;
       keys.add(key.name);
     }
     return keys;
   };
+  /** The Host members of each arm of a value's type; undefined when an arm is open or its members are refused. */
+  const armMembers = (type: Descriptor): readonly (readonly SourceStorageSpreadMember[])[] | undefined => {
+    const selected: (readonly SourceStorageSpreadMember[])[] = [];
+    for (const arm of sourceAnalysisArms(type)) {
+      if (!budget.step() || sourceAnalysisIsOpenArm(arm)) return undefined;
+      if (sourceAnalysisIsAbsentArm(arm) || sourceAnalysisIsNeverArm(arm)) continue;
+      const members = source.facts.objects.members(arm);
+      if ("kind" in members) return undefined;
+      selected.push(members.map(member => Object.freeze({ name: member.name, optional: member.optional, type: member.type,
+        declarations: member.declarations })));
+    }
+    return selected;
+  };
   const spreadMembersFor = (expression: Node, evaluation: Node): readonly SourceStorageSpreadMember[] | undefined => {
-    const file = source.ast.getSourceFile(expression);
-    if (file === undefined || !source.semantics.includes(file)) return undefined;
-    const queries = source.semantics.forFile(file);
-    const raw = queries.types.expressionType(expression) ?? queries.declarations.declaredValueType(expression);
+    const file = ast.getSourceFile(expression);
+    if (file === undefined || !sourceAnalysisIncludesFile(source, file)) return undefined;
+    const raw = sourceAnalysisValueType(source, expression);
     if (raw === undefined) return undefined;
-    const alternatives = queries.types.isUnion(raw) ? queries.types.unionOrIntersectionTypes(raw) : [raw];
-    const rest = sourceStorageObjectRestOwner(evaluation, source.ast) !== undefined;
+    const rest = sourceStorageObjectRestOwner(evaluation, ast) !== undefined;
     const excluded = rest ? restExcludedKeys(evaluation) : undefined;
     if (rest && excluded === undefined) return undefined;
-    const binding = !rest && source.ast.is.IsBindingElement(evaluation) ? source.ast.as.AsBindingElement(evaluation) : undefined;
-    const name = binding === undefined ? undefined : binding.PropertyName ?? source.ast.name(evaluation);
-    const selected = name === undefined ? undefined : queries.operations.propertyName(name);
-    if (binding !== undefined && selected === undefined) return undefined;
-    const copying = rest || source.ast.is.IsSpreadAssignment(evaluation);
-    const rows: { readonly property: TypePropertyInfo; readonly declarations: readonly Node[] }[] = [];
-    for (const type of alternatives) {
-      if (!budget.step() || queries.types.isAny(type) || queries.types.isUnknown(type)) return undefined;
-      if (queries.types.isNullish(type) || queries.types.isVoidLike(type) || queries.types.isNever(type)) continue;
-      for (const property of queries.types.propertyInfos(type)) {
+    const binding = !rest && ast.is.IsBindingElement(evaluation) ? ast.as.AsBindingElement(evaluation) : undefined;
+    const name = binding === undefined ? undefined : binding.PropertyName ?? ast.name(evaluation);
+    const selected = name === undefined ? undefined : source.facts.analyses.propertyName(name);
+    if (binding !== undefined && selected?.kind !== "resolved") return undefined;
+    const copying = rest || ast.is.IsSpreadAssignment(evaluation);
+    const arms = armMembers(raw);
+    if (arms === undefined) return undefined;
+    const rows: SourceStorageSpreadMember[] = [];
+    for (const members of arms) for (const member of members) {
+      if (!budget.step()) return undefined;
+      if (excluded?.has(member.name)) continue;
+      if (selected?.kind === "resolved" && selected.name !== member.name) continue;
+      const declarations = new Set<Node>();
+      for (const declaration of member.declarations) {
         if (!budget.step()) return undefined;
-        if (excluded?.has(property.name)) continue;
-        if (selected !== undefined && selected.name !== property.name) continue;
-        const declarations = new Set<Node>();
-        for (const symbol of [property.symbol, ...property.rootSymbols]) for (const declaration of queries.declarations.symbolDeclarations(symbol)) {
-          if (!budget.step()) return undefined;
-          const owner = source.ast.parent(declaration);
-          const prototype = owner !== undefined && (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)) &&
-            (source.ast.is.IsMethodDeclaration(declaration) || source.ast.is.IsGetAccessorDeclaration(declaration) ||
-              source.ast.is.IsSetAccessorDeclaration(declaration));
-          if (copying && prototype) continue;
-          if (!retainCheckedContext(declaration, file)) return undefined;
-          declarations.add(declaration);
-        }
-        if (declarations.size === 0) continue;
-        rows.push({ property, declarations: Object.freeze([...declarations]) });
+        const owner = ast.parent(declaration);
+        const prototype = owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) &&
+          (ast.is.IsMethodDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
+            ast.is.IsSetAccessorDeclaration(declaration));
+        if (copying && prototype) continue;
+        if (!retainCheckedContext(declaration, file)) return undefined;
+        declarations.add(declaration);
       }
+      if (declarations.size === 0) continue;
+      rows.push(Object.freeze({ ...member, declarations: Object.freeze([...declarations]) }));
     }
-    return Object.freeze(rows.map(member => Object.freeze(member)));
+    return Object.freeze(rows);
   };
-  const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type, before: Node):
+  const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Descriptor, before: Node):
     | { readonly kind: "own"; readonly declaration: Node }
     | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[];
         readonly evaluation: Node; readonly definite: boolean }
     | { readonly kind: "absent" }
     | undefined => {
     const file = sourceFileFor(owner);
-    const object = source.ast.is.IsObjectLiteralExpression(owner.node) ? source.ast.as.AsObjectLiteralExpression(owner.node) : undefined;
-    const rest = sourceStorageObjectRestOwner(owner.node, source.ast);
+    const object = ast.is.IsObjectLiteralExpression(owner.node) ? ast.as.AsObjectLiteralExpression(owner.node) : undefined;
+    const rest = sourceStorageObjectRestOwner(owner.node, ast);
     if (file === undefined || object === undefined && rest === undefined || owner.projection.length !== 0) return undefined;
-    const queries = source.semantics.forFile(file);
-    let selected = queries.types.propertyInfos(destinationType).filter(property => [property.symbol, ...property.rootSymbols]
-      .some(symbol => queries.declarations.symbolDeclarations(symbol).includes(declaration)));
+    const destinationMembers = sourceStorageMembers(source, destinationType);
+    let selected = destinationMembers?.filter(member => member.declarations.includes(declaration)) ?? [];
     if (selected.length === 0) {
       // The declaration belongs to another shape the value is read through (a declared return type, or the spread source
-      // literal); it selects the destination property by checked structural correspondence from that shape.
-      const declarationOwner = sourceMemberOwner(source.ast, declaration);
-      const ownerType = declarationOwner === undefined ? undefined
-        : source.ast.is.IsTypeLiteralNode(declarationOwner) ? queries.types.authoredType(declarationOwner)
-          : source.ast.is.IsObjectLiteralExpression(declarationOwner) ? queries.types.expressionType(declarationOwner)
-            : queries.declarations.declaredType(declarationOwner);
-      const correspondence = ownerType === undefined ? undefined
-        : queries.types.structuralMember(destinationType, ownerType, declaration, "correspondence");
-      if (correspondence?.kind === "present") selected = [correspondence.source.property];
+      // literal); Host member correspondence is by member name, so it selects the destination member of the same name.
+      const name = memberName(source, declaration);
+      selected = name === undefined ? [] : destinationMembers?.filter(member => member.name === name) ?? [];
     }
     if (selected.length !== 1) return undefined;
     const property = selected[0]!;
@@ -303,70 +300,61 @@ export function createSourceStorageMemberFlow(
       const excluded = restExcludedKeys(owner.node);
       if (excluded === undefined) return undefined;
       if (excluded.has(property.name)) return Object.freeze({ kind: "absent" });
-      return Object.freeze({ kind: "spread", expression: Node_Initializer(source.ast, rest) ?? rest,
-        components: Object.freeze([Object.freeze({ kind: sourceStorageIsMethodMember(declaration, source.ast)
+      return Object.freeze({ kind: "spread", expression: Node_Initializer(ast, rest) ?? rest,
+        components: Object.freeze([Object.freeze({ kind: sourceStorageIsMethodMember(declaration, ast)
           ? "method-value" : "member", declaration })]), evaluation: owner.node, definite: !property.optional });
     }
-    const properties = source.ast.properties(owner.node);
+    const properties = ast.properties(owner.node);
     const limit = before === owner.node ? properties.length : properties.indexOf(before);
     if (limit < 0) return undefined;
     const ownContribution = (element: Node): { readonly kind: "own"; readonly declaration: Node } | undefined => {
-      const accessor = (node: Node): boolean => source.ast.is.IsGetAccessorDeclaration(node) || source.ast.is.IsSetAccessorDeclaration(node);
-      if (element !== declaration && accessor(element) && accessor(declaration) && source.ast.parent(declaration) === owner.node) {
-        const original = queries.operations.objectLiteralElement(declaration)?.sourceElementSymbol;
-        const selected = queries.operations.objectLiteralElement(element)?.sourceElementSymbol;
-        if (original === undefined || selected === undefined) return undefined;
-        if (original === selected) return Object.freeze({ kind: "own", declaration });
-      }
+      const accessor = (node: Node): boolean => ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node);
+      // Two accessors of one literal element (a get/set pair) are one entity: the pair's merged declarations.
+      if (element !== declaration && accessor(element) && accessor(declaration) && ast.parent(declaration) === owner.node &&
+        source.navigation.mergedDeclarations(declaration).includes(element)) return Object.freeze({ kind: "own", declaration });
       return Object.freeze({ kind: "own", declaration: element });
     };
     for (let ordinal = limit - 1; ordinal >= 0; ordinal -= 1) {
       const element = properties[ordinal];
       if (!budget.step() || element === undefined) return undefined;
-      if (!source.ast.is.IsSpreadAssignment(element)) {
-        const name = source.ast.name(element);
-        const checked = name === undefined ? undefined : queries.operations.propertyName(name);
-        if (checked === undefined) return undefined;
-        if (checked.kind !== "unique-symbol") {
+      if (!ast.is.IsSpreadAssignment(element)) {
+        const name = ast.name(element);
+        const checked = name === undefined ? undefined : source.facts.analyses.propertyName(name);
+        if (checked === undefined || checked.kind === "rejected") return undefined;
+        if (checked.kind === "resolved") {
           if (checked.name === property.name) return ownContribution(element);
           continue;
         }
-        const symbol = queries.operations.objectLiteralElement(element)?.sourceElementSymbol;
-        if (symbol === undefined) return undefined;
-        if (symbol === property.symbol || property.rootSymbols.includes(symbol)) return ownContribution(element);
+        const merged = source.navigation.mergedDeclarations(element);
+        if (property.declarations.some(candidate => candidate === element || merged.includes(candidate))) return ownContribution(element);
         continue;
       }
-      const expression = SpreadAssignment_Expression(source.ast, element);
-      const raw = expression === undefined ? undefined : queries.types.expressionType(expression);
+      const expression = SpreadAssignment_Expression(ast, element);
+      const raw = expression === undefined ? undefined : sourceAnalysisValueType(source, expression);
       if (raw === undefined || expression === undefined) return undefined;
-      const alternatives = queries.types.isUnion(raw) ? queries.types.unionOrIntersectionTypes(raw) : [raw];
-      const matches: TypePropertyInfo[] = [];
-      for (const alternative of alternatives) {
-        if (!budget.step() || queries.types.isAny(alternative) || queries.types.isUnknown(alternative)) return undefined;
-        matches.push(...queries.types.propertyInfos(alternative).filter(member => member.name === property.name));
-      }
+      const arms = armMembers(raw);
+      if (arms === undefined) return undefined;
+      const matches = arms.flatMap(members => members.filter(member => member.name === property.name));
       if (matches.length === 0) continue;
       const declarations = new Set<Node>();
       const components: SourceStorageProjection[] = [];
-      for (const member of matches) for (const symbol of [member.symbol, ...member.rootSymbols]) {
-        for (const original of queries.declarations.symbolDeclarations(symbol)) {
-          if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
-          if (declarations.has(original) || source.ast.is.IsSetAccessorDeclaration(original)) continue;
-          declarations.add(original);
-          components.push(Object.freeze({ kind: sourceStorageIsMethodMember(original, source.ast) ? "method-value" : "member", declaration: original }));
-        }
+      for (const member of matches) for (const original of member.declarations) {
+        if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
+        if (declarations.has(original) || ast.is.IsSetAccessorDeclaration(original)) continue;
+        declarations.add(original);
+        components.push(Object.freeze({ kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member", declaration: original }));
       }
       return components.length === 0 ? undefined : Object.freeze({ kind: "spread", expression,
         components: Object.freeze(components), evaluation: element,
-        definite: matches.length === alternatives.length && matches.every(member => !member.optional) });
+        definite: matches.length === arms.length && matches.every(member => !member.optional) });
     }
     return Object.freeze({ kind: "absent" });
   };
-  const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type):
+  const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Descriptor):
     "direct" | "copied" | "absent" | undefined => {
     if (owner.projection.length !== 0) return "direct";
-    if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
-    if (!source.ast.is.IsObjectLiteralExpression(owner.node)) return "direct";
+    if (sourceStorageObjectRestOwner(owner.node, ast) !== undefined) return "copied";
+    if (!ast.is.IsObjectLiteralExpression(owner.node)) return "direct";
     const contribution = copyContributionFor(owner, declaration, destinationType, owner.node);
     return contribution === undefined ? undefined : contribution.kind === "spread" ? "copied"
       : contribution.kind === "absent" ? "absent" : contribution.declaration === declaration ? "direct" : "copied";
@@ -375,37 +363,31 @@ export function createSourceStorageMemberFlow(
     const file = sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
-    const queries = source.semantics.forFile(file);
-    const alternatives = queries.types.isUnion(type) || queries.types.isIntersection(type)
-      ? queries.types.unionOrIntersectionTypes(type) : [type];
     const components: SourceStorageProjection[] = [];
     const declarations = new Set<Node>();
-    for (const alternative of alternatives) {
-      if (!budget.step() || queries.types.isAny(alternative) || queries.types.isUnknown(alternative)) return undefined;
-      const indexed = [...sourceStorageComponents(alternative, queries)];
+    for (const alternative of sourcePresentStorageArms(type)) {
+      if (!budget.step() || sourceAnalysisIsOpenArm(alternative)) return undefined;
+      const indexed = [...sourceStorageComponents(alternative)];
       if (indexed.length !== 0) {
         components.push(...indexed);
         continue;
       }
-      for (const property of queries.types.propertyInfos(alternative)) {
+      const members = source.facts.objects.members(alternative);
+      if ("kind" in members) return undefined;
+      for (const member of members) for (const declaration of member.declarations) {
         if (!budget.step()) return undefined;
-        for (const symbol of [property.symbol, ...property.rootSymbols]) {
-          for (const declaration of queries.declarations.symbolDeclarations(symbol)) {
-            if (!budget.step()) return undefined;
-            if (declarations.has(declaration) || source.ast.hasModifierKind(declaration, "static") ||
-              !sourceStorageIsDataMember(declaration, source.ast) && !sourceStorageIsMethodMember(declaration, source.ast) &&
-                !source.ast.is.IsGetAccessorDeclaration(declaration)) continue;
-            if (!retainCheckedContext(declaration, file)) return undefined;
-            declarations.add(declaration);
-            components.push(Object.freeze({ kind: sourceStorageIsMethodMember(declaration, source.ast) ? "method-value" : "member", declaration }));
-          }
-        }
+        if (declarations.has(declaration) || ast.hasModifierKind(declaration, "static") ||
+          !sourceStorageIsDataMember(declaration, ast) && !sourceStorageIsMethodMember(declaration, ast) &&
+            !ast.is.IsGetAccessorDeclaration(declaration)) continue;
+        if (!retainCheckedContext(declaration, file)) return undefined;
+        declarations.add(declaration);
+        components.push(Object.freeze({ kind: sourceStorageIsMethodMember(declaration, ast) ? "method-value" : "member", declaration }));
       }
     }
     return Object.freeze(components);
   };
   return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, memberStorageKindFor, spreadMembersFor, componentsFor,
-    membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
+    membersFor: (owner: SourceStorageSubject, destinationType: Descriptor): readonly SourceStorageMemberPair[] | undefined =>
       aggregateIndex(owner, destinationType)?.members });
 }
 
@@ -426,9 +408,9 @@ interface SourceStorageMemberImplementationInputs {
   readonly accessorTargets: ReadonlyMap<Node, readonly import("./scoped-model.js").SourceStorageAccessorInvocation[]>;
 }
 
-export function createSourceStorageMemberImplementations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageMemberImplementations(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   inputs: SourceStorageMemberImplementationInputs) {
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   const step = budget.step;
   const implementationsFor = (declaration: Node, invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = inputs.originsFor,
@@ -441,15 +423,13 @@ export function createSourceStorageMemberImplementations(source: TargetSourcePro
       !ast.is.IsMethodDeclaration(declaration) && ast.kindName(declaration) !== "KindMethodSignature" &&
       !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
         return { nodes: selected, exact: implementation.kind === "resolved" };
-    const queries = semantics.forNode(invocation);
-    const call = queries.operations.call(invocation);
-    const access = queries.operations.propertyAccess(invocation);
-    const receiver = checkedReceiver ?? call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-      ?? access?.receiver.expression ?? inputs.accessorTargets.get(invocation)?.find(target => target.declaration === declaration)?.receiver;
-    const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type
-      ?? (receiver === undefined ? undefined : queries.types.expressionType(receiver));
-    const valueType = receiver === undefined ? undefined : queries.types.expressionType(receiver);
-    if (valueType !== undefined && sourceStorageIsScalarType(valueType, queries))
+    const call = navigation.call(invocation);
+    const access = navigation.memberAccess(invocation);
+    const receiver = checkedReceiver ?? (call === undefined ? undefined : sourceStorageCallReceiver(source, call))
+      ?? access?.receiver ?? inputs.accessorTargets.get(invocation)?.find(target => target.declaration === declaration)?.receiver;
+    const receiverType = receiver === undefined ? undefined : sourceAnalysisValueType(source, receiver);
+    const valueType = receiverType;
+    if (valueType !== undefined && sourceStorageIsScalarType(valueType, ast))
       return { nodes: selected, exact: true };
     if (ast.kindName(receiver) === "KindSuperKeyword") return { nodes: selected, exact: true };
     const receiverSubject = inputs.subjectFor(receiver);

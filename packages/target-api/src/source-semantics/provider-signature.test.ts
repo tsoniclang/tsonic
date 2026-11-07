@@ -1,9 +1,9 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 import { test } from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, TstsSourceProviderContractVersion } from "@tsonic/tsts";
 import type { Node, ProviderTypeExpression, ProviderDeclarationModel, ProviderVirtualDeclarationDocument, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceProviderSignature } from "./provider-signature.js";
 
 const word = { kind: "source-primitive", name: "uint32" } as const;
@@ -62,7 +62,7 @@ function fixture() {
   }).checkSource();
   assert.deepEqual(checked.extensionDiagnostics, []);
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const semantics = source.semantics.forFile(file);

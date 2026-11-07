@@ -1,10 +1,10 @@
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
 import {
   Node_Expression, sourceCallableDefinitionIsDiscarded,
   sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
 } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceGenericAdoptionDiagnostics } from "./generic-adoption-diagnostics.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises,
   SourceDeclarationOwnershipUnresolved } from "./model.js";
@@ -24,7 +24,7 @@ export interface SourceGenericAdoptionIssue {
 }
 
 export function analyzeSourceDeclarationGenericAdoption(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly projectRoot: string;
   readonly nodes: readonly Node[];
   readonly premises: Pick<SourceDeclarationOwnershipPremises, "completionFor">;
@@ -48,41 +48,30 @@ export function analyzeSourceDeclarationGenericAdoption(input: {
   try {
     for (const node of domain.nodes) {
       if (!budget.step(node)) return budget.failure()!;
-      const semantics = source.semantics.forNode(node);
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
-        const selected = semantics.operations.call(node);
-        const declaration = selected?.sourceSelectedSignatureKind === "resolved"
-          ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+        const selected = source.navigation.call(node);
+        const declaration = selected?.selection === "resolved" ? selected.signature : undefined;
         if (selected !== undefined && declaration !== undefined) {
-          const completion = input.premises.completionFor(node, selected);
+          const published = source.facts.selections.call(node);
+          if (published === undefined || published.kind === "refused")
+            return sourceDeclarationOwnershipUnresolved(node, "Generic adoption requires the published call selection.");
+          const completion = input.premises.completionFor(node, published);
           if (completion.kind === "unresolved") return completion;
           if (completion.kind === "async") {
             const problem = sourceDeclarationOwnershipContractProblem(source, node,
-              { selectedType: selected.sourceResultType }, completion.contract);
+              { type: published.result, call: node }, completion.contract);
             if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(node, problem);
           }
         }
       }
       if (!ast.is.IsAwaitExpression(node) || issuedSites.has(node)) continue;
       const operand = Node_Expression(ast, node);
-      const type = operand === undefined ? undefined : semantics.types.expressionType(operand);
+      const type = operand === undefined ? undefined : sourceAnalysisValueType(source, operand);
       if (operand === undefined || type === undefined)
         return sourceDeclarationOwnershipUnresolved(node, "Await admission requires its original checked operand and type.");
       if (source.navigation.expressionResultUse(node) === "discarded") continue;
-      const symbol = semantics.declarations.typeSymbol(type);
-      if (symbol === undefined) continue;
-      let parameter: Node | undefined;
-      for (const declaration of semantics.declarations.symbolDeclarations(symbol)) {
-        if (!budget.step(declaration)) return budget.failure()!;
-        if (!ast.is.IsTypeParameterDeclaration(declaration)) continue;
-        const declared = semantics.declarations.declaredType(declaration);
-        if (declared === undefined)
-          return sourceDeclarationOwnershipUnresolved(node, "Await admission requires its exact checked type-parameter declaration.");
-        if (!semantics.types.isIdentical(declared, type)) continue;
-        if (parameter !== undefined && parameter !== declaration)
-          return sourceDeclarationOwnershipUnresolved(node, "Await admission has conflicting checked type-parameter declarations.");
-        parameter = declaration;
-      }
+      // The awaited operand's Host type is exactly a type parameter (a declared reference to its declaration).
+      const parameter = type.kind === "declared" && ast.is.IsTypeParameterDeclaration(type.declaration) ? type.declaration : undefined;
       if (parameter === undefined || input.exemptTypeParameter?.(parameter) === true) continue;
       const declaration = ast.parent(parameter);
       const formatted = declaration === undefined ? undefined : format(node, declaration, node, parameter, operand);

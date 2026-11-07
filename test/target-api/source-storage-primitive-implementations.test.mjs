@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
@@ -11,7 +12,7 @@ function fixture(text) {
     files: { "/src/index.ts": `export {}; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const invocation = transport.visitedNodes.find(node => source.ast.is.IsCallExpression(node));
@@ -32,7 +33,7 @@ for (const type of ["string", "number", "boolean", "bigint", "symbol"]) {
     assert.equal(implementations.size === 0 && reads === 0, true,
       "primitive value provenance cannot manufacture an authored native method body");
     const boundary = transport.boundaries.find(boundary => boundary.invocation === invocation);
-    const receiver = source.semantics.forNode(invocation).operations.call(invocation).sourceCalleeAccess.receiver.expression;
+    const receiver = source.navigation.memberAccess(source.navigation.call(invocation).callee).receiver;
     assert.equal(boundary?.kind === "opaque-invocation" && boundary.subjects.includes(transport.subjectFor(receiver)), true,
       "selected native invocation and exact receiver effects remain an explicit boundary");
     assert.equal(budget.failure() === undefined, true, "original independent analysis guards remain intact");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceProgramNavigation, sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "../../packages/target-api/dist/public/source.js";
+import { createSourceNavigationInput, createSourceProgramNavigation, sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("lexical captures retain exact bindings, exclude types and modules, and include deferred uses", async () => {
@@ -23,7 +23,7 @@ test("lexical captures retain exact bindings, exclude types and modules, and inc
   ` });
   const ast = source.ast;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const create = namedDeclaration(ast, file, "create");
   const literal = requiredNode(ast, create, node => ast.is.IsObjectLiteralExpression(node) &&
     ast.properties(node).some(property => ast.text(ast.name(property)) === "apply"));
@@ -56,7 +56,7 @@ test("named recursive functions distinguish self references from outer bindings"
   const file = projectSourceFile(source, "src/index.ts");
   const create = namedDeclaration(ast, file, "create");
   const expression = requiredNode(ast, create, node => ast.is.IsFunctionExpression(node));
-  const result = sourceLexicalCaptures(expression, [expression], ast, createSourceProgramNavigation(source), "source");
+  const result = sourceLexicalCaptures(expression, [expression], ast, createSourceProgramNavigation(createSourceNavigationInput(source)), "source");
   assert.equal(result.captures.length, 1);
   assert.ok(result.captures[0].declaration === ast.parameters(create)[0]);
   assert.equal(result.selfReferences.length, 1);
@@ -80,7 +80,7 @@ test("lexical receiver captures retain exact owners across nested arrows and met
   const owner = namedDeclaration(ast, file, "Owner");
   const method = requiredNode(ast, owner, node => ast.is.IsMethodDeclaration(node) && ast.text(ast.name(node)) === "make");
   const closure = requiredNode(ast, method, node => ast.is.IsArrowFunction(node));
-  const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(source), "source");
+  const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(createSourceNavigationInput(source)), "source");
   assert.equal(result.receivers.length, 1);
   assert.ok(result.receivers[0].owner === method);
   assert.equal(result.receivers[0].references.length, 2);

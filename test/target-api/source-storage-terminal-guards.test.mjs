@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
@@ -13,7 +14,7 @@ function checked(body) {
   const program = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(program.diagnostics.length === 0, true, formatDiagnostics(program.diagnostics));
-  const source = createTargetSourceProgram(program);
+  const source = createHostSourceProgram(program, { profile: createJsSourceApiFacts });
   const file = program.getSourceFile("/src/index.ts");
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   return { source, file, initializer };

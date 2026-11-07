@@ -116,7 +116,7 @@ test("a foreign native completion cannot authorize an otherwise supported call",
   const selected = select(current, (node, completed) => {
     assert.equal(node === call, true, "the attempted native proof belongs to the original call");
     return { kind: "async", resultPolicy: "must-observe", contract: { kind: "declaration", declaration,
-      component: { selectedType: completed.sourceResultType, contextualCall: completed } } };
+      component: { type: completed.result, call: node } } };
   });
   assert.equal(selected.kind === "unresolved" && selected.cause.kind === "required-fact" &&
     selected.at === call && !("issues" in selected), true, "a checked foreign declaration is not this call's native proof");

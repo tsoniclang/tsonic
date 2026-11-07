@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { sourceStorageCallableInputSlots } from "../../packages/target-api/dist/target-analysis/source-storage/graph/invocation-inputs.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
@@ -18,7 +19,7 @@ async function fixture(name, text, effectsFor) {
   });
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const { ast } = source;
   const nodes = [];
@@ -348,11 +349,10 @@ for (const recursive of [false, true]) {
           const isResolver = callbacks.producers.some(candidate => candidate.subject === resolver);
           const typed = storage.typeFor(actuals.subjects[0]);
           assert.equal(typed.kind, "resolved", "the same activation supplies the checked value type");
-          const semantics = current.source.semantics.forFile(typed.sourceFile);
-          const symbol = semantics.declarations.typeSymbol(typed.type);
-          const isParameter = symbol !== undefined && semantics.declarations.symbolDeclarations(symbol)
-            .some(candidate => ast.is.IsTypeParameterDeclaration(candidate));
-          assert.equal(isResolver ? semantics.types.isNumberLike(typed.type) : isParameter, true,
+          // Host descriptors: a declared type-parameter reference, or a numeric primitive.
+          const isParameter = typed.type.kind === "declared" && ast.is.IsTypeParameterDeclaration(typed.type.declaration);
+          const isNumber = typed.type.kind === "primitive" && typed.type.primitive !== "bool" && typed.type.primitive !== "char";
+          assert.equal(isResolver ? isNumber : isParameter, true,
             "a resolver/number row never acquires the ordinary callback's generic argument");
           observed.add(isResolver ? "number" : "generic");
           assert.equal(Object.isFrozen(activation) && Object.isFrozen(activation.bindings), true,
@@ -409,21 +409,17 @@ test("callable parameter transport rejects missing, foreign and unrelated checke
   const current = await fixture("source-parameter-owned", text);
   const foreign = await fixture("source-parameter-foreign", text);
   const read = current.declaration("read");
-  const declarations = current.source.semantics.forNode(read).declarations;
-  const signature = declarations.declarationSignature(read);
-  const symbol = declarations.signatureParameters(signature)[0];
-  assert.equal(symbol !== undefined, true, "the actual declaration signature owns one checked value parameter");
+  const declared = current.source.navigation.declaredParameters(read);
+  assert.equal(declared?.length === 1, true, "the actual declaration signature owns one checked value parameter");
   for (const [label, parameter] of [
     ["missing", undefined],
     ["foreign", foreign.ast.parameters(foreign.declaration("read"))[0]],
     ["unrelated checked owner", current.ast.parameters(current.declaration("other"))[0]],
   ]) {
-    const selected = semantics => ({ ...semantics, declarations: { ...semantics.declarations,
-      primarySymbolDeclaration: candidate => candidate === symbol ? parameter : semantics.declarations.primarySymbolDeclaration(candidate),
-    } });
-    const source = { ...current.source, semantics: { ...current.source.semantics,
-      forNode: node => selected(current.source.semantics.forNode(node)),
-      forFile: file => selected(current.source.semantics.forFile(file)),
+    // A forged declared-parameter witness for read (navigation.declaredParameters is the Node-keyed signature input).
+    const source = { ...current.source, navigation: { ...current.source.navigation,
+      declaredParameters: declaration => declaration === read ? parameter === undefined ? undefined : Object.freeze([parameter])
+        : current.source.navigation.declaredParameters(declaration),
     } };
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
     assert.equal(storage.failureReason(), parameter === undefined
@@ -451,9 +447,9 @@ for (const [name, declarationText, sourceText, projections] of [
     });
     assert.equal(checked.diagnostics.length, 0, "the actual external call is checked");
     assert.equal(checked.extensionDiagnostics.length, 0, "the call needs no source extension workaround");
-    const source = createTargetSourceProgram({ ...checked,
+    const source = createHostSourceProgram({ ...checked,
       sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)),
-    });
+    }, { profile: createJsSourceApiFacts });
     const { ast } = source;
     const file = projectSourceFile(source, "src/index.ts");
     const nodes = [];
@@ -463,18 +459,15 @@ for (const [name, declarationText, sourceText, projections] of [
     };
     visit(file);
     const invocation = nodes.find(node => ast.is.IsCallExpression(node));
-    const consumer = source.semantics.forNode(invocation);
-    const selected = consumer.operations.call(invocation);
-    assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "one real selected call owns its signature");
-    const declaration = consumer.declarations.signatureDeclaration(selected.selectedSignature);
+    const selected = source.navigation.call(invocation);
+    assert.equal(selected?.selection, "resolved", "one real selected call owns its signature");
+    const declaration = selected.signature;
     const externalFile = ast.getSourceFile(declaration);
     assert.equal(externalFile !== undefined, true, "the selected external declaration has its original source-file identity");
-    assert.equal(source.semantics.includes(externalFile), false,
+    assert.equal(source.sourceFiles.includes(externalFile), false,
       "the selected external declaration is not an included authored source file");
-    assert.equal(source.semantics.forNode(declaration) === source.semantics.forFile(externalFile), true,
-      "exact checked-program membership permits the real external declaration independently of authored-source exposure");
-    const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
-      { kind: "selected-signature", signature: selected.selectedSignature }, () => true);
+    const slots = sourceStorageCallableInputSlots(source, declaration,
+      { kind: "selected-signature", signature: declaration, use: invocation }, () => true);
     assert.equal(slots?.length, projections.length, "the actual instantiated effective slot count is preserved");
     const parameter = ast.parameters(declaration)[0];
     for (const [index, projection] of projections.entries()) {
@@ -486,15 +479,12 @@ for (const [name, declarationText, sourceText, projections] of [
       assert.equal(slots[index].projection[0].kind, projection.kind, "the component kind is exact");
       assert.equal(slots[index].projection[0].index, projection.index, "the tuple position is exact");
     }
-    assert.equal(sourceStorageCallableInputSlots(source, declaration, consumer,
-      { kind: "selected-signature", signature: undefined }, () => true), undefined,
+    assert.equal(sourceStorageCallableInputSlots(source, declaration,
+      { kind: "selected-signature", signature: undefined, use: invocation }, () => true), undefined,
       "missing selected signature is unresolved, never reconstructed from the declaration");
     const foreign = await fixture("foreign-slot-context-" + name, "export function other(value: number): number { return value; }");
-    assert.throws(() => source.semantics.forNode(foreign.declaration("other")), /exact source file from the checked program/u,
-      "an actual foreign-program declaration still fails the strict facade membership boundary");
-    assert.equal(sourceStorageCallableInputSlots(source, declaration,
-      foreign.source.semantics.forNode(foreign.declaration("other")),
-      { kind: "selected-signature", signature: selected.selectedSignature }, () => true), undefined,
+    assert.equal(sourceStorageCallableInputSlots(foreign.source, declaration,
+      { kind: "selected-signature", signature: declaration, use: invocation }, () => true), undefined,
     "a different checked program is not a consumer context");
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
     assert.equal(storage.failureReason() === undefined, true, "external selected rest transport does not cross the source-file boundary");
@@ -512,21 +502,19 @@ test("an actual checked overload signature maps only to its canonical source imp
   `);
   const { ast, nodes, source } = current;
   const invocation = nodes.find(node => ast.is.IsCallExpression(node));
-  const consumer = source.semantics.forNode(invocation);
-  const selected = consumer.operations.call(invocation);
-  const contract = consumer.declarations.signatureDeclaration(selected.selectedSignature);
+  const contract = source.navigation.call(invocation)?.signature;
   const implementation = source.navigation.callableImplementation(contract);
   assert.equal(implementation.kind, "resolved", "the selected overload has one exact checked implementation");
   const declaration = implementation.implementation.declaration;
   assert.equal(declaration !== contract, true, "the implementation is not the selected bodyless contract");
-  const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
-    { kind: "source-implementation", signature: selected.selectedSignature }, () => true);
+  const slots = sourceStorageCallableInputSlots(source, declaration,
+    { kind: "source-implementation", signature: contract }, () => true);
   assert.equal(slots?.length, 1, "one implementation input corresponds to the selected overload");
   assert.equal(slots[0].parameter === ast.parameters(declaration)[0], true, "the implementation owns its formal");
   assert.equal(slots[0].sourceParameterIndex, 0, "source index retains the actual implementation signature");
   assert.equal(slots[0].effectiveIndex, 0, "checked effective index is unchanged");
-  assert.equal(sourceStorageCallableInputSlots(source, current.declaration("unrelated"), consumer,
-    { kind: "selected-signature", signature: selected.selectedSignature }, () => true), undefined,
+  assert.equal(sourceStorageCallableInputSlots(source, current.declaration("unrelated"),
+    { kind: "selected-signature", signature: contract, use: invocation }, () => true), undefined,
   "a different declaration cannot inherit selected signature formals");
   assert.equal(current.storage.bindingsForInvocation(current.declaration("unrelated"), invocation).kind, "unresolved",
     "the actual storage producer selection refuses an unrelated source implementation");
@@ -555,9 +543,8 @@ for (const [name, text, owners] of [
     const { ast, nodes, source, storage } = current;
     const invocation = nodes.find(node => (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) &&
       ast.arguments(node).some(argument => argument !== undefined && ast.is.IsNumericLiteral(argument) && ast.text(argument) === "7"));
-    const consumer = source.semantics.forNode(invocation);
-    const selected = consumer.operations.call(invocation);
-    assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "one real checked call owns effective actual bindings");
+    const selected = source.navigation.call(invocation);
+    assert.equal(selected?.selection, "resolved", "one real checked call owns effective actual bindings");
     const unrelated = current.declaration("unrelated");
     if (reversed) assert.equal(storage.bindingsForInvocation(unrelated, invocation).kind, "unresolved",
       "an unrelated source body cannot acquire this call's actual binding");
@@ -569,8 +556,8 @@ for (const [name, text, owners] of [
         ast.body(node) !== undefined);
       assert.equal(declaration !== undefined && candidates.nodes.includes(declaration), true,
         "the existing storage owner, not a selected type declaration, proves the actual body");
-      const slots = sourceStorageCallableInputSlots(source, declaration, consumer,
-        { kind: "source-implementation", signature: selected.selectedSignature }, () => true);
+      const slots = sourceStorageCallableInputSlots(source, declaration,
+        { kind: "source-implementation", signature: selected.signature }, () => true);
       assert.equal(slots !== undefined && slots.length > 0, true, "actual implementation has its own completed input correspondence");
       const slot = slots[0];
       assert.equal(slot.projection !== undefined, true, "the actual authored input component is proven, not an omitted projection");
@@ -618,7 +605,7 @@ function nativeContract(timing, positions = [0]) {
     assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
       "the fixture fact belongs to one actual checked native signature, not a name-only call matcher");
     return Object.freeze({ callbackEntries(node, selected) {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const declaration = selected.signature;
       return declaration === native ? positions.map(parameterIndex => Object.freeze({ parameterIndex, timing })) : undefined;
     } });
   };
@@ -849,7 +836,7 @@ for (const [name, parameters, used, inputs] of [
       const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
         source.ast.text(source.ast.name(node)) === "nativeInvoke");
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? [{ parameterIndex: 1, timing: "synchronous", inputs: inputs.map(parameterIndex =>
             ({ parameterIndex, from: "argument-element", sourceParameterIndex: 0 })) }] : undefined;
       } };
@@ -901,7 +888,7 @@ for (const [name, definition, usesElement, values = "[value]"] of [
     `, (source, nodes) => {
       const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? [{ parameterIndex: 1, timing: "synchronous", inputs: [{ parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 }] }]
           : undefined;
       } };
@@ -948,7 +935,7 @@ for (const forwarded of [false, true]) for (const reversed of [false, true]) {
     `, (source, nodes) => {
       const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? [{ parameterIndex: 1, timing: "synchronous", inputs: [{ parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 }] }]
           : undefined;
       } };
@@ -993,7 +980,7 @@ for (const mapped of [false, true]) for (const invoked of [false, true]) for (co
     `, (source, nodes) => {
       const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? [{ parameterIndex: 1, timing: "synchronous", ...(mapped ? { inputs: [
             { parameterIndex: 0, from: "argument-element", sourceParameterIndex: 0 },
           ] } : {}) }] : undefined;
@@ -1040,7 +1027,7 @@ for (const reversed of [false, true]) {
     `, (source, nodes) => {
       const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? [{ parameterIndex: 1, timing: "synchronous" }] : undefined;
       } };
     });
@@ -1101,7 +1088,7 @@ for (const nativeForward of [false, true]) for (const reversed of [false, true])
       const invoke = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
       const again = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeAgain");
       return { callbackEntries(node, selected) {
-        const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+        const declaration = selected.signature;
         return declaration === invoke ? [{ parameterIndex: 1, timing: "synchronous" }]
           : declaration === again ? [{ parameterIndex: 0, timing: "synchronous" }] : undefined;
       } };
@@ -1190,7 +1177,7 @@ test("a known empty native execution fact does not become unknown or invoke an u
   `, (source, nodes) => {
     const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
     return { callbackEntries(node, selected) {
-      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native ? [] : undefined;
+      return selected.signature === native ? [] : undefined;
     } };
   });
   const { ast, nodes, storage, declaration } = current;
@@ -1223,7 +1210,7 @@ for (const form of ["foreign-slot", "duplicate-slot", "accessor", "unknown-timin
         get() { getterCalls += 1; return 0; }, enumerable: true,
       }) : { parameterIndex: form === "foreign-slot" ? 99 : 0, timing: form === "unknown-timing" ? "unknown" : "synchronous" };
       return { callbackEntries(node, selected) {
-        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+        return selected.signature === native
           ? form === "duplicate-slot" ? [row, row] : [row] : undefined;
       } };
     });

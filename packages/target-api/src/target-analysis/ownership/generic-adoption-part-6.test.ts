@@ -6,6 +6,15 @@ import { defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 
 import { fixture, identity, sourcePosition } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+// Test helper: a Host descriptor that is a Promise application (declared reference named Promise).
+function isPromiseDescriptor(ast: { name(node: Node): Node | undefined; text(node: Node): string },
+  type: SourceTypeDescriptor | undefined): boolean {
+  const name = type?.kind === "declared" ? ast.name(type.declaration) : undefined;
+  return name !== undefined && ast.text(name) === "Promise";
+}
+
 
 test("generic adoption provenance has one canonical Unicode/CRLF span and project-relative format", () => {
   const text = 'const marker = "界😀";\r\nasync function identity<Value>(value: Value) {\r\n\treturn value;\r\n}\r\n' +
@@ -164,20 +173,17 @@ test("interface and abstract generic signatures stay fail-closed without a sourc
       current.textFor(node) === expression);
     assert.equal(call !== undefined, true, "the original native generic call remains checked");
     if (call === undefined) continue;
-    const semantics = current.source.semantics.forNode(call);
-    const completed = semantics.operations.call(call);
-    const nativeDeclaration = completed === undefined ? undefined :
-      semantics.declarations.signatureDeclaration(completed.selectedSignature);
+    const completed = current.source.navigation.call(call);
+    const nativeDeclaration = completed?.signature;
     assert.equal(nativeDeclaration !== undefined && current.nodes.includes(nativeDeclaration) &&
       current.source.ast.body(nativeDeclaration) === undefined, true, "the actual selected native declaration has no source body");
-    const bindings = completed?.sourceSelectedMethodTypeArguments;
-    assert.equal(bindings?.length === 1 && semantics.types.awaitedType(bindings[0]!.selectedType) !== undefined &&
-      !semantics.types.isIdentical(semantics.types.awaitedType(bindings[0]!.selectedType)!, bindings[0]!.selectedType), true,
+    const instantiation = current.source.facts.instantiations.at(call);
+    const bindings = instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.method;
+    assert.equal(bindings?.length === 1 && isPromiseDescriptor(current.source.ast, bindings[0]!.type), true,
       "the native signature preserves the original Promise-valued generic argument");
     if (bindings?.length !== 1) continue;
-    const symbol = semantics.declarations.typeSymbol(bindings[0]!.typeParameter);
-    assert.equal(symbol !== undefined && semantics.declarations.symbolDeclarations(symbol)
-      .some(parameter => current.nodes.includes(parameter) && current.source.ast.is.IsTypeParameterDeclaration(parameter)), true,
+    const parameter = bindings[0]!.declaration;
+    assert.equal(current.nodes.includes(parameter) && current.source.ast.is.IsTypeParameterDeclaration(parameter), true,
     "the generic argument remains bound to its original checked formal");
   }
 });

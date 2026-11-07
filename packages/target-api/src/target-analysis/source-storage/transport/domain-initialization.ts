@@ -1,9 +1,11 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
-import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import { argumentPassingFactKey, flowStateFactKey } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { sourceStorageHasSignatures, sourceStorageIndexes, sourceStoragePointerOperation, sourceStorageSignatureDeclarations } from "./host-reads.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
+import { sourcePresentStorageArms, sourceStorageMembers, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -16,7 +18,7 @@ import type { createSourceStoragePublicationDemands } from "./publication-demand
 import { sourceStorageProjectionSubject, sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export function createSourceStorageDomainInitialization(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly transport: ReturnType<typeof createSourceStorageTransport>;
   readonly budget: SourceStorageBudget;
   readonly witnesses: ReturnType<typeof createSourceStorageDomainWitnesses>;
@@ -26,9 +28,9 @@ export function createSourceStorageDomainInitialization(input: {
   readonly publicationOriginsIn: (subject: SourceStorageSubject, bindings: SourceStorageScope) => ReadonlySet<SourceStorageScopedSubject> | undefined;
 }) {
   const { source, transport, budget, witnesses, publications, publicationDemands, add, publicationOriginsIn } = input;
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
-    kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
+    kind: SourceStoragePublication["kind"] = "external-write", type?: SourceTypeDescriptor, sourceFile?: SourceFile, externalEntry = false,
     inputOwner?: SourceStorageSubject, receiver?: SourceStoragePublication["receiver"],
     bindings?: SourceStorageScope): void => {
     if (subject === undefined) return;
@@ -67,7 +69,7 @@ export function createSourceStorageDomainInitialization(input: {
       if (sourceClass) publish(receiver, exposure);
       else add(receiver, "external-input", exposure);
     } else {
-      const parameters = sourceCallableValueParameters(ast, owner, semantics.forNode(owner), { kind: "declaration" });
+      const parameters = sourceCallableValueParameters(ast, owner, source.navigation, { kind: "declaration" });
       if (parameters === undefined) {
         budget.reject("Source storage callable publication requires its exact checked value parameters.");
         return;
@@ -137,10 +139,10 @@ export function createSourceStorageDomainInitialization(input: {
         publish(subject, boundary.invocation, true, "opaque-write");
         const passing = source.sourceFacts.getFact(expression, argumentPassingFactKey);
         const flow = source.sourceFacts.getFact(expression, flowStateFactKey);
-        const pointer = source.sourceFacts.getFact(expression, pointerOperationFactKey);
+        const pointer = sourceStoragePointerOperation(source, expression);
         const storage = passing?.storageExpression ?? (pointer?.operation === "address-of" ? pointer.storageExpression : undefined);
         const file = storage === undefined ? undefined : ast.getSourceFile(storage);
-        if (storage !== undefined && (file === undefined || !semantics.includes(file))) {
+        if (storage !== undefined && (file === undefined || !sourceAnalysisIncludesFile(source, file))) {
           budget.reject("Source storage exposure requires its exact checked storage expression.");
           return;
         }
@@ -151,18 +153,11 @@ export function createSourceStorageDomainInitialization(input: {
     }
     for (let index = 0; index < publications.size() && budget.step(); index += 1) {
       const publication = publications.at(index)!;
-      const context = semantics.forFile(publication.sourceFile);
-      const present = sourcePresentStorageType(publication.type, context);
-      if (present === undefined) {
-        if (context.types.isUnion(publication.type)) for (const type of context.types.unionOrIntersectionTypes(publication.type)) {
-          if (!budget.step()) return;
-          if (!context.types.isNullish(type)) publish(publication.subject, publication.exposure, publication.writes,
-            publication.kind, type, publication.sourceFile, publication.externalEntry, publication.inputOwner);
-        }
-        continue;
-      }
-      if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
-        context.types.isVoidLike(present) || context.types.isNever(present)) continue;
+      // The exposed value is its present arms (absence, void and never carry no storage); a single scalar arm none.
+      const arms = sourcePresentStorageArms(publication.type);
+      if (arms.length === 0) continue;
+      const present = arms.length === 1 ? arms[0]! : publication.type;
+      if (arms.length === 1 && sourceStorageIsScalarType(present, ast)) continue;
       const origins = publication.receiver === undefined ? publicationOriginsIn(publication.subject, publication.bindings) ?? []
         : transport.substitutions.projectedValues(publication.receiver) ?? [];
       for (const selectedOwner of origins) {
@@ -172,9 +167,8 @@ export function createSourceStorageDomainInitialization(input: {
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageProjectionType(source, owner, selectedOwner.views, file);
         if (type === undefined || file === undefined) continue;
-        const ownerContext = semantics.forFile(file);
-        const emptyView = context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
-          context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0;
+        const emptyView = (sourceStorageMembers(source, present)?.length ?? 0) === 0 &&
+          sourceStorageIndexes(source, present).length === 0 && !sourceStorageHasSignatures(present);
         const physicalContents = transport.contextLocation(owner) === "allocation" || owner.kind === "receiver" &&
           owner.projection.length === 0 && (ast.is.IsClassDeclaration(owner.node) || ast.is.IsClassExpression(owner.node));
         if (!physicalContents) for (const demand of publicationDemands.values(owner, selectedOwner.bindings)) {
@@ -184,13 +178,11 @@ export function createSourceStorageDomainInitialization(input: {
         }
         if (emptyView && !physicalContents) continue;
         const exposed = emptyView ? type : present;
-        const exposedContext = emptyView ? ownerContext : context;
         const checkedOwner = sourceStorageProjectionSubject(owner, selectedOwner.views, transport.subject);
         if (checkedOwner === undefined) continue;
-        for (const signature of [...ownerContext.types.callSignatures(type), ...ownerContext.types.constructSignatures(type)]) {
+        for (const declaration of sourceStorageSignatureDeclarations(type)) {
           if (!budget.step()) return;
-          const declaration = ownerContext.declarations.signatureDeclaration(signature);
-          if (declaration !== undefined) callable(declaration, publication.exposure);
+          callable(declaration, publication.exposure);
         }
         const members = transport.memberFlow.membersFor(checkedOwner, exposed);
         if (members === undefined) {
@@ -217,7 +209,7 @@ export function createSourceStorageDomainInitialization(input: {
             const declaringOwner = ast.parent(declaration);
             const objectMethodSlot = declaringOwner !== undefined && ast.is.IsObjectLiteralExpression(declaringOwner) &&
               ast.is.IsMethodDeclaration(declaration);
-            if (publication.writes && (objectMethodSlot || !member.destination.property.readonly || !member.source.property.readonly) &&
+            if (publication.writes && (objectMethodSlot || !member.destination.readonly || !member.source.readonly) &&
               (member.destination.read !== "method" || objectMethodSlot) &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
               add(child, publication.kind, publication.exposure, owner, selectedOwner.bindings);
@@ -227,19 +219,19 @@ export function createSourceStorageDomainInitialization(input: {
             }
             if (member.destination.read === "method" && !sourceStorageIsDataMember(declaration, ast)) callable(declaration, publication.exposure);
             else if (sourceStorageIsDataMember(declaration, ast) && physicalContents)
-              publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
+              publish(child, publication.exposure, publication.writes, publication.kind, member.destination.type, file,
                 publication.externalEntry, publication.inputOwner,
                 Object.freeze({ ...selectedOwner, type: member.source.receiverType, view: checkedOwner,
                   component: Object.freeze({ kind: "member", declaration }) }));
             else if (ast.is.IsGetAccessorDeclaration(declaration)) callable(declaration, publication.exposure);
           }
         }
-        const indexes = exposedContext.types.indexInfos(exposed);
-        for (const component of sourceStorageComponents(exposed, exposedContext)) {
+        const indexes = sourceStorageIndexes(source, exposed);
+        for (const component of sourceStorageComponents(exposed)) {
           if (!budget.step()) return;
-          const element = sourceStorageComponentType(exposed, component, exposedContext, ast);
+          const element = sourceStorageComponentType(source, exposed, component);
           if (element === undefined) continue;
-          const originals = sourceStorageOriginalComponents(type, exposed, component, ownerContext);
+          const originals = sourceStorageOriginalComponents(source, type, exposed, component);
           for (const original of originals) {
             if (!budget.step()) return;
             const child = transport.subject(owner.node, owner.kind, [...owner.projection, original]);

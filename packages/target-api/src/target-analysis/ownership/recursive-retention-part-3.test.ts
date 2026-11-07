@@ -184,8 +184,9 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
     const query = createSourceDeclarationOwnershipQuery({ ...current, premises: { ...current.premises,
       suspensionFor(value, use) {
         if (!constructors.has(value.node)) return current.premises.suspensionFor(value, use);
-        const type = value.component.selectedType;
-        assert.equal(source.semantics.forNode(value.node).types.constructSignatures(type).length === 1,
+        const type = value.component.type;
+        const structure = type.kind === "declared" && type.definition !== undefined ? type.definition : type;
+        assert.equal((structure.kind === "callable" || structure.kind === "shape") && structure.constructs.length === 1,
           true, "A native constructor value has its exact checked constructor signature, not a guessed unknown result.");
         return { kind: "never", value,
           contract: { kind: "expression", expression: value.node, component: value.component } };

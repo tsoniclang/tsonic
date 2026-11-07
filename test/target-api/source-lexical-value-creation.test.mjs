@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as sourceNavigation from "../../packages/target-api/dist/public/source.js";
-import { createSourceProgramNavigation, sourceBindingScope, sourceLexicalCaptures } from "../../packages/target-api/dist/public/source.js";
+import * as sourceNavigation from "../../packages/target-api/dist/public/host.js";
+import { createSourceNavigationInput, createSourceProgramNavigation, sourceBindingScope, sourceLexicalCaptures } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("lexical value creation selects the deepest shared nonrepeated activation", async () => {
@@ -31,7 +31,7 @@ test("lexical value creation selects the deepest shared nonrepeated activation",
   ` });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   for (const name of ["branch", "separated", "deferred", "forwarded"]) {
     const owner = namedDeclaration(ast, file, name);
     const next = requiredNode(ast, owner, node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "next");

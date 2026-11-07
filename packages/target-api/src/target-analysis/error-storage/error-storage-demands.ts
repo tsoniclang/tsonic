@@ -1,5 +1,6 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
+import { sourceStorageRoleDeclaration } from "../source-storage/model/components.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/model/types.js";
 import { Node_Expression } from "../../source-navigation/index.js";
@@ -12,11 +13,11 @@ const maximumDemandRows = 1_048_576;
 const maximumDemandSteps = 4_194_304;
 
 export function createSourceErrorStorageDemandQuery(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   protocol: SourceErrorStorageProtocol,
   storage: SourceStorageQueries,
 ): SourceErrorStorageDemandQueries {
-  const { ast, semantics } = source;
+  const { ast, navigation } = source;
   const fields = new Set(protocol.fields);
   const constructors = new Set(protocol.constructors);
   const stackCaptures = new Set(protocol.stackCaptures);
@@ -53,7 +54,7 @@ export function createSourceErrorStorageDemandQuery(
   for (const mutator of protocol.storageMutators) {
     const file = ast.getSourceFile(mutator.signature);
     const indexes = storageMutators.get(mutator.signature) ?? new Set<number>();
-    if (++mutatorRows > maximumDemandRows || file === undefined || !semantics.includes(file) ||
+    if (++mutatorRows > maximumDemandRows || !sourceAnalysisIncludesFile(source, file) ||
       !Number.isSafeInteger(mutator.sourceParameterIndex) || mutator.sourceParameterIndex < 0 || indexes.has(mutator.sourceParameterIndex)) {
       reject("An Error storage mutator requires a unique exact checked signature and finite selected parameter index.");
       break;
@@ -96,28 +97,29 @@ export function createSourceErrorStorageDemandQuery(
       if (retention.kind === "retained") retainedBoundaries.push(node);
     }
     if (ast.is.IsPropertyAccessExpression(node)) {
-      const selected = semantics.forNode(node).operations.propertyAccess(node);
-      const declaration = selected?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
+      const selected = navigation.memberAccess(node);
+      const declaration = selected?.declaration === undefined ? undefined
+        : sourceStorageRoleDeclaration(source, selected.declaration, "write") ?? selected.declaration;
       if (selected !== undefined && selected.accessMode !== "read" && declaration !== undefined && fields.has(declaration)) {
         fieldWrites.push(node);
-        recordWrite(subjectFor(selected.receiver.expression), node);
+        recordWrite(subjectFor(selected.receiver), node);
       }
     }
     if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node)) continue;
-    const selected = semantics.forNode(node).operations.call(node);
-    const signature = selected === undefined ? undefined : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+    const selected = navigation.call(node);
+    const signature = selected?.signature;
     if (selected === undefined || signature === undefined) continue;
-    if (stackCaptures.has(signature) && selected.sourceArguments.length === 1) {
-      const owner = subjectFor(selected.sourceArguments[0]!.expression);
+    if (stackCaptures.has(signature) && selected.arguments.length === 1) {
+      const owner = subjectFor(selected.arguments[0]!);
       if (owner !== undefined) capturedStackTargets.set(node, owner);
     }
     for (const index of storageMutators.get(signature) ?? []) {
-      const bindings = selected.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === index);
+      const bindings = selected.bindings.filter(binding => binding.sourceParameterIndex === index);
       const binding = bindings.length === 1 ? bindings[0] : undefined;
       const value = binding?.sourceForm === "value" && binding.sourceParameterForm === "parameter"
-        ? selected.sourceArguments[binding.sourceArgumentIndex] : undefined;
+        ? selected.arguments[binding.sourceArgumentIndex] : undefined;
       if (value === undefined) { reject("An Error storage mutation requires its exact selected scalar argument transport."); break; }
-      recordWrite(subjectFor(value.expression), node);
+      recordWrite(subjectFor(value), node);
     }
     if (constructors.has(signature) && ast.kindName(Node_Expression(ast, node)) !== "KindSuperKeyword") {
       const subject = selectedSubject(storage.subject(node));

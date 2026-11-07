@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 
 const fixture = ownershipFixture();
@@ -59,12 +59,12 @@ test("checked native contracts can explicitly prove an already-completed operand
 
 test("foreign operand, unrelated declaration and wrong type cannot authorize pending work", () => {
   const operation = fixture.awaitNode(fixture.declaration("read"));
-  const wrongType = fixture.source.semantics.forNode(operation).types.expressionType(operation);
+  const wrongType = fixture.hostType(operation);
   for (const amend of [
     evidence => ({ ...evidence, value: fixture.subject(operation) }),
     evidence => ({ ...evidence, contract: { kind: "declaration", declaration: fixture.declaration("identity"),
       component: evidence.contract.component } }),
-    evidence => ({ ...evidence, contract: { ...evidence.contract, component: { selectedType: wrongType } } }),
+    evidence => ({ ...evidence, contract: { ...evidence.contract, component: { type: wrongType } } }),
   ]) {
     const selected = query({ suspensionFor(value) { return amend(fixture.native.suspensionFor(value)); } }).forAwait(operation);
     assert.equal(selected.kind, "unresolved");

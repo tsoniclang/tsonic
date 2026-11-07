@@ -1,8 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
 import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { selectJsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
@@ -18,11 +19,11 @@ function fixture(body) {
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "native pointer operations have checked source evidence");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file], undefined, {
     call: (node, call) => {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+      const declaration = call.signature;
       const owner = declaration === undefined ? undefined : source.ast.parent(declaration);
       return selectJsSourceCallStorageEffect(owner === undefined ? undefined : { declaration,
         ownerName: source.ast.text(source.ast.name(owner)), memberName: source.ast.text(source.ast.name(declaration)) }, call)?.effect;

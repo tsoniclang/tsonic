@@ -1,8 +1,21 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
+
+// The Host result descriptor of a callable declaration (values.callableReturn), or undefined when refused.
+function callableReturn(source, declaration) {
+  const outcome = source.facts.values.callableReturn(declaration);
+  return outcome.kind === "refused" ? undefined : outcome.type;
+}
+
+function callSignatures(type) {
+  const structure = sourceTypeDescriptorStructure(type);
+  return structure.kind === "callable" || structure.kind === "shape" ? structure.calls : [];
+}
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
@@ -20,7 +33,7 @@ function fixture() {
       const arrow = (): boolean => true;
     ` } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "real source fixture checks without compensating type annotations");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(value => source.ast.getFileName(value) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const nodes = [];
@@ -29,7 +42,7 @@ function fixture() {
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  return { source, file, storage, nodes, semantics: source.semantics.forFile(file) };
+  return { source, file, storage, nodes };
 }
 
 for (const [name, kind] of [["numeric", "KindGetAccessor"], ["generic", "KindGetAccessor"], ["callback", "KindGetAccessor"]]) {
@@ -37,14 +50,14 @@ for (const [name, kind] of [["numeric", "KindGetAccessor"], ["generic", "KindGet
     const input = fixture();
     const node = input.nodes.find(value => input.source.ast.kindName(value) === kind &&
       input.source.ast.text(input.source.ast.name(value)) === name);
-    const signature = input.semantics.types.declarationSignatureInfo(node);
-    assert.equal(signature !== undefined && input.semantics.declarations.signatureDeclaration(signature.signature) === node, true);
+    const returned = callableReturn(input.source, node);
+    assert.equal(returned !== undefined, true, "the getter declaration has its own Host result");
     const selected = input.storage.subject(node, "return");
     assert.equal(selected.kind, "resolved");
     const type = input.storage.typeFor(selected.subject);
     assert.equal(type.kind, "resolved");
-    assert.equal(type.type === signature.returnType, true, "return subject keeps the exact native-neutral checked Type");
-    assert.equal(input.storage.typeFor(selected.subject).type === type.type, true);
+    assert.equal(sourceTypeDescriptorsEqual(type.type, returned), true, "return subject keeps the exact Host result descriptor");
+    assert.equal(sourceTypeDescriptorsEqual(input.storage.typeFor(selected.subject).type, type.type), true);
     assert.equal(input.storage.failureReason() === undefined, true);
   });
 }
@@ -54,21 +67,20 @@ test("paired accessors never substitute setter or callable payload signatures fo
   const getter = input.nodes.find(node => input.source.ast.is.IsGetAccessorDeclaration(node) &&
     input.source.ast.text(input.source.ast.name(node)) === "numeric");
   const setter = input.nodes.find(node => input.source.ast.is.IsSetAccessorDeclaration(node));
-  const getterSignature = input.semantics.types.declarationSignatureInfo(getter);
-  const setterSignature = input.semantics.types.declarationSignatureInfo(setter);
+  const getterResult = callableReturn(input.source, getter);
+  const setterResult = callableReturn(input.source, setter);
   const returned = input.storage.subject(getter, "return");
   assert.equal(returned.kind, "resolved");
-  assert.equal(getterSignature.returnType !== setterSignature.returnType, true);
+  assert.equal(getterResult !== undefined && setterResult !== undefined && !sourceTypeDescriptorsEqual(getterResult, setterResult), true);
   const type = input.storage.typeFor(returned.subject);
   assert.equal(type.kind, "resolved");
-  assert.equal(type.type === getterSignature.returnType, true);
-  assert.equal(input.semantics.types.callSignatures(getterSignature.returnType).length, 0, "a scalar payload is not a getter function");
+  assert.equal(sourceTypeDescriptorsEqual(type.type, getterResult), true);
+  assert.equal(callSignatures(getterResult).length, 0, "a scalar payload is not a getter function");
   const callback = input.nodes.find(node => input.source.ast.is.IsGetAccessorDeclaration(node) &&
     input.source.ast.text(input.source.ast.name(node)) === "callback");
-  const callbackSignature = input.semantics.types.declarationSignatureInfo(callback);
-  const payloadSignatures = input.semantics.types.callSignatures(callbackSignature.returnType);
+  const payloadSignatures = callSignatures(callableReturn(input.source, callback));
   assert.equal(payloadSignatures.length, 1);
-  assert.equal(input.semantics.declarations.signatureDeclaration(payloadSignatures[0]) === callback, false);
+  assert.equal(payloadSignatures[0].declaration === callback, false);
 });
 
 test("ordinary and overloaded callable return subjects retain exact declaration correspondence", () => {
@@ -76,12 +88,12 @@ test("ordinary and overloaded callable return subjects retain exact declaration 
   const declarations = input.nodes.filter(node => input.source.ast.is.IsFunctionDeclaration(node) || input.source.ast.is.IsArrowFunction(node));
   assert.equal(declarations.length, 5);
   for (const declaration of declarations) {
-    const signature = input.semantics.types.declarationSignatureInfo(declaration);
-    assert.equal(signature !== undefined && input.semantics.declarations.signatureDeclaration(signature.signature) === declaration, true);
+    const returned = callableReturn(input.source, declaration);
+    assert.equal(returned !== undefined, true, "each overload and arrow has its own Host result");
     const selected = input.storage.subject(declaration, "return");
     assert.equal(selected.kind, "resolved");
     const type = input.storage.typeFor(selected.subject);
     assert.equal(type.kind, "resolved");
-    assert.equal(type.type === signature.returnType, true, "exact overload/arrow return, no property-value scan");
+    assert.equal(sourceTypeDescriptorsEqual(type.type, returned), true, "exact overload/arrow return, no property-value scan");
   }
 });

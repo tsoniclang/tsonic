@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource } from "../fixtures/source-navigation.mjs";
 import { recursiveSourceUnionFiles } from "../fixtures/recursive-source-unions.mjs";
@@ -17,7 +18,7 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
     ...Object.fromEntries(Object.entries(recursiveSourceUnionFiles).map(([name, body]) => [`src/${name}`, body])),
   });
   assert.equal(checked.diagnostics.length, 0, "unchanged recursive source checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, {
     ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 32768,
   });

@@ -8,8 +8,9 @@ function fixture(limits = {}) {
   const empty = {};
   const subject = { kind: "value", node: {}, projection: [] };
   const identities = new Map();
-  const source = { ast: { is: { IsParameterDeclaration: () => false } },
-    semantics: { forNode: () => ({ operations: { call: () => undefined, propertyAccess: () => undefined } }) } };
+  const source = { ast: { is: { IsParameterDeclaration: () => false, IsPropertyAccessExpression: () => false,
+    IsParenthesizedExpression: () => false, IsElementAccessExpression: () => false } },
+    navigation: { call: () => undefined, memberAccess: () => undefined } };
   const transport = { subject: () => subject, subjectFor: () => undefined };
   const scopes = { empty, activation: () => ({ key: "empty", closed: true }), identity: value => {
     if (!identities.has(value)) identities.set(value, identities.size);

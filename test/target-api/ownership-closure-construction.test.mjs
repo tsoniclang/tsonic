@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceDeclarationSuspensionQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { closureFixture, borrowed, nativeLeaseWitness } from "./ownership-closure-fixture.mjs";
 
 const forwarded = argument => `

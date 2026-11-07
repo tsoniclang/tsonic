@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceLexicalEnvironment } from "./lexical-environments.js";
 import { sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 import { sourceBindingScope, sourceLexicalCaptures } from "./lexical-captures.js";
@@ -11,7 +11,7 @@ function fixture(body: string) {
     "/src/index.ts": `export function outer() { ${body} }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
   const declarations = new Map<string, Node>();

@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageExecutionRegions } from "../../packages/target-api/dist/target-analysis/source-storage/graph/execution-regions.js";
@@ -12,7 +13,7 @@ function fixture(body) {
     files: { "/src/index.ts": `export {}; ${body}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary authored source checks without execution annotations");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   assert.equal(budget.failure() === undefined, true, "checked execution construction fits its original bounds");
@@ -78,7 +79,8 @@ test("object-literal compound accessor writes keep checked invocation and backin
   const value = current.named("value", ast.is.IsVariableDeclaration);
   const literal = Node_Initializer(ast, value);
   const owner = current.transport.subjectFor(literal);
-  const type = current.source.semantics.forNode(literal).types.expressionType(literal);
+  const outcome = current.source.facts.values.type(literal);
+  const type = outcome.kind === "refused" ? undefined : outcome.type;
   assert.equal(owner !== undefined && type !== undefined, true, "the original object retains its checked storage owner and type");
   for (const predicate of [ast.is.IsGetAccessorDeclaration, ast.is.IsSetAccessorDeclaration]) {
     const accessor = current.named("current", predicate);

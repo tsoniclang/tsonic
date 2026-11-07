@@ -69,6 +69,8 @@ test("source reference consumers do not rescan source trees", async () => {
   assert.doesNotMatch(usage, /\bforEachChild\b/u);
   assert.doesNotMatch(usage, /\bgetSourceFileQueries\b/u);
   assert.doesNotMatch(navigation, /const referenceIndex\s*=/u);
-  assert.match(navigation, /references\.referencesForSymbol/u);
+  // Entity references are keyed by declaration (merged declarations), not by checker Symbol (B3 D1).
+  assert.match(navigation, /references\.referencesToEntity/u);
+  assert.doesNotMatch(navigation, /referencesForSymbol/u);
   assert.match(navigation, /references\.referencesToDeclaration/u);
 });

@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicMemoryBindingIndex, selectTsonicMemoryRecordBinding, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { createHostSourceProgramFixture } from "../../../host-program-fixtures.js";
+import { selectTsonicMemoryRecordBinding, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { createTsonicMemoryBindingIndex } from "../usage.js";
 import { memoryCall } from "../../testing/fixtures.js";
 import { bindingSession, boundRecordSource } from "./fixtures.js";
 
 test("binding storage index selects exact validated members without querying semantics", () => {
   const checked = bindingSession(boundRecordSource);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const selection = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindmemoryrecord"));
   assert.ok(selection?.kind === "resolved");
   const index = createTsonicMemoryBindingIndex(new Proxy(source, {
@@ -36,7 +37,7 @@ test("binding index does not promote an unconsumed field binding into record sto
     const value: Header = { count: 1, tag: 2 };
     const unused = bindmemoryfield(countField, addressof(value.count));
   `);
-  const index = createTsonicMemoryBindingIndex(createTargetSourceProgram(checked));
+  const index = createTsonicMemoryBindingIndex(createHostSourceProgramFixture(checked));
   assert.deepEqual(index.issues, []);
   const field = checked.sourceFacts.getFacts(memoryCall(checked, "memoryfield"));
   assert.ok(field.length > 0);
@@ -45,7 +46,7 @@ test("binding index does not promote an unconsumed field binding into record sto
 
 test("binding index rejects mutated records without accepting their field identities", () => {
   const checked = bindingSession(boundRecordSource);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const call = memoryCall(checked, "bindmemoryrecord");
   const selection = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, call);
   assert.ok(selection?.kind === "resolved");

@@ -43,7 +43,7 @@ export type {
 } from "../safety/facts.js";
 export { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 export type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
-export { selectTsonicFixedArray, selectTsonicFixedArrayFromSource } from "../fixed-arrays/selection.js";
+export { selectTsonicFixedArray } from "../fixed-arrays/selection.js";
 export type { TsonicFixedArraySelection, TsonicFixedArraySyntax } from "../fixed-arrays/selection.js";
 export { tsonicCompileTimeFactKey } from "../compile-time/facts.js";
 export type { TsonicCompileTimeFact } from "../compile-time/facts.js";
@@ -66,15 +66,11 @@ export {
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
   countTsonicMemoryLayoutValues, isFinalizedMemoryLayoutFacts,
 } from "../memory-layout/readers.js";
-export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
-export { createTsonicPointerStorageRelation } from "../pointers/storage-relation.js";
 export type {
   TsonicPointerStorageOperation, TsonicPointerStorageProducer, TsonicPointerStorageIssue,
   TsonicPointerStorageSelection, TsonicPointerStorageRelation,
 } from "../pointers/storage-relation.js";
-export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
 export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
-export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { selectTsonicRawLocationOperation, selectTsonicRawLocationFacts } from "../pointers/raw-memory/selection.js";
 export type { TsonicRawLocationFactsSelection } from "../pointers/raw-memory/selection.js";
@@ -90,13 +86,14 @@ export type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from
 export { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding,
   selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../memory-layout/bindings/selection.js";
 export type { TsonicMemoryBindingSelection } from "../memory-layout/bindings/selection.js";
-export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
-export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
-export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
+export { foldTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
+export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy, TsonicProviderPointerSelection,
+  TsonicProviderPointerShape } from "../pointers/provider-return-evidence.js";
 export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export { sameBackingLayout } from "../pointers/backing/layout-equality.js";
-export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
-export { createTsonicMemoryBindingIndex, createTsonicMemoryBindingFactsIndex } from "../memory-layout/bindings/usage.js";
+// Program analyses are published as facts.analyses.extension(tsonicCoreAnalysisKey); their factories are Host-internal.
+export { tsonicCoreAnalysisKey, tsonicClosedArrayStorageValueBudget } from "../analysis/host-analyses.js";
+export type { TsonicCoreSourceAnalyses } from "../analysis/host-analyses.js";
 export type { TsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
 export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
 export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";

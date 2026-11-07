@@ -1,8 +1,9 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import { AsVariableDeclaration } from "../source-navigation/checked-casts.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
-import { analyzeSourceLiteralValues, compareSourceNumericLiteralMagnitude, createTargetSourceProgram } from "../public/source.js";
+import { analyzeSourceLiteralValues, compareSourceNumericLiteralMagnitude } from "../public/host.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 import { parseNativeIntegerLiteral } from "./integer-literal.js";
 
@@ -20,7 +21,7 @@ test("numeric facts preserve authored midpoint neighbors, normalize native gramm
     "/src/index.ts": spellings.map((text, index) => `export const value${index} = ${text};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const nodes: Node[] = [];
@@ -70,7 +71,7 @@ test("unary signs and parentheses preserve exact provenance while casts and bina
     "export const negative = -((0)); export const positive = +(-(-.5)); export const binary = 1 + 2; export const cast = 1 as number;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const initializers: Node[] = [];
@@ -105,7 +106,7 @@ test("signs retain actual folded integer receipts through parentheses without au
     "/src/index.ts": cases.map(([expression], index) => `export const value${index} = ${expression};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const values = analyzeSourceLiteralValues(source.ast, [file]);
@@ -134,7 +135,7 @@ test("synthetic numeric facts are actual checked float64 values, never authored 
     `export const value = ${float32Midpoint};`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   let literal: Node | undefined;

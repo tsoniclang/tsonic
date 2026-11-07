@@ -1,8 +1,12 @@
-import type { Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationCall, SourceNavigationMemberAccess } from "../host-input/navigation.js";
 import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 
+export type {
+  SourceNavigationCall, SourceNavigationCallBinding, SourceNavigationMemberAccess, SourceNavigationSignatureParameter,
+} from "../host-input/navigation.js";
+
 export interface SourceProjectReference {
-  readonly symbol: Symbol;
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
 }
@@ -31,7 +35,6 @@ export type SourceProjectModuleSpecifierResolution =
 
 export interface SourceProjectModuleExport {
   readonly exportName: string;
-  readonly symbol: Symbol;
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
 }
@@ -82,7 +85,6 @@ export interface SourceBindingWriteValue {
 }
 
 export interface SourceDeclarationReference {
-  readonly symbol?: Symbol;
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
   readonly project: boolean;
@@ -96,7 +98,6 @@ export interface SourceReferenceIndexStatistics {
   readonly selectedReferences: number;
   readonly selectedDeclarations: number;
   readonly reverseEdges: number;
-  readonly indexedSymbols: number;
   readonly moduleExportsExamined: number;
 }
 
@@ -165,7 +166,6 @@ export interface SourceParameterUseSummary extends SourceDeclarationUseSummary {
 export interface SourceCountedLoop {
   readonly statement: Node;
   readonly counterDeclaration: Node;
-  readonly counterSymbol: Symbol;
   readonly start: Node;
   readonly bound: Node;
   readonly body: Node;
@@ -199,23 +199,18 @@ export interface SourceDeclaredHeritageEdge {
   readonly heritage: Node;
   readonly target: SourceDeclarationReference;
   readonly typeArguments: readonly Node[];
-  readonly selectedType: Type;
-  readonly selectedTypeArguments: readonly Type[];
 }
 
 export interface SourceClassConstructorParameter {
   readonly parameterIndex: number;
   readonly parameterName: string;
-  readonly parameterSymbol: Symbol;
   readonly parameterDeclaration: Node;
   readonly authoredTypeNode?: Node;
-  readonly selectedType: Type;
   readonly acceptsOmission: boolean;
   readonly rest: boolean;
 }
 
 export interface SourceClassConstructorSignature {
-  readonly signature: Signature;
   readonly declaration?: Node;
   readonly parameters: readonly SourceClassConstructorParameter[];
 }
@@ -261,7 +256,6 @@ export interface SourceProgramNavigation {
   readonly nodes: readonly Node[];
   nodesForFiles(sourceFiles: readonly SourceFile[]): readonly Node[];
   readonly referenceIndexStatistics: SourceReferenceIndexStatistics;
-  declarationSymbol(declaration: Node, sourceFile: SourceFile): Symbol | undefined;
   sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
@@ -289,8 +283,11 @@ export interface SourceProgramNavigation {
     sourceDeclaration: Node,
     targetDeclaration: Node,
   ): SourceHeritagePathResult;
-  bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
-  referencesWithin(symbol: Symbol, root: Node): readonly Node[];
+  /** All declarations of the entity a declaration declares (overloads, merged declarations, accessor pairs). */
+  mergedDeclarations(declaration: Node): readonly Node[];
+  /** Writes of the binding a declaration declares (any of its merged declarations) within a subtree. */
+  bindingWritesWithin(declaration: Node, root: Node): readonly SourceBindingWrite[];
+  referencesWithin(declaration: Node, root: Node): readonly Node[];
   referencesToDeclaration(declaration: Node): readonly Node[];
   declarationUses(declaration: Node): readonly SourceDeclarationUse[];
   declarationUseSummary(declaration: Node): SourceDeclarationUseSummary;
@@ -300,8 +297,12 @@ export interface SourceProgramNavigation {
   expressionResultUse(expression: Node): "consumed" | "discarded";
   expressionResultDisposition(expression: Node): SourceExpressionResultDisposition;
   expressionEffects(expression: Node): SourceExpressionEffects;
-  hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
-  isProjectShape(node: Node | undefined): boolean;
-  isProjectConstructibleObject(node: Node | undefined): boolean;
+  hasReferenceOutside(declaration: Node, excludedNode: Node): boolean;
   isProjectDeclaration(node: Node | undefined): boolean;
+  /** The checker selection at a call, `new`, tagged template or `super(...)`, as declarations (host-input). */
+  call(use: Node): SourceNavigationCall | undefined;
+  /** The checker member selection at a property or element access, as declarations (host-input). */
+  memberAccess(access: Node): SourceNavigationMemberAccess | undefined;
+  /** Parameters of a callable declaration's own declared signature; undefined when it declares none. */
+  declaredParameters(declaration: Node): readonly Node[] | undefined;
 }

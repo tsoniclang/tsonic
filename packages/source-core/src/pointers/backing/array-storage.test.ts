@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixtures.js";
 import { createTsonicClosedArrayStorageQueries } from "./array-storage.js";
@@ -18,7 +18,7 @@ function inspect(body: string, budget = 4096) {
   const call = memoryCall(checked, "addressof");
   const fact = checked.sourceFacts.getFact(call, pointerOperationFactKey);
   assert.ok(fact?.operation === "address-of");
-  const queries = createTsonicClosedArrayStorageQueries(createTargetSourceProgram(checked), budget);
+  const queries = createTsonicClosedArrayStorageQueries(createHostSourceProgramFixture(checked), budget);
   const result = queries.resolve(fact.storageExpression);
   assert.equal(queries.resolve(fact.storageExpression), result);
   assert.ok(Object.isFrozen(result));

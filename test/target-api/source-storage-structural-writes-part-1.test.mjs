@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -108,7 +109,7 @@ test("empty formal demand relations publish proven empty data without retaining 
       summary.closeInputs();
       assert.equal(solvers, 0, "a fully admitted empty equation retains no unreachable fixed-point cells");
       const parameters = sourceCallableValueParameters(current.source.ast, declaration,
-        current.source.semantics.forNode(declaration), { kind: "declaration" });
+        current.source.navigation, { kind: "declaration" });
       assert.equal(parameters !== undefined, true, "the input vector is the actual checked implementation");
       for (const parameter of parameters) {
         const selected = summary.get(declaration, parameter);
@@ -266,11 +267,9 @@ test(`empty formal equations validate original invocation effects before omittin
   `);
   const invocation = current.nodes.find(current.source.ast.is.IsCallExpression);
   assert.equal(invocation !== undefined, true, "the original checked call is present");
-  const semantics = current.source.semantics.forNode(invocation);
-  const selected = semantics.operations.call(invocation);
-  assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "the original invocation has its exact checked signature");
-  const implementation = selected?.selectedSignature === undefined ? undefined
-    : semantics.declarations.signatureDeclaration(selected.selectedSignature);
+  const selected = current.source.navigation.call(invocation);
+  assert.equal(selected?.selection, "resolved", "the original invocation has its exact checked signature");
+  const implementation = selected?.signature;
   assert.equal(implementation !== undefined, true, "the selected checked declaration is retained");
   const declaration = current.callable("forward");
   const parameter = current.parameter(declaration, "owner");
@@ -330,7 +329,7 @@ test("formal member demands consume the complete checked callable-body inventory
   for (const declaration of current.nodes) {
     if (!isSourceCallableBodyBoundary(current.source.ast, declaration) || current.source.ast.body(declaration) === undefined) continue;
     const parameters = sourceCallableValueParameters(current.source.ast, declaration,
-      current.source.semantics.forNode(declaration), { kind: "declaration" });
+      current.source.navigation, { kind: "declaration" });
     assert.equal(parameters !== undefined, true, "the original body supplies its complete runtime parameter vector");
     for (const parameter of parameters) {
       if (current.source.ast.text(current.source.ast.name(parameter)) !== "owner") continue;

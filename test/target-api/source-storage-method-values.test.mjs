@@ -1,7 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 
@@ -28,7 +30,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the unchanged authored program checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   assert.equal(storage.failureReason(), undefined);
@@ -49,7 +51,9 @@ test("method-value subjects retain exact inherited declaration identity and a di
   assert.equal(subject(declaration, "return") === selected, true);
   const type = storage.typeFor(selected);
   assert.equal(type.kind, "resolved", type.reason);
-  assert.equal(source.semantics.forFile(file).types.callSignatures(type.type).length, 1);
+  // The method value has one call signature in its Host descriptor (callable or shape).
+  const structure = sourceTypeDescriptorStructure(type.type);
+  assert.equal(structure.kind === "callable" || structure.kind === "shape" ? structure.calls.length : 0, 1);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.projection[0]), true);
   assert.equal(storage.subject(declaration, "return", [{ kind: "member", declaration: method }]).kind, "unresolved");
   const count = namedMember(source.ast, namedDeclaration(source.ast, file, "Shape"), "count");
@@ -131,7 +135,7 @@ for (const [label, declarations, inspected, opaque] of [
         export function run(): number { ${declarations} return copied.aaa + copied.read(); }` },
     }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "the exact original copied-method source checks");
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const file = checked.getSourceFile("/src/index.ts");
     const storage = createSourceStorageQuery(source, [file]);
     const declaration = namedVariable(source.ast, file, inspected);
@@ -165,7 +169,7 @@ test("checked spread inputs are receiver uses without erasing unclassified value
       const unknownUse = {}; void unknownUse;` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the actual spread and unclassified inputs check");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const summary = source.navigation.declarationUseSummary(namedVariable(source.ast, file, "source"));
   assert.equal(summary.uses.length === 2 && summary.uses.every(use => use.role === "receiver") &&

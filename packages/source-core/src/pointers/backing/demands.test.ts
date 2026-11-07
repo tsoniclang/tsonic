@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixtures.js";
 import { createTsonicPointerBackingDemands } from "./demands.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
@@ -9,7 +9,7 @@ import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
 
 function collect(text: string) {
   const checked = cleanMemorySession('import { allocateptr, addressof } from "@tsonic/core/lang.js";\n' + text);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const demands = createTsonicPointerBackingDemands(source);
   function visit(node: import("@tsonic/tsts").Node): void {
     demands.record(node);

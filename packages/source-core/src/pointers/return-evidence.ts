@@ -1,14 +1,20 @@
-import { pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallableCompletionInfo, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
+import { pointerFactKey } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { HostSourceProgram, SourceNavigationCall } from "@tsonic/target-api/host";
+import type { SourceCompletionSelection, SourceTypeDescriptor } from "@tsonic/target-api/source";
+import {
+  tsonicDescriptorArms, tsonicDescriptorHasTypeVariables, tsonicDescriptorIsAbsent, tsonicPointerValuePointee, tsonicValueType,
+} from "./host-values.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./backing/source-forms.js";
 import { selectTsonicRawLocationOperation } from "./raw-memory/selection.js";
 import { selectTsonicPointerView } from "./views/selection.js";
 
+/** Pointer return evidence over Host facts (I1): pointee and absence arms are Host descriptors. */
 export interface TsonicPointerReturnEvidence {
-  readonly pointees: readonly { readonly subject: Node; readonly type: Type; readonly typeNode?: Node }[];
-  readonly nullishTypes: readonly Type[];
-  readonly completion: ResolvedSourceCallableCompletionInfo;
+  readonly pointees: readonly { readonly subject: Node; readonly type: SourceTypeDescriptor; readonly typeNode?: Node }[];
+  /** The absence arms (null / undefined / void) of the Host result of the callable. */
+  readonly nullishTypes: readonly SourceTypeDescriptor[];
+  readonly completion: SourceCompletionSelection;
 }
 
 export interface TsonicPointerReturnQueries {
@@ -16,7 +22,7 @@ export interface TsonicPointerReturnQueries {
 }
 
 interface PointerReturnCallFrame {
-  readonly call: ResolvedSourceCallInfo;
+  readonly call: SourceNavigationCall;
   readonly implementation: Node;
   readonly caller: PointerReturnCallFrame | undefined;
   readonly values: Map<Node, PointerReturnValue>;
@@ -28,7 +34,7 @@ interface PointerReturnValue {
 }
 
 export function createTsonicPointerReturnQueries(
-  source: TargetSourceProgram,
+  source: HostSourceProgram,
   maximumValues = 131_072,
 ): TsonicPointerReturnQueries {
   if (!Number.isSafeInteger(maximumValues) || maximumValues < 1) {
@@ -47,30 +53,26 @@ export function createTsonicPointerReturnQueries(
 }
 
 function selectTsonicPointerReturnEvidence(
-  source: TargetSourceProgram,
+  source: HostSourceProgram,
   declaration: Node,
   maximumValues: number,
 ): TsonicPointerReturnEvidence | undefined {
-  const { ast, navigation, semantics, sourceFacts } = source;
+  const { ast, navigation, facts, sourceFacts } = source;
   if (ast.body(declaration) === undefined ||
     ast.hasModifierKind(declaration, "async")) return undefined;
-  const queries = semantics.forNode(declaration);
-  if (queries.operations.generator(declaration) !== undefined) return undefined;
-  const completion = queries.operations.callableCompletion(declaration);
+  if (facts.selections.generator(declaration) !== undefined) return undefined;
+  const completion = facts.selections.completion(declaration);
   if (completion === undefined) return undefined;
-  const callableType = queries.types.expressionType(declaration);
-  const signatures = callableType === undefined ? [] : queries.types.callSignatures(callableType).filter(signature =>
-    queries.declarations.signatureDeclaration(signature) === declaration);
-  const resultType = signatures.length === 1 ? queries.types.returnType(signatures[0]!) : undefined;
-  if (resultType === undefined) return undefined;
-  const resultMembers = queries.types.isUnion(resultType) ? queries.types.unionOrIntersectionTypes(resultType) : [resultType];
-  const nullishTypes = resultMembers.filter(type => queries.types.isNullish(type));
+  const result = facts.values.callableReturn(declaration);
+  if (result.kind === "refused") return undefined;
+  const nullishTypes = tsonicDescriptorArms(result.type).filter(tsonicDescriptorIsAbsent);
+  const variable = (type: SourceTypeDescriptor): boolean => tsonicDescriptorHasTypeVariables(ast, type);
   const root: PointerReturnValue = { node: declaration, frame: undefined };
   const queue: PointerReturnValue[] = [root];
   const unscopedValues = new Map<Node, PointerReturnValue>([[declaration, root]]);
   const parents = new Map<PointerReturnValue, Set<PointerReturnValue>>();
   const terminals = new Set<PointerReturnValue>();
-  const pointees: { readonly subject: Node; readonly type: Type; readonly typeNode?: Node }[] = [];
+  const pointees: { readonly subject: Node; readonly type: SourceTypeDescriptor; readonly typeNode?: Node }[] = [];
   let complete = true;
   let visited = 0;
 
@@ -108,10 +110,10 @@ function selectTsonicPointerReturnEvidence(
   }
 
   function collectWrites(value: PointerReturnValue): void {
-    const symbol = navigation.sourceReferenceFor(ast.name(value.node))?.symbol;
-    if (symbol === undefined) { complete = false; return; }
+    const binding = navigation.sourceReferenceFor(ast.name(value.node))?.declaration;
+    if (binding === undefined) { complete = false; return; }
     for (const file of navigation.sourceFiles) {
-      for (const write of navigation.bindingWritesWithin(symbol, file)) {
+      for (const write of navigation.bindingWritesWithin(binding, file)) {
         if (++visited > maximumValues || write.kind !== "assignment" || ast.operatorKindName(write.operation) !== "KindEqualsToken") {
           complete = false;
           return;
@@ -127,10 +129,10 @@ function selectTsonicPointerReturnEvidence(
     const { node, frame } = value;
     const view = selectTsonicPointerView(ast, sourceFacts, node);
     if (view !== undefined) {
-      if (view.kind !== "resolved" || frame !== undefined &&
-          semantics.forNode(node).types.couldContainTypeVariables(view.operation.pointeeType)) return undefined;
+      const pointee = tsonicPointerValuePointee(source, node);
+      if (view.kind !== "resolved" || pointee === undefined || frame !== undefined && variable(pointee)) return undefined;
       const typeNode = view.operation.explicitPointeeTypeNode;
-      pointees.push(Object.freeze({ subject: node, type: view.operation.pointeeType,
+      pointees.push(Object.freeze({ subject: node, type: pointee,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);
       continue;
@@ -138,22 +140,27 @@ function selectTsonicPointerReturnEvidence(
     const raw = selectTsonicRawLocationOperation(ast, sourceFacts, node);
     if (raw !== undefined) {
       if (raw.kind !== "resolved" || raw.operation.operation !== "reinterpret") return undefined;
-      if (frame !== undefined && semantics.forNode(node).types.couldContainTypeVariables(raw.operation.pointeeType)) return undefined;
+      const pointee = tsonicPointerValuePointee(source, node);
+      if (pointee === undefined || frame !== undefined && variable(pointee)) return undefined;
       const typeNode = raw.operation.explicitPointeeTypeNode ??
         (raw.layout.kind === "value" ? raw.layout.explicitTypeNode : undefined);
-      pointees.push(Object.freeze({ subject: node, type: raw.operation.pointeeType,
+      pointees.push(Object.freeze({ subject: node, type: pointee,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);
       continue;
     }
-    const operation = sourceFacts.getFact(node, pointerOperationFactKey);
+    const operation = ast.is.IsCallExpression(node) ? facts.selections.pointerOperation(node) : undefined;
+    if (operation !== undefined && "kind" in operation) return undefined;
     if (operation !== undefined) {
       if (operation.call !== node || !["address-of", "allocate", "bind-pointer", "project-pointer"].includes(operation.operation)) return undefined;
-      if (frame !== undefined && semantics.forNode(node).types.couldContainTypeVariables(operation.pointeeType)) return undefined;
+      if (frame !== undefined && variable(operation.pointee)) return undefined;
+      // The authored pointee annotation: an explicit marker type argument, else the selected storage declaration.
+      const explicit = ast.typeArguments(node)[0];
+      const initial = operation.operation === "allocate" ? operation.operands[0] : undefined;
       const selectedDeclaration = operation.operation === "address-of" ? operation.storageDeclaration
-        : operation.operation === "allocate" ? navigation.sourceReferenceFor(operation.initialExpression)?.declaration : undefined;
-      const typeNode = operation.explicitPointeeTypeNode ?? ast.typeNode(selectedDeclaration);
-      pointees.push(Object.freeze({ subject: node, type: operation.pointeeType,
+        : initial === undefined ? undefined : navigation.sourceReferenceFor(initial)?.declaration;
+      const typeNode = explicit ?? ast.typeNode(selectedDeclaration);
+      pointees.push(Object.freeze({ subject: node, type: operation.pointee,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);
       continue;
@@ -161,16 +168,16 @@ function selectTsonicPointerReturnEvidence(
     if (frame !== undefined && ast.is.IsParameterDeclaration(node)) {
       let owner: PointerReturnCallFrame | undefined = frame;
       while (owner !== undefined && owner.implementation !== ast.parent(node)) owner = owner.caller;
-      const parameter = owner?.call.sourceSelectedSignatureParameters.find(parameter => parameter.parameterDeclaration === node);
+      const parameter = owner?.call.parameters.find(parameter => parameter.parameterDeclaration === node);
       if (owner === undefined || parameter === undefined) return undefined;
-      const bindings = owner.call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === parameter.parameterIndex);
+      const bindings = owner.call.bindings.filter(binding => binding.sourceParameterIndex === parameter.parameterIndex);
       if (bindings.length === 0) {
         if (!parameter.acceptsOmission) return undefined;
         const initial = ast.as.AsParameterDeclaration(node)?.Initializer;
         if (initial === undefined) terminals.add(value);
         else edge(value, initial, owner);
       } else if (bindings.length === 1 && bindings[0]!.sourceForm === "value" && bindings[0]!.sourceParameterForm === "parameter") {
-        edge(value, owner.call.sourceArguments[bindings[0]!.sourceArgumentIndex]?.expression, owner.caller);
+        edge(value, owner.call.arguments[bindings[0]!.sourceArgumentIndex], owner.caller);
       } else return undefined;
       collectWrites(value);
       continue;
@@ -182,14 +189,13 @@ function selectTsonicPointerReturnEvidence(
         if (++visited > maximumValues) return undefined;
         const candidate = pending.pop()!;
         const pointer = sourceFacts.getFact(candidate, pointerFactKey);
-        const types = semantics.forNode(candidate).types;
-        const type = types.authoredType(candidate);
+        const type = tsonicValueType(source, candidate);
         if (pointer !== undefined) {
-          const pointeeType = types.authoredType(pointer.pointee);
+          const pointeeType = tsonicValueType(source, pointer.pointee);
           if (pointeeType === undefined) return undefined;
           pointees.push(Object.freeze({ subject: node, type: pointeeType, typeNode: pointer.pointee }));
           terminals.add(value);
-        } else if (type !== undefined && types.isNullish(type)) terminals.add(value);
+        } else if (type !== undefined && tsonicDescriptorIsAbsent(type)) terminals.add(value);
         else if (ast.is.IsUnionTypeNode(candidate)) {
           for (const child of ast.children(candidate)) {
             if (child === undefined) return undefined;
@@ -212,9 +218,8 @@ function selectTsonicPointerReturnEvidence(
       edge(value, conditional?.WhenTrue, frame); edge(value, conditional?.WhenFalse, frame);
       continue;
     }
-    const types = semantics.forNode(node).types;
-    const selectedType = types.expressionType(node);
-    if (selectedType !== undefined && types.isNullish(selectedType)) { terminals.add(value); continue; }
+    const selectedType = tsonicValueType(source, node);
+    if (selectedType !== undefined && tsonicDescriptorIsAbsent(selectedType)) { terminals.add(value); continue; }
     if (ast.is.IsIdentifier(node)) { edge(value, navigation.sourceReferenceFor(node)?.declaration, frame); continue; }
     if (ast.is.IsVariableDeclaration(node)) {
       edge(value, ast.as.AsVariableDeclaration(node)?.Initializer, frame);
@@ -222,8 +227,8 @@ function selectTsonicPointerReturnEvidence(
       continue;
     }
     if (ast.is.IsCallExpression(node)) {
-      const call = semantics.forNode(node).operations.call(node);
-      const selected = call === undefined ? undefined : semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+      const call = navigation.call(node);
+      const selected = call?.signature;
       if (call === undefined || selected === undefined) return undefined;
       const implementation = navigation.callableImplementation(selected);
       if (implementation.kind !== "resolved" || !ast.is.IsFunctionDeclaration(implementation.implementation.declaration)) return undefined;

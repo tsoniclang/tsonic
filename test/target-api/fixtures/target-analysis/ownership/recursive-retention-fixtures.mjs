@@ -1,6 +1,8 @@
+import { createJsSourceApiFacts } from "../../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { createHostSourceProgram } from "../../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { sourceTypeDescriptorsEqual } from "../../../../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../../../../packages/target-api/dist/target-analysis/source-storage/queries.js";
 import { defaultSourceStorageLimits } from "../../../../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "../../../../../packages/target-api/dist/target-analysis/ownership/contracts.js";
@@ -95,12 +97,10 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
     }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const selectedDeclaration = (call) => {
-        const semantics = source.semantics.forNode(call);
-        const selected = semantics.operations.call(call);
-        return selected?.sourceSelectedSignatureKind === "resolved"
-            ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+        const selected = source.navigation.call(call);
+        return selected?.selection === "resolved" ? selected.signature : undefined;
     };
     const storage = createSourceStorageQuery(source, source.sourceFiles, defaultSourceStorageLimits, {
         call(node) {
@@ -120,11 +120,11 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
     const leaseDeclaration = nodes.find(node => source.ast.is.IsInterfaceDeclaration(node) &&
         source.ast.text(source.ast.name(node)) === "Lease");
     assert.equal(leaseDeclaration !== undefined, true, "the original checked native lease declaration is required");
+    // A parameter whose Host type is a Lease application (declared descriptor of the Lease declaration).
     const isLeaseParameter = (parameter) => {
-        const semantics = source.semantics.forNode(parameter);
-        const type = semantics.declarations.declaredValueType(parameter);
-        const symbol = type === undefined ? undefined : semantics.declarations.typeSymbol(type);
-        return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(leaseDeclaration);
+        const outcome = source.facts.values.type(parameter);
+        return outcome.kind !== "refused" && outcome.type.kind === "declared" &&
+            source.navigation.mergedDeclarations(outcome.type.declaration).includes(leaseDeclaration);
     };
     const nativeLoans = new Map();
     const nativeContracts = [
@@ -183,7 +183,7 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
             return owner !== undefined && source.ast.hasModifierKind(owner, "async")
                 ? { kind: "async", resultPolicy: "observe-rejection",
                     contract: { kind: "declaration", declaration: owner,
-                        component: { selectedType: selected.sourceResultType, contextualCall: selected } } }
+                        component: { type: selected.result, call } } }
                 : { kind: "not-async" };
         },
         suspensionFor(value) {
@@ -194,9 +194,8 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
             if (formal === source.ast.parameters(declaration("formalAdoption"))[0])
                 return { kind: "may-suspend", value, contract };
             if (selected === undefined) {
-                const semantics = source.semantics.forNode(value.node);
-                const awaited = semantics.types.awaitedType(value.component.selectedType);
-                return awaited === undefined ? undefined : { kind: semantics.types.isIdentical(awaited, value.component.selectedType)
+                const awaited = source.facts.values.awaited(value.node);
+                return awaited.kind === "refused" ? undefined : { kind: sourceTypeDescriptorsEqual(awaited.type, value.component.type)
                         ? "never" : "may-suspend", value, contract };
             }
             if (source.ast.body(selected) !== undefined)
@@ -223,7 +222,6 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
                 return { kind: "resolved", premises: [{ kind: "scoped-borrowed", value, owner,
                             region: value.region.root, mode: "shared", contract }] };
             }
-            const semantics = source.semantics.forNode(value.node);
             const reference = source.navigation.sourceReferenceFor(value.node)?.declaration;
             const formal = source.ast.is.IsParameterDeclaration(value.node) ? value.node
                 : reference !== undefined && source.ast.is.IsParameterDeclaration(reference) ? reference : undefined;
@@ -232,13 +230,13 @@ export function fixture(reverse, recursive, additional = "", nativeLifetimes = [
                             executionOwner: source.ast.parent(formal), region: { kind: "input-duration", parameter: formal },
                             mode: "shared", contract }] };
             if (source.ast.is.IsCallExpression(value.node)) {
-                const call = semantics.operations.call(value.node);
+                const call = source.navigation.call(value.node);
                 const owner = selectedDeclaration(value.node);
                 const parameter = owner === undefined ? undefined : source.ast.parameters(owner)[0];
-                if (call?.sourceSelectedSignatureKind === "resolved" && owner !== undefined && parameter !== undefined &&
+                if (call?.selection === "resolved" && owner !== undefined && parameter !== undefined &&
                     source.ast.hasModifierKind(owner, "async") && isLeaseParameter(parameter)) {
-                    const selectedParameter = call.sourceSelectedSignatureParameters.find(selected => selected.parameterDeclaration === parameter);
-                    const inputs = selectedParameter === undefined ? [] : call.sourceArgumentBindings.filter(input => input.sourceParameterIndex === selectedParameter.parameterIndex && input.sourceForm === "value");
+                    const selectedParameter = call.parameters.find(selected => selected.parameterDeclaration === parameter);
+                    const inputs = selectedParameter === undefined ? [] : call.bindings.filter(input => input.sourceParameterIndex === selectedParameter.parameterIndex && input.sourceForm === "value");
                     assert.equal(inputs.length, 1, "the native result has one exact selected input-duration slot");
                     const argument = source.ast.arguments(value.node)[inputs[0].sourceArgumentIndex];
                     const input = source.navigation.sourceReferenceFor(argument)?.declaration;

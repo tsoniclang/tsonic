@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceDeclarationRetentionQuery, createSourceStorageQuery, defaultSourceStorageLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 
 const fixture = ownershipFixture();
@@ -30,8 +31,8 @@ test("retention follows actual generic substitutions and keeps native lease owne
     assert.equal(premise.region === fixture.source.ast.body(owner), true);
     assert.equal(premise.value.region.owner === owner && premise.value.region.root === premise.region &&
       premise.value.region.role === "body", true, "the required checked declaration region");
-    assert.equal(fixture.source.semantics.forNode(originalView).types.isIdentical(
-      premise.contract.component.selectedType, fixture.typeFor(premise.value)), true, "instantiated actual native type");
+    assert.equal(originalView !== undefined && sourceTypeDescriptorsEqual(
+      premise.contract.component.type, fixture.typeFor(premise.value)), true, "instantiated actual native type");
     assert.equal(reader.forReference(reference) === selected, true, "one completed selection per original read");
     assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.premises) && Object.isFrozen(premise), true);
   }
@@ -76,7 +77,7 @@ test("native evidence must use the selected declaration and exact instantiated t
   const formal = fixture.subject(fixture.source.ast.parameters(fixture.declaration("read"))[0]);
   for (const amend of [
     contract => ({ kind: "declaration", declaration: fixture.declaration("identity"), component: contract.component }),
-    contract => ({ ...contract, component: { selectedType: fixture.typeFor(formal) } }),
+    contract => ({ ...contract, component: { type: fixture.typeFor(formal) } }),
   ]) {
     const selected = query({ retentionFor(request) {
       const evidence = fixture.native.retentionFor(request);

@@ -1,12 +1,14 @@
+import {
+  sourceAnalysisArms, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm, type SourceAnalysisProgram,
+} from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers } from "../../../source-semantics/value-flow-conditions.js";
 import type { SourceNativeGuard } from "../../../source-semantics/value-flow-model.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsAbsentType, sourceStorageIsNeverType, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageValueGuards {
   readonly key: string;
@@ -26,13 +28,14 @@ type GuardCandidate =
   | { readonly kind: "absence" }
   | { readonly kind: "present"; readonly declaration?: Node };
 
-export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageGuardedValues(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   classValues: (expression: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
   }[] | undefined) {
   const { ast, navigation } = source;
-  const context = { ast, navigation, sourceFacts: source.sourceFacts,
-    semanticsFor: (node: Node) => source.semantics.forNode(node) };
+  // Guard selection reads the Host flow conditions and Host value descriptors (R3), never the checker.
+  const context = { ast, navigation, sourceFacts: source.sourceFacts, values: source.facts.values,
+    flowConditions: (reference: Node) => source.flowConditions(reference) };
   const retained = budget.createRows();
   const plans = new Map<Node, GuardPlan | null>();
   const admissions = new Map<Node, Map<SourceStorageSubject, boolean | null>>();
@@ -61,11 +64,8 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       sourceStorageHasOriginalCallableValue(owner, ast)) return false;
     const file = ast.getSourceFile(owner.node);
     const type = sourceStorageSubjectType(source, owner, file);
-    if (type !== undefined && file !== undefined) {
-      const semantics = source.semantics.forFile(file);
-      if (sourceStorageIsScalarType(type, semantics) || semantics.types.isNullish(type) ||
-        semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
-    }
+    if (type !== undefined && file !== undefined && (sourceStorageIsScalarType(type, ast) || sourceStorageIsAbsentType(type) ||
+      sourceStorageIsNeverType(type))) return false;
     const expression = sourceConstructionExpression(owner.node, source, budget.step);
     const declaration = expression === undefined ? undefined : navigation.sourceReferenceFor(expression)?.declaration;
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)))
@@ -86,18 +86,14 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     const file = ast.getSourceFile(owner.node);
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
-    const { types } = source.semantics.forFile(file);
-    const members = types.isUnion(type) ? types.unionOrIntersectionTypes(type) : [type];
     let result: boolean | undefined;
-    for (const member of members) {
+    for (const member of sourceAnalysisArms(type)) {
       if (!budget.step()) return undefined;
-      if (types.isNever(member)) continue;
+      if (sourceAnalysisIsNeverArm(member)) continue;
       let selected: boolean;
-      if (types.isNullish(member) || types.isVoidLike(member)) selected = true;
+      if (sourceAnalysisIsAbsentArm(member)) selected = true;
       else {
-        if (types.isAny(member) || types.isUnknown(member)) return undefined;
-        const present = types.nonNullableType(member);
-        if (present === undefined || !types.isIdentical(member, present)) return undefined;
+        if (sourceAnalysisIsOpenArm(member)) return undefined;
         selected = false;
       }
       if (result !== undefined && selected !== result) return undefined;

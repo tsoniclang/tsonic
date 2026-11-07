@@ -1,7 +1,10 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, TstsSourceProviderContractVersion } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
+import { sourceStorageMemberCorrespondence } from "../../packages/target-api/dist/target-analysis/source-storage/model/components.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/graph/edges.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
@@ -67,7 +70,7 @@ function checked(limits = defaultSourceStorageLimits) {
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length === 0, true, "provider admission succeeds");
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   return { source, storage: createSourceStorageQuery(source, source.navigation.sourceFiles, limits),
     file: projectSourceFile(source, "/src/index.ts"), second: projectSourceFile(source, "/src/second.ts") };
 }
@@ -86,12 +89,12 @@ for (const name of ["record", "array", "tuple"]) {
     assert.equal(transport.kind === "resolved" && transport.arguments.length === 1, true, "one exact selected argument");
     const selected = transport.arguments[0];
     const virtualFile = source.ast.getSourceFile(selected.formal.node);
-    assert.equal(virtualFile !== undefined && !source.semantics.includes(virtualFile), true, "provider syntax is not an authored checked file");
+    assert.equal(virtualFile !== undefined && !source.sourceFiles.includes(virtualFile), true, "provider syntax is not an authored checked file");
     assert.equal(storage.subjectFor(selected.formal.node).kind === "unresolved", true, "no public foreign-node ownership bypass");
     const type = storage.typeFor(selected.formal);
-    assert.equal(type.kind === "resolved" && source.semantics.includes(type.sourceFile), true, "transport owns an exact checked query context");
-    const semantics = source.semantics.forFile(type.sourceFile);
-    assert.equal(semantics.types.isIdentical(type.type, selected.binding.selectedParameterType), true, "formal type belongs to the existing source checker");
+    assert.equal(type.kind === "resolved" && source.sourceFiles.includes(type.sourceFile), true, "transport owns an exact checked query context");
+    assert.equal(selected.parameterType !== undefined && sourceTypeDescriptorsEqual(type.type, selected.parameterType), true,
+      "formal type is the Host parameter descriptor of the selected call");
     assert.equal(Object.isFrozen(type) && Object.isFrozen(selected) && Object.isFrozen(selected.binding), true);
     if (name !== "record") {
       const budget = createSourceStorageBudget(defaultSourceStorageLimits);
@@ -106,7 +109,8 @@ for (const name of ["record", "array", "tuple"]) {
       const origins = [...edges.incomingFor(component)];
       assert.equal(origins.length === 1 && origins[0].node === formal.node, true, "lazy foreign component retains the exact formal origin");
       const componentType = sourceStorageSubjectType(source, origins[0], context(origins[0]));
-      assert.equal(componentType !== undefined && semantics.types.isNumberLike(componentType), true, "component uses the same checked context");
+      assert.equal(componentType?.kind === "primitive" && componentType.primitive !== "bool" && componentType.primitive !== "char", true,
+        "component uses the same Host numeric element");
       assert.equal(budget.failure() === undefined, true, "lazy aggregate projection stays bounded");
     }
     const forged = { ...selected.formal };
@@ -119,14 +123,13 @@ test("virtual structural members transport aliases, fields and cross-file calls 
   const original = namedVariable(source.ast, file, "original");
   const property = source.ast.properties(source.ast.as.AsVariableDeclaration(original).Initializer)[0];
   const record = storage.argumentTransportsFor(invocation(source, file, "record")).arguments[0].formal;
-  const semantics = source.semantics.forFile(file);
-  const relation = semantics.types.structuralMembers(storage.typeFor(storage.subjectFor(original).subject).type,
+  const relation = sourceStorageMemberCorrespondence(source, storage.typeFor(storage.subjectFor(original).subject).type,
     storage.typeFor(record).type, "correspondence");
   assert.equal(relation.kind === "available" && relation.members.length === 1 && relation.members[0].kind === "present", true, "exact checked field correspondence");
   const field = storage.subjects.find(subject => subject.node === relation.members[0].destination.declarations[0]);
   assert.equal(field !== undefined, true, "checked structural relation interns the selected provider field");
   const type = storage.typeFor(field);
-  assert.equal(type.kind === "resolved" && source.semantics.includes(type.sourceFile), true, "nested field context is retained");
+  assert.equal(type.kind === "resolved" && source.sourceFiles.includes(type.sourceFile), true, "nested field context is retained");
   const incoming = storage.incomingFor(field);
   assert.equal(incoming.kind === "resolved" && incoming.subjects.some(subject => subject.node === property), true, "exact authored property origin");
   const again = storage.argumentTransportsFor(invocation(source, second, "record")).arguments[0];
@@ -162,12 +165,13 @@ test("virtual variable aliases retain exact declaration symbols and checked memb
   assert.equal(original.kind === "resolved" && original.subjects.length === 1, true);
   const native = original.subjects[0];
   const virtual = source.ast.getSourceFile(native.node);
-  assert.equal(virtual !== undefined && !source.semantics.includes(virtual), true);
+  assert.equal(virtual !== undefined && !source.sourceFiles.includes(virtual), true);
   assert.equal(storage.subjectFor(native.node).kind === "unresolved", true, "foreign syntax does not become publicly authored");
   const selected = storage.typeFor(native);
-  assert.equal(selected.kind === "resolved" && source.semantics.includes(selected.sourceFile), true, "reference retains its checked context");
-  const type = source.semantics.forFile(file).declarations.declaredValueType(native.node);
-  assert.equal(type === selected.type, true, "same checked symbol type, no invented or selected-receiver substitute");
+  assert.equal(selected.kind === "resolved" && source.sourceFiles.includes(selected.sourceFile), true, "reference retains its checked context");
+  const declared = source.facts.values.type(native.node);
+  assert.equal(declared.kind !== "refused" && sourceTypeDescriptorsEqual(declared.type, selected.type), true,
+    "same Host declaration type, no invented or selected-receiver substitute");
   const direct = storage.storageProducersFor(native);
   assert.equal(direct.kind !== "complete", true, "external variable declaration does not prove its supplied value producer");
   const transported = storage.storageProducersFor(alias.subject);
@@ -188,7 +192,7 @@ for (const queryFirst of [false, true]) {
     assert.equal(checked.diagnostics.length === 0, true, "the real native declaration and member reference check");
     const file = checked.getSourceFile("/src/index.ts");
     assert.equal(file !== undefined, true, "the actual consumer is present");
-    const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([file]) });
+    const source = createHostSourceProgram({ ...checked, sourceFiles: Object.freeze([file]) }, { profile: createJsSourceApiFacts });
     const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
     const alias = storage.subjectFor(namedVariable(source.ast, file, "alias"));
     const selected = storage.subjectFor(namedVariable(source.ast, file, "selected"));
@@ -199,10 +203,11 @@ for (const queryFirst of [false, true]) {
     const native = origins.subjects[0];
     assert.equal(source.ast.is.IsClassDeclaration(native.node), true, "the retained receiver is the native class declaration");
     const owner = source.ast.getSourceFile(native.node);
-    assert.equal(owner !== undefined && !source.semantics.includes(owner), true, "native ownership does not publish an authored file");
+    assert.equal(owner !== undefined && !source.sourceFiles.includes(owner), true, "native ownership does not publish an authored file");
     const type = storage.typeFor(native);
     assert.equal(type.kind === "resolved" && type.sourceFile === file, true, "the exact checked consumer owns the type query");
-    assert.equal(type.type === source.semantics.forFile(file).declarations.declaredValueType(native.node), true,
+    const declared = source.facts.values.type(native.node);
+    assert.equal(declared.kind !== "refused" && sourceTypeDescriptorsEqual(type.type, declared.type), true,
       "the type is the retained checked declaration type, not a replacement receiver type");
     const producers = storage.storageProducersFor(selected.subject);
     assert.equal(producers.kind !== "complete", true, "an ambient static field does not invent an authored producer");

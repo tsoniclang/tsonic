@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
+import { createHostSourceProgramFixture } from "../../source-semantics/host-program-fixtures.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
 
@@ -12,7 +12,7 @@ function fixture(text: string, files: Readonly<Record<string, string>> = {}) {
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const selected = analyzeSourceReceiverOccurrences(storage);
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "resolved source inventory");

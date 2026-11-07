@@ -65,7 +65,7 @@ test("an opaque resolver result is unresolved, never an empty safe source summar
   const operation = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.textFor(node) === "done(value)");
   assert.equal(operation !== undefined &&
-    current.source.semantics.forNode(operation).operations.call(operation)?.sourceSelectedSignatureKind === "resolved", true,
+    current.source.navigation.call(operation)?.selection === "resolved", true,
     "the original inner operation remains authenticated without tracing its opaque callback");
 });
 
@@ -104,7 +104,7 @@ test(`observed resolving calls own latent native input uncertainty (${alias}, ${
       const inner = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
         current.textFor(node) === operation);
       assert.equal(inner !== undefined &&
-        current.source.semantics.forNode(inner).operations.call(inner)?.sourceSelectedSignatureKind === "resolved", true,
+        current.source.navigation.call(inner)?.selection === "resolved", true,
         "the original inner operation remains checked without following opaque callbacks or aliases");
     }
   });

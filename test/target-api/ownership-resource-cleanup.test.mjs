@@ -1,10 +1,11 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceDeclarationOwnershipBudget, createSourceDeclarationOwnershipValues,
   createSourceDeclarationOwnershipQuery, createSourceDeclarationSuspensionQuery,
-  defaultSourceDeclarationOwnershipLimits } from "../../packages/target-api/dist/public/analysis.js";
+  defaultSourceDeclarationOwnershipLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 
 const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
   class AsyncResource { async [Symbol.asyncDispose](): Promise<void> {} }
@@ -15,7 +16,7 @@ const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files
   async function authored(resources: AsyncIterable<number>) { for await (const value of resources) {} }
 ` }, compilerOptions: { strict: true, target: "esnext", module: "esnext" } }).checkSource();
 assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics).slice(0, 2048));
-const source = createTargetSourceProgram(checked);
+const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
 const file = checked.getSourceFile("/src/index.ts");
 assert.equal(file !== undefined, true, "original checked resource file");
 const nodes = [];
@@ -26,9 +27,9 @@ const active = named("active");
 const settled = named("settled");
 const sync = named("sync");
 assert.equal(active !== undefined && settled !== undefined && sync !== undefined, true, "original resource declarations");
-const resourceFor = declaration => source.semantics.forNode(declaration).operations.resourceManagement(declaration);
-const resource = resourceFor(active);
-assert.equal(resource?.disposal.kind, "selected", "checked disposal alternatives");
+// The Host resource selection (facts.selections.resource) is keyed by the using declaration; cleanup is asked by declaration.
+const resource = source.facts.selections.resource(active);
+assert.equal(resource?.declaration === active && resource.async, true, "the Host selects the async disposal of the await-using declaration");
 const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
 const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
 const effects = new Map([[active, "may-suspend"], [settled, "never"]]);
@@ -49,18 +50,15 @@ const query = (premises = native, selectedBudget = budget) => createSourceDeclar
 
 test("implicit cleanup suspension retains its checked declaration and disposal facts without an operand", () => {
   const reader = query();
-  const selected = reader.forResourceCleanup(resource);
+  const selected = reader.forResourceCleanup(active);
   assert.equal(selected.kind, "resolved");
   assert.equal(selected.pending.kind, "resource-cleanup");
-  assert.equal(selected.pending.operation === active && selected.pending.resource === resource, true,
-    "the original checked acquisition and selected disposal facts are retained");
-  assert.equal(resource.acquisition.kind, "initializer");
-  assert.equal(resource.disposal.alternatives.some(alternative => alternative.kind === "async") &&
-    resource.disposal.alternatives.some(alternative => alternative.kind === "sync"), true, "async and synchronous fallback facts stay distinct");
+  assert.equal(selected.pending.operation === active && selected.pending.declaration === active, true,
+    "the original using declaration is retained as the cleanup operation");
   assert.equal(Object.hasOwn(selected.pending, "expression"), false, "cleanup has no fabricated await operand");
   assert.equal(selected.pending.contracts[0].value.node === active &&
     selected.pending.contracts[0].contract.declaration === active, true, "native evidence describes the real retained resource");
-  assert.equal(reader.forResourceCleanup(resource) === selected && reader.owns(selected.pending), true, "one immutable cached witness");
+  assert.equal(reader.forResourceCleanup(active) === selected && reader.owns(selected.pending), true, "one immutable cached witness");
   assert.equal(query().owns(selected.pending), false, "witnesses stay query-owned");
   assert.equal(Object.isFrozen(selected.pending) && Object.isFrozen(selected.pending.contracts) &&
     selected.pending.contracts.every(Object.isFrozen), true, "pending contracts are frozen");
@@ -75,30 +73,29 @@ test("cleanup never replaces strict authored-await or for-await validation", () 
     assert.equal(selected.kind, "unresolved");
     assert.match(selected.reason, /original checked operation and operand/u);
   }
-  assert.equal(reader.forResourceCleanup(resourceFor(sync)).kind, "unresolved", "synchronous using is not an implicit await");
-  assert.equal(reader.forResourceCleanup({ ...resource }).kind, "unresolved", "copied disposal facts remain foreign");
-  assert.equal(reader.forResourceCleanup({ ...resource, declaration: loop }).kind, "unresolved", "another source kind cannot impersonate cleanup");
+  assert.equal(reader.forResourceCleanup(sync).kind, "unresolved", "synchronous using is not an implicit await");
+  assert.equal(reader.forResourceCleanup(loop).kind, "unresolved", "another source kind cannot impersonate cleanup");
 });
 
 test("cleanup requires a completed native effect for the identical checked resource value", () => {
-  const missing = query({ suspensionFor: () => undefined }).forResourceCleanup(resource);
+  const missing = query({ suspensionFor: () => undefined }).forResourceCleanup(active);
   assert.equal(missing.kind, "unresolved");
   assert.match(missing.reason, /missing declaration body or native completion record/u);
   const foreign = query({ suspensionFor(value, use) {
     return { ...native.suspensionFor(value, use), value: { ...value } };
-  } }).forResourceCleanup(resource);
+  } }).forResourceCleanup(active);
   assert.equal(foreign.kind, "unresolved", "copied local descriptors never authorize cleanup");
   const unrelated = query({ suspensionFor(value, use) {
     const selected = native.suspensionFor(value, use);
     return { ...selected, contract: { ...selected.contract, declaration: settled } };
-  } }).forResourceCleanup(resource);
+  } }).forResourceCleanup(active);
   assert.equal(unrelated.kind, "unresolved", "a different resource cannot supply this cleanup contract");
 });
 
 test("completed native synchronous cleanup fallback is not guessed to suspend", () => {
-  const selected = query().forResourceCleanup(resourceFor(settled));
+  const selected = query().forResourceCleanup(settled);
   assert.equal(selected.kind, "never", "the fixture supplies a real completed synchronous disposal effect");
-  assert.equal(query({ suspensionFor: () => undefined }).forResourceCleanup(resourceFor(settled)).kind, "unresolved",
+  assert.equal(query({ suspensionFor: () => undefined }).forResourceCleanup(settled).kind, "unresolved",
     "the same source type does not manufacture a native never premise");
 });
 
@@ -109,18 +106,18 @@ test("continuation flow retains the actual resource through its implicit pending
   assert.equal(graph.kind, "resolved");
   const points = graph.graph.points.filter(point => point.operation.kind === "await");
   assert.equal(points.length > 0 && points.every(point => point.source === active &&
-    point.operation.awaitKind === "resource-cleanup" && point.operation.resource === resource), true, "every cleanup route keeps checked facts");
+    point.operation.awaitKind === "resource-cleanup" && point.operation.declaration === active), true, "every cleanup route keeps its declaration");
   const ownership = createSourceDeclarationOwnershipQuery({ source, sourceNodes: nodes, nodes, budget, premises: native });
   const summary = ownership.continuationForDeclaration(owner);
   assert.equal(summary.kind, "resolved", summary.kind === "unresolved" ? summary.reason : "completed resource continuation");
   assert.equal(summary.maySuspend, true);
   assert.equal(summary.reads.some(read => read.reference === active && [...read.pending].some(pending =>
-    pending.kind === "resource-cleanup" && pending.resource === resource)), true, "the held resource is not mistaken for a completion result");
+    pending.kind === "resource-cleanup" && pending.declaration === active)), true, "the held resource is not mistaken for a completion result");
 });
 
 test("implicit cleanup suspension preserves the finite ownership budget", () => {
   const limited = createSourceDeclarationOwnershipBudget(file, { ...defaultSourceDeclarationOwnershipLimits, maximumSteps: 1 });
-  const selected = query(native, limited).forResourceCleanup(resource);
+  const selected = query(native, limited).forResourceCleanup(active);
   assert.equal(selected.kind, "unresolved");
   assert.equal(selected.cause.kind, "resource-limit");
 });

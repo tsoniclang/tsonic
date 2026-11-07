@@ -4,9 +4,10 @@ import test from "node:test";
 import {
   createCompilerSessionFromFiles,
 } from "@tsonic/tsts";
+// The authored-type selection is a host-input checker view (I3); the fixture exposes the program checker views.
 import {
-  createTargetSourceProgram,
-} from "../../packages/target-api/dist/public/source.js";
+  createHostSourceProgramFixture,
+} from "../../packages/target-api/dist/source-semantics/host-program-fixtures.js";
 
 test("authored type selection retains implicit optional nullish evidence", () => {
   const checked = createCompilerSessionFromFiles({
@@ -23,7 +24,7 @@ test("authored type selection retains implicit optional nullish evidence", () =>
       strict: true,
     },
   }).checkSource();
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = source.sourceFiles.find((candidate) =>
     candidate !== undefined &&
     source.ast.getFileName(candidate) === "/project/index.ts"
@@ -52,6 +53,12 @@ test("authored type selection retains implicit optional nullish evidence", () =>
     semantics.types.isNullish(selection.selectedNullishTypes[0]),
     true,
   );
+  // The Host value fact of the same read keeps the absence of the optional parameter.
+  const published = source.facts.values.type(selectedValue);
+  assert.equal(published.kind === "refused", false);
+  const arms = published.type.kind === "optional" ? [published.type.value, { kind: "intrinsic", intrinsic: "absence" }]
+    : published.type.kind === "union" ? published.type.types : [published.type];
+  assert.equal(arms.some((arm) => arm.kind === "intrinsic" && arm.intrinsic === "absence"), true);
 });
 
 function requiredNode(source, root, predicate) {

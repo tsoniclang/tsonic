@@ -1,5 +1,6 @@
-import type { Node, ResolvedSourcePropertyAccessInfo } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { SourceNavigationQueryContext } from "./query-context.js";
+import type { SourceNavigationMemberAccess } from "./types.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
@@ -7,7 +8,8 @@ import { failTargetCompilerResourceLimit } from "../artifacts.js";
 export interface SourceCallOnlyAlias {
   readonly expression: Node;
   readonly selectedDeclaration: Node;
-  readonly property?: ResolvedSourcePropertyAccessInfo;
+  /** The member selection when the aliased value is a property access (host-input witness). */
+  readonly access?: SourceNavigationMemberAccess;
   readonly receiverDeclaration?: Node;
   readonly declarations: readonly Node[];
   readonly calls: readonly Node[];
@@ -33,9 +35,7 @@ export function createSourceCallOnlyAliasQuery(source: SourceNavigationQueryCont
       if (selected === undefined) return undefined;
       const expression = selected.expression;
       if (expression === undefined || !ast.is.IsIdentifier(expression) && !ast.is.IsPropertyAccessExpression(expression)) return undefined;
-      const semantics = source.semantics.forNode(expression);
-      const property = selected.property;
-      const reference = navigation.sourceReferenceFor(expression);
+      const property = selected.access;
       const selectedDeclaration = selected.selectedDeclaration;
       if (selectedDeclaration === undefined || property?.optionalChain ||
         !ast.is.IsFunctionDeclaration(selectedDeclaration) &&
@@ -56,8 +56,7 @@ export function createSourceCallOnlyAliasQuery(source: SourceNavigationQueryCont
           sourceMayReadBeforeInitialization(alias, ast, navigation) ||
           value !== expression && (!ast.is.IsIdentifier(value) || previous === undefined || !aliases.has(previous))) return undefined;
       }
-      const symbol = property?.selectedSymbol ?? reference?.symbol;
-      const declarations = symbol === undefined ? [selectedDeclaration] : semantics.declarations.symbolDeclarations(symbol);
+      const declarations = navigation.mergedDeclarations(selectedDeclaration);
       if (declarations.length > 1_024) failTargetCompilerResourceLimit("tsonic", "Call-only alias signatures", "declarations", 1_024, declaration);
       const overloads = new Set(declarations);
       const calls = new Set<Node>();
@@ -72,14 +71,12 @@ export function createSourceCallOnlyAliasQuery(source: SourceNavigationQueryCont
           call = ast.parent(callee);
         }
         if (call === undefined || !ast.is.IsCallExpression(call) || ast.as.AsCallExpression(call)?.Expression !== callee) return undefined;
-        const callSemantics = source.semantics.forNode(call);
-        const selected = callSemantics.operations.call(call);
-        const target = selected === undefined ? undefined : callSemantics.declarations.signatureDeclaration(selected.selectedSignature);
+        const target = navigation.call(call)?.signature;
         if (target === undefined || !overloads.has(target)) return undefined;
         calls.add(call);
       }
       const result: SourceCallOnlyAlias = Object.freeze({
-        expression, selectedDeclaration, ...(property === undefined ? {} : { property }),
+        expression, selectedDeclaration, ...(property === undefined ? {} : { access: property }),
         ...(selected.receiverDeclaration === undefined ? {} : { receiverDeclaration: selected.receiverDeclaration }),
         declarations: Object.freeze([...aliases]), calls: Object.freeze([...calls]),
       });

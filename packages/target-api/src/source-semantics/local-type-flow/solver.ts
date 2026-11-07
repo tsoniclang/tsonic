@@ -1,33 +1,32 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
-import { sourceArrayElementType } from "../array-types.js";
-import { getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
-import { createSourceTypeFlowAnalysisContext, sourceTypeFlowCallResultType, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges, isWriteTarget, sourceTypeFlowDeclaredPatternBindings, sourceTypeFlowDescriptorPart, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
-import { collectSourceTypeFlowUses } from "./uses.js";
-import { publishSourceLiteralMetadata, sourceLiteralMemberCorrespondence } from "./literal-publication.js";
+import { createSourceClosedSumQuery, createSourceTypeDescriptorNormalizer, createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sealSourceTypeDescriptorUnions, substituteSourceTypeDescriptor, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
+import { collectSourceTypeFlowUses, sourceTypeFlowIsBroadSlot } from "./uses.js";
+import { createSourceMethodValueUses, createSourceSlotAdmissions, publishSourceLiteralMetadata, sourceLiteralMemberCorrespondence,
+  type SourceNumberOrigin } from "./literal-publication.js";
 import { publishSourceStructMemberCorrespondence } from "./struct-publication.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection, sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
-import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
-import { sourceTypeFlowAwaitedPayload } from "./awaited.js";
+import type { SourceHostCall, SourceHostComponent, SourceHostInput, SourceHostQueries } from "../../host-input/index.js";
+import { sourceThenablePayloadBinder, sourceTypeDescriptorAwaitedPayload } from "./awaited.js";
 import { sourceTypeFlowScalarCalculationArm, type SourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator, sourcePrimitiveBinaryOperators,
-  sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits, type SourcePrimitiveOperatorOperand, type SourcePrimitiveUnaryOperator,
+  sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorLiteralPartner,
+  type SourcePrimitiveOperatorOperand, type SourcePrimitiveUnaryOperator,
 } from "./operator-decisions.js";
 import type {
-  SourceEffectiveCallInstantiation, SourceEffectiveTypeArgument, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor, SourceLiteralMemberCorrespondence,
+  SourceDeclaredSlot, SourceEffectiveCallInstantiation, SourceEffectiveTypeArgument, SourceEffectiveTypeOutcome, SourceEffectiveTypes, SourceTypeDescriptor, SourceLiteralMemberCorrespondence,
   SourceTypeFlowAssociation, SourceTypeFlowDerived, SourceTypeFlowGraph, SourceTypeFlowNode,
-  SourceTypeFlowObligation, SourceTypeFlowPathPart, SourceTypeFlowRefusal, SourceTypeFlowSignature, SourceTypeFlowSource,
+  SourceTypeDescriptorSignature, SourceTypeFlowObligation, SourceTypeFlowPathPart, SourceTypeFlowRefusal, SourceTypeFlowSignature, SourceTypeFlowSource,
   SourceTypeFlowTerm, SourceTypeFlowUse, SourceTypeFlowVariable,
 } from "./types.js";
 
@@ -36,7 +35,7 @@ interface Fill {
   readonly site: Node;
   readonly fixed: boolean;
   readonly authority: "inferred" | "declared";
-  readonly component?: SourceTypeComponentEvidence;
+  readonly component?: SourceHostComponent;
 }
 
 interface Group {
@@ -67,8 +66,38 @@ interface SourceReadProjection {
   readonly construction: boolean;
 }
 
-export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): SourceEffectiveTypes {
-  const defaults = createSourceTypeFlowAnalysisContext(source);
+/** The solved value model of one program: the published effective types plus the internal inputs of the fact builders. */
+export interface SourceSolvedValueModel extends SourceEffectiveTypes {
+  readonly owner: SourceTypeDescriptorUnions;
+  /** Every value node of the program (the totality domain, I4), in program preorder. */
+  readonly valueNodes: readonly Node[];
+  literal(node: Node): SourceLiteralValue | undefined;
+  /** The number origin of a value: present when its Source type is TS `number` (N3 prime). */
+  numberOrigin(node: Node): SourceNumberOrigin | undefined;
+  /** The Host outcome of an authored type node (authored-syntax translation); undefined for a node that is not type syntax. */
+  typeSyntax(node: Node): SourceEffectiveTypeOutcome | undefined;
+  /** The Host destination a value use flows into (declared, parameter or return slot); undefined when none. */
+  contextual(node: Node): SourceEffectiveTypeOutcome | undefined;
+  /** Every node of the program files, in program preorder. */
+  readonly nodes: readonly Node[];
+  /** The instantiation of a generic callable read as a value (not a call's callee), or its refusal. */
+  functionValueInstantiation(use: Node): SourceSolvedFunctionValue | SourceTypeFlowRefusal | undefined;
+}
+
+/** A generic callable value use instantiated against its Host destination (G4 for values). */
+export interface SourceSolvedFunctionValue {
+  readonly kind: "function-value";
+  readonly use: Node;
+  readonly signature: Node;
+  readonly receiver: readonly SourceEffectiveTypeArgument[];
+  readonly method: readonly SourceEffectiveTypeArgument[];
+  readonly parameters: readonly SourceTypeDescriptor[];
+  readonly result: SourceTypeDescriptor;
+}
+
+export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource, unions: SourceTypeDescriptorUnions,
+  input: SourceHostInput): SourceSolvedValueModel {
+  const defaults = createSourceTypeFlowAnalysisContext(source, unions, input);
   const { context } = defaults;
   const compare = (left: Node, right: Node): number => {
     const first = context.order(left);
@@ -83,11 +112,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   const signatures = collectSourceTypeFlowSignatures(context, graph, terms.isInference);
   const groups = new Map<SourceTypeFlowVariable, Group>();
   const structuredGroups = new Set<Group>();
-  const outcomes = new WeakMap<Node, SourceEffectiveTypeOutcome>();
-  const calls = new WeakMap<Node, SourceEffectiveCallInstantiation>();
-  const callableReturns = new WeakMap<Node, SourceEffectiveTypeOutcome>();
-  const callableQueries = new WeakMap<Node, SourceFileSemantics>();
+  const outcomes = new Map<Node, SourceEffectiveTypeOutcome>();
+  const calls = new Map<Node, SourceEffectiveCallInstantiation>();
+  const callableReturns = new Map<Node, SourceEffectiveTypeOutcome>();
+  const callableQueries = new Map<Node, SourceHostQueries>();
   const activeReturns = new Set<Node>();
+  const numberOrigins = new Map<Node, SourceNumberOrigin | undefined>();
+  const activeNumberOrigins = new Set<Node>();
   const obligations: SourceTypeFlowObligation[] = [];
   const compoundCalculationTypes = new WeakMap<Node, SourceTypeDescriptor>();
   const scalarCalculations = new WeakMap<Node, SourceTypeDescriptor | SourceTypeFlowRefusal>();
@@ -133,6 +164,61 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return record !== undefined && (record.term?.kind === "fixed" || record.kind === "fixed" ||
       record.declaration !== undefined && source.ast.typeNode(record.declaration) !== undefined) ? record : undefined;
   }
+  function numberOrigin(node: Node): SourceNumberOrigin | undefined {
+    if (numberOrigins.has(node)) return numberOrigins.get(node);
+    if (activeNumberOrigins.has(node)) return undefined;
+    activeNumberOrigins.add(node);
+    const selectedVariable = valueVariables.get(node) ?? retainedVariables.get(node);
+    const selected = selectedVariable === undefined ? undefined : group(selectedVariable);
+    const explicitWide = selected?.nodes.some(record => {
+      const declaration = record.declaration ?? record.association?.component?.declaration;
+      if (declaration === undefined || source.ast.typeNode(declaration) === undefined) return false;
+      const type = defaults.declaredSlots.annotation(declaration);
+      return type?.kind === "primitive" && (type.primitive === "int64" || type.primitive === "uint64" ||
+        type.primitive === "int128" || type.primitive === "uint128");
+    });
+    let result: SourceNumberOrigin | undefined;
+    if (!explicitWide) {
+      const literal = defaults.numberOrigins.get(node);
+      if (literal !== undefined) result = Object.freeze({ origin: node, literal });
+      const principal = source.ast.is.IsVariableDeclaration(node) ? node : source.ast.is.IsIdentifier(node)
+        ? source.navigation.sourceReferenceFor(node)?.declaration : undefined;
+      if (result === undefined && principal !== undefined && source.ast.is.IsVariableDeclaration(principal)) {
+        const initializer = Node_Initializer(source.ast, principal);
+        const initial = initializer === undefined ? undefined : numberOrigin(initializer);
+        if (initial !== undefined) result = source.navigation.declarationUseSummary(principal).bindingWritten
+          ? Object.freeze({ origin: initial.origin }) : initial;
+      }
+      if (result === undefined && selected !== undefined) {
+        const numeric = selected.terms.filter((term): term is Extract<SourceTypeFlowTerm, { kind: "numeric" }> =>
+          term.kind === "numeric" && defaults.numberOrigins.has(term.site));
+        const first = numeric[0];
+        if (first !== undefined) {
+          const written = selected.nodes.some(record => record.declaration !== undefined &&
+            source.ast.is.IsVariableDeclaration(record.declaration) &&
+            source.navigation.declarationUseSummary(record.declaration).bindingWritten);
+          const original = defaults.numberOrigins.get(first.site)!;
+          const integer = original.integerConstant ?? original.integer;
+          const same = !written && numeric.every(term => {
+            const literal = defaults.numberOrigins.get(term.site)!;
+            return term.site === first.site || integer !== undefined && (literal.integerConstant ?? literal.integer) === integer;
+          });
+          result = Object.freeze({ origin: first.site, ...(same ? { literal: original } : {}) });
+        }
+        const derived = selected.derived.find(derived => derived.node === node);
+        if (result === undefined && derived !== undefined && derived.operands.length > 0 &&
+          derived.operands.every(operand => numberOrigin(operand.node) !== undefined)) {
+          const literal = context.literal(node);
+          result = Object.freeze({ origin: node, ...(literal === undefined ? {} : { literal }) });
+        }
+        const body = bodyCallResults.get(selected);
+        if (result === undefined && body?.returned.length === 1) result = numberOrigin(body.returned[0]!.node);
+      }
+    }
+    activeNumberOrigins.delete(node);
+    numberOrigins.set(node, result);
+    return result;
+  }
   function declaredDescriptor(record: SourceTypeFlowNode): SourceTypeDescriptor | undefined {
     const selected = group(record.variable);
     if (bodyCallResults.has(selected) && record.declaredType === undefined &&
@@ -153,7 +239,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
   }
   for (const selected of terms.groups()) group(selected.variable);
-  function callParameters(call: ResolvedSourceCallInfo, receiver: readonly SourceEffectiveTypeArgument[],
+  function callParameters(call: SourceHostCall, receiver: readonly SourceEffectiveTypeArgument[],
     method: readonly SourceEffectiveTypeArgument[]): readonly (SourceTypeDescriptor | undefined)[] {
     return Object.freeze(call.sourceSelectedSignatureParameters.map(parameter => context.describe(call.call, {
       selectedType: parameter.selectedType,
@@ -163,8 +249,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   for (const call of graph.calls) {
     if (call.result === undefined || !source.ast.is.IsCallExpression(call.node)) continue;
-    const queries = source.semantics.forNode(call.node);
-    const declaration = queries.declarations.signatureDeclaration(call.source.selectedSignature);
+    const queries = input.at(call.node);
+    const declaration = queries.callSignature(call.source);
     if (declaration === undefined || source.ast.body(declaration) === undefined || source.ast.typeNode(declaration) !== undefined) continue;
     const returned = sourceTypeFlowCallableReturns(source.ast, declaration).returned;
     const variables = returned.map(node => retainedVariables.get(node));
@@ -176,7 +262,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   const receiverProjections = new Map<Group, SourceReadProjection[]>();
   const variables = new Set([...graph.nodes.map(record => record.variable),
-    ...graph.links.flatMap(link => [link.source, link.target])]);
+    ...graph.links.flatMap(link => [link.source, link.target]),
+    ...graph.inferenceInputs.flatMap(input => [input.source, input.target])]);
   function retainReceiverProjection(variable: SourceTypeFlowVariable, projection: SourceReadProjection): void {
     const selected = group(variable);
     let projections = receiverProjections.get(selected);
@@ -281,7 +368,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function children(term: SourceTypeFlowTerm): readonly SourceTypeFlowVariable[] {
     return term.kind === "array" ? [term.element] : term.kind === "optional" ? [term.value]
       : term.kind === "tuple" ? term.elements.map(element => element.variable) : term.kind === "shape" ? term.members.map(member => member.variable)
-      : term.kind === "declared" ? term.typeArguments : [];
+      : term.kind === "declared" ? term.typeArguments : term.kind === "template" ? term.bindings.map(binding => binding.variable) : [];
   }
   const interfaceChecks = new Map<Group, { readonly type: SourceTypeDescriptor; readonly site: Node }>();
   for (const use of uses) if (use.kind === "check" && use.check === "interface") {
@@ -425,29 +512,29 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     for (const term of selected.terms) {
       const add = (child: SourceTypeFlowVariable, type: SourceTypeDescriptor | undefined,
-        component: SourceTypeComponentEvidence | undefined): void => {
+        component: SourceHostComponent | undefined): void => {
         if (type !== undefined) pendingFills.push({ variable: child, fill: { type, site: fill.site, fixed: fill.fixed, authority: fill.authority,
           ...(component === undefined ? {} : { component }) } });
       };
-      const queries = source.semantics.forNode(fill.site);
+      const queries = input.at(fill.site);
       if (term.kind === "array" && fill.type.kind === "array") {
-        const selectedType = fill.component === undefined ? undefined : sourceArrayElementType(fill.component.selectedType, queries);
+        const selectedType = fill.component === undefined ? undefined : queries.arrayElementType(fill.component.selectedType);
         add(term.element, fill.type.element, selectedType === undefined ? undefined : { selectedType });
       } else if (term.kind === "optional" && fill.type.kind === "optional") {
-        const members = fill.component === undefined ? [] : queries.types.unionOrIntersectionTypes(fill.component.selectedType)
-          .filter(type => !queries.types.isNullish(type));
+        const members = fill.component === undefined ? [] : queries.members(fill.component.selectedType)
+          .filter(type => !queries.isNullish(type));
         add(term.value, fill.type.value, members.length !== 1 ? undefined : { selectedType: members[0]! });
       }
       else if (term.kind === "tuple" && fill.type.kind === "tuple") {
-        const members = fill.component === undefined ? [] : queries.types.tupleElementInfos(fill.component.selectedType);
+        const members = fill.component === undefined ? [] : queries.tupleElements(fill.component.selectedType);
         term.elements.forEach((element, index) => add(element.variable, fill.type.kind === "tuple" ? fill.type.elements[index]?.type : undefined,
           members[index] === undefined ? undefined : { selectedType: members[index]!.type }));
       } else if (term.kind === "declared" && fill.type.kind === "declared" && term.declaration === fill.type.declaration) {
-        const bindings = fill.component === undefined ? [] : queries.types.typeArgumentBindings(fill.component.selectedType) ?? [];
+        const bindings = fill.component === undefined ? [] : queries.typeArgumentBindings(fill.component.selectedType) ?? [];
         term.typeArguments.forEach((argument, offset) => add(argument, fill.type.kind === "declared" ? fill.type.typeArguments[offset] : undefined,
           bindings[offset] === undefined ? undefined : { selectedType: bindings[offset]!.argumentType, declaration: bindings[offset]!.declaration }));
       } else if (term.kind === "shape" && (fill.type.kind === "shape" || fill.type.kind === "declared")) {
-        const properties = fill.component === undefined ? [] : queries.types.propertyInfos(fill.component.selectedType);
+        const properties = fill.component === undefined ? [] : queries.properties(fill.component.selectedType);
         for (const entry of term.members) {
           const produced = group(entry.variable);
           if (source.ast.is.IsObjectLiteralExpression(term.site) && produced.terms.length > 0 &&
@@ -457,6 +544,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         }
       }
     }
+  }
+  const inferenceInputs = new Map<Group, SourceTypeFlowGraph["inferenceInputs"][number][]>();
+  for (const input of graph.inferenceInputs) {
+    const selected = group(input.target);
+    let inputs = inferenceInputs.get(selected);
+    if (inputs === undefined) inferenceInputs.set(selected, inputs = []);
+    inputs.push(input);
+    selected.dependencies.add(group(input.source));
   }
   const accumulatorGroups = new Set([...groups.values()].filter(selected => selected.derived.length > 0 &&
     selected.derived.every(derived => derived.accumulator !== undefined && group(derived.accumulator) === selected)));
@@ -567,7 +662,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const chosen = new Map<Node, { readonly origin: SourceLiteralMemberCorrespondence["origin"]; readonly site: Node }>();
       for (const fill of selected.fills) {
         if (fill.fixed || fill.component === undefined) continue;
-        for (const pair of sourceLiteralMemberCorrespondence(context, literal.node, fill.type, fill.component) ?? []) {
+        for (const pair of sourceLiteralMemberCorrespondence(context, literal.node, fill.type, fill.component === undefined ? {} : { component: fill.component }) ?? []) {
           const previous = chosen.get(pair.property);
           if (previous !== undefined && !sourceTypeDescriptorMemberOriginsEqual(previous.origin, pair.origin)) {
             refuse(selected, "TSONIC_LOCAL_TYPE_CONFLICT", fill.site, previous.site);
@@ -582,7 +677,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   function constructed(selected: Group): SourceTypeDescriptor | undefined {
     for (const term of selected.terms) {
-      if (term.kind === "array") {
+      if (term.kind === "template") {
+        const bindings = new Map<Node, SourceTypeDescriptor>();
+        for (const binding of term.bindings) {
+          const type = group(binding.variable).type;
+          if (type === undefined) return undefined;
+          bindings.set(binding.declaration, type);
+        }
+        return createSourceTypeDescriptorNormalizer(unions, bindings)(term.type);
+      } else if (term.kind === "array") {
         const element = group(term.element).type;
         if (element !== undefined) return { kind: "array", readonly: term.readonly, element };
         if (source.ast.is.IsArrayLiteralExpression(term.site)) {
@@ -606,15 +709,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
           if (value === undefined) return undefined;
           arguments_.push(value);
         }
-        const queries = source.semantics.forNode(term.site);
-        const declaredType = term.source?.selectedType ?? queries.declarations.declaredType(term.declaration);
+        const queries = input.at(term.site);
+        const declaredType = term.source?.selectedType ?? queries.declaredType(term.declaration);
         if (declaredType !== undefined) {
           const call = graph.calls.find(call => call.node === term.site);
           const substitutions = [...(call === undefined ? [] : [...call.receiver, ...call.method])].flatMap(binder => {
             const selected = group(binder.variable);
             return selected.type === undefined ? [] : [{ declaration: binder.declaration, type: selected.type }];
           });
-          const parameters = queries.types.typeArgumentBindings(declaredType)?.map(binding => binding.declaration) ??
+          const parameters = queries.typeArgumentBindings(declaredType)?.map(binding => binding.declaration) ??
             sourceTypeFlowTypeParameters(source.ast, term.declaration);
           parameters.forEach((declaration, index) => {
             if (declaration !== undefined && arguments_[index] !== undefined) substitutions.push({ declaration, type: arguments_[index]! });
@@ -651,7 +754,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (derived.operator === "await") {
       const operand = derived.operands[0];
       return operand === undefined || types.length !== 1 ? undefined
-        : sourceTypeFlowAwaitedPayload(source.semantics.forNode(operand.node), operand.node, types[0]);
+        : sourceTypeDescriptorAwaitedPayload(source.ast, unions, types[0]!);
     }
     if (derived.operator === "identity" && update === undefined) return types[0];
     if (derived.operator === "sequence") return types[types.length - 1];
@@ -663,7 +766,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (structure?.kind !== "primitive" || structure.primitive !== "bool") {
         return operatorRefusal(derived, "A conditional operator requires an exact bool condition.");
       }
-      return sourceTypeDescriptorUnion(partneredArms(derived.operands, types.filter((type): type is SourceTypeDescriptor => type !== undefined)));
+      return sourceTypeDescriptorUnion(unions, partneredArms(derived.operands, types.filter((type): type is SourceTypeDescriptor => type !== undefined)),
+        { kind: "inferred", node: derived.node });
     }
     if (derived.operator === "logical-and" || derived.operator === "logical-or") {
       const primitives = types.map(type => type === undefined ? undefined : sourceTypeDescriptorStructure(type));
@@ -679,7 +783,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         return operatorRefusal(derived, "A coalescing operator requires a nullable or runtime-union left operand.");
       }
       const present = left.kind === "optional" ? left.value : left.kind === "intrinsic" && left.intrinsic === "absence" ? undefined : types[0];
-      const result = present === undefined ? right : sourceTypeDescriptorUnion(partneredArms(derived.operands, [present, right]));
+      const result = present === undefined ? right : sourceTypeDescriptorUnion(unions, partneredArms(derived.operands, [present, right]),
+        { kind: "inferred", node: derived.node });
       return result === undefined ? undefined : binaryResult(derived, result);
     }
     const unary: SourcePrimitiveUnaryOperator | undefined = update ?? (derived.operator === "positive" || derived.operator === "negate" ||
@@ -874,8 +979,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const partner = partners[0]!;
     return arms.map((arm, index) => {
       const input = inputs[index];
-      return input?.kind === "unbound-literal" && arm.kind === "primitive" && sourcePrimitiveOperatorLiteralFits(input.literal, partner)
-        ? { kind: "primitive", primitive: partner } as const : arm;
+      const primitive = input === undefined || arm.kind !== "primitive" ? undefined : sourcePrimitiveOperatorLiteralPartner(input, partner);
+      return primitive === undefined ? arm : { kind: "primitive", primitive } as const;
     });
   }
 
@@ -884,8 +989,23 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const refusal = defaults.descriptorRefusals.get(node.node);
       if (refusal !== undefined) { selected.refused = refusal; break; }
     }
-    if ((selected.inference || selected.derived.length > 0) && selected.refused === undefined) for (const dependency of selected.dependencies) {
+    if ((selected.inference || selected.derived.length > 0 || inferenceInputs.has(selected)) && selected.refused === undefined) for (const dependency of selected.dependencies) {
       if (dependency.refused !== undefined) { selected.refused = dependency.refused; break; }
+    }
+    if (selected.refused !== undefined) { selected.solved = true; return; }
+    for (const input of inferenceInputs.get(selected) ?? []) {
+      const calculation = scalarCalculations.get(input.source.node);
+      if (calculation?.kind === "refused") {
+        selected.refused = calculation;
+        break;
+      }
+      const producer = group(input.source);
+      const type = calculation ?? producedOperandType(input.source);
+      if (type === undefined) {
+        selected.refused = producer.refused ?? createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_GENERIC", input.site);
+        break;
+      }
+      selected.fills.push({ type, site: input.site, fixed: true, authority: producer.chosenFill?.authority ?? "inferred" });
     }
     if (selected.refused !== undefined) { selected.solved = true; return; }
     const body = bodyCallResults.get(selected);
@@ -912,8 +1032,14 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
           bindings.set(binder.declaration, argument);
         }
         if (selected.refused === undefined) {
-          selected.type = freezeSourceTypeDescriptor(sourceTypeFlowCallResultType(source.semantics.forNode(body.call.node), body.call.source,
-            substituteSourceTypeDescriptor(returned.type, bindings)));
+          const substituted = createSourceTypeDescriptorNormalizer(unions, bindings)(returned.type);
+          if (substituted === undefined) {
+            selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", body.call.node, body.declaration);
+            selected.solved = true;
+            return;
+          }
+          selected.type = freezeSourceTypeDescriptor(unions, input.at(body.call.node).callResultType(unions, body.call.source,
+            substituted));
           structuredGroups.add(selected);
           validate(selected);
         }
@@ -929,7 +1055,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         let type = declaration === undefined ? receiver.source.type : declaredDescriptor(declaration);
         if (receiver.construction && type?.kind === "intrinsic" && (type.intrinsic === "object" || type.intrinsic === "unknown")) {
           const physical = constructed(receiver.source);
-          type = physical === undefined ? undefined : freezeSourceTypeDescriptor(physical);
+          type = physical === undefined ? undefined : freezeSourceTypeDescriptor(unions, physical);
         }
         for (const part of receiver.path) type = type === undefined ? undefined
           : sourceTypeFlowDescriptorPart(context, receiver.site, type, part);
@@ -1004,19 +1130,19 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (destination === undefined || literal === undefined) continue;
       const storage = sourceTypeDescriptorStructure(destination.type);
       if (destination.authority === "declared" && storage.kind === "primitive") {
-        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(storage));
+        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, storage));
       } else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
         const creation = numericCreation(term.site);
         if (creation.literal === undefined) continue;
         const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal);
-        if (arm.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor({ kind: "primitive", primitive: arm.primitive }));
-        else if (term.kind === "fixed" && scalarType(term.type)) scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
+        if (arm.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, { kind: "primitive", primitive: arm.primitive }));
+        else if (term.kind === "fixed" && scalarType(term.type)) scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, term.type));
       } else if (term.kind === "fixed" && scalarType(term.type)) {
-        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(term.type));
+        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, term.type));
       } else if (term.kind === "numeric") {
         const creation = numericCreation(term.site);
         const own = creation.literal === undefined ? undefined : sourceTypeFlowNumericLiteralKind(creation.literal);
-        if (own?.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor({ kind: "primitive", primitive: own.primitive }));
+        if (own?.kind === "resolved") scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, { kind: "primitive", primitive: own.primitive }));
         else {
           const refusal = own?.kind === "refused" ? defaults.numericCreationRefusal(creation.site, own.reason)
             : createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", creation.site);
@@ -1053,7 +1179,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       if (selected.refused === undefined && selected.type === undefined) {
         refuse(selected, "TSONIC_LOCAL_TYPE_ACCUMULATOR", selected.derived[0]!.node);
       }
-      if (selected.type !== undefined) selected.type = freezeSourceTypeDescriptor(selected.type);
+      if (selected.type !== undefined) selected.type = freezeSourceTypeDescriptor(unions, selected.type);
       deferredAccumulators.set(selected, scalarStorage);
       selected.solved = true;
       return;
@@ -1070,13 +1196,13 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const type = derivedType(derived);
       if (type === undefined) selected.refused ??= createSourceTypeFlowRefusal(
         accumulator ? "TSONIC_LOCAL_TYPE_ACCUMULATOR" : "TSONIC_LOCAL_TYPE_UNSUPPORTED", derived.node);
-      else if (scalarStorage && scalarType(type)) scalarCalculations.set(derived.node, freezeSourceTypeDescriptor(type));
+      else if (scalarStorage && scalarType(type)) scalarCalculations.set(derived.node, freezeSourceTypeDescriptor(unions, type));
       else if (selected.type !== undefined && !sourceTypeDescriptorsEqual(selected.type, type)) {
         refuse(selected, accumulator ? "TSONIC_LOCAL_TYPE_ACCUMULATOR" : "TSONIC_LOCAL_TYPE_CONFLICT", derived.node);
       } else selected.type = type;
     }
     if (selected.type !== undefined) {
-      selected.type = freezeSourceTypeDescriptor(selected.type);
+      selected.type = freezeSourceTypeDescriptor(unions, selected.type);
       // B6 depth applies to an open (inferred) group only; declared structure has full depth (C34, C-2269).
       if (selected.inference && sourceTypeDescriptorDepth(selected.type) > 4) refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
       validate(selected);
@@ -1189,7 +1315,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         conditionRefusals.push(createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", condition));
         continue;
       }
-      const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(leaves.types) : outcome?.type;
+      const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(unions, leaves.types) : outcome?.type;
       const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
       const admitted = nullish ? structure !== undefined && structure.kind !== "primitive"
         : structure?.kind === "primitive" && structure.primitive === "bool";
@@ -1238,7 +1364,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (selected.type === undefined || selected.refused !== undefined) return;
     if (use.kind === "check") {
       obligations.push(Object.freeze({ kind: use.check, site: use.site, type: selected.type,
-        required: use.required, requiredType: freezeSourceTypeDescriptor(use.type), association: use.association }));
+        required: use.required, requiredType: freezeSourceTypeDescriptor(unions, use.type), association: use.association }));
     } else if (use.kind === "write") {
       const candidateVariable = use.valueVariable ?? valueVariables.get(use.value);
       const valueVariable = candidateVariable !== undefined &&
@@ -1249,7 +1375,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         : valueGroup?.refused === undefined ? valueGroup?.type : undefined;
       const valueType = compoundCalculationTypes.get(use.value) ?? selectedValue;
       obligations.push(Object.freeze({ kind: "write-fit", site: use.site, type: selected.type, required: use.required,
-        value: use.value, ...(valueType === undefined ? {} : { valueType: freezeSourceTypeDescriptor(valueType) }),
+        value: use.value, ...(valueType === undefined ? {} : { valueType: freezeSourceTypeDescriptor(unions, valueType) }),
         ...(valueVariable === undefined ? {} : { valueVariable: Object.freeze({ node: valueVariable.node,
           path: Object.freeze(valueVariable.path.map(part => Object.freeze({ ...part }))) }) }), association: use.association }));
     }
@@ -1348,18 +1474,17 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   // binders take the descriptor of the selected type argument, from its authored syntax when it is explicit.
   for (const node of defaults.nodes) {
     if (calls.has(node) || !(source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node))) continue;
-    const queries = source.semantics.forNode(node);
-    const call = queries.operations.call(node);
+    const queries = input.at(node);
+    const call = queries.call(node);
     const selected = call?.sourceSelectedMethodTypeArguments ?? [];
     if (call === undefined || call.sourceSelectedSignatureKind !== "resolved" || selected.length === 0) continue;
     const method: { readonly declaration: Node; readonly type: SourceTypeDescriptor }[] = [];
     for (const argument of selected) {
-      const symbol = queries.declarations.typeSymbol(argument.typeParameter);
-      const declarations = symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)
+      const declarations = queries.typeSymbolDeclarations(argument.typeParameter)
         .filter(declaration => source.ast.is.IsTypeParameterDeclaration(declaration));
-      const type = declarations.length !== 1 ? undefined : context.describe(node, getSourceMethodTypeArgumentComponent(argument));
+      const type = declarations.length !== 1 ? undefined : context.describe(node, queries.methodTypeArgumentComponent(argument));
       if (declarations.length !== 1 || type === undefined) break;
-      method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(type) }));
+      method.push(Object.freeze({ declaration: declarations[0]!, type: freezeSourceTypeDescriptor(unions, type) }));
     }
     if (method.length !== selected.length) continue;
     calls.set(node, Object.freeze({ call, receiver: Object.freeze([]), method: Object.freeze(method),
@@ -1434,8 +1559,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (owner === undefined || source.ast.body(owner) !== undefined || pattern === undefined || annotation === undefined ||
       !(source.ast.is.IsArrayBindingPattern(pattern) || source.ast.is.IsObjectBindingPattern(pattern)) ||
       head === undefined || head.kind === "refused") continue;
-    const queries = source.semantics.forNode(node);
-    const selectedType = queries.types.authoredType(annotation);
+    const queries = input.at(node);
+    const selectedType = queries.authoredType(annotation);
     if (selectedType === undefined) continue;
     const component = { selectedType, declaration: node, authoredTypeNode: annotation };
     for (const binding of sourceTypeFlowDeclaredPatternBindings(context, pattern, component, queries, head.type)) {
@@ -1450,7 +1575,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       }
       const sourceFile = source.ast.getSourceFile(binding.node);
       if (sourceFile === undefined) throw new Error("A declared binding requires its original checked source file.");
-      outcomes.set(binding.node, Object.freeze({ kind: "resolved", type: freezeSourceTypeDescriptor(type),
+      outcomes.set(binding.node, Object.freeze({ kind: "resolved", type: freezeSourceTypeDescriptor(unions, type),
         provenance: Object.freeze({ group: node, occurrence: binding.node, sourceFile }) }));
     }
   }
@@ -1465,8 +1590,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const node of defaults.nodes) {
     if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node) ||
       source.ast.is.IsTypeAliasDeclaration(node))) continue;
-    const queries = source.semantics.forNode(node);
-    const selectedType = queries.declarations.declaredType(node);
+    const queries = input.at(node);
+    const selectedType = queries.declaredType(node);
     const type = selectedType === undefined ? undefined : context.describe(node, { selectedType, declaration: node });
     const sourceFile = source.ast.getSourceFile(node);
     if (type === undefined || sourceFile === undefined) continue;
@@ -1477,10 +1602,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const node of defaults.nodes) {
     const ast = source.ast;
     if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) || ast.is.IsPropertyAccessExpression(node))) continue;
-    const queries = source.semantics.forNode(node);
-    const call = ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ? queries.operations.call(node) : undefined;
-    const declaration = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node)?.selectedReadDeclaration
-      : call === undefined ? undefined : queries.declarations.signatureDeclaration(call.selectedSignature);
+    const queries = input.at(node);
+    const call = ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ? queries.call(node) : undefined;
+    const declaration = ast.is.IsPropertyAccessExpression(node) ? queries.propertyAccess(node)?.selectedReadDeclaration
+      : call === undefined ? undefined : queries.callSignature(call);
     if (declaration !== undefined) callableQueries.set(declaration, queries);
   }
   function callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined {
@@ -1493,10 +1618,10 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (!isSourceCallableSignatureDeclaration(ast, declaration)) return undefined;
     activeReturns.add(declaration);
     const file = ast.getSourceFile(declaration);
-    const queries = callableQueries.get(declaration) ?? (file !== undefined && source.semantics.includes(file)
-      ? source.semantics.forFile(file) : undefined);
+    const inProgram = input.includes(declaration);
+    const queries = callableQueries.get(declaration) ?? input.file(declaration);
     if (queries === undefined) { activeReturns.delete(declaration); return undefined; }
-    const signature = queries.types.declarationSignatureInfo(declaration);
+    const signature = queries.declarationSignature(declaration);
     const selectedType = signature?.returnType;
     let type: SourceTypeDescriptor | undefined;
     let failure: SourceTypeFlowRefusal | undefined;
@@ -1505,22 +1630,21 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const requiredResult = annotation === undefined ? defaults.declaredSlots.returned(declaration, queries) : undefined;
     if (ast.is.IsConstructorDeclaration(declaration)) {
       const owner = ast.parent(declaration);
-      const selected = owner === undefined ? undefined : queries.declarations.declaredType(owner);
+      const selected = owner === undefined ? undefined : queries.declaredType(owner);
       if (owner !== undefined && selected !== undefined) type = context.describe(owner, { selectedType: selected, declaration: owner });
     } else if (requiredResult !== undefined) {
       type = contextual?.signature.result ?? requiredResult;
       const requiredType = requiredResult;
-      const returnedValues = file !== undefined && source.semantics.includes(file)
-        ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
+      const returnedValues = inProgram ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
       for (const returned of returnedValues) {
         const value = outcomes.get(returned);
         if (value === undefined) throw new Error("A declared callable body requires its canonical Source publication.");
         if (value.kind === "refused") { failure = value; break; }
-        obligations.push(Object.freeze({ kind: "write-fit", site: returned, type: freezeSourceTypeDescriptor(requiredType),
+        obligations.push(Object.freeze({ kind: "write-fit", site: returned, type: freezeSourceTypeDescriptor(unions, requiredType),
           value: returned, valueType: value.type, required: declaration }));
       }
     } else if (selectedType !== undefined && (annotation !== undefined || ast.body(declaration) === undefined ||
-      file === undefined || !source.semantics.includes(file))) {
+      !inProgram)) {
       type = context.describe(declaration, { selectedType, declaration,
         ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
     } else {
@@ -1537,27 +1661,23 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
           outcomes.set(node, failure);
           break;
         }
-        if (asynchronous && current.kind === "declared") {
-          const actual = queries.types.expressionType(node);
-          const awaited = actual === undefined ? undefined : queries.types.awaitedType(actual);
-          const arguments_ = actual === undefined ? [] : queries.types.typeArguments(actual);
-          const index = awaited === undefined ? -1 : arguments_.findIndex(argument => queries.types.isIdentical(argument, awaited));
-          if (index >= 0) current = current.typeArguments[index];
-        }
+        // An async body returns the awaited payload of each returned value (declaration rule, no checked awaited type).
+        if (asynchronous) current = sourceTypeDescriptorAwaitedPayload(ast, unions, current);
         if (current === undefined) { incomplete = true; break; }
         if (!types.some(previous => sourceTypeDescriptorsEqual(previous, current!))) types.push(current);
       }
       if (failure === undefined && !incomplete && (returned.length === 0 || types.length > 0)) {
-        if (types.length > 0 && (absent || queries.operations.callableCompletion(declaration)?.canFallThrough === true)) {
+        if (types.length > 0 && (absent || queries.callableCompletion(declaration)?.canFallThrough === true)) {
           types.push({ kind: "intrinsic", intrinsic: "absence" });
         }
-        type = types.length === 0 ? { kind: "intrinsic", intrinsic: "void" } : sourceTypeDescriptorUnion(types);
+        type = types.length === 0 ? { kind: "intrinsic", intrinsic: "void" } : sourceTypeDescriptorUnion(unions, types);
         if (asynchronous && selectedType !== undefined) {
+          // The checked signature result only witnesses which thenable declaration the async callable completes with;
+          // its payload binder comes from that declaration (sourceThenablePayloadBinder), never from a checked argument.
           const complete = context.describe(declaration, { selectedType });
-          const awaited = queries.types.awaitedType(selectedType);
-          const arguments_ = queries.types.typeArguments(selectedType);
-          const index = awaited === undefined ? -1 : arguments_.findIndex(argument => queries.types.isIdentical(argument, awaited));
-          const parameter = complete?.kind === "declared" ? sourceTypeFlowTypeParameters(ast, complete.declaration)[index] : undefined;
+          const index = complete?.kind === "declared" ? sourceThenablePayloadBinder(ast, complete.declaration) : undefined;
+          const parameter = complete?.kind === "declared" && index !== undefined
+            ? sourceTypeFlowTypeParameters(ast, complete.declaration)[index] : undefined;
           type = parameter === undefined || type === undefined ? undefined
             : context.describe(declaration, { selectedType }, [{ declaration: parameter, type }]);
         }
@@ -1565,7 +1685,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
     activeReturns.delete(declaration);
     const outcome = failure ?? (type === undefined || file === undefined ? undefined : Object.freeze({ kind: "resolved" as const,
-      type: freezeSourceTypeDescriptor(type), provenance: Object.freeze({ group: declaration, occurrence: declaration, sourceFile: file }) }));
+      type: freezeSourceTypeDescriptor(unions, type), provenance: Object.freeze({ group: declaration, occurrence: declaration, sourceFile: file }) }));
     if (outcome !== undefined) callableReturns.set(declaration, outcome);
     return outcome;
   }
@@ -1578,7 +1698,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const type = record === undefined ? selected.type : declaredDescriptor(record);
     const sourceFile = source.ast.getSourceFile(node);
     return type === undefined || sourceFile === undefined ? undefined : Object.freeze({ kind: "resolved",
-      type: freezeSourceTypeDescriptor(type), provenance: Object.freeze({ group: selected.variable.node, occurrence: node, sourceFile }) });
+      type: freezeSourceTypeDescriptor(unions, type), provenance: Object.freeze({ group: selected.variable.node, occurrence: node, sourceFile }) });
   }
   for (const node of defaults.nodes) {
     if (isSourceCallableSignatureDeclaration(source.ast, node)) callableReturn(node);
@@ -1589,8 +1709,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const returned = callableReturn(node);
     if (returned === undefined) continue;
     if (returned.kind === "refused") { outcomes.set(node, returned); continue; }
-    const queries = source.semantics.forNode(node);
-    const signature = queries.types.declarationSignatureInfo(node);
+    const queries = input.at(node);
+    const signature = queries.declarationSignature(node);
     if (signature === undefined) continue;
     const contextual = defaults.declaredSlots.callable(node, queries);
     const parameters = signature.parameters.map((parameter, index) => {
@@ -1621,7 +1741,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const callable: SourceTypeDescriptor = { ...structure, calls: structure.calls.length === 1 ? [selectedCall]
       : structure.calls.map(signature => signature.declaration === node ? selectedCall : signature) };
     const type: SourceTypeDescriptor = optional ? { kind: "optional", value: callable } : callable;
-    const outcome = Object.freeze({ ...returned, type: freezeSourceTypeDescriptor(type) });
+    const outcome = Object.freeze({ ...returned, type: freezeSourceTypeDescriptor(unions, type) });
     outcomes.set(node, outcome);
     for (const use of source.navigation.declarationUses(node)) {
       if (use.role === "type-only" || use.role === "source-linkage") continue;
@@ -1713,6 +1833,263 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: outcome.type, required: node.node,
       authority: authority(parent) }));
   }
+  for (const declaration of callableQueries.keys()) callableReturn(declaration);
+  const declaredSlots = new Map<Node, SourceTypeDescriptor>();
+  const declaredSlotOwners = new Map<Node, Node>();
+  for (const node of outcomes.keys()) {
+    const annotation = source.ast.typeNode(node);
+    if (annotation === undefined) continue;
+    const type = defaults.declaredSlots.annotation(node);
+    if (type === undefined) continue;
+    declaredSlots.set(node, type);
+    declaredSlots.set(annotation, type);
+    declaredSlotOwners.set(node, node);
+    declaredSlotOwners.set(annotation, node);
+  }
+  for (const [node, type] of defaults.unionComponents) {
+    const sourceFile = source.ast.getSourceFile(node);
+    if (sourceFile === undefined) throw new Error("A declared Source sum requires its own original syntax occurrence.");
+    const previous = outcomes.get(node);
+    if (previous !== undefined) {
+      if (previous.kind !== "refused" && !sourceTypeDescriptorsEqual(previous.type, type)) {
+        throw new Error("An original Source sum cannot have contradictory declaration components.");
+      }
+      continue;
+    }
+    outcomes.set(node, Object.freeze({ kind: "resolved", type, provenance: Object.freeze({
+      group: node, occurrence: node, sourceFile, component: Object.freeze({ authoredTypeNode: node }),
+    }) }));
+  }
+  const retainInferredSum = (node: Node, type: SourceTypeDescriptor): void => {
+    const selected = type.kind === "array" ? type.element : type;
+    if (selected.kind !== "union" && selected.kind !== "optional") return;
+    if (sourceTypeDescriptorUnion(unions, [selected], { kind: "inferred", node }) === undefined) {
+      throw new Error("An inferred Source sum requires its exact solved original producer.");
+    }
+  };
+  for (const node of defaults.nodes) {
+    if (!source.ast.is.IsArrayLiteralExpression(node)) continue;
+    const outcome = outcomes.get(node);
+    if (outcome === undefined || outcome.kind === "refused") continue;
+    retainInferredSum(node, outcome.type);
+    if (outcome.construction !== undefined) retainInferredSum(node, outcome.construction);
+  }
+  for (const [declaration, outcome] of callableReturns) {
+    if (outcome.kind !== "refused") retainInferredSum(declaration, outcome.type);
+  }
+  for (const [node, outcome] of outcomes) {
+    if (outcome.kind === "refused" || defaults.unionComponents.has(node) || isSourceCallableSignatureDeclaration(source.ast, node)) continue;
+    retainInferredSum(node, outcome.type);
+    if (outcome.construction !== undefined) retainInferredSum(node, outcome.construction);
+  }
+  const sumComponents = new Set(defaults.unionComponents.values());
+  const retainSumComponent = (type: SourceTypeDescriptor | undefined): void => {
+    if (type !== undefined) sumComponents.add(type);
+  };
+  for (const outcome of [...outcomes.values(), ...callableReturns.values()]) if (outcome.kind !== "refused") {
+    retainSumComponent(outcome.type);
+    retainSumComponent(outcome.construction);
+  }
+  for (const type of declaredSlots.values()) retainSumComponent(type);
+  for (const call of calls.values()) {
+    for (const binding of [...call.receiver, ...call.method]) retainSumComponent(binding.type);
+    for (const parameter of call.parameters) retainSumComponent(parameter);
+    retainSumComponent(call.result);
+  }
+  for (const obligation of obligations) {
+    retainSumComponent(obligation.type);
+    retainSumComponent(obligation.requiredType);
+    retainSumComponent(obligation.valueType);
+  }
+  // Generic function values (instantiations.at, kind "function-value"): a read of a generic callable that is not a call's
+  // callee is instantiated against its Host destination slot. The binders of the callable's own signature are bound by
+  // unifying its parameter and result descriptors with the destination's one non-generic call signature; a method read
+  // through a generic receiver first binds the owner's binders from the receiver's Host descriptor. Host descriptors only:
+  // the G4 journal records contributions of calls, and a value use is no call. Every binder must be bound exactly once.
+  const functionValues = new Map<Node, SourceSolvedFunctionValue | SourceTypeFlowRefusal>();
+  for (const node of defaults.values) {
+    const ast = source.ast;
+    if (!(ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node))) continue;
+    const parent = ast.parent(node);
+    if (parent !== undefined && (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
+      Node_Expression(ast, parent) === node) continue;
+    if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && ast.name(parent) === node) continue;
+    const declaration = ast.is.IsIdentifier(node) ? source.navigation.sourceReferenceFor(node)?.declaration
+      : input.member(node)?.declarations[0];
+    if (declaration === undefined || !isSourceCallableSignatureDeclaration(ast, declaration)) continue;
+    const owner = ast.is.IsPropertyAccessExpression(node) ? ast.parent(declaration) : undefined;
+    const receiverBinders = owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) ||
+      ast.is.IsInterfaceDeclaration(owner)) ? sourceTypeFlowTypeParameters(ast, owner) : [];
+    const methodBinders = sourceTypeFlowTypeParameters(ast, declaration);
+    if (methodBinders.length === 0 && receiverBinders.length === 0) continue;
+    const result = functionValueInstantiation(node, declaration, owner, receiverBinders, methodBinders);
+    functionValues.set(node, result);
+    if (result.kind === "function-value") for (const type of [...result.parameters, result.result]) retainSumComponent(type);
+  }
+  function functionValueInstantiation(node: Node, declaration: Node, owner: Node | undefined, receiverBinders: readonly Node[],
+    methodBinders: readonly Node[]): SourceSolvedFunctionValue | SourceTypeFlowRefusal {
+    const ast = source.ast;
+    const refuse = (reason: string): SourceTypeFlowRefusal =>
+      Object.freeze({ ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_GENERIC", node, declaration), reason });
+    const bound = new Map<Node, SourceTypeDescriptor>();
+    if (receiverBinders.length > 0) {
+      const receiver = Node_Expression(ast, node);
+      const outcome = receiver === undefined ? undefined : outcomes.get(receiver);
+      let selected = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.type;
+      const seen = new Set<SourceTypeDescriptor>();
+      while (selected !== undefined && !seen.has(selected) && !(selected.kind === "declared" && selected.declaration === owner)) {
+        seen.add(selected);
+        selected = selected.kind === "optional" ? selected.value : selected.kind === "declared" ? selected.definition : undefined;
+      }
+      if (selected?.kind !== "declared" || selected.typeArguments.length !== receiverBinders.length) {
+        return refuse("The receiver's Source type does not state the type arguments of the method's owner. Annotate the receiver.");
+      }
+      receiverBinders.forEach((binder, index) => bound.set(binder, selected.typeArguments[index]!));
+    }
+    const own = context.describe(declaration);
+    const ownStructure = own === undefined ? undefined : sourceTypeDescriptorStructure(own);
+    const signature = ownStructure?.kind === "callable" || ownStructure?.kind === "shape"
+      ? ownStructure.calls.find(call => call.declaration === declaration) ?? (ownStructure.calls.length === 1 ? ownStructure.calls[0] : undefined)
+      : undefined;
+    if (signature === undefined) return refuse("The generic callable used as a value has no Host signature.");
+    let target: SourceTypeDescriptorSignature | undefined;
+    if (methodBinders.length > 0) {
+      const slot = defaults.declaredSlots.get(node);
+      let destination = slot?.type === undefined ? undefined : sourceTypeDescriptorStructure(slot.type);
+      if (destination?.kind === "optional") destination = sourceTypeDescriptorStructure(destination.value);
+      target = (destination?.kind === "callable" || destination?.kind === "shape") && destination.calls.length === 1 &&
+        destination.calls[0]!.typeParameters.length === 0 ? destination.calls[0] : undefined;
+      if (target === undefined) {
+        return refuse("A generic callable used as a value requires a destination with one non-generic call signature. Annotate the destination or wrap the callable in an arrow function.");
+      }
+    }
+    const binders = new Set(methodBinders);
+    let conflict = false;
+    const unify = (formal: SourceTypeDescriptor, actual: SourceTypeDescriptor, depth: number): void => {
+      if (depth > 8 || conflict) return;
+      if (formal.kind === "declared" && binders.has(formal.declaration) && formal.typeArguments.length === 0) {
+        const previous = bound.get(formal.declaration);
+        if (previous === undefined) bound.set(formal.declaration, actual);
+        else if (!sourceTypeDescriptorsEqual(previous, actual)) conflict = true;
+        return;
+      }
+      if (formal.kind === "optional") { unify(formal.value, actual.kind === "optional" ? actual.value : actual, depth + 1); return; }
+      if (formal.kind === "array" && actual.kind === "array") { unify(formal.element, actual.element, depth + 1); return; }
+      if (formal.kind === "tuple" && actual.kind === "tuple" && formal.elements.length === actual.elements.length) {
+        formal.elements.forEach((element, index) => unify(element.type, actual.elements[index]!.type, depth + 1));
+        return;
+      }
+      if (formal.kind === "declared" && actual.kind === "declared" && formal.declaration === actual.declaration &&
+        formal.typeArguments.length === actual.typeArguments.length) {
+        formal.typeArguments.forEach((argument, index) => unify(argument, actual.typeArguments[index]!, depth + 1));
+        return;
+      }
+      if ((formal.kind === "callable" || formal.kind === "shape") && (actual.kind === "callable" || actual.kind === "shape") &&
+        formal.calls.length === 1 && actual.calls.length === 1) {
+        const left = formal.calls[0]!;
+        const right = actual.calls[0]!;
+        left.parameters.forEach((parameter, index) => {
+          const other = right.parameters[index];
+          if (other !== undefined) unify(parameter.type, other.type, depth + 1);
+        });
+        unify(left.result, right.result, depth + 1);
+      }
+      if (formal.kind === "shape" && actual.kind === "shape") for (const member of formal.members) {
+        const other = actual.members.find(candidate => candidate.name === member.name);
+        if (other !== undefined) unify(member.type, other.type, depth + 1);
+      }
+      // Union arms are not paired: Host arm order is authored-first per descriptor, not positional across descriptors.
+    };
+    if (target !== undefined) {
+      signature.parameters.forEach((parameter, index) => {
+        const destination = target!.parameters[index];
+        if (destination !== undefined) unify(parameter.type, destination.type, 0);
+      });
+      unify(signature.result, target.result, 0);
+    }
+    if (conflict || methodBinders.some(binder => !bound.has(binder))) {
+      return refuse("The destination does not determine every type parameter of the generic callable exactly once. Provide explicit type arguments through an arrow function.");
+    }
+    const substitute = (type: SourceTypeDescriptor): SourceTypeDescriptor | undefined => {
+      const selected = substituteSourceTypeDescriptor(unions, type, bound);
+      return selected === undefined ? undefined : freezeSourceTypeDescriptor(unions, selected);
+    };
+    const parameters = signature.parameters.map(parameter => substitute(parameter.type));
+    const result = substitute(signature.result);
+    if (result === undefined || parameters.some(parameter => parameter === undefined)) {
+      return refuse("The instantiated signature of the generic callable has no Host description.");
+    }
+    const argument = (binder: Node) => Object.freeze({ declaration: binder, type: freezeSourceTypeDescriptor(unions, bound.get(binder)!) });
+    return Object.freeze({ kind: "function-value", use: node, signature: signature.declaration ?? declaration,
+      receiver: Object.freeze(receiverBinders.map(argument)), method: Object.freeze(methodBinders.map(argument)),
+      parameters: Object.freeze(parameters as SourceTypeDescriptor[]), result });
+  }
+  // Contextual destinations (values.contextual): the Host slot each value use flows into (declared, parameter or return
+  // slot, from declared-slots), read before sealing so their sums are registered. Never the checker's contextual type.
+  const contextualSlots = new Map<Node, SourceTypeDescriptor | SourceTypeFlowRefusal>();
+  for (const node of defaults.values) {
+    const slot = defaults.declaredSlots.get(node);
+    if (slot?.refusal !== undefined) contextualSlots.set(node, slot.refusal);
+    else if (slot?.type !== undefined) { contextualSlots.set(node, slot.type); retainSumComponent(slot.type); }
+  }
+  for (const call of calls.values()) {
+    const bindings = new Map([...call.receiver, ...call.method].map(binding => [binding.declaration, binding.type]));
+    if (bindings.size === 0) continue;
+    const specialize = createSourceTypeDescriptorNormalizer(unions, bindings);
+    for (const type of sumComponents) specialize(type);
+  }
+  sealSourceTypeDescriptorUnions(unions);
+  const normalizer = createSourceTypeDescriptorNormalizer(unions, new Map());
+  const normalize = (type: SourceTypeDescriptor): SourceTypeDescriptor => {
+    const normalized = normalizer(type);
+    if (normalized === undefined) throw new Error("A published Source type requires its sealed program sum preferences.");
+    return freezeSourceTypeDescriptor(unions, normalized);
+  };
+  const normalizedOutcomes = new WeakMap<SourceEffectiveTypeOutcome, SourceEffectiveTypeOutcome>();
+  const normalizeOutcome = (outcome: SourceEffectiveTypeOutcome): SourceEffectiveTypeOutcome => {
+    if (outcome.kind === "refused") return outcome;
+    const previous = normalizedOutcomes.get(outcome);
+    if (previous !== undefined) return previous;
+    const normalized = Object.freeze({ ...outcome, type: normalize(outcome.type),
+      ...(outcome.construction === undefined ? {} : { construction: normalize(outcome.construction) }) });
+    normalizedOutcomes.set(outcome, normalized);
+    normalizedOutcomes.set(normalized, normalized);
+    return normalized;
+  };
+  for (const [node, outcome] of outcomes) outcomes.set(node, normalizeOutcome(outcome));
+  for (const [declaration, outcome] of callableReturns) callableReturns.set(declaration, normalizeOutcome(outcome));
+  const declaredSlotFacts = new Map<Node, NonNullable<ReturnType<SourceEffectiveTypes["declaredSlot"]>>>();
+  const slotFacts = new Map<Node, NonNullable<ReturnType<SourceEffectiveTypes["declaredSlot"]>>>();
+  for (const [node, type] of declaredSlots) {
+    const normalized = normalize(type);
+    const slot = declaredSlotOwners.get(node)!;
+    let fact = slotFacts.get(slot);
+    if (fact === undefined) {
+      fact = Object.freeze({ slot, type: normalized, broad: sourceTypeFlowIsBroadSlot(normalized) });
+      slotFacts.set(slot, fact);
+    }
+    declaredSlotFacts.set(node, fact);
+  }
+  for (const [node, call] of calls) calls.set(node, Object.freeze({ ...call,
+    receiver: Object.freeze(call.receiver.map(argument => Object.freeze({ ...argument, type: normalize(argument.type) }))),
+    method: Object.freeze(call.method.map(argument => Object.freeze({ ...argument, type: normalize(argument.type) }))),
+    parameters: Object.freeze(call.parameters.map(type => type === undefined ? undefined : normalize(type))),
+    ...(call.result === undefined ? {} : { result: normalize(call.result) }) }));
+  function retainSlot(slot: Node, type: SourceTypeDescriptor): SourceDeclaredSlot {
+    const existing = declaredSlotFacts.get(slot);
+    if (existing !== undefined) return existing;
+    const normalized = normalize(type);
+    const fact: SourceDeclaredSlot = Object.freeze({ slot, type: normalized, broad: sourceTypeFlowIsBroadSlot(normalized) });
+    declaredSlotFacts.set(slot, fact);
+    const annotation = source.ast.typeNode(slot);
+    if (annotation !== undefined) declaredSlotFacts.set(annotation, fact);
+    return fact;
+  }
+  const admissionUses = [...uses, ...graph.nodes.filter(record => record.publish && record.variable.path.length === 0)
+    .map(record => ({ site: record.node,
+      association: Object.freeze({ ...record.association, occurrence: record.node }) }))];
+  const slotAdmissions = createSourceSlotAdmissions(context, admissionUses, outcomes,
+    use => defaults.declaredSlots.get(use), retainSlot, numberOrigin);
   // Refusals that literal publication sets on an aggregate literal itself are reported like every other Host refusal.
   const literalRefusals = defaults.values.flatMap(node => {
     if (!(source.ast.is.IsObjectLiteralExpression(node) || source.ast.is.IsArrayLiteralExpression(node))) return [];
@@ -1720,10 +2097,48 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     return outcome?.kind === "refused" && outcome.site === node ? [outcome] : [];
   });
   const frozenIssues = Object.freeze([...new Set([...defaults.signatureRefusals.values(), ...defaults.descriptorRefusals.values(),
-    ...totalityRefusals, ...literalRefusals, ...directGraphRefusals, ...conditionRefusals,
+    ...totalityRefusals, ...literalRefusals, ...directGraphRefusals, ...conditionRefusals, ...slotAdmissions.refusals,
     ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])])]
     .sort((left, right) => compare(left.site, right.site)));
-  const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site)));
-  return Object.freeze({ get: (node: Node) => outcomes.get(node), callableReturn, callInstantiation: (call: Node) => calls.get(call),
-    obligations: () => frozenObligations, refusals: () => frozenIssues });
+  const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site))
+    .map(obligation => Object.freeze({ ...obligation, type: normalize(obligation.type),
+      ...(obligation.requiredType === undefined ? {} : { requiredType: normalize(obligation.requiredType) }),
+      ...(obligation.valueType === undefined ? {} : { valueType: normalize(obligation.valueType) }) })));
+  const sum = createSourceClosedSumQuery(unions, normalize);
+  const contextualOutcomes = new Map<Node, SourceEffectiveTypeOutcome>();
+  function contextual(node: Node): SourceEffectiveTypeOutcome | undefined {
+    const existing = contextualOutcomes.get(node);
+    if (existing !== undefined) return existing;
+    const slot = contextualSlots.get(node);
+    if (slot === undefined) return undefined;
+    const sourceFile = source.ast.getSourceFile(node);
+    if (sourceFile === undefined) throw new Error("A contextual Source destination requires its source file.");
+    const outcome: SourceEffectiveTypeOutcome = slot.kind === "refused" ? slot : Object.freeze({ kind: "resolved",
+      type: normalize(slot), provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) });
+    contextualOutcomes.set(node, outcome);
+    return outcome;
+  }
+  const typeSyntaxOutcomes = new Map<Node, SourceEffectiveTypeOutcome>();
+  function typeSyntax(node: Node): SourceEffectiveTypeOutcome | undefined {
+    const existing = typeSyntaxOutcomes.get(node);
+    if (existing !== undefined) return existing;
+    const described = defaults.typeSyntax(node);
+    if (described === undefined) return undefined;
+    const sourceFile = source.ast.getSourceFile(node);
+    if (sourceFile === undefined) throw new Error("An authored Source type node requires its source file.");
+    const outcome: SourceEffectiveTypeOutcome = described.kind === "refused" ? described : Object.freeze({ kind: "resolved",
+      type: normalize(described), provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) });
+    typeSyntaxOutcomes.set(node, outcome);
+    return outcome;
+  }
+  const methodValues = createSourceMethodValueUses(context, defaults.nodes, outcomes);
+  return Object.freeze({ sum, get: (node: Node) => outcomes.get(node), declaredSlot: (node: Node) => declaredSlotFacts.get(node),
+    methodValueUse: (occurrence: Node) => methodValues.get(occurrence), callableReturn: (declaration: Node) => {
+    const outcome = callableReturn(declaration);
+    return outcome === undefined ? undefined : normalizeOutcome(outcome);
+  }, callInstantiation: (call: Node) => calls.get(call),
+    slotAdmission: (use: Node) => slotAdmissions.admissions.get(use),
+    obligations: () => frozenObligations, refusals: () => frozenIssues,
+    owner: unions, valueNodes: defaults.values, literal: context.literal, numberOrigin, typeSyntax, contextual,
+    nodes: defaults.nodes, functionValueInstantiation: (use: Node) => functionValues.get(use) });
 }

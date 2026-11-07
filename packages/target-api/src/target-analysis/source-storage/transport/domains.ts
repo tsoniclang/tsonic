@@ -1,8 +1,9 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { createSourceStorageDomainInitialization } from "./domain-initialization.js";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageSubjectType, sourceStorageTypesEqual } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -19,11 +20,11 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { createSourceStoragePublicationDemands } from "./publication-demands.js";
 
 export function createSourceStorageDomains(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   transport: ReturnType<typeof createSourceStorageTransport>,
   budget: SourceStorageBudget,
 ) {
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, transport.substitutions.empty);
   const publicationDemands = createSourceStoragePublicationDemands(source, transport, budget,
@@ -197,18 +198,19 @@ export function createSourceStorageDomains(
     const remaining = target === subject.node ? [] : subject.projection.slice(1);
     return budget.withRows(rows => {
       const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageScope }[] = [];
-      const pending = bound.map(input => ({ ...input, type }));
-      const visited = new Map<SourceStorageScope, Map<SourceStorageSubject, Set<Type>>>();
+      const pending: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageScope;
+        readonly type: SourceTypeDescriptor }[] = bound.map(input => ({ ...input, type }));
+      const visited = new Map<SourceStorageScope, Map<SourceStorageSubject, SourceTypeDescriptor[]>>();
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;
         const current = pending.pop()!;
         const states = visited.get(current.bindings);
         const subjects = states?.get(current.subject);
-        if (subjects?.has(current.type)) continue;
+        if (subjects?.some(seen => sourceStorageTypesEqual(seen, current.type)) === true) continue;
         if (!rows.add(1 + (states === undefined ? 1 : 0) + (subjects === undefined ? 1 : 0))) return undefined;
-        const selected = states ?? new Map<SourceStorageSubject, Set<Type>>();
-        const types = subjects ?? new Set<Type>();
-        types.add(current.type); selected.set(current.subject, types); visited.set(current.bindings, selected);
+        const selected = states ?? new Map<SourceStorageSubject, SourceTypeDescriptor[]>();
+        const types = subjects ?? [];
+        types.push(current.type); selected.set(current.subject, types); visited.set(current.bindings, selected);
         const file = transport.sourceFileFor(current.subject);
         if (file === undefined) continue;
         const members = transport.memberFlow.membersFor(current.subject, current.type);
@@ -226,7 +228,8 @@ export function createSourceStorageDomains(
               if (projected === undefined) return undefined;
               result.push({ subject: projected, bindings: current.bindings });
             }
-            else pending.push({ subject: original, bindings: current.bindings, type: member.destination.property.type });
+            else if (member.destination.type === undefined) return undefined;
+            else pending.push({ subject: original, bindings: current.bindings, type: member.destination.type });
           }
         }
       }
@@ -372,7 +375,7 @@ export function createSourceStorageDomains(
       const node = candidate.subject.node;
       if (!candidate.contributes || candidate.subject.kind !== "value" || candidate.subject.projection.length !== 0 ||
         !ast.is.IsPropertyAccessExpression(node)) continue;
-      const declaration = semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration;
+      const declaration = navigation.memberAccess(node)?.declaration;
       const member = declaration === undefined ? undefined : sourceStorageMemberSubject(declaration, ast, transport.subject);
       if (member === undefined) continue;
       let receiver = transport.subjectFor(Node_Expression(ast, node));

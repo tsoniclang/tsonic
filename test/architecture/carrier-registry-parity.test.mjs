@@ -49,30 +49,21 @@ test("the registries pair by responsibility; one-sided responsibilities have sig
   assert.deepEqual(parity(), []);
 });
 
-test("authored node admission pairs by its checked owner rather than a fabricated carrier or native difference", () => {
-  for (const target of ["rust", "csharp"]) {
-    const owner = registries[target].roles.filter(role => role.carrierResponsibility === "producers/resolve-node");
-    assert.equal(owner.length, 1, `${target}: one exact checked admission owner`);
-    assert.equal(owner[0].role, "analysis");
-    assert.equal(registries[target].vocabulary.declarationBodies.get(`${owner[0].file}#${owner[0].symbol}`),
-      owner[0].bodySha256, "the actual current declaration, not an unchecked name, owns the responsibility");
+test("source node admission and completed node results are Host facts in C#; Rust keeps its checked owners (nextgen, C-2542)", () => {
+  // The C# checked-type engine (analysis/source-evidence/types/resolution) is replaced by representation/ over Host
+  // descriptors. Rust is deferred (C-2510): its owners stay, and each one-sided responsibility is signed (S11-25).
+  for (const responsibility of ["producers/resolve-node", "producers/resolve-node-with-state"]) {
+    assert.equal(registries.csharp.rows.some(row => row.responsibility === responsibility), false, responsibility);
+    assert.equal(registries.csharp.roles.some(role => role.carrierResponsibility === responsibility), false, responsibility);
+    assert.equal(carrierParityDifferences.some(row => row.target === "rust" && row.responsibility === responsibility &&
+      row.register === "S11-25"), true, responsibility);
   }
-  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node"), false,
-    "the resolved/rejected record is not a pure carrier constructor");
-  assert.equal(carrierParityDifferences.some(row => row.responsibility === "producers/resolve-node"), false,
-    "source admission is not a signed native-language divergence");
+  const owner = registries.rust.roles.filter(role => role.carrierResponsibility === "producers/resolve-node");
+  assert.equal(owner.length, 1, "rust: one exact checked admission owner");
+  assert.equal(owner[0].role, "analysis");
+  assert.equal(registries.rust.vocabulary.declarationBodies.get(`${owner[0].file}#${owner[0].symbol}`),
+    owner[0].bodySha256, "the actual current declaration, not an unchecked name, owns the responsibility");
   assert.equal(registries.rust.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), true);
-  assert.equal(registries.csharp.rows.some(row => row.responsibility === "producers/resolve-node-with-state"), false,
-    "the completed node result is not a concrete native carrier constructor");
-  const stateOwner = registries.csharp.roles.filter(role => role.carrierResponsibility === "producers/resolve-node-with-state");
-  assert.equal(stateOwner.length, 1, "one canonical completed node-result owner");
-  assert.equal(stateOwner[0].role, "analysis");
-  assert.equal(stateOwner[0].file, "src/analysis/source-evidence/types/resolution/nodes.ts");
-  assert.equal(stateOwner[0].symbol, "resolveNodeValueWithState");
-  assert.equal(registries.csharp.vocabulary.declarationBodies.get(`${stateOwner[0].file}#${stateOwner[0].symbol}`),
-    stateOwner[0].bodySha256, "the actual completed-result declaration owns the same responsibility");
-  assert.equal(carrierParityDifferences.some(row => row.responsibility === "producers/resolve-node-with-state"), false,
-    "the canonical result owner is not a signed native-language divergence");
 });
 
 test("the native trait constructor pairs with the named-contract owner and preserves native arguments", async () => {

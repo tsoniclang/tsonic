@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipValues, createSourceDeclarationOwnershipBudget,
   defaultSourceDeclarationOwnershipLimits, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 
@@ -9,7 +10,7 @@ function fixture(body, nativeAvailable = true) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, [checked.getSourceFile("/src/index.ts")]);
   const nodes = source.navigation.nodes;
   const budget = createSourceDeclarationOwnershipBudget(nodes[0], defaultSourceDeclarationOwnershipLimits);
@@ -165,10 +166,10 @@ test("a discarded receiving future retains the original void-returning callback"
     if (!ast.is.IsCallExpression(node)) return false;
     const expression = ast.as.AsCallExpression(node).Expression;
     if (!ast.is.IsIdentifier(expression) || ast.text(expression) !== "later") return false;
-    const call = current.source.semantics.forNode(node).operations.call(node);
-    return call !== undefined && call.sourceArguments.length === 2 &&
-      call.sourceArguments.every((argument, index) => ast.is.IsIdentifier(argument.expression) &&
-        ast.text(argument.expression) === ["ready", "child"][index]);
+    const call = current.source.navigation.call(node);
+    return call !== undefined && call.arguments.length === 2 &&
+      call.arguments.every((argument, index) => ast.is.IsIdentifier(argument) &&
+        ast.text(argument) === ["ready", "child"][index]);
   });
   assert.equal(receiving.length, 1, "the fixture has one exact checked later(ready, child) invocation");
   assert.equal(selected.premises.some(premise => current.references("child").includes(premise.value.node) &&

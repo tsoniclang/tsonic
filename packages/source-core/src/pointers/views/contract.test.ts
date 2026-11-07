@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { formatDiagnostics, pointerOperationFactKey } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTsonicPointerReturnQueries, selectTsonicPointerView, selectTsonicRawLocationOperation, tsonicPointerViewFactKey } from "../../public/facts.js";
+import { selectTsonicPointerView, selectTsonicRawLocationOperation, tsonicPointerViewFactKey } from "../../public/facts.js";
+import { createTsonicPointerReturnQueries } from "../return-evidence.js";
 import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude } from "../../memory-layout/testing/fixtures.js";
 
 test("viewptr retains exact read-free operands, generic pointees and both nil dispositions", () => {
@@ -57,7 +58,7 @@ test("views retain raw-layout and returned-pointee evidence through aliases and 
   const file = checked.getSourceFile("/src/index.ts")!;
   const declaration = checked.ast.statements(file).find(node => checked.ast.is.IsFunctionDeclaration(node) &&
     checked.ast.text(checked.ast.name(node)) === "expose")!;
-  const result = createTsonicPointerReturnQueries(createTargetSourceProgram(checked)).resolve(declaration);
+  const result = createTsonicPointerReturnQueries(createHostSourceProgramFixture(checked)).resolve(declaration);
   assert.equal(result?.pointees.length, 1);
   assert.equal(result!.pointees[0]!.subject, memoryCall(checked, "viewptr", 2));
 });

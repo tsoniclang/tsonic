@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
 import { referenceQueryNode, sourceReferenceMeaning } from "./syntax.js";
 
 for (const valueFirst of [false, true]) {
@@ -16,7 +16,7 @@ ${valueFirst ? values + types : types + values}
 `,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);
     const references: Node[] = [];
@@ -61,7 +61,7 @@ export const selected = ordinary.extra;
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the original shorthand bindings check successfully");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const nodes = source.navigation.nodes;
   const parameter = nodes.find(node => source.ast.is.IsParameterDeclaration(node) && source.ast.text(source.ast.name(node)) === "extra");
   const variables = nodes.filter(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "extra");
@@ -104,7 +104,7 @@ export const ordinary = Imported;
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the merged re-exported shorthand alias checks successfully");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const nodes = source.navigation.nodes;
   const value = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "Token");
   const type = nodes.find(node => source.ast.is.IsInterfaceDeclaration(node) && source.ast.text(source.ast.name(node)) === "Token");
@@ -133,7 +133,7 @@ test("an unavailable shorthand value never falls back to its property declaratio
     "/src/index.ts": "export const value = { missing };",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length > 0, true, "the original missing lexical value remains a checked error");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const shorthand = source.navigation.nodes.find(node => source.ast.is.IsShorthandPropertyAssignment(node));
   assert.equal(shorthand !== undefined, true, "the checked unresolved shorthand still has a property declaration");
   if (shorthand === undefined) throw new Error("Expected the original unresolved shorthand.");
@@ -149,7 +149,7 @@ test("iteration collections are exact receiver uses while their assigned binding
     strict: true, target: "es2022", module: "esnext",
   }, files: { "/src/index.ts": `export {}; const rows = [1, 2]; let value = 0; for (value of rows) {}` } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the ordinary iteration source is accepted");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "the original checked source file exists");
   if (file === undefined) throw new Error("Expected the checked iteration file.");
@@ -187,7 +187,7 @@ export const qualified = Library.Token;
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const references: Node[] = [];
@@ -217,7 +217,7 @@ export const constructor = Container;
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const references: Node[] = [];
@@ -257,7 +257,7 @@ export function shadow(): number { const Library = { Token: 41 }; return Library
 `,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts");
     assert.equal(file !== undefined, true, "the checked consumer belongs to the exact program");
     const nodes: Node[] = [];
@@ -329,7 +329,7 @@ export const constructor = First.Native;
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   const checked = create();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const references: Node[] = [];
   const visit = (node: Node): void => {
@@ -390,26 +390,25 @@ export function exercise(): number {
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
-  const checker = checked.getSourceFileQueries(file).checker;
   const definitions = new Map<string, Node[]>();
   const uses = new Map<string, Node[]>();
   const visit = (node: Node): void => {
     if (source.ast.is.IsIdentifier(node) && ["pass", "Token", "value", "recurse"].includes(source.ast.text(node))) {
       const selected = source.navigation.sourceReferenceFor(node);
-      assert.equal(selected !== undefined && selected.symbol !== undefined, true, "each actual checked definition and use keeps its source fact");
+      assert.equal(selected !== undefined, true, "each actual checked definition and use keeps its source fact");
+      const entity = source.navigation.mergedDeclarations(selected!.declaration);
       const owner = source.ast.parent(node);
-      const definition = owner !== undefined && source.ast.name(owner) === node &&
-        checker.getSymbolDeclarations(selected!.symbol).includes(owner);
-      const reverse = source.navigation.referencesWithin(selected!.symbol!, file);
+      const definition = owner !== undefined && source.ast.name(owner) === node && entity.includes(owner);
+      const reverse = source.navigation.referencesWithin(selected!.declaration, file);
       assert.equal(reverse.includes(referenceQueryNode(source.ast, node)!), !definition, definition
         ? "an exact native declaration name never becomes a runtime source use"
         : "an actual property, recursive, escape, shadow or ordinary use remains indexed");
       const entries = definition ? definitions : uses;
       const name = source.ast.text(node);
-      if (name !== "value" || checker.getSymbolDeclarations(selected!.symbol).some(declaration =>
+      if (name !== "value" || entity.some(declaration =>
         source.ast.is.IsGetAccessorDeclaration(declaration) || source.ast.is.IsSetAccessorDeclaration(declaration)))
         entries.set(name, [...entries.get(name) ?? [], node]);
     }
@@ -437,14 +436,12 @@ export const value = forwarded(1) + Library.read(2);
 `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const library = checked.getSourceFile("/src/library.ts");
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(library && file);
   const declaration = source.ast.statements(library).find(node => source.ast.is.IsFunctionDeclaration(node));
   assert.ok(declaration);
-  const symbol = source.navigation.declarationSymbol(declaration, library);
-  assert.ok(symbol);
   const references: Node[] = [];
   const visit = (node: Node): void => {
     if (source.ast.is.IsIdentifier(node) && ["forwarded", "read"].includes(source.ast.text(node))) references.push(node);
@@ -455,10 +452,10 @@ export const value = forwarded(1) + Library.read(2);
   for (const reference of references) {
     assert.equal(source.navigation.sourceReferenceFor(reference)?.declaration === declaration, true,
       "a linkage or member use keeps its actual imported original declaration");
-    assert.equal(source.navigation.referencesWithin(symbol, file).includes(referenceQueryNode(source.ast, reference)!), true,
+    assert.equal(source.navigation.referencesWithin(declaration, file).includes(referenceQueryNode(source.ast, reference)!), true,
       "an import/export/property name is not mistaken for the imported symbol's own declaration name");
   }
-  assert.equal(source.navigation.referencesWithin(symbol, library).includes(source.ast.name(declaration)!), false,
+  assert.equal(source.navigation.referencesWithin(declaration, library).includes(source.ast.name(declaration)!), false,
     "the actual remote function definition remains indexed only as a definition");
 });
 
@@ -483,7 +480,7 @@ export function inspect(values: ${parameterType}) { ${body} }
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0,
       formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file !== undefined, label);
     const declaration = source.ast.statements(file).find(node => source.ast.is.IsFunctionDeclaration(node) &&

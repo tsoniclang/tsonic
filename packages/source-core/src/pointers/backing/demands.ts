@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
 import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingQueries } from "./requirements.js";
@@ -17,7 +17,7 @@ export interface TsonicPointerBackingDemands {
   issues(): readonly TsonicPointerBackingIssue[];
 }
 
-export function createTsonicPointerBackingDemands(source: TargetSourceProgram): TsonicPointerBackingDemands {
+export function createTsonicPointerBackingDemands(source: HostSourceProgram): TsonicPointerBackingDemands {
   const demands = new Map<Node, TsonicPointerBackingDemand>();
   const issues: TsonicPointerBackingIssue[] = [];
   const recorded = new WeakSet<Node>();

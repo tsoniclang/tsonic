@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 
 function fixture() {
@@ -16,7 +17,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "checked source execution defaults");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const ast = source.ast;
   const declarations = storage.nodes;

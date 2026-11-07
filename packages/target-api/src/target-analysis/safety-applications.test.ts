@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import { Node_Expression } from "../source-navigation/ast.js";
 import { createTargetSafetyApplicationIndex, type TargetSafetyApplicationFact, type TargetSafetyApplicationPlacement } from "./safety-applications.js";
 
@@ -61,7 +61,7 @@ function fixture(text = sourceText) {
     "/src/index.ts": text,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const { ast } = source;
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);

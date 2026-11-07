@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
 import { selectSourceNativeGuardResult } from "./value-flow-conditions.js";
 import { sourceNodeIsNativeUnreachable } from "./native-control-flow.js";
@@ -12,7 +12,7 @@ function fixture(body: string) {
       function run(value: string | number | null | undefined, other: string | number, flag: boolean): void { ${body} }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const conditions: Node[] = [];
@@ -28,7 +28,7 @@ function fixture(body: string) {
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    semanticsFor: (node: Node) => source.semantics.forNode(node) };
+    flowConditions: source.flowConditions, values: source.facts.values };
   const result = (expression: Node, members: readonly string[] = ["string", "absence"]) =>
     selectSourceNativeGuardResult(context, expression, () => members, selected => {
       const guard = selectSourceNativeValueGuard(context, selected);

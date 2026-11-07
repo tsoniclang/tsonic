@@ -447,7 +447,8 @@ test("architecture validator rejects catch-all semantic directories and APIs", (
 test("target compile API supplies checked source without a target-carrier facade", async () => {
   const text = await readFile(join(repoRoot, "packages/target-api/src/target/compilation.ts"), "utf8");
 
-  assert.match(text, /export interface TargetCompileInput \{[\s\S]*readonly source: TargetSourceProgram;/u);
+  // Targets receive the published facts handle (I1/I2), not the Host program.
+  assert.match(text, /export interface TargetCompileInput \{[\s\S]*readonly source: TargetSourceProgramFacts;/u);
   assert.doesNotMatch(text, /\bTargetCarrier(?:Resolution|Resolved|Missing)\b/u);
   assert.doesNotMatch(text, /\bRuntimeCarrierFact\b/u);
   assert.doesNotMatch(text, /\bgetRuntimeCarrierForNode\b/u);

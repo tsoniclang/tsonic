@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics, sourceMarkerFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { ProviderTypeExpression } from "@tsonic/tsts";
-import { createTargetSourceProgram, type SourceProviderTypeParameterSelection } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
+import { type SourceProviderTypeParameterSelection } from "@tsonic/target-api/source";
 import { memorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 import { createSourceSemanticsVirtualModuleProvider } from "../extension/semantics-virtual-modules.js";
-import { selectTsonicProviderPointerResult } from "./provider-return-evidence.js";
+import { foldTsonicProviderPointerResult, selectTsonicProviderPointerShape } from "./provider-return-evidence.js";
 
 const word = { kind: "source-primitive", name: "uint32" } as const;
 const pointer = (type: ProviderTypeExpression): ProviderTypeExpression => ({
@@ -45,13 +46,12 @@ for (const [name, returnType, expected, generic] of [
     } }] });
     assert.deepEqual(checked.extensionDiagnostics, []);
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);
-    const semantics = source.semantics.forFile(file);
     const selectedCall = memoryCalls(checked, "selected")[0];
     assert.ok(selectedCall);
-    const call = semantics.operations.call(selectedCall);
+    const call = checked.getSourceFileQueries(file).checker.getResolvedCallInfo(selectedCall);
     assert.equal(call?.outcome, "applicable");
     const policy = {
       primitive: (kind: string) => kind, raw: () => "raw", pointer: (value: string) => `pointer(${value})`,
@@ -67,14 +67,14 @@ for (const [name, returnType, expected, generic] of [
       sourceType: (_type: unknown, syntax: Parameters<typeof checked.sourceFacts.getFacts>[0]) =>
         checked.sourceFacts.getFact(syntax, sourcePrimitiveFactKey)?.kind,
     };
-    assert.deepEqual(selectTsonicProviderPointerResult(call, source.ast, semantics, source.sourceFacts, policy), {
+    assert.deepEqual(foldTsonicProviderPointerResult(selectTsonicProviderPointerShape(source, selectedCall), policy), {
       kind: "resolved", carrier: expected,
     });
-    const local = semantics.operations.call(memoryCalls(checked, "get")[0]!);
+    const local = memoryCalls(checked, "get")[0];
     assert.ok(local);
-    assert.equal(selectTsonicProviderPointerResult(local, source.ast, semantics, source.sourceFacts, policy), undefined);
+    assert.equal(selectTsonicProviderPointerShape(source, local), undefined);
     if (name === "word") {
-      assert.equal(selectTsonicProviderPointerResult(call, source.ast, semantics, source.sourceFacts, {
+      assert.equal(foldTsonicProviderPointerResult(selectTsonicProviderPointerShape(source, selectedCall), {
         ...policy, primitive: () => undefined,
       })?.kind, "invalid");
       const conflicting = { ...source.sourceFacts,
@@ -82,7 +82,8 @@ for (const [name, returnType, expected, generic] of [
           args[1].id === sourceMarkerFactKey.id ? { kind: "type-marker", marker: "raw-pointer" } as Value :
             source.sourceFacts.getFact(...args)),
       };
-      assert.equal(selectTsonicProviderPointerResult(call, source.ast, semantics, conflicting, policy)?.kind, "invalid");
+      assert.equal(foldTsonicProviderPointerResult(selectTsonicProviderPointerShape({ ...source, sourceFacts: conflicting },
+        selectedCall), policy)?.kind, "invalid");
     }
   });
 }

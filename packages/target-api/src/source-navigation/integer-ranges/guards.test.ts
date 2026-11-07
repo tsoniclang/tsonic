@@ -1,8 +1,8 @@
+import { createHostSourceProgramFixture } from "../../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import { sourceIntegerIsNonnegative } from "./guards.js";
 
 function fixture(body: string) {
@@ -10,7 +10,7 @@ function fixture(body: string) {
     "/src/index.ts": `function consume(value: number): void {} function probe(value: number, flag: boolean): number { ${body} }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const occurrences: Node[] = [];
   const calls: Node[] = [];
   const visit = (node: Node): void => {

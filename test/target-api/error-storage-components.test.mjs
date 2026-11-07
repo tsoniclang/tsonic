@@ -1,7 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageUnresolvedQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/unresolved.js";
@@ -31,7 +33,7 @@ export function forwardTuple(values: [Stored, unknown]): [Stored, unknown] { ret
     assert.equal(origins.kind === "resolved", true, name);
     assert.equal(origins.origins.length, 1, name);
     assert.equal(origins.origins[0].node === parameter, true, name);
-    assert.equal(source.semantics.forNode(parameter).types.isUnknown(origins.origins[0].type), true, name);
+    assert.equal(origins.origins[0].type.kind === "intrinsic" && origins.origins[0].type.intrinsic === "unknown", true, name);
     assert.equal(Object.isFrozen(origins) && Object.isFrozen(origins.origins) &&
       Object.isFrozen(origins.origins[0]), true, name);
   }
@@ -49,7 +51,7 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
     "src/index.ts": `import { Stored, mutate, tuple, nested } from "./values.js"; ${body}`,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createTargetSourceProgram(result);
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const provider = projectSourceFile(source, "src/values.ts");
   const declaration = namedDeclaration(source.ast, provider, "Stored");
@@ -106,7 +108,7 @@ write(transport({ value: { value: original } }));
 `);
   const write = demands.fieldWrites.find(node => source.ast.getSourceFile(node) === file);
   assert.equal(write !== undefined, true, "one actual checked field write");
-  const receiver = source.semantics.forNode(write).operations.propertyAccess(write)?.receiver.expression;
+  const receiver = source.navigation.memberAccess(write)?.receiver;
   assert.equal(receiver !== undefined, true, "the original checked write supplies its receiver");
   const frontier = storage.boundValueFrontierFor(requiredStorageSubject(storage, receiver), storage.emptyBindings, Object.freeze([]));
   assert.equal(frontier.kind, "resolved", frontier.kind === "unresolved" ? frontier.reason : "the actual generic write has its original producers");
@@ -136,7 +138,7 @@ test("Error writes with an unresolved value frontier retain unresolved storage d
     `,
   });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const declarations = projectSourceFile(source, "globals.d.ts");
   const field = source.ast.members(namedDeclaration(source.ast, declarations, "Error"))
     .find(node => source.ast.text(source.ast.name(node)) === "message");
@@ -146,7 +148,7 @@ test("Error writes with an unresolved value frontier retain unresolved storage d
     { fields: [field], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
   assert.equal(demands.fieldWrites.length, 1, "one actual checked Error write");
   const write = demands.fieldWrites[0];
-  const receiver = source.semantics.forNode(write).operations.propertyAccess(write)?.receiver.expression;
+  const receiver = source.navigation.memberAccess(write)?.receiver;
   assert.equal(receiver !== undefined, true, "the real Error write supplies its original receiver");
   const subject = requiredStorageSubject(storage, receiver);
   const frontier = storage.boundValueFrontierFor(subject, storage.emptyBindings, Object.freeze([]));
@@ -181,9 +183,8 @@ mutate(alias);
   assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("original")).Initializer), true, "exact original element");
   assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("untouched")).Initializer), false, "independent value is excluded");
   assert.equal(origins.origins.every(origin => {
-    const semantics = source.semantics.forNode(origin.node);
-    const selected = semantics.declarations.declaredValueType(origin.node) ?? semantics.types.expressionType(origin.node);
-    return Object.isFrozen(origin) && selected !== undefined && semantics.types.isIdentical(origin.type, selected);
+    const outcome = source.facts.values.type(origin.node);
+    return Object.isFrozen(origin) && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(origin.type, outcome.type);
   }), true, "immutable exact checked origin type");
 });
 

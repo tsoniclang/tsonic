@@ -1,5 +1,7 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { sourceStorageInvocationReceiver } from "../transport/host-reads.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
 import { sourceStorageIsDataMember } from "../model/subjects.js";
@@ -16,11 +18,11 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations } from "../model/construction.js";
 import { sourceInstanceInitializers, sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 
-export function createSourceStorageExecutionContext(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageExecutionContext(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
-  const { ast, semantics } = source;
+  const { ast, navigation } = source;
   const passiveMember = (declaration: Node): boolean => (sourceStorageIsDataMember(declaration, ast) ||
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration)) &&
     transport.memberAccessorsFor(declaration)?.size === 0;
@@ -84,10 +86,8 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
   };
   const dispatchDependencies = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] => {
     if (transport.invocationEffects.get(invocation)?.resultAlias !== undefined) return [];
-    const call = semantics.forNode(invocation).operations.call(invocation);
-    const property = ast.is.IsPropertyAccessExpression(invocation) ? semantics.forNode(invocation).operations.propertyAccess(invocation) : undefined;
-    const nodes = [Node_Expression(ast, invocation), call?.sourceReceiver?.expression ??
-      call?.sourceCalleeAccess?.receiver.expression ?? property?.receiver.expression];
+    const property = ast.is.IsPropertyAccessExpression(invocation) ? navigation.memberAccess(invocation) : undefined;
+    const nodes = [Node_Expression(ast, invocation), sourceStorageInvocationReceiver(source, invocation) ?? property?.receiver];
     const selected: SourceStorageTerm[] = [];
     for (const node of nodes) {
       if (!budget.step()) break;
@@ -98,7 +98,7 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
   };
   const regionsFor = (candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
     construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageScopedSubject[] }, deferred = false,
-    actualTypes?: readonly (readonly Type[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
+    actualTypes?: readonly (readonly SourceTypeDescriptor[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
     const terms: SourceStorageTerm[] = [];
     const frame = scope.kind === "substitution" ? scope.scope : scope;
     const callback = frame.kind === "frame" ? frame.callback : undefined;

@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
@@ -9,7 +9,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopedRecursion } from "./scoped-recursion.js";
 
-export function createSourceStorageEquations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageEquations(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, recursion: SourceStorageScopedRecursion,
   keyFor: (term: Extract<SourceStorageTerm, { readonly kind: "application" }>) => string | undefined) {
   const rows = budget.createRows();

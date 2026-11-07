@@ -1,9 +1,9 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceCallableValueQuery } from "./callable-values.js";
 
 function fixture(body: string, options: Parameters<typeof createSourceCallableValueQuery>[1] = {}) {
@@ -15,7 +15,7 @@ ${body}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const expressions = new Map<string, Node>();
   const visit = (node: Node): void => {
     if (source.ast.is.IsVariableDeclaration(node)) {
@@ -50,7 +50,8 @@ test("general callable identity does not require invocation-only use", () => {
   const current = fixture(`const operation = operations.apply; export const selected = operation;
     export function retain(): typeof operations.apply { return operation; }`);
   const selected = current.select();
-  assert.equal(selected !== undefined && selected.property !== undefined, true);
+  assert.equal(selected !== undefined && selected.access !== undefined &&
+    current.source.ast.is.IsPropertyAccessExpression(selected.access.access), true);
   assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
 });
 
@@ -142,7 +143,8 @@ test("early alias reads and excessive chains fail closed without an unbounded tr
 test("checked indexed callable access shares the exact native member and receiver proof", () => {
   const current = fixture(`const key = "apply"; const selected = operations[key];`);
   const selected = current.select();
-  assert.equal(selected !== undefined && selected.element !== undefined && selected.property === undefined, true);
+  assert.equal(selected !== undefined && selected.access !== undefined &&
+    current.source.ast.is.IsElementAccessExpression(selected.access.access), true);
   assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
   assert.equal(current.source.ast.kindName(selected!.selectedDeclaration), "KindMethodSignature");
 });

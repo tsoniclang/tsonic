@@ -98,3 +98,4 @@ export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { analyzeSourceConstructorResults } from "./constructor-results.js";
 export type { SourceConstructorResultIssue } from "./constructor-results.js";
+export { createSourceAnalysisFacts, createSourceAnalysisKey, hostSourceProgramOfAnalysisHost } from "./source-analyses.js";

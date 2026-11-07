@@ -1,6 +1,6 @@
-import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { sourceNodeIdentity } from "./identity.js";
-import { primaryDeclaration } from "./syntax.js";
 import { sourceMemberOwner } from "./class-members.js";
 import { selectCallableImplementationDeclaration } from "./callable-implementation.js";
 import type { SourceHeritagePathResult, SourceProjectMemberImplementationResult, SourceProjectReference } from "./types.js";
@@ -13,7 +13,7 @@ export interface SourceMemberImplementationNavigation {
 }
 
 export function createSourceMemberImplementationNavigation(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "declaredMember">,
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
   declaredHeritagePath: (
@@ -56,7 +56,7 @@ export function createSourceMemberImplementationNavigation(
 }
 
 function resolveMemberImplementation(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "declaredMember">,
   typeDeclaration: Node,
   contractMemberDeclaration: Node,
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
@@ -98,45 +98,28 @@ function resolveMemberImplementation(
     return Object.freeze({ kind: "unresolved", reason: relation.reason });
   }
 
-  const sourceFile = ast.getSourceFile(typeDeclaration);
   const typeReference = referenceFor(ast.name(typeDeclaration));
-  if (sourceFile === undefined || !ast.is.IsClassExpression(typeDeclaration) && typeReference === undefined) {
+  if (!ast.is.IsClassExpression(typeDeclaration) && typeReference === undefined) {
     return Object.freeze({
       kind: "unresolved",
-      reason: "The checked source program did not expose the project type declaration symbol.",
+      reason: "The checked source program did not expose the project type declaration.",
     });
   }
 
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const memberNameNode = ast.name(contractMemberDeclaration);
-  const contractSymbol = checker.getSymbolAtLocation(memberNameNode);
-  if (
-    contractSymbol === undefined ||
-    !checker.getSymbolDeclarations(contractSymbol).includes(contractMemberDeclaration)
-  ) {
+  const members = source.declaredMember(typeDeclaration, contractMemberDeclaration);
+  if (members === undefined) {
     return Object.freeze({
       kind: "unresolved",
-      reason: "The checked source program did not expose the exact project member contract symbol.",
+      reason: "The checked source program did not expose the exact project member contract.",
     });
   }
-
-  const typeSymbol = ast.is.IsClassExpression(typeDeclaration)
-    ? checker.getTypeSymbol(checker.getTypeAtLocation(typeDeclaration))
-    : typeReference?.symbol;
-  const selectedType = checker.getDeclaredTypeOfSymbol(typeSymbol);
-  const implementationSymbol = checker.getPropertyOfType(
-    selectedType,
-    checker.getSymbolName(contractSymbol),
-  );
   const implementationDeclaration = selectCallableImplementationDeclaration(
     ast,
-    checker,
     contractMemberDeclaration,
-    implementationSymbol,
-  ) ?? primaryDeclaration(checker, implementationSymbol);
+    members,
+  ) ?? members[0];
   const implementationSourceFile = ast.getSourceFile(implementationDeclaration);
   if (
-    implementationSymbol === undefined ||
     implementationDeclaration === undefined ||
     implementationSourceFile === undefined ||
     !isProjectDeclaration(implementationDeclaration)
@@ -152,7 +135,6 @@ function resolveMemberImplementation(
     kind: "resolved",
     contractDeclaration: contractMemberDeclaration,
     implementation: Object.freeze({
-      symbol: implementationSymbol,
       declaration: implementationDeclaration,
       sourceFile: implementationSourceFile,
       project: true,

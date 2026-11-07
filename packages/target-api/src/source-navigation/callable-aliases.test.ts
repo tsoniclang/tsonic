@@ -1,8 +1,8 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
 
@@ -14,7 +14,7 @@ declare function operation(value: string): string;
 ${body}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const declarations = new Map<string, Node>();
   const visit = (node: Node): void => {
     if (source.ast.is.IsVariableDeclaration(node)) declarations.set(source.ast.text(source.ast.name(node)), node);
@@ -42,10 +42,9 @@ invoke();`);
   assert.equal(alias.calls.length, 2);
   assert.ok(Object.isFrozen(alias) && Object.isFrozen(alias.declarations) && Object.isFrozen(alias.calls));
   const selected = alias.calls.map(call => {
-    const semantics = current.source.semantics.forNode(call);
-    const info = semantics.operations.call(call);
+    const info = current.source.navigation.call(call);
     assert.ok(info);
-    return semantics.declarations.signatureDeclaration(info.selectedSignature);
+    return info.signature;
   });
   assert.notEqual(selected[0], selected[1]);
 });
@@ -55,9 +54,9 @@ test("property origins retain exact receiver and method declarations without acc
 declare const operations: Operations;
 const alias = operations.execute; alias(3);`);
   const alias = current.select();
-  assert.ok(alias?.property);
+  assert.ok(alias?.access);
   assert.equal(current.source.ast.kindName(alias.selectedDeclaration), "KindMethodSignature");
-  assert.equal(current.source.ast.text(current.source.ast.name(alias.property.receiver.declaration)), "operations");
+  assert.equal(current.source.ast.text(current.source.ast.name(alias.receiverDeclaration)), "operations");
   for (const body of [
     "const holder = { get execute(): typeof operation { return operation; } }; const alias = holder.execute; alias(3);",
     "function holder(): { execute: typeof operation } { return { execute: operation }; } const alias = holder().execute; alias(3);",

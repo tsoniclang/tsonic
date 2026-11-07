@@ -38,6 +38,10 @@
       "types": "./dist/public/source.d.ts",
       "default": "./dist/public/source.js"
     },
+    "./host": {
+      "types": "./dist/public/host.d.ts",
+      "default": "./dist/public/host.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

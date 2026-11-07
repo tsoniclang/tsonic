@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, forEachSourceImmediateEvaluationChild } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, forEachSourceImmediateEvaluationChild } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const profile = `
@@ -42,7 +43,7 @@ test("source effects distinguish eager class work from deferred instance and cal
     `,
   });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const none = { invokes: false, mutates: false, suspends: false, mayThrow: false };
   const invokes = { invokes: true, mutates: false, suspends: false, mayThrow: true };
@@ -92,7 +93,7 @@ test("immediate class children retain exact heritage, key and static initializat
     `,
   });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
   const ordered = namedDeclaration(ast, file, "Ordered");

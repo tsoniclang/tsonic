@@ -1,16 +1,17 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
+import { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
   createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": `export function outer(): number { ${body} }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const declarations = new Map<string, Node>();
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
@@ -204,16 +205,16 @@ return generic(3);`,
     assert.equal(current.select("pass"), true, "the one original checked call is retained in the canonical invocation proof");
     const declaration = current.declaration("pass");
     const file = current.source.ast.getSourceFile(declaration)!;
-    const symbol = current.source.navigation.declarationSymbol(declaration, file);
-    assert.equal(symbol !== undefined, true, "the implementation has its exact checked binding symbol");
-    const references = current.source.navigation.referencesWithin(symbol!, file);
+    const entity = current.source.navigation.mergedDeclarations(declaration);
+    assert.equal(entity.includes(declaration), true, "the implementation belongs to its merged entity");
+    const references = current.source.navigation.referencesWithin(declaration, file);
     assert.equal(references.some(reference => {
       const selected = current.source.navigation.sourceReferenceFor(reference);
       if (selected === undefined) return false;
       const implementation = current.source.navigation.callableImplementation(selected.declaration);
       return implementation.kind === "resolved" && implementation.implementation.declaration === declaration &&
-        implementation.implementation.symbol === symbol;
-    }), true, "the original signature-bound reference selects that same implementation by checked identity");
+        entity.includes(selected.declaration);
+    }), true, "the original signature-bound reference selects that same implementation within its entity");
   }
 });
 
@@ -279,21 +280,30 @@ test("single lexical invocation rejects repeated, recursive, escaping and deferr
   ]) assert.equal(fixture(body).select("read"), false, body);
 });
 
-test("enclosing callable navigation accepts finite deep ancestry and terminates cycles", () => {
+test("enclosing body-owner navigation accepts finite deep ancestry and refuses cycles as an invariant failure", () => {
+  type Ast = Parameters<typeof sourceEnclosing>[0];
+  const body = {} as Node;
   const node = {} as Node;
-  const ast = { parent: () => node, kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(node, ast) === undefined, true);
+  const self = { parent: () => node, kindName: () => "KindBlock", body: () => undefined } as unknown as Ast;
+  assert.throws(() => sourceEnclosing(self, node, "callable-body"), /acyclic/u, "a self-parented node is malformed ancestry");
   const nodes = Array.from({ length: 4096 }, () => ({} as Node));
   const indexes = new Map(nodes.map((value, index) => [value, index]));
+  const last = nodes[nodes.length - 1]!;
   const deep = { parent: (value: Node) => nodes[indexes.get(value)! + 1],
-    kindName: (value: Node) => value === nodes[nodes.length - 1] ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], deep) === nodes[nodes.length - 1], true,
-    "finite lexical ancestry reaches its actual callable beyond an arbitrary depth");
-  assert.equal(sourceEnclosingCallable(undefined, deep) === undefined, true, "an absent source has no callable");
+    kindName: (value: Node) => value === last ? "KindFunctionDeclaration" : "KindBlock",
+    body: (value: Node) => value === last ? body : undefined } as unknown as Ast;
+  assert.equal(sourceEnclosing(deep, nodes[0]!, "callable-body") === last, true,
+    "finite lexical ancestry reaches its actual body owner beyond an arbitrary depth");
+  assert.equal(sourceEnclosing(deep, last, "callable-body") === undefined, true, "the walk is strict: a node never encloses itself");
+  const bodyless = { ...deep, body: () => undefined } as unknown as Ast;
+  assert.equal(sourceEnclosing(bodyless, nodes[0]!, "callable-body") === undefined, true,
+    "a bodyless declaration is not a body owner");
+  assert.equal(sourceEnclosing(bodyless, nodes[0]!, "callable-signature") === last, true,
+    "the same bodyless declaration is a signature owner");
   const cyclic = { parent: (value: Node) => nodes[(indexes.get(value)! + 1) % nodes.length],
-    kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], cyclic) === undefined, true,
-    "a long malformed cycle cannot manufacture an enclosing callable");
+    kindName: () => "KindBlock", body: () => undefined } as unknown as Ast;
+  assert.throws(() => sourceEnclosing(cyclic, nodes[0]!, "callable-body"), /acyclic/u,
+    "a long malformed cycle is an invariant failure, never a manufactured or absent owner");
 });
 
 test("unused lexical admission uses actual checked ancestry beyond the optimization budget", () => {
@@ -304,7 +314,7 @@ called();
 ${"}".repeat(180)}
 return 0;`);
   const dormant = current.declaration("dormant");
-  assert.equal(sourceEnclosingCallable(current.source.ast.parent(dormant), current.source.ast) === current.declaration("outer"), true,
+  assert.equal(sourceEnclosing(current.source.ast, dormant, "callable-body") === current.declaration("outer"), true,
     "the checked declaration retains its exact enclosing owner");
   assert.equal(current.unused("dormant"), true, "an unused deep native body remains erased");
   assert.equal(current.unused("called"), false, "a real deep invocation still requires its native body");

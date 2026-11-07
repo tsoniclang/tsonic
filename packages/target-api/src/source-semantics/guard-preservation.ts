@@ -20,7 +20,7 @@ export function sourceGuardPreservesBinding(
     if (!enter(node)) return false;
     const effects = context.navigation.expressionEffects(node);
     return !(capturedWrites && (effects.invokes || effects.suspends)) &&
-      (!effects.mutates || context.navigation.bindingWritesWithin(binding.symbol, node).length === 0);
+      (!effects.mutates || context.navigation.bindingWritesWithin(binding.declaration, node).length === 0);
   };
   if (!stable(condition)) return false;
   let current = reference;

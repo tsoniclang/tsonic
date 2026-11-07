@@ -1,8 +1,9 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { sourceClassFieldHasStorage } from "./class-members.js";
-import { createTargetSourceProgram, sourceClassFieldIsTypeOnly, sourceMemberOwner, sourceObjectMemberDeclarations, sourceParameterIsProperty } from "../public/source.js";
+import { sourceClassFieldIsTypeOnly, sourceMemberOwner, sourceObjectMemberDeclarations, sourceParameterIsProperty } from "../public/host.js";
 
 test("type-only field classification preserves original declarations without guessing from names or types", () => {
   const checked = createCompilerSessionFromFiles({
@@ -21,7 +22,7 @@ test("type-only field classification preserves original declarations without gue
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const declaration = source.ast.statements(file)[1];
@@ -48,7 +49,7 @@ test("authored field storage excludes abstract contracts without changing their 
     }` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary abstract/declared/authored field source checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const declaration = source.ast.statements(file)[0]!;
   const members = source.ast.members(declaration);
@@ -87,7 +88,7 @@ test("parameter properties retain exact field declarations, owners and storage e
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const [base, derived, ordinary, mutable] = source.ast.statements(file);
@@ -148,7 +149,7 @@ test("named and anonymous class expressions retain the same exact parameter-prop
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const expressions: import("@tsonic/tsts").Node[] = [];
@@ -199,7 +200,7 @@ test("class expressions retain exact inherited and parameter-property implementa
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const base = source.ast.statements(file)[0];

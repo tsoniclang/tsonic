@@ -1,4 +1,5 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageValueGuards } from "./guarded-values.js";
@@ -70,7 +71,7 @@ export interface SourceStorageReference {
 export interface SourceStorageProjectionView {
   readonly receiver: SourceStorageSubject;
   readonly source: SourceStorageSubject;
-  readonly type: Type;
+  readonly type: SourceTypeDescriptor;
 }
 
 export interface SourceStorageInputFrontier {
@@ -97,7 +98,7 @@ export interface SourceStorageAccessorInvocation {
 
 export type SourceStorageMemberSelection =
   | { readonly kind: "access"; readonly node: Node }
-  | { readonly kind: "physical"; readonly subject: SourceStorageSubject; readonly declaration: Node; readonly receiverType: Type }
+  | { readonly kind: "physical"; readonly subject: SourceStorageSubject; readonly declaration: Node; readonly receiverType: SourceTypeDescriptor }
   | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node;
       readonly evaluation: Node | undefined; readonly before: Node | undefined };
 
@@ -116,7 +117,7 @@ export type SourceStorageTerm =
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
       readonly activation: { readonly kind: "invoke" } | { readonly kind: "provided"; readonly argument: SourceStorageTerm | undefined }
         | { readonly kind: "entered"; readonly scope: SourceStorageScope;
-        readonly actualTypes: readonly (readonly Type[] | undefined)[] };
+        readonly actualTypes: readonly (readonly SourceTypeDescriptor[] | undefined)[] };
       readonly callback?: SourceStorageCallbackEntry } & SourceStorageOperation)
   | ({ readonly kind: "pointer"; readonly invocation: Node; readonly pointer: SourceStorageTerm;
       readonly input: SourceStorageTerm | undefined; readonly scope: SourceStorageScope;
@@ -157,7 +158,7 @@ export interface SourceStorageScopedSubject {
 }
 
 export interface SourceStorageProjectionReceiver extends SourceStorageScopedSubject {
-  readonly type: Type;
+  readonly type: SourceTypeDescriptor;
   readonly view: SourceStorageSubject;
   readonly component: SourceStorageProjection;
 }

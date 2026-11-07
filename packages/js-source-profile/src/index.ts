@@ -25,3 +25,8 @@ export { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage } fro
 export type { JsSourceStorageOperationIdentity } from "./identities/storage-effects.js";
 export { jsSourceInvocationOnlyCallableParameters, jsSourceCallableParameterEffects, jsSourceNativeStorageOperation,
   jsSourceCallableRefusal } from "./identities/callable-effects.js";
+export { createJsSourceApiFacts } from "./api/facts.js";
+export { jsSourceApiIdentity } from "./api/identity.js";
+export type { JsSourceApiIdentity, JsSourceApiIdentityInput } from "./api/identity.js";
+export { jsSourceApiConstructionMeaning, jsSourceApiMemberMeaning } from "./api/members.js";
+export type { JsSourceApiMemberMeaning } from "./api/members.js";

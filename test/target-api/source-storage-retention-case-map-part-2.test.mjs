@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { sourceDeclarationUses } from "../../packages/target-api/dist/source-navigation/declaration-uses.js";
 import { sourceCallableValueParameters } from "../../packages/target-api/dist/source-navigation/callable-parameters.js";
 import { sourceStorageFormalOwner } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
@@ -167,7 +168,7 @@ test("deferred callback lifetime follows the receiving input rather than the par
     start(pending);
   `);
   const owner = current.declaration("later");
-  const parameters = sourceCallableValueParameters(current.source.ast, owner, current.source.semantics.forNode(owner),
+  const parameters = sourceCallableValueParameters(current.source.ast, owner, current.source.navigation,
     { kind: "declaration" });
   assert.equal(parameters?.length === 2, true, "the checked receiving signature has its two actual value parameters");
   const parameter = parameters[1];
@@ -185,10 +186,10 @@ test("deferred callback lifetime follows the receiving input rather than the par
     if (!ast.is.IsCallExpression(node)) return false;
     const expression = ast.as.AsCallExpression(node).Expression;
     if (!ast.is.IsIdentifier(expression) || ast.text(expression) !== "later") return false;
-    const call = current.source.semantics.forNode(node).operations.call(node);
-    return call !== undefined && call.sourceArguments.length === 2 &&
-      call.sourceArguments.every((argument, index) => ast.is.IsIdentifier(argument.expression) &&
-        ast.text(argument.expression) === ["ready", "child"][index]);
+    const call = current.source.navigation.call(node);
+    return call !== undefined && call.arguments.length === 2 &&
+      call.arguments.every((argument, index) => ast.is.IsIdentifier(argument) &&
+        ast.text(argument) === ["ready", "child"][index]);
   });
   assert.equal(receiving.length, 1, "the fixture has one exact checked later(ready, child) invocation");
   assert.equal(selected.premises.some(premise => current.references("child").includes(premise.value.node) &&

@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 
 function fixture(text) {
@@ -10,7 +11,7 @@ function fixture(text) {
     files: { "/src/index.ts": `export {}; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "the actual checked source file exists");
   const nodes = [];
@@ -42,11 +43,12 @@ test("an exact checked indexed write preserves its original container without in
     const observed = alias["token"];
   `);
   const access = current.nodes.find(node => current.source.ast.is.IsElementAccessExpression(node) &&
-    current.source.semantics.forNode(node).operations.elementAccess(node)?.accessMode === "write");
+    current.source.navigation.memberAccess(node)?.accessMode === "write");
   assert.equal(access !== undefined, true, "the original checked indexed write is retained");
-  const evidence = current.source.semantics.forNode(access).operations.elementAccess(access);
-  assert.equal(evidence?.selectedDeclaration !== undefined &&
-    current.source.ast.is.IsIndexSignatureDeclaration(evidence.selectedDeclaration) && evidence.writable === true, true,
+  const evidence = current.source.navigation.memberAccess(access);
+  assert.equal(evidence?.declaration !== undefined &&
+    current.source.ast.is.IsIndexSignatureDeclaration(evidence.declaration) &&
+    !current.source.ast.hasModifierKind(evidence.declaration, "readonly"), true,
     "the actual checked index contract, not a fabricated named field, admits the write");
   const selected = current.select("selected");
   assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&

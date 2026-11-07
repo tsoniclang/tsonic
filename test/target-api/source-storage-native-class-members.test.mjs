@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -31,7 +32,7 @@ async function fixture(name, registered = true) {
     `,
   });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const nativeFile = projectSourceFile(source, "src/native.d.ts");
   const native = namedDeclaration(source.ast, nativeFile, "Native");
@@ -42,7 +43,9 @@ async function fixture(name, registered = true) {
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const subject = transport.subject(derived);
   const bindings = transport.substitutions.forLexicalOwner(derived);
-  const destination = source.semantics.forNode(derived).declarations.declaredType(derived);
+  // The instance contract is the Host construct result of the class (one instance type for all overloads).
+  const construction = source.facts.objects.construction(derived);
+  const destination = construction.kind === "refused" ? undefined : construction.signatures[0]?.result;
   assert.equal(subject !== undefined && bindings !== undefined && destination !== undefined && field !== undefined, true,
     "the actual checked class receiver, scope, field and instance contract exist");
   const lineages = sourceStorageClassLineages(source, budget, new Set([{ subject, bindings }]), {

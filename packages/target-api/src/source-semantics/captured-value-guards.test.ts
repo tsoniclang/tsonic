@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
 
@@ -19,21 +19,21 @@ function fixture(body: string) {
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const reads: Node[] = [];
   const visit = (node: Node): void => {
-    const call = source.semantics.forNode(node).operations.call(node);
-    if (call !== undefined && source.ast.text(call.sourceCallee.expression) === "observe") {
-      assert.ok(call.sourceArguments[0]);
-      reads.push(call.sourceArguments[0].expression);
+    const call = source.navigation.call(node);
+    if (call !== undefined && source.ast.text(call.callee) === "observe") {
+      assert.ok(call.arguments[0]);
+      reads.push(call.arguments[0]);
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    semanticsFor: (node: Node) => source.semantics.forNode(node) };
+    flowConditions: source.flowConditions, values: source.facts.values };
   return reads.map(reference => selectSourceGuardedValueMembers(context, reference, ["string", "object", "absence"], expression => {
     const guard = selectSourceNativeValueGuard(context, expression);
     return guard?.kind === "literal" ? { sourceOperand: guard.sourceOperand, predicate: guard } : undefined;
@@ -80,7 +80,7 @@ test("absence guard operands use their declared type rather than a stale capture
     }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const guards: ReturnType<typeof selectSourceNativeValueGuard>[] = [];
@@ -89,7 +89,7 @@ test("absence guard operands use their declared type rather than a stale capture
       const expression = source.ast.as.AsIfStatement(node)?.Expression;
       assert.ok(expression);
       guards.push(selectSourceNativeValueGuard({ ast: source.ast, navigation: source.navigation,
-        semanticsFor: selected => source.semantics.forNode(selected) }, expression));
+        values: source.facts.values }, expression));
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };

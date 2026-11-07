@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  createSourceProgramNavigation,
-} from "../../packages/target-api/dist/public/source.js";
+  createSourceNavigationInput, createSourceProgramNavigation,
+} from "../../packages/target-api/dist/public/host.js";
 import {
   isTypeSyntaxNode,
   referenceQueryNode,
-  semanticTypeForNode,
 } from "../../packages/target-api/dist/source-navigation/syntax.js";
+import { semanticTypeForNode } from "../../packages/target-api/dist/host-input/navigation-references.js";
 import {
   checkedSource,
   projectSourceFile,
@@ -36,7 +36,7 @@ test("source navigation resolves exact authored type-query expressions", async (
   const { ast } = checked;
   const indexFile = projectSourceFile(checked, "src/index.ts");
   const apiFile = projectSourceFile(checked, "src/api.ts");
-  const navigation = createSourceProgramNavigation(checked);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(checked));
   const checker = checked.getSourceFileQueries(indexFile).checker;
   const queries = allNodes(ast, indexFile, (node) => ast.is.IsTypeQueryNode(node));
   const rootQuery = requiredSelection(
@@ -104,8 +104,9 @@ test("source navigation resolves exact authored type-query expressions", async (
     navigation.sourceReferenceFor(rootQuery)?.declaration,
     navigation.sourceReferenceFor(nestedQuery)?.declaration,
   );
-  assert.equal(navigation.declarationFor(rootQuery), rootStorageInitializer);
-  assert.notEqual(navigation.declarationFor(rootQuery), rootStorage);
+  // declarationFor is reference selection only (B3 D2): no checked-type fallback to the initializer.
+  assert.equal(navigation.declarationFor(rootQuery), rootStorage);
+  assert.notEqual(navigation.declarationFor(rootQuery), rootStorageInitializer);
 });
 
 function allNodes(ast, root, predicate) {

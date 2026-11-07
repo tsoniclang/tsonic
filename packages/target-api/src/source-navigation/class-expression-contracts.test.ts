@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
 
 test("class-expression public navigation preserves overloaded, inherited and accessor identities", () => {
   const checked = createCompilerSessionFromFiles({
@@ -35,7 +35,7 @@ test("class-expression public navigation preserves overloaded, inherited and acc
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   const baseFile = checked.getSourceFile("/src/base.ts");
   assert.ok(file && baseFile);

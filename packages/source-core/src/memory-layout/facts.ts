@@ -95,14 +95,27 @@ export function dataLayoutsEqual(left: TsonicDataLayoutFact, right: TsonicDataLa
 
 export const maximumMemoryLayoutDepth = 128;
 const maximumMemoryLayoutValues = 131072;
-const capturedLayoutDepths = new WeakMap<TsonicMemoryLayoutFact, number>();
+// I5: no module-level table. A captured snapshot carries its own depth under a module-private, non-enumerable key,
+// so the provenance mark lives exactly as long as the snapshot (per program) and cannot be forged outside this module.
+const capturedLayoutDepth: unique symbol = Symbol("tsonic.memoryLayout.capturedDepth");
+
+function capturedDepthOf(value: TsonicMemoryLayoutFact): number | undefined {
+  const descriptor = value !== null && typeof value === "object"
+    ? Object.getOwnPropertyDescriptor(value, capturedLayoutDepth) : undefined;
+  return descriptor !== undefined && typeof descriptor.value === "number" ? descriptor.value : undefined;
+}
+
+function sealCapturedLayout<T extends TsonicMemoryLayoutFact>(value: T, depth: number): T {
+  Object.defineProperty(value, capturedLayoutDepth, { value: depth, enumerable: false, writable: false, configurable: false });
+  return Object.freeze(value);
+}
 
 export function memoryLayoutCaptureLimitsError(children: readonly TsonicMemoryLayoutFact[], fieldCount = 0): string | undefined {
   if (children.length + fieldCount >= maximumMemoryLayoutValues) {
     failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "values", maximumMemoryLayoutValues);
   }
   for (const child of children) {
-    const depth = capturedLayoutDepths.get(child);
+    const depth = capturedDepthOf(child);
     if (depth === undefined) return "Memory child layout is not an immutable source-owned snapshot.";
     if (depth >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "depth", maximumMemoryLayoutDepth);
   }
@@ -132,7 +145,7 @@ function memoryLayoutSnapshot() {
   }
   function layout(value: TsonicMemoryLayoutFact): TsonicMemoryLayoutFact {
     visit();
-    const capturedDepth = capturedLayoutDepths.get(value);
+    const capturedDepth = capturedDepthOf(value);
     if (capturedDepth !== undefined) {
       if (active.size + capturedDepth > maximumMemoryLayoutDepth) {
         failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
@@ -141,7 +154,7 @@ function memoryLayoutSnapshot() {
     }
     const cached = layouts.get(value);
     if (cached !== undefined) {
-      if (active.size + capturedLayoutDepths.get(cached)! > maximumMemoryLayoutDepth) {
+      if (active.size + capturedDepthOf(cached)! > maximumMemoryLayoutDepth) {
         failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
       }
       return cached;
@@ -171,7 +184,7 @@ function memoryLayoutSnapshot() {
       if (result.kind === "value") {
         const fields = snapshotDataArray(result.fields, field);
         children = fields.map(entry => entry.fieldLayout);
-        captured = Object.freeze({ ...result, dataLayout, fields });
+        captured = { ...result, dataLayout, fields };
       } else {
         opaqueSubject(result.elementLayoutExpression);
         const fixedArray = snapshotFixedArrayFact(result.fixedArray);
@@ -180,7 +193,7 @@ function memoryLayoutSnapshot() {
         }
         const elementLayout = layout(result.elementLayout);
         children = [elementLayout];
-        captured = Object.freeze({ ...result, dataLayout, fixedArray, elementLayout });
+        captured = { ...result, dataLayout, fixedArray, elementLayout };
       }
       if (children.some(child => !dataLayoutsEqual(child.dataLayout, dataLayout))) {
         throw new Error("Memory child layout has a different ABI identity or descriptor from its aggregate.");
@@ -188,8 +201,8 @@ function memoryLayoutSnapshot() {
       const error = memoryLayoutDimensionsError(captured);
       if (error !== undefined) throw new Error(error);
       let depth = 1;
-      for (const child of children) depth = Math.max(depth, 1 + capturedLayoutDepths.get(child)!);
-      capturedLayoutDepths.set(captured, depth);
+      for (const child of children) depth = Math.max(depth, 1 + capturedDepthOf(child)!);
+      captured = sealCapturedLayout(captured, depth);
       layouts.set(value, captured);
       return captured;
     } finally {
@@ -206,9 +219,7 @@ export function snapshotMemoryField(value: TsonicMemoryFieldLayoutFact): TsonicM
 export function snapshotMemoryLayout(value: TsonicMemoryLayoutFact): TsonicMemoryLayoutFact {
   const result = memoryLayoutSnapshot().layout(value);
   if (result !== value) return result;
-  const root = Object.freeze({ ...result });
-  capturedLayoutDepths.set(root, capturedLayoutDepths.get(result)!);
-  return root;
+  return sealCapturedLayout({ ...result }, capturedDepthOf(result)!);
 }
 
 function memoryFieldSubjectsEqual(left: TsonicMemoryFieldLayoutFact, right: TsonicMemoryFieldLayoutFact): boolean {

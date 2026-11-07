@@ -1,10 +1,10 @@
-import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
-import type { SourceClassConstructorParameter, SourceClassConstructorResult, SourceClassConstructorSignature } from "./types.js";
-import type { ResolvedSourceCallInfo } from "./call-info.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceNavigationInput, SourceNavigationSignatureParameter } from "../host-input/navigation.js";
+import type { SourceClassConstructorParameter, SourceClassConstructorResult } from "./types.js";
 
 export function sourceConstructorParametersMatch(
   declared: readonly Pick<SourceClassConstructorParameter, "parameterDeclaration" | "acceptsOmission" | "rest">[],
-  selected: readonly Pick<ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number], "parameterDeclaration" | "acceptsOmission" | "rest">[],
+  selected: readonly Pick<SourceNavigationSignatureParameter, "parameterDeclaration" | "acceptsOmission" | "rest">[],
 ): boolean {
   return declared.length === selected.length && declared.every((parameter, index) => {
     const candidate = selected[index];
@@ -14,160 +14,36 @@ export function sourceConstructorParametersMatch(
   });
 }
 
+/** Effective constructors of a project class: the construct signatures host-input selects for its value (I3). */
 export function createSourceClassConstructorNavigation(
-  source: CheckedSourceProgram,
+  input: Pick<SourceNavigationInput, "ast" | "constructSignatures">,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): (declaration: Node) => SourceClassConstructorResult {
+  const { ast } = input;
   const cache = new WeakMap<Node, SourceClassConstructorResult>();
-
   return (declaration: Node): SourceClassConstructorResult => {
     const existing = cache.get(declaration);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const result = resolveSourceClassConstructors(
-      source,
-      isProjectDeclaration,
-      declaration,
-    );
+    if (existing !== undefined) return existing;
+    const result = ((): SourceClassConstructorResult => {
+      if ((!ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) ||
+        !isProjectDeclaration(declaration)) {
+        return Object.freeze({
+          kind: "unresolved", declaration,
+          reason: "Effective constructors require an exact project class declaration.",
+        });
+      }
+      const selected = input.constructSignatures(declaration);
+      if (selected.kind === "unresolved") {
+        return Object.freeze({ kind: "unresolved", declaration: selected.site, reason: selected.reason });
+      }
+      return Object.freeze({
+        kind: "resolved",
+        declaration,
+        implicit: !ast.members(declaration).some(member => member !== undefined && ast.is.IsConstructorDeclaration(member)),
+        signatures: selected.signatures,
+      });
+    })();
     cache.set(declaration, result);
     return result;
   };
-}
-
-function resolveSourceClassConstructors(
-  source: CheckedSourceProgram,
-  isProjectDeclaration: (node: Node | undefined) => boolean,
-  declaration: Node,
-): SourceClassConstructorResult {
-  if (
-    (!source.ast.is.IsClassDeclaration(declaration) && !source.ast.is.IsClassExpression(declaration)) ||
-    !isProjectDeclaration(declaration)
-  ) {
-    return unresolved(
-      declaration,
-      "Effective constructors require an exact project class declaration.",
-    );
-  }
-  const name = source.ast.name(declaration);
-  const sourceFile = source.ast.getSourceFile(declaration);
-  const expression = source.ast.is.IsClassExpression(declaration);
-  if ((!expression && name === undefined) || sourceFile === undefined) {
-    return unresolved(
-      declaration,
-      "The project class has no exact source declaration.",
-    );
-  }
-  const queries = source.getSourceFileQueries(sourceFile);
-  const symbol = name === undefined ? undefined : queries.checker.getSymbolAtLocation(name);
-  const valueType = expression ? queries.checker.getTypeAtLocation(declaration) : symbol === undefined
-    ? undefined
-    : queries.checker.getTypeOfSymbol(symbol);
-  const rawSignatures = valueType === undefined
-    ? []
-    : queries.checker.getConstructSignaturesOfType(valueType);
-  const signatures = rawSignatures.filter(
-    (signature): signature is NonNullable<typeof signature> =>
-      signature !== undefined,
-  );
-  if (
-    valueType === undefined ||
-    signatures.length === 0 ||
-    signatures.length !== rawSignatures.length
-  ) {
-    return unresolved(
-      declaration,
-      "The checked source program did not provide an effective constructor signature for the project class.",
-    );
-  }
-  const resolved: SourceClassConstructorSignature[] = [];
-  for (const signature of signatures) {
-    const parameters: SourceClassConstructorParameter[] = [];
-    const effectiveParameters = queries.typeShape.getSignatureParameterInfos(signature);
-    const requiredParameterCount = effectiveParameters.filter(parameter => !parameter.acceptsOmission).length;
-    const signatureParameters = queries.checker.getSignatureParameters(
-      signature,
-    );
-    for (let index = 0; index < signatureParameters.length; index += 1) {
-      const parameterSymbol = signatureParameters[index];
-      if (parameterSymbol === undefined) {
-        return unresolved(
-          declaration,
-          "An effective constructor signature contains an absent selected parameter symbol.",
-        );
-      }
-      const parameterDeclaration = queries.checker
-        .getPrimarySymbolDeclaration(parameterSymbol);
-      if (
-        parameterDeclaration === undefined ||
-        !source.ast.is.IsParameterDeclaration(parameterDeclaration)
-      ) {
-        return unresolved(
-          declaration,
-          "A non-empty effective constructor signature has no exact parameter declaration.",
-        );
-      }
-      const parameter = source.ast.as.AsParameterDeclaration(
-        parameterDeclaration,
-      );
-      if (parameter === undefined) {
-        return unresolved(
-          declaration,
-          "The selected constructor parameter did not satisfy its proven AST kind.",
-        );
-      }
-      const selectedType = queries.checker.getTypeOfSymbol(parameterSymbol);
-      const parameterName = queries.checker.getSymbolName(parameterSymbol);
-      if (selectedType === undefined || parameterName.length === 0) {
-        return unresolved(
-          parameterDeclaration,
-          "The selected constructor parameter has no exact semantic type or name.",
-        );
-      }
-      const rest = parameter.DotDotDotToken !== undefined;
-      parameters.push(Object.freeze({
-        parameterIndex: index,
-        parameterName,
-        parameterSymbol,
-        parameterDeclaration,
-        ...(parameter.Type === undefined
-          ? {}
-          : { authoredTypeNode: parameter.Type }),
-        selectedType,
-        acceptsOmission: index >= requiredParameterCount,
-        rest,
-      }));
-    }
-    const signatureDeclaration = queries.checker
-      .getSignatureDeclaration(signature);
-    resolved.push(Object.freeze({
-      signature,
-      ...(signatureDeclaration === undefined
-        ? {}
-        : { declaration: signatureDeclaration }),
-      parameters: Object.freeze(parameters),
-    }));
-  }
-  const declaredConstructors = source.ast.members(declaration).filter(
-    (member): member is Node =>
-      member !== undefined &&
-      source.ast.is.IsConstructorDeclaration(member),
-  );
-  return Object.freeze({
-    kind: "resolved",
-    declaration,
-    implicit: declaredConstructors.length === 0,
-    signatures: Object.freeze(resolved),
-  });
-}
-
-function unresolved(
-  declaration: Node,
-  reason: string,
-): SourceClassConstructorResult {
-  return Object.freeze({
-    kind: "unresolved",
-    declaration,
-    reason,
-  });
 }

@@ -1,18 +1,33 @@
+import { sourceAnalysisIncludesNode, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
+import type { SourceEffectiveTypeArgument, SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipValue,
   SourceDeclarationOwnershipValues, SourceDeclarationRetentionPremise, SourceDeclarationRetentionReadSelection,
   SourceDeclarationRetentionSelection } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
 export function createSourceDeclarationRetentionQuery(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly values: SourceDeclarationOwnershipValues;
   readonly premises: Pick<SourceDeclarationOwnershipPremises, "retentionFor">;
   readonly budget: SourceDeclarationOwnershipBudget;
 }) {
   const { source, values, premises, budget } = input;
   const reads = new Map<Node, SourceDeclarationRetentionReadSelection>();
+  // The binders of a value's Host type (a declared application: its declaration's type parameters bound to its type
+  // arguments) and of the call's published instantiation (receiver and method binders).
+  const typeArgumentsOf = (type: SourceTypeDescriptor, call: Node | undefined): readonly SourceEffectiveTypeArgument[] => {
+    const selected: SourceEffectiveTypeArgument[] = [];
+    if (type.kind === "declared") {
+      const binders = source.ast.typeParameters(type.declaration);
+      if (binders.length === type.typeArguments.length)
+        type.typeArguments.forEach((argument, index) => selected.push({ declaration: binders[index]!, type: argument }));
+    }
+    const instantiation = call === undefined ? undefined : source.facts.instantiations.at(call);
+    if (instantiation !== undefined && instantiation.kind !== "refused") selected.push(...instantiation.receiver, ...instantiation.method);
+    return selected;
+  };
   const actuals = new Map<SourceDeclarationOwnershipValue, SourceDeclarationRetentionSelection>();
   const validate = (value: SourceDeclarationOwnershipValue,
     selection: SourceDeclarationRetentionSelection): SourceDeclarationRetentionSelection => {
@@ -39,8 +54,7 @@ export function createSourceDeclarationRetentionQuery(input: {
           premise.contract.kind !== "declaration")
           return sourceDeclarationOwnershipUnresolved(value.node, "Program-duration retention requires its actual module owner.");
         if (premise.kind === "scoped-borrowed") {
-          const regionFile = source.ast.getSourceFile(premise.region);
-          if (regionFile === undefined || !source.semantics.includes(regionFile) || source.ast.is.IsSourceFile(premise.region))
+          if (!sourceAnalysisIncludesNode(source, premise.region) || source.ast.is.IsSourceFile(premise.region))
             return sourceDeclarationOwnershipUnresolved(value.node, "A scoped lease needs its checked non-module lifetime region.");
           let current: Node | undefined = value.node;
           const visited = new Set<Node>();
@@ -54,14 +68,12 @@ export function createSourceDeclarationRetentionQuery(input: {
             return sourceDeclarationOwnershipUnresolved(value.node, "A scoped native lease must contain the actual local value.");
         }
         if (premise.kind === "formal-borrowed") {
-          const semantics = source.semantics.forNode(value.node);
           const call = source.ast.is.IsCallExpression(value.node) || source.ast.is.IsNewExpression(value.node)
-            ? semantics.operations.call(value.node) : undefined;
-          const selectedDeclaration = call?.sourceSelectedSignatureKind === "resolved"
-            ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
+            ? source.navigation.call(value.node) : undefined;
+          const selectedDeclaration = call?.selection === "resolved" ? call.signature : undefined;
           const region = premise.region;
           const formal = selectedDeclaration === premise.executionOwner && region.kind === "input-duration"
-            ? call?.sourceSelectedSignatureParameters.find(parameter =>
+            ? call?.parameters.find(parameter =>
                 parameter.parameterDeclaration === region.parameter)?.parameterDeclaration
             : source.ast.is.IsParameterDeclaration(value.node) ? value.node
               : source.navigation.sourceReferenceFor(value.node)?.declaration;
@@ -75,8 +87,8 @@ export function createSourceDeclarationRetentionQuery(input: {
             if (region.parameter !== formal || formal === undefined)
               return sourceDeclarationOwnershipUnresolved(value.node, "Input-duration retention requires that exact native formal slot.");
             if (nativeResult) {
-              const parameter = call.sourceSelectedSignatureParameters.find(selected => selected.parameterDeclaration === formal);
-              const inputs = parameter === undefined ? [] : call.sourceArgumentBindings.filter(binding =>
+              const parameter = call.parameters.find(selected => selected.parameterDeclaration === formal);
+              const inputs = parameter === undefined ? [] : call.bindings.filter(binding =>
                 binding.sourceParameterIndex === parameter.parameterIndex);
               if (inputs.length !== 1 || inputs[0]!.sourceForm !== "value" ||
                 source.ast.arguments(value.node)[inputs[0]!.sourceArgumentIndex] === undefined)
@@ -84,20 +96,13 @@ export function createSourceDeclarationRetentionQuery(input: {
                   "A borrowed native result requires its exact completed caller-to-formal input correspondence.");
             }
           } else {
-            const binding = semantics.types.typeArgumentBindings(value.component.selectedType)?.find(candidate =>
-              candidate.declaration === region.binding.declaration &&
-              semantics.types.isIdentical(candidate.parameterType, region.binding.parameterType) &&
-              semantics.types.isIdentical(candidate.argumentType, region.binding.argumentType));
-            const direct = call?.sourceSelectedMethodTypeArguments?.find(argument => {
-              const symbol = semantics.declarations.typeSymbol(argument.typeParameter);
-              return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(region.binding.declaration) &&
-                semantics.types.isIdentical(argument.typeParameter, region.binding.parameterType) &&
-                semantics.types.isIdentical(argument.selectedType, region.binding.argumentType);
-            });
-            const argumentType = binding?.argumentType ?? direct?.selectedType;
-            const symbol = argumentType === undefined ? undefined : semantics.declarations.typeSymbol(argumentType);
-            if (argumentType === undefined || symbol === undefined || !source.ast.is.IsTypeParameterDeclaration(region.declaration) ||
-              !semantics.declarations.symbolDeclarations(symbol).includes(region.declaration))
+            // The region's binder must bind this value's type (or its call's instantiation) to the region's own type
+            // parameter: the bound descriptor is the declared reference of `region.declaration`.
+            const binding = typeArgumentsOf(value.component.type, call === undefined ? undefined : value.node).find(candidate =>
+              candidate.declaration === region.binding.declaration && sourceTypeDescriptorsEqual(candidate.type, region.binding.type));
+            const argumentType = binding?.type;
+            if (argumentType?.kind !== "declared" || !source.ast.is.IsTypeParameterDeclaration(region.declaration) ||
+              !source.navigation.mergedDeclarations(argumentType.declaration).includes(region.declaration))
               return sourceDeclarationOwnershipUnresolved(value.node, "A formal lease needs its exact instantiated native type argument.");
             let owner: Node | undefined = nativeResult ? value.region.owner : premise.executionOwner;
             const visited = new Set<Node>();

@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageScopedRecursion } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-recursion.js";
 import { createSourceStorageEquations } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-equations.js";
 import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-scopes.js";
@@ -23,20 +24,12 @@ function callableSource(owners) {
   const signatures = new Map(owners.map(owner => [owner, Object.freeze({
     parameters: Object.freeze(owner.parameters.map(declaration => Object.freeze({ declaration }))),
   })]));
-  const declarations = Object.freeze({
-    declarationSignature: owner => signatures.get(owner),
-    signatureParameters: signature => signature.parameters,
-    primarySymbolDeclaration: symbol => symbol.declaration,
-  });
-  return { ast: { parent: node => node.parent, body: node => node.body,
+  return { sourceFiles: [file], ast: { parent: node => node.parent, body: node => node.body,
     getSourceFile: node => nodes.has(node) ? file : undefined,
     is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
       IsParameterDeclaration: node => parameters.has(node) } },
-  semantics: { includes: candidate => candidate === file,
-    forFile(candidate) {
-      if (candidate !== file) throw new Error("The recursive fixture requires its exact checked source file.");
-      return { declarations };
-    } } };
+  // The navigation declared-parameter witness (Node-keyed, B3 §0.3).
+  navigation: { declaredParameters: owner => signatures.get(owner)?.parameters.map(parameter => parameter.declaration) } };
 }
 
 function executionRegions(invocations) {
@@ -251,7 +244,7 @@ function selectedEquationFixture() {
     const first = step(step, 3); const second = step(step, 4);
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the original recursive Step source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const visit = node => {

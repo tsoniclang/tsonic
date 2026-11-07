@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { Node_Expression, Node_Initializer } from "./ast.js";
 import { AsExpressionWithTypeArguments } from "./checked-casts.js";
 import { sourceConstructionExpression, sourceInstanceInitializers, sourceSuperConstructor } from "./class-initialization.js";
@@ -12,7 +12,7 @@ function fixture(body: string) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const nodes: Node[] = [];
   const visit = (node: Node): void => {
     nodes.push(node);

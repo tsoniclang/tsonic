@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { sourceExpressionSequence } from "./expression-sequence.js";
 
 test("source comma sequences preserve exact ordered leaves without treating other operators as separators", () => {
@@ -15,7 +15,7 @@ declare function fourth(): number;
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const expressions = source.ast.statements(file).slice(4).map(statement => source.ast.as.AsExpressionStatement(statement!)?.Expression);

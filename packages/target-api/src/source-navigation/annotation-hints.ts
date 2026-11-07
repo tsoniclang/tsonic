@@ -1,14 +1,12 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo } from "./call-info.js";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
-import { sourceEnclosingCallable } from "./callable-invocations.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 export interface SourceAnnotationHintBindings {
   readonly ast: AstReader;
-  readonly navigation: Pick<SourceProgramNavigation, "referenceFor">;
+  readonly navigation: Pick<SourceProgramNavigation, "referenceFor" | "call">;
   readonly annotationType?: string;
-  call(node: Node): ResolvedSourceCallInfo | undefined;
 }
 
 export function sourceAnnotationHint(
@@ -31,16 +29,16 @@ export function sourceAnnotationHint(
     annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     declaration = navigation.referenceFor(assignment.Left)?.declaration;
   } else if (ast.is.IsReturnStatement(parent)) {
-    const callable = sourceEnclosingCallable(parent, ast);
+    const callable = sourceEnclosing(ast, parent, "callable-body");
     annotation = callable === undefined ? undefined : ast.typeNode(callable);
   } else if (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) {
-    const call = bindings.call(parent);
-    const argumentIndex = call?.sourceArguments.findIndex(argument => argument.expression === current);
+    const call = navigation.call(parent);
+    const argumentIndex = call?.arguments.indexOf(current);
     const arguments_ = argumentIndex === undefined || argumentIndex < 0 ? []
-      : call?.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === argumentIndex) ?? [];
+      : call?.bindings.filter(binding => binding.sourceArgumentIndex === argumentIndex) ?? [];
     const parameters = new Set(arguments_.map(binding => binding.sourceParameterIndex));
     const parameter = parameters.size === 1
-      ? call?.sourceSelectedSignatureParameters[arguments_[0]!.sourceParameterIndex]?.parameterDeclaration : undefined;
+      ? call?.parameters[arguments_[0]!.sourceParameterIndex]?.parameterDeclaration : undefined;
     annotation = parameter === undefined ? undefined : ast.typeNode(parameter);
   }
   if (declaration === undefined || annotation === undefined || !ast.is.IsVariableDeclaration(declaration) ||

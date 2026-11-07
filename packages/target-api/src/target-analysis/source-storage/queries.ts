@@ -1,5 +1,5 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageSubjectType } from "./model/components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
@@ -17,7 +17,7 @@ import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../sou
 import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "./model/types.js";
 
 export function createSourceStorageQuery(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   sourceFiles: readonly SourceFile[],
   limits: SourceStorageLimits = defaultSourceStorageLimits,
   effects: SourceStorageEffects = {},
@@ -35,7 +35,7 @@ export function createSourceStorageQuery(
     if (!budget.step()) return false;
     if (!transport.hasNode(node)) return false;
     const file = source.ast.getSourceFile(node);
-    return file !== undefined && source.semantics.includes(file);
+    return sourceAnalysisIncludesFile(source, file);
   };
   const checkedProjection = (component: SourceStorageProjection): boolean =>
     !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration);
@@ -500,7 +500,7 @@ export function createSourceStorageQuery(
         const generator = !callable && callback.kind === "value" && callback.projection.length === 0 &&
           source.ast.is.IsCallExpression(callback.node)
           ? [...transport.invocationImplementations(callback.node)].filter(candidate =>
-            source.semantics.forNode(candidate).operations.generator(candidate) !== undefined &&
+            source.facts.selections.generator(candidate) !== undefined &&
             transport.substitutions.boundActivation(states[0]!, candidate)?.invocation === callback.node) : [];
         if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
           !callable && generator.length !== 1)

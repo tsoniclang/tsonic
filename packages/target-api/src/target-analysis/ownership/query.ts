@@ -1,5 +1,5 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceFlowLimits } from "../flow/model.js";
 import type { SourceDeclarationAsyncOwnershipSelection, SourceDeclarationContinuationSelection,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises } from "./model.js";
@@ -13,7 +13,7 @@ import { resolveSourceDeclarationAsyncResultDisposition } from "./result-use.js"
 import { sourceDeclarationOwnershipUnresolved, createSourceDeclarationParameterUseQuery } from "./contracts.js";
 
 export function createSourceDeclarationOwnershipQuery(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly sourceNodes: readonly Node[];
   readonly nodes: readonly Node[];
   readonly premises: SourceDeclarationOwnershipPremises;
@@ -44,12 +44,15 @@ export function createSourceDeclarationOwnershipQuery(input: {
       const existing = decisions.get(call);
       if (existing !== undefined) return existing;
       const file = source.ast.getSourceFile(call);
-      if (file === undefined || !source.semantics.includes(file) || !source.ast.is.IsCallExpression(call))
+      if (!sourceAnalysisIncludesFile(source, file) || !source.ast.is.IsCallExpression(call))
         return sourceDeclarationOwnershipUnresolved(call, "Async ownership requires its original checked declaration-local call.");
-      const selected = source.semantics.forNode(call).operations.call(call);
-      if (selected?.sourceSelectedSignatureKind !== "resolved")
+      const selected = source.navigation.call(call);
+      if (selected?.selection !== "resolved")
         return sourceDeclarationOwnershipUnresolved(call, "Async ownership requires the exact completed selected signature.");
-      const completion = premises.completionFor(call, selected);
+      const published = source.facts.selections.call(call);
+      if (published === undefined || published.kind === "refused")
+        return sourceDeclarationOwnershipUnresolved(call, "Async ownership requires the published call selection.");
+      const completion = premises.completionFor(call, published);
       const decision = completion.kind !== "async" ? completion : decideSourceDeclarationAsyncResultUse({
         source, budget, call, completion,
         disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget,

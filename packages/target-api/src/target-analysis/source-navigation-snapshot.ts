@@ -1,5 +1,5 @@
-import type { AstReader, Node, SourceFile, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceAnalysisProgram } from "./analysis-program.js";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { sourceBindingWriteAtReference } from "../source-navigation/index.js";
 import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import type { SourceBindingWrite, SourceCallableImplementationResult, SourceCountedLoop, SourceDeclarationReference, SourceDeclarationUseSummary, SourceDeclaredHeritageResult, SourceExpressionEffects, SourceProjectMemberContractsResult, SourceProjectMemberDispatch, SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectReference } from "../source-navigation/index.js";
@@ -17,7 +17,8 @@ export interface TargetPlanningSourceNavigation {
   memberContracts(node: Node): SourceProjectMemberContractsResult;
   callableImplementation(node: Node): SourceCallableImplementationResult;
   declaredHeritage(node: Node): SourceDeclaredHeritageResult;
-  bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
+  /** Writes of the binding a declaration declares, within root (keyed by declaration, B3 D1). */
+  bindingWritesWithin(declaration: Node, root: Node): readonly SourceBindingWrite[];
   declarationUseSummary(node: Node): SourceDeclarationUseSummary;
   countedLoop(node: Node): SourceCountedLoop | undefined;
   expressionEffects(node: Node): SourceExpressionEffects;
@@ -26,7 +27,7 @@ export interface TargetPlanningSourceNavigation {
 }
 
 export function snapshotTargetPlanningSourceNavigation(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
 ): TargetPlanningSourceNavigation {
   const projectReferences = new WeakMap<Node, SourceProjectReference>();
   const declarations = new WeakMap<Node, Node>();
@@ -39,7 +40,7 @@ export function snapshotTargetPlanningSourceNavigation(
   const effects = new WeakMap<Node, SourceExpressionEffects>();
   const projectConstructibleObjects = new WeakSet<Node>();
   const projectNodes = new WeakSet<Node>();
-  const writesBySymbol = new Map<Symbol, SourceBindingWrite[]>();
+  const writesByDeclaration = new Map<Node, SourceBindingWrite[]>();
   const rememberDeclaration = (declaration: Node | undefined): void => {
     if (
       declaration === undefined ||
@@ -60,10 +61,10 @@ export function snapshotTargetPlanningSourceNavigation(
       if (sourceReference !== undefined) {
         rememberDeclaration(sourceReference.declaration);
         const write = sourceBindingWriteAtReference(source.ast, node);
-        if (write !== undefined && write.kind !== "initialization" && sourceReference.symbol !== undefined) {
-          const writes = writesBySymbol.get(sourceReference.symbol) ?? [];
+        if (write !== undefined && write.kind !== "initialization") {
+          const writes = writesByDeclaration.get(sourceReference.declaration) ?? [];
           writes.push(write);
-          writesBySymbol.set(sourceReference.symbol, writes);
+          writesByDeclaration.set(sourceReference.declaration, writes);
         }
       }
       const projectReference = source.navigation.referenceFor(node);
@@ -76,7 +77,7 @@ export function snapshotTargetPlanningSourceNavigation(
         declarations.set(node, declaration);
         rememberDeclaration(declaration);
       }
-      if (source.navigation.isProjectConstructibleObject(node)) {
+      if (isValueReadCandidate(source.ast, node) && source.facts.navigation.identity.isProjectConstructibleObject(node)) {
         projectConstructibleObjects.add(node);
       }
     }
@@ -153,8 +154,8 @@ export function snapshotTargetPlanningSourceNavigation(
       heritage: node,
       reason: "The declaration heritage was not classified before target planning.",
     }),
-    bindingWritesWithin(symbol, root) {
-      return Object.freeze((writesBySymbol.get(symbol) ?? []).filter((write) =>
+    bindingWritesWithin(declaration, root) {
+      return Object.freeze(source.navigation.mergedDeclarations(declaration).flatMap(entry => writesByDeclaration.get(entry) ?? []).filter((write) =>
         sourceNodeIsWithin(source.ast, write.operation, root)));
     },
     declarationUseSummary(node) {
@@ -192,6 +193,20 @@ function isReferenceQueryCandidate(ast: AstReader, node: Node): boolean {
     default:
       return false;
   }
+}
+
+// A value read (identifier, property or element access in expression position): the role model answers project
+// constructibility from the Host value type, which exists only for value nodes.
+function isValueReadCandidate(ast: AstReader, node: Node): boolean {
+  if (!ast.is.IsIdentifier(node) && !ast.is.IsPropertyAccessExpression(node) && !ast.is.IsElementAccessExpression(node)) return false;
+  const parent = ast.parent(node);
+  if (parent === undefined) return false;
+  const kind = ast.kindName(parent);
+  if (kind === "KindTypeReference" || kind === "KindQualifiedName" || kind === "KindExpressionWithTypeArguments" ||
+    kind === "KindTypeQuery" || kind === "KindImportSpecifier" || kind === "KindExportSpecifier" || kind === "KindImportClause" ||
+    kind === "KindNamespaceImport" || kind === "KindLabeledStatement" || kind === "KindBreakStatement" || kind === "KindContinueStatement")
+    return false;
+  return ast.name(parent) !== node;
 }
 
 function sourceNodeIsWithin(ast: AstReader, node: Node, root: Node): boolean {

@@ -1,7 +1,8 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceNodeIdentity, generatedTypeParameterNames, authoredTypeParameterNames } from "../public/source.js";
+import { sourceNodeIdentity, generatedTypeParameterNames, authoredTypeParameterNames } from "../public/host.js";
 
 test("generated binder naming reserves authored and preferred names without changing identity", () => {
   const parameters = [
@@ -23,7 +24,7 @@ test("authored binder inventory excludes only selected declaration identities", 
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
-  const { ast } = createTargetSourceProgram(checked);
+  const { ast } = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const declaration = ast.statements(file)[0];

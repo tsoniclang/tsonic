@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
+import { createSourceHostInput } from "../../host-input/index.js";
 import {
   createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics,
   sourcePrimitive, type Node, type SourceFile,
 } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
-import { createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeDescriptorUnions, createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
@@ -52,14 +53,14 @@ function fixture(program: string, excludedFiles: Readonly<Record<string, string>
   assert.equal(checked.extensionDiagnostics.length, 0);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "the checked program has its exact source file");
-  const source = createTargetSourceProgram(Object.keys(excludedFiles).length === 0 ? checked : {
+  const source = createSourceTypeFlowTestProgram(Object.keys(excludedFiles).length === 0 ? checked : {
     ...checked, sourceFiles: Object.freeze([file!]),
     getSourceFileQueries(sourceFile: SourceFile | undefined) {
       assert.equal(sourceFile === file, true, "excluded declarations retain the included checked consumer query context");
       return checked.getSourceFileQueries(sourceFile);
     },
   });
-  const context = createSourceTypeFlowAnalysisContext(source).context;
+  const context = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles), createSourceHostInput(source)).context;
   const graph = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(source.ast, graph);
   const syntax: Node[] = [];
@@ -143,7 +144,6 @@ test("excluded declaration owners retain the included consumer query context", (
   const checker = current.checked.getSourceFileQueries(current.file).checker;
   const expected = checker.getSymbolAtLocation(current.source.ast.name(declaration));
   assert.equal(expected !== undefined, true);
-  assert.equal(current.source.navigation.declarationSymbol(declaration, current.file) === expected, true);
   const semantics = current.source.semantics.forFile(current.file);
   assert.equal(semantics.declarations.declaredValueType(declaration) === checker.getTypeOfSymbol(expected), true);
   assert.equal(semantics.declarations.declaredType(declaration) === checker.getDeclaredTypeOfSymbol(expected), true);

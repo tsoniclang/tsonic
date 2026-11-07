@@ -1,9 +1,11 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceDeclarationOwnershipBudget, createSourceDeclarationOwnershipValues, defaultSourceDeclarationOwnershipLimits,
   createSourceStorageQuery, defaultSourceStorageLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 
 export const sourceText = `
   interface Lease<T> { readonly item: T; }
@@ -83,7 +85,7 @@ export function ownershipFixture(options = {}) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(item => item !== undefined)).slice(0, 2048));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "checked fixture file");
   const nodes = [];
@@ -98,16 +100,20 @@ export function ownershipFixture(options = {}) {
   const named = (owner, name) => required(nodes.find(node => within(node, owner) &&
     source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name), `binding ${name}`);
   const calls = owner => nodes.filter(node => within(node, owner) && source.ast.is.IsCallExpression(node));
+  // The selected signature declaration of a call (navigation call witness, B3).
   const selectedDeclaration = call => {
-    const semantics = source.semantics.forNode(call);
-    const selected = semantics.operations.call(call);
-    return selected?.sourceSelectedSignatureKind === "resolved"
-      ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    const selected = source.navigation.call(call);
+    return selected?.selection === "resolved" ? selected.signature : undefined;
+  };
+  // The Host descriptor of a value node (facts.values), never a checker Type.
+  const hostType = node => {
+    const outcome = source.facts.values.type(node);
+    return outcome.kind === "refused" ? undefined : outcome.type;
   };
   const readCall = owner => required(calls(owner).find(call => selectedDeclaration(call) === declaration("read")), "exact read call");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits, {
     call(node, selected) {
-      const current = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const current = selected.signature;
       return current !== undefined && ["borrow", "pending", "anotherPending", "sharedGlobal"].some(name => current === declaration(name))
         ? { resultAllocation: node } : undefined;
     },
@@ -122,10 +128,9 @@ export function ownershipFixture(options = {}) {
     return result.subject;
   };
   const typeFor = value => {
-    if (value.component !== undefined) return value.component.selectedType;
-    const semantics = source.semantics.forNode(value.node);
-    const type = semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
-    assert.equal(type !== undefined, true, "the original checked type is required even for foreign-value controls");
+    if (value.component !== undefined) return value.component.type;
+    const type = hostType(value.node);
+    assert.equal(type !== undefined, true, "the Host type is required even for foreign-value controls");
     return type;
   };
   const nativeReads = new Map();
@@ -186,31 +191,31 @@ export function ownershipFixture(options = {}) {
     suspensionFor(value) {
       const expression = value.node;
       const current = source.ast.is.IsCallExpression(expression) ? selectedDeclaration(expression) : undefined;
-      const types = source.semantics.forNode(expression).types;
-      const awaited = types.awaitedType(value.component.selectedType);
+      // A value whose awaited Host payload is itself does not suspend (not a thenable).
+      const awaitedOutcome = source.facts.values.awaited(expression);
+      const awaited = awaitedOutcome.kind === "refused" ? undefined : awaitedOutcome.type;
       const knownFuture = ["aliasedPending", "joinedPending"].some(name => {
         const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
         return owner !== undefined && within(expression, owner);
       });
       const kind = current === declaration("pending") || current === declaration("anotherPending") || knownFuture ? "may-suspend"
-        : awaited !== undefined && types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
+        : awaited !== undefined && sourceTypeDescriptorsEqual(awaited, value.component.type) ? "never" : undefined;
       return kind === undefined ? undefined : { kind, value,
         contract: { kind: "expression", expression, component: value.component } };
     },
   };
   function completion(call, resultPolicy = "observe-rejection") {
-    const semantics = source.semantics.forNode(call);
-    const selected = semantics.operations.call(call);
-    assert.equal(selected?.sourceSelectedSignatureKind, "resolved");
+    const selected = source.facts.selections.call(call);
+    assert.equal(selected !== undefined && selected.kind !== "refused", true, "the Host call selection");
     return { kind: "async", resultPolicy, contract: { kind: "declaration", declaration: selectedDeclaration(call),
-      component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
+      component: { type: selected.result, call } } };
   }
   const awaitNode = owner => required(nodes.find(node => within(node, owner) && source.ast.is.IsAwaitExpression(node)), "await");
   const readReference = () => required(nodes.find(node => within(node, declaration("read")) &&
     source.ast.is.IsIdentifier(node) && source.ast.text(node) === "view" &&
     source.ast.is.IsPropertyAccessExpression(source.ast.parent(node))), "actual view read");
   return { source, sourceNodes: nodes, storage, file, budget, context, values: context.values, transferBudget, nativeReads, native, nodes, declaration, named, calls, readCall, awaitNode,
-    readReference, selectedDeclaration, subject, typeFor, completion, within };
+    readReference, selectedDeclaration, hostType, subject, typeFor, completion, within };
 }
 
 function required(value, name) {

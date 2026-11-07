@@ -24,8 +24,7 @@ test("checked call arguments are selected independently of closed callable ABI e
     const selected = sourceExpressionCallArgument(flow.uses[0]!.reference, current.source);
     assert.equal(selected !== undefined, true, body);
     assert.equal(selected!.argumentIndex, 0, body);
-    assert.equal(current.source.semantics.forNode(selected!.call).operations.call(selected!.call)
-      ?.sourceArguments[0]?.expression === selected!.argument, true, body);
+    assert.equal(current.source.navigation.call(selected!.call)?.arguments[0] === selected!.argument, true, body);
     assert.equal(Object.isFrozen(selected), true, body);
     assert.equal(current.select()?.length, 1, "approved C-1396: named and anonymous expressions keep the same direct slot");
     assert.equal("sourceClosedCallableArguments" in callableArguments, false,
@@ -40,7 +39,7 @@ test("checked argument selection does not authorize mutable or named callable AB
     "const callback = function recurse(value: unknown): void { if (value !== undefined) recurse(undefined); }; consume(callback);",
   ]) {
     const current = fixture(body);
-    const arguments_ = current.source.navigation.expressionValueFlow(current.expression).uses.filter(use => use.role === "argument");
+    const arguments_ = current.source.navigation.expressionValueFlow(current.expression).uses.filter((use: { readonly role: string }) => use.role === "argument");
     assert.equal(arguments_.length, 1, body);
     assert.equal(sourceExpressionCallArgument(arguments_[0]!.reference, current.source) !== undefined, true, body);
     const selected = current.select();
@@ -68,10 +67,8 @@ test("checked argument selection rejects nontransparent, optional, spread and un
   }
   const current = fixture("consume((value: unknown): void => {});", true);
   const reference = current.source.navigation.expressionValueFlow(current.expression).uses[0]!.reference;
-  for (const checked of [undefined, { sourceArguments: [{ expression: {} }] }]) {
-    const source = { ...current.source, semantics: { ...current.source.semantics, forNode: () => ({
-      operations: { call: () => checked },
-    }) } } as unknown as typeof current.source;
+  for (const checked of [undefined, { arguments: [{}] }]) {
+    const source = { ast: current.source.ast, navigation: { call: () => checked } } as unknown as Parameters<typeof sourceExpressionCallArgument>[1];
     assert.equal(sourceExpressionCallArgument(reference, source) === undefined, true, "exact checked argument required");
   }
 });
@@ -82,8 +79,8 @@ test("checked argument selection retains bounded grouping and exact call indexes
   const selected = sourceExpressionCallArgument(indexed.expression, indexed.source);
   assert.equal(selected !== undefined, true, "exact second argument");
   assert.equal(selected!.argumentIndex, 1, "no assumed first-argument position");
-  assert.equal(indexed.source.semantics.forNode(selected!.call).operations.call(selected!.call)
-    ?.sourceArguments[1]?.expression === selected!.argument, true, "exact checked second-argument identity");
+  assert.equal(indexed.source.navigation.call(selected!.call)?.arguments[1] === selected!.argument, true,
+    "exact checked second-argument identity");
   const duplicated = { ...indexed.source, ast: { ...indexed.source.ast,
     arguments: (node: Node | undefined) => node === selected!.call ? [indexed.expression, indexed.expression] : indexed.source.ast.arguments(node),
   } };
@@ -93,7 +90,7 @@ test("checked argument selection retains bounded grouping and exact call indexes
   assert.equal(sourceExpressionCallArgument(reference, current.source) === undefined, true, "bounded parent traversal");
 });
 
-test("checked argument selection consumes only the exact AST and semantic reader view", () => {
+test("checked argument selection consumes only the exact AST and call witness view", () => {
   for (const body of [
     "consume((value: unknown): void => {});",
     "consume((((value: unknown): void => {})));",
@@ -103,16 +100,16 @@ test("checked argument selection consumes only the exact AST and semantic reader
     const current = fixture(body, true);
     const view: Parameters<typeof sourceExpressionCallArgument>[1] = Object.freeze({
       ast: current.source.ast,
-      semantics: Object.freeze({ forNode: current.source.semantics.forNode }),
+      navigation: Object.freeze({ call: (node: Node) => current.source.navigation.call(node) }),
     });
     const selected = sourceExpressionCallArgument(current.expression, view);
     assert.equal(selected !== undefined, true, body);
-    const checked = view.semantics.forNode(selected!.call).operations.call(selected!.call);
-    assert.equal(checked?.sourceArguments[selected!.argumentIndex]?.expression === selected!.argument, true,
+    const checked = view.navigation.call(selected!.call);
+    assert.equal(checked?.arguments[selected!.argumentIndex] === selected!.argument, true,
       "the structural reader retains exact checked argument identity");
-    assert.equal(checked?.sourceSelectedSignatureKind, "resolved", "the original checked signature remains selected");
+    assert.equal(checked?.selection, "resolved", "the original checked signature remains selected");
     assert.equal(Object.isFrozen(selected), true, "the shared result remains immutable");
-    assert.equal("navigation" in view || "source" in view || "sourceFiles" in view, false,
+    assert.equal("semantics" in view || "source" in view || "sourceFiles" in view, false,
       "no whole source program is fabricated to supply the exact reader");
   }
 });
@@ -126,7 +123,7 @@ test("exact argument reader views preserve inverse identity, optional, spread an
   ]) {
     const current = fixture(body);
     const view: Parameters<typeof sourceExpressionCallArgument>[1] = {
-      ast: current.source.ast, semantics: { forNode: current.source.semantics.forNode },
+      ast: current.source.ast, navigation: { call: (node: Node) => current.source.navigation.call(node) },
     };
     for (const use of current.source.navigation.expressionValueFlow(current.expression).uses) {
       if (use.role === "storage") continue;
@@ -139,13 +136,9 @@ test("exact argument reader views preserve inverse identity, optional, spread an
   for (const missing of [false, true]) {
     const view: Parameters<typeof sourceExpressionCallArgument>[1] = {
       ast: current.source.ast,
-      semantics: { forNode(node: Node) {
-        const actual = current.source.semantics.forNode(node);
-        return { ...actual, operations: { ...actual.operations, call(call: Node) {
-          const checked = actual.operations.call(call);
-          return missing || checked === undefined ? undefined : { ...checked, sourceArguments: checked.sourceArguments.map(argument =>
-            ({ ...argument, expression: selected!.call })) };
-        } } };
+      navigation: { call(call: Node) {
+        const checked = current.source.navigation.call(call);
+        return missing || checked === undefined ? undefined : { ...checked, arguments: checked.arguments.map(() => selected!.call) };
       } },
     };
     assert.equal(sourceExpressionCallArgument(current.expression, view) === undefined, true,
@@ -154,7 +147,7 @@ test("exact argument reader views preserve inverse identity, optional, spread an
   const duplicated: Parameters<typeof sourceExpressionCallArgument>[1] = {
     ast: { ...current.source.ast, arguments: node => node === selected!.call
       ? [selected!.argument, selected!.argument] : current.source.ast.arguments(node) },
-    semantics: { forNode: current.source.semantics.forNode },
+    navigation: { call: (node: Node) => current.source.navigation.call(node) },
   };
   assert.equal(sourceExpressionCallArgument(current.expression, duplicated) === undefined, true,
     "an AST reader must still prove one unique argument slot");

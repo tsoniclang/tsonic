@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
 import { createCompilerSessionFromFiles, type AstReader, type Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import { parseSourceNumericLiteral } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,
   sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorIsIntegral,
+  sourcePrimitiveOperatorLiteralPartner,
   sourcePrimitiveUnaryOperators, type SourcePrimitiveBinaryOperator, type SourcePrimitiveOperatorOperand,
 } from "./operator-decisions.js";
 
@@ -161,6 +162,20 @@ test("D-A literal adaptation cannot retarget a fixed or already-filled scalar wi
   assert.equal(fixedPair.kind, "refused");
   const filled = decideSourcePrimitiveBinaryOperator("add", fixed("float32"), fixed("int64"), "int64");
   assert.equal(filled.kind === "resolved" && filled.left === "float32" && filled.result === "float32", true);
+});
+
+test("F6 one C14 literal partner owner preserves actual receipt, fixed widths and nonfit refusal", () => {
+  const whole = unbound("17");
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "float32"), "float32");
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "int8"), "int8");
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(fixed("int64"), "float32") === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(whole, "bigint") === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("256"), "uint8") === undefined, true);
+  assert.equal(sourcePrimitiveOperatorLiteralPartner(unbound("1.5"), "int32") === undefined, true);
+  for (const [left, right] of [[whole, fixed("float32")], [fixed("float32"), whole]] as const) {
+    const result = decideSourcePrimitiveBinaryOperator("add", left, right);
+    assert.equal(result.kind === "resolved" && result.result === "float32" && result.left === "float32" && result.right === "float32", true);
+  }
 });
 
 test("D-A one decision owner adapts retained unbound literals and exact all-literal expectations", () => {
@@ -356,7 +371,7 @@ function operatorLiteralFacts(expressions: readonly string[], provenance: "autho
     "/src/index.ts": expressions.map((expression, index) => `export const value${index} = ${expression};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createSourceTypeFlowTestProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The checked literal program requires its source file.");
   const ast: AstReader = provenance === "checked"

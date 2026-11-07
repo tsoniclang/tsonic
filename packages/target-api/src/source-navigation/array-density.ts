@@ -1,6 +1,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "./ast.js";
 import type { SourceNavigationQueryContext } from "./query-context.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 export interface SourceArrayDensityQueries {
   array(expression: Node): boolean;
@@ -24,7 +25,6 @@ export function createSourceArrayDensityQuery(
   options: SourceArrayDensityOptions,
 ): SourceArrayDensityQueries {
   const { ast, navigation } = source;
-  const semanticsFor = source.semantics.forNode;
   const safeDeclarations = new WeakSet<Node>();
   const denseDeclarations = new WeakMap<Node, boolean>();
   const activeDeclarations = new Set<Node>();
@@ -33,12 +33,8 @@ export function createSourceArrayDensityQuery(
   const activeFreshCalls = new Set<Node>();
   const maximumProofNodes = 16_384;
 
-  const enclosingCallable = (node: Node): Node | undefined => {
-    for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
-      if (["KindFunctionDeclaration", "KindArrowFunction", "KindFunctionExpression", "KindMethodDeclaration"].includes(ast.kindName(parent))) return parent;
-    }
-    return undefined;
-  };
+  // F2-2: the one body-owner walk (constructors and accessors included), not a private four-kind list.
+  const enclosingCallable = (node: Node): Node | undefined => sourceEnclosing(ast, node, "callable-body");
 
   const trackedCallable = (declaration: Node): boolean => {
     const previous = trackedCallables.get(declaration);
@@ -48,14 +44,12 @@ export function createSourceArrayDensityQuery(
     for (let index = 0; accepted && index < pending.length; index++) {
       if (pending.length >= maximumProofNodes) { accepted = false; break; }
       const node = pending[index]!;
-      if (ast.kindName(node) === "KindIdentifier" && navigation.sourceReferenceFor(node) === undefined) {
-        const types = semanticsFor(node).types;
-        const type = types.expressionType(node);
-        if (type === undefined || !(types.isNullish(type) || types.isNumberLike(type) ||
-          types.isBooleanLike(type) || types.isStringLike(type) || types.isBigIntLike(type) || types.isSymbolLike(type))) {
-          accepted = false;
-          break;
-        }
+      // An identifier that selects no declaration is an intrinsic; only `undefined` is a primitive one (R3: no
+      // checked type of the identifier is read).
+      if (ast.kindName(node) === "KindIdentifier" && navigation.sourceReferenceFor(node) === undefined &&
+        ast.text(node) !== "undefined") {
+        accepted = false;
+        break;
       }
       ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
     }
@@ -83,13 +77,9 @@ export function createSourceArrayDensityQuery(
     }
   };
   const arrayMember = (node: Node): SourceArrayMemberEffect | undefined => {
-    const semantics = semanticsFor(node);
-    const property = semantics.operations.propertyAccess(node);
+    const property = navigation.memberAccess(node);
     if (property === undefined) return undefined;
-    const declarations = property.selectedDeclaration !== undefined ? [property.selectedDeclaration]
-      : property.selectedSymbol === undefined ? [] : [property.selectedSymbol, ...semantics.declarations.rootSymbols(property.selectedSymbol)]
-        .flatMap(symbol => semantics.declarations.symbolDeclarations(symbol));
-    const effects = declarations.map(declaration => options.memberEffect(declaration));
+    const effects = property.declarations.map(declaration => options.memberEffect(declaration));
     const first = effects[0];
     return first !== undefined && effects.every(effect => effect !== undefined &&
       effect.kind === first.kind && effect.mayShrink === first.mayShrink &&
@@ -115,9 +105,7 @@ export function createSourceArrayDensityQuery(
   const implementation = (call: Node): Node | undefined => {
     if (ast.kindName(call) !== "KindCallExpression" ||
       ast.arguments(call).some(argument => argument === undefined || ast.kindName(argument) === "KindSpreadElement")) return undefined;
-    const semantics = semanticsFor(call);
-    const selected = semantics.operations.call(call);
-    const signature = selected === undefined ? undefined : semantics.declarations.signatureDeclaration(selected.selectedSignature);
+    const signature = navigation.call(call)?.signature;
     if (signature === undefined || !navigation.isProjectDeclaration(signature)) return undefined;
     const target = navigation.callableImplementation(signature);
     if (target?.kind !== "resolved" || ast.kindName(target.implementation.declaration) !== "KindFunctionDeclaration") return undefined;
@@ -134,10 +122,24 @@ export function createSourceArrayDensityQuery(
       (ast.arguments(call).length !== 1 && ast.arguments(call).length !== 2) || ast.arguments(call)[0] !== argument) return false;
     const callee = Node_Expression(ast, call);
     if (callee === undefined || ast.kindName(callee) !== "KindPropertyAccessExpression") return false;
-    const selected = semanticsFor(callee).operations.propertyAccess(callee);
-    const effect = selected?.selectedDeclaration === undefined ? undefined
-      : options.memberEffect(selected.selectedDeclaration);
+    const selected = navigation.memberAccess(callee)?.declaration;
+    const effect = selected === undefined ? undefined : options.memberEffect(selected);
     return effect?.kind === "copy";
+  };
+  // The authored index of an element write: a numeric literal, or a const binding initialized with one (declaration
+  // input; R3: never the checked literal type of the argument).
+  const literalIndex = (argument: Node | undefined): number | undefined => {
+    const seen = new Set<Node>();
+    let node = argument === undefined ? undefined : unwrap(argument);
+    while (node !== undefined && ast.kindName(node) === "KindIdentifier" && !seen.has(node) && seen.size < 256) {
+      seen.add(node);
+      const declaration = navigation.sourceReferenceFor(node)?.declaration;
+      if (declaration === undefined || ast.kindName(declaration) !== "KindVariableDeclaration" ||
+        ast.variableDeclarationKind(declaration) !== "const" || ast.typeNode(declaration) !== undefined) return undefined;
+      const initializer = Node_Initializer(ast, declaration);
+      node = initializer === undefined ? undefined : unwrap(initializer);
+    }
+    return node !== undefined && ast.kindName(node) === "KindNumericLiteral" ? Number(ast.text(node)) : undefined;
   };
   const forwardedParameter = (reference: Node): Node | undefined => {
     const argument = outer(reference);
@@ -205,9 +207,8 @@ export function createSourceArrayDensityQuery(
         }
         if (ast.kindName(parent) === "KindElementAccessExpression" && Node_Expression(ast, parent) === reference) {
           if (use.role !== "write") continue;
-          const access = semanticsFor(parent).operations.elementAccess(parent);
           const assignment = ast.parent(parent);
-          const index = access === undefined ? undefined : semanticsFor(parent).types.numericLiteralValue(access.argument.type);
+          const index = literalIndex(ast.as.AsElementAccessExpression(parent)?.ArgumentExpression);
           const length = literalLength(subject);
           if (assignment === undefined || !ast.is.IsBinaryExpression(assignment) ||
             ast.as.AsBinaryExpression(assignment)?.Left !== parent || ast.operatorKindName(assignment) !== "KindEqualsToken" ||

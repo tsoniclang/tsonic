@@ -1,6 +1,6 @@
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
@@ -11,7 +11,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageStoredValue } from "./scoped-transport.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
-import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageIsAbsentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -28,7 +28,7 @@ export type SourceStorageEffectSelection =
 
 /** The scoped-successor values the member reductions read; built once by createSourceStorageScopedSuccessors. */
 export interface SourceStorageMemberSuccessorContext {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly scopes: SourceStorageScopes;
@@ -37,8 +37,7 @@ export interface SourceStorageMemberSuccessorContext {
   readRelation(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
   initialize(value: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined;
   pointerWrites(destination: SourceStorageReference, store: SourceStorageStore,
-    projection: readonly SourceStorageProjection[], invocation: Node,
-    scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
+    projection: readonly SourceStorageProjection[], scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined;
   readEffects(store: SourceStorageStore, selection: SourceStorageEffectSelection, deferred?: boolean,
     context?: SourceStorageScope): Iterable<SourceStorageTerm>;
   leaf(subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference;
@@ -62,7 +61,7 @@ export interface SourceStorageMemberSuccessorContext {
 export function createSourceStorageMemberSuccessors(context: SourceStorageMemberSuccessorContext) {
   const { source, budget, transport, scopes, reachability, birth, readRelation, readEffects, leaf, outside,
     creatorScope, passiveMember, regionsFor, application, classLineages, materializeChild, replaceChild } = context;
-  const { ast, semantics } = source;
+  const { ast, navigation } = source;
   const receiverFor = (store: SourceStorageStore): SourceStorageSubject | undefined => {
     if (store.kind !== "initialization") return store.receiver;
     if (store.birth !== undefined) return store.storage;
@@ -123,16 +122,15 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const receiverFile = receiver === undefined ? undefined : transport.sourceFileFor(receiver);
           const receiverType = receiver === undefined ? undefined : sourceStorageProjectionType(source, receiver, views, receiverFile);
           if (receiver === undefined || receiverType === undefined || receiverFile === undefined) return undefined;
-          const receiverSemantics = semantics.forFile(receiverFile);
           if (sourceStorageIsMemberProjection(component)) {
-            const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
-              : semantics.forNode(store.reference).operations.elementAccess(store.reference);
+            const access = navigation.memberAccess(store.reference);
             const checkedReceiver = sourceStorageProjectionSubject(receiver, views, transport.subject);
-            const members = access === undefined || checkedReceiver === undefined ? undefined
-              : transport.memberFlow.declarationsFor(checkedReceiver, store.storage.node, access.receiver.type);
+            const accessReceiverType = access === undefined ? undefined : sourceAnalysisValueType(source, access.receiver);
+            const members = accessReceiverType === undefined || checkedReceiver === undefined ? undefined
+              : transport.memberFlow.declarationsFor(checkedReceiver, store.storage.node, accessReceiverType);
             if (members === undefined || !members.includes(component.declaration)) continue;
           }
-          const selectedType = sourceStorageComponentType(receiverType, component, receiverSemantics, ast);
+          const selectedType = sourceStorageComponentType(source, receiverType, component);
           const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value, transport.sourceFileFor(store.value));
           const absent = store.value === undefined ? sourceStorageStoredValue(ast, store, undefined, scope) : undefined;
           if (selectedType === undefined || valueType === undefined && absent === undefined || store.reason !== undefined) {
@@ -143,7 +141,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const values: SourceStorageSubject[] = [];
           if (store.value !== undefined && valueType !== undefined)
             sourceStorageProjectComponents(store.value.projection, valueType, selectedType, subject.projection.slice(index + 1),
-              semantics.forNode(store.value.node), ast, budget, projection => {
+              source, ast, budget, projection => {
                 const value = transport.subject(store.value!.node, store.value!.kind, projection);
                 if (value !== undefined) values.push(value);
               });
@@ -171,16 +169,14 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStoragePendingReduction | undefined => {
     const access = term.selection.kind === "access" ? term.selection.node
       : term.selection.kind === "projection" ? term.selection.evaluation : undefined;
-    const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
-    const selected = access === undefined ? undefined : property ?? (ast.is.IsElementAccessExpression(access)
-      ? semantics.forNode(access).operations.elementAccess(access) : undefined);
+    const selected = access !== undefined && (ast.is.IsPropertyAccessExpression(access) || ast.is.IsElementAccessExpression(access))
+      ? navigation.memberAccess(access) : undefined;
     const optional = access !== undefined && (ast.is.IsPropertyAccessExpression(access)
       ? ast.as.AsPropertyAccessExpression(access)?.QuestionDotToken !== undefined
       : ast.is.IsElementAccessExpression(access) && ast.as.AsElementAccessExpression(access)?.QuestionDotToken !== undefined);
     if (optional && (term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier")) {
       const type = sourceStorageSubjectType(source, term.receiver.subject, transport.sourceFileFor(term.receiver.subject));
-      const types = semantics.forNode(term.receiver.subject.node).types;
-      if (type !== undefined && (types.isNullish(type) || types.isVoidLike(type)))
+      if (type !== undefined && sourceStorageIsAbsentType(type))
         return { kind: "replace", terms: [Object.freeze({ kind: "empty",
           absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) })] };
     }
@@ -193,10 +189,10 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
     const receiverViews: readonly SourceStorageProjectionView[] | undefined = term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier"
       ? term.receiver.views : undefined;
     let receiverType = term.selection.kind === "physical" ? term.selection.receiverType : term.selection.kind === "projection"
-      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews, transport.sourceFileFor(term.selection.subject)) : selected?.receiver.type;
+      ? sourceStorageProjectionType(source, term.selection.subject, receiverViews, transport.sourceFileFor(term.selection.subject)) : selected === undefined ? undefined : sourceAnalysisValueType(source, selected.receiver);
     let receiverView = term.selection.kind !== "access"
       ? sourceStorageProjectionSubject(term.selection.subject, receiverViews, transport.subject)
-      : transport.subjectFor(selected?.receiver.expression);
+      : transport.subjectFor(selected?.receiver);
     const dynamicKey = access === undefined || term.selection.kind !== "access" || (declarations?.length ?? 0) !== 0
       ? undefined : sourceStorageDynamicMemberKey(source, access);
     if (dynamicKey !== undefined) {
@@ -403,7 +399,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
           const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
             [...term.receiver.subject.projection, { kind: "member", declaration: original }]);
           const written = projected === undefined ? undefined : context.pointerWrites(
-            leaf(projected, term.receiver.scope), store, term.projection, original, term.scope);
+            leaf(projected, term.receiver.scope), store, term.projection, term.scope);
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }

@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 import { sourceStorageAllocations, sourceStorageClassLineages } from "../model/construction.js";
 import { sourceConstructionExpression, sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
@@ -10,7 +10,7 @@ type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForIn
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;
 type Construction = Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number];
 
-export function createSourceStorageConstructionQuery(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageConstructionQuery(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   queries: ConstructionQueries, nativeConstructorsFor: (subject: SourceStorageSubject) => readonly Node[] | undefined):
   (invocation: Node, bindings: SourceStorageBindings) => SourceStorageConstructionSelection {
   const cache = new Map<Node, Map<SourceStorageBindings, SourceStorageConstructionSelection>>();
@@ -24,8 +24,8 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
       const expression = sourceConstructionExpression(invocation, source, budget.step);
       if (expression === undefined) return unresolved(budget.failure() ??
         "Construction execution requires its actual checked source class value.");
-      const selected = source.semantics.forNode(invocation).operations.call(invocation);
-      if (selected?.sourceSelectedSignatureKind !== "resolved")
+      const selected = source.navigation.call(invocation);
+      if (selected?.selection !== "resolved")
         return unresolved("Construction execution requires its checked selected signature.");
       const target = queries.subjectFor(expression);
       if (target.kind === "unresolved") return target;

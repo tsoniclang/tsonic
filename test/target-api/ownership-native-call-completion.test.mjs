@@ -1,15 +1,16 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
 import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 import { namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 import { createSourceDeclarationOwnershipBudget, createSourceDeclarationOwnershipValues,
   createSourceDeclarationSuspensionQuery, createSourceDeclarationRetentionQuery,
   createSourceDeclarationOwnershipQuery, sourceDeclarationOwnershipUnresolved, defaultSourceDeclarationOwnershipLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
@@ -23,15 +24,15 @@ function fixture() {
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "the native pointer read has exact checked evidence");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const call = requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node));
   const storage = createSourceStorageQuery(source, [file]);
   const subject = storage.subjectFor(call);
   assert.equal(subject.kind === "resolved", true, "the native invocation has its original canonical subject");
-  const selected = source.semantics.forNode(call).operations.call(call);
-  assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "the native invocation has a checked selected signature");
-  const contractDeclaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
+  const selected = source.navigation.call(call);
+  assert.equal(selected?.selection, "resolved", "the native invocation has a checked selected signature");
+  const contractDeclaration = selected.signature;
   const type = storage.typeFor(subject.subject);
   assert.equal(type.kind === "resolved" && contractDeclaration !== undefined, true, "exact contract type and native declaration");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
@@ -68,7 +69,7 @@ test("native invocation completion still requires the exact declared operation c
   const current = fixture();
   const unrelated = sourceType(current, current.source.ast.as.AsVariableDeclaration(namedVariable(current.source.ast,
     current.file, "unrelated")).Initializer);
-  for (const replacement of [undefined, { value: { ...current.subject } }, { contract: { ...current.evidence.contract, component: { selectedType: unrelated } } },
+  for (const replacement of [undefined, { value: { ...current.subject } }, { contract: { ...current.evidence.contract, component: { type: unrelated } } },
     { contract: { ...current.evidence.contract, declaration: namedVariable(current.source.ast, current.file, "unrelated") } }]) {
     const query = createSourceDeclarationSuspensionQuery({ ...current, premises: { suspensionFor: () => replacement === undefined
       ? undefined : { ...current.evidence, ...replacement } } });
@@ -82,10 +83,11 @@ test("native invocation completion still requires the exact declared operation c
     premises: { suspensionFor: () => ({ ...current.evidence, value: { ...current.subject } }) } }).forCall(current.call).kind, "unresolved", "copied checked operand descriptors remain foreign");
 });
 
+// The Host descriptor of a negative-control value (facts.values).
 function sourceType(current, node) {
-  const selected = current.source.semantics.forNode(node).types.expressionType(node);
-  assert.equal(selected !== undefined, true, "exact negative-control source type");
-  return selected;
+  const selected = current.source.facts.values.type(node);
+  assert.equal(selected.kind === "refused", false, "exact negative-control source type");
+  return selected.type;
 }
 
 function declarationFixture(hideNativeDeclaration = false) {
@@ -100,8 +102,8 @@ function declarationFixture(hideNativeDeclaration = false) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
-  const source = createTargetSourceProgram(hideNativeDeclaration ? { ...checked,
-    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) } : checked);
+  const source = createHostSourceProgram(hideNativeDeclaration ? { ...checked,
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) } : checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/declared/index.ts");
   assert.equal(file !== undefined, true, "the declaration-local owner is checked");
   const nodes = source.navigation.nodesForFiles([file]);
@@ -109,15 +111,14 @@ function declarationFixture(hideNativeDeclaration = false) {
   assert.equal(call !== undefined, true, "the exact native invocation exists");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
   const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
-  const selected = source.semantics.forNode(call).operations.call(call);
-  assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "a real checked generic native signature");
-  const declaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
+  const selected = source.navigation.call(call);
+  assert.equal(selected?.selection === "resolved", true, "a real checked generic native signature");
+  const declaration = selected.signature;
   assert.equal(declaration !== undefined, true, "the external declaration is real, not an invented source body");
   const premises = {
     completionFor(node, selection) {
-      const owner = source.semantics.forNode(node).declarations.signatureDeclaration(selection.selectedSignature);
       return { kind: "async", resultPolicy: "must-observe",
-        contract: { kind: "declaration", declaration: owner, component: { selectedType: selection.sourceResultType } } };
+        contract: { kind: "declaration", declaration: selection.signature, component: { type: selection.result, call: node } } };
     },
     retentionFor({ value }) {
       return { kind: "resolved", premises: [{ kind: "retained", reason: "owned-value", value,
@@ -143,7 +144,7 @@ test("declaration-native completion accepts an exact external generic operation 
 test("declaration-native completion keeps checked provider identity outside the emitted-source inventory", () => {
   const current = declarationFixture(true);
   const provider = current.source.ast.getSourceFile(current.declaration);
-  assert.equal(provider !== undefined && !current.source.semantics.includes(provider), true,
+  assert.equal(provider !== undefined && !current.source.sourceFiles.includes(provider), true,
     "the real checked native declaration has no emitted body or synthetic project region");
   const query = createSourceDeclarationOwnershipQuery({ ...current, premises: current.premises });
   const selected = query.forCall(current.call);
@@ -192,7 +193,7 @@ test("declaration-native suspension rejects foreign declaration and incompatible
     current.file, "unrelated")).Initializer);
   for (const [label, amend] of [
     ["foreign declaration", value => ({ kind: "declaration", declaration: foreign.declaration, component: value.component })],
-    ["wrong component", value => ({ kind: "expression", expression: value.node, component: { selectedType: wrongType } })],
+    ["wrong component", value => ({ kind: "expression", expression: value.node, component: { type: wrongType } })],
   ]) {
     const query = createSourceDeclarationSuspensionQuery({ ...current, values: current.context.values,
       premises: { suspensionFor: value => ({ kind: "never", value, contract: amend(value) }) } });
@@ -252,15 +253,17 @@ for (const kind of ["input-duration", "type-argument"]) {
       const current = declarationFixture();
       const value = current.context.values.forNode(current.call);
       assert.equal("kind" in value, false, "the result has its actual checked caller region");
-      const parameter = current.selected.sourceSelectedSignatureParameters[0]?.parameterDeclaration;
+      const parameter = current.selected.parameters[0]?.parameterDeclaration;
       const formals = current.source.ast.typeParameters(current.declaration);
-      const arguments_ = current.selected.sourceSelectedMethodTypeArguments;
+      // The per-use instantiation (facts.instantiations): the method binder bound at this call.
+      const instantiation = current.source.facts.instantiations.at(current.call);
+      const arguments_ = instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.method;
       const regionDeclarations = current.source.ast.typeParameters(value.region.owner);
       assert.equal(parameter !== undefined && formals.length === 1 && arguments_?.length === 1 && regionDeclarations.length === 1,
         true, "exact native input and generic correspondence on the unchanged source");
       const region = kind === "input-duration" ? { kind, parameter }
-        : { kind, declaration: regionDeclarations[0], binding: { declaration: formals[0],
-            parameterType: arguments_[0].typeParameter, argumentType: arguments_[0].selectedType } };
+        : { kind, declaration: regionDeclarations[0], binding: arguments_[0] };
+      assert.equal(kind !== "type-argument" || arguments_[0].declaration === formals[0], true, "the binder is the native formal type parameter");
       const premiseFor = actual => ({ kind: "formal-borrowed", value: actual, executionOwner: current.declaration, region, mode,
         contract: { kind: "expression", expression: actual.node, component: actual.component } });
       const premises = { ...current.premises, retentionFor: ({ value: actual }) => ({ kind: "resolved", premises: [premiseFor(actual)] }) };
@@ -281,7 +284,7 @@ for (const kind of ["input-duration", "type-argument"]) {
             const premise = premiseFor(actual);
             return { kind: "resolved", premises: [{ ...premise, ...(wrong === "owner" ? { executionOwner: foreign.declaration }
               : { region: kind === "input-duration"
-                ? { kind, parameter: foreign.selected.sourceSelectedSignatureParameters[0].parameterDeclaration }
+                ? { kind, parameter: foreign.selected.parameters[0].parameterDeclaration }
                 : { ...region, declaration: foreign.source.ast.typeParameters(foreignValue.region.owner)[0] } }) }] };
           } } });
         assert.equal(invalid.forValue(value).kind === "unresolved", true, `${wrong}: a foreign formal/lifetime cannot replace exact native evidence`);

@@ -14,7 +14,7 @@ for (const [label, body] of [
 ] as const){
 test(`enum absence preserves actual ${label} evidence`, () => {
     const source = checked(`enum Value { First = 1, Second = 2 } ${body}`);
-    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: use checked types, never operand spelling`);
+    assert.equal(source.enums.issues.length, 0, `${label}: use checked types, never operand spelling`);
   });
 }
 
@@ -28,8 +28,8 @@ for (const [label, body] of [
 ] as const){
 test(`enum absence does not admit ${label}`, () => {
     const source = checked(`enum Value { First = 1, Second = 2 } ${body}`);
-    assert.equal(source.semantics.enumConstants.issues.length, 1, `${label}: one actual unsupported enum projection`);
-    assert.equal(source.semantics.enumConstants.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED",
+    assert.equal(source.enums.issues.length, 1, `${label}: one actual unsupported enum projection`);
+    assert.equal(source.enums.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED",
       `${label}: the native absence observation never grants M5 numeric projection`);
   });
 }

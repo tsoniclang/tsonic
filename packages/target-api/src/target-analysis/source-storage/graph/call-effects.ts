@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo } from "../../../source-semantics/index.js";
+import type { SourceNavigationCall } from "../../../host-input/navigation.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallEffect, SourceStorageEffects } from "../model/types.js";
 
-export function snapshotSourceStorageCallbackEffects(value: unknown, selected: ResolvedSourceCallInfo,
+export function snapshotSourceStorageCallbackEffects(value: unknown, selected: SourceNavigationCall,
   budget: SourceStorageBudget): ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>> {
-  if (!Array.isArray(value) || selected.sourceSelectedSignatureKind !== "resolved") return undefined;
+  if (!Array.isArray(value) || selected.selection !== "resolved") return undefined;
   const effects: NonNullable<ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>>>[number][] = [];
   const positions = new Set<number>();
   for (let index = 0; index < value.length; index += 1) {
@@ -21,7 +21,7 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
     const rejection: unknown = fields.rejection?.value;
     if (typeof parameterIndex !== "number" || !Number.isSafeInteger(parameterIndex) || parameterIndex < 0 ||
       positions.has(parameterIndex) || timing !== "synchronous" && timing !== "deferred" ||
-      !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === parameterIndex) ||
+      !selected.parameters.some(parameter => parameter.parameterIndex === parameterIndex) ||
       rejection !== undefined && (typeof rejection !== "number" || !Number.isSafeInteger(rejection) || rejection < 0)) return undefined;
     positions.add(parameterIndex);
     const supplied: unknown = fields.inputs?.value;
@@ -45,7 +45,7 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
           from !== "receiver-element" && from !== "argument-element" && from !== "receiver-rejection" ||
           from !== "argument-element" && sourceParameterIndex !== undefined ||
           from === "argument-element" && (typeof sourceParameterIndex !== "number" || !Number.isSafeInteger(sourceParameterIndex) ||
-            !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === sourceParameterIndex))) return undefined;
+            !selected.parameters.some(parameter => parameter.parameterIndex === sourceParameterIndex))) return undefined;
         parameters.add(input);
         inputs.push(Object.freeze({ parameterIndex: input, from,
           ...(from === "argument-element" ? { sourceParameterIndex: sourceParameterIndex as number } : {}) }));
@@ -59,7 +59,9 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
 
 export function snapshotSourceStorageCallEffect(
   value: unknown,
-  selected: ResolvedSourceCallInfo,
+  selected: SourceNavigationCall,
+  /** The receiver expression of a member call (sourceStorageCallReceiver). */
+  receiver: Node | undefined,
   budget: SourceStorageBudget,
 ): SourceStorageCallEffect | undefined {
   const reject = (): undefined => {
@@ -74,11 +76,11 @@ export function snapshotSourceStorageCallEffect(
   const alias: unknown = descriptors.resultAlias?.value;
   const allocation: unknown = descriptors.resultAllocation?.value;
   const resumeReceiver: unknown = descriptors.resumeReceiver?.value;
-  if (resumeReceiver !== undefined && (resumeReceiver !== true || selected.sourceReceiver === undefined ||
-    selected.sourceSelectedSignatureKind !== "resolved")) return reject();
-  if (allocation !== undefined && (alias !== undefined || allocation !== selected.call || selected.sourceSelectedSignatureKind !== "resolved")) return reject();
+  if (resumeReceiver !== undefined && (resumeReceiver !== true || receiver === undefined ||
+    selected.selection !== "resolved")) return reject();
+  if (allocation !== undefined && (alias !== undefined || allocation !== selected.call || selected.selection !== "resolved")) return reject();
   const bindingCounts = new Map<number, { count: number; scalar: boolean }>();
-  for (const binding of selected.sourceArgumentBindings) {
+  for (const binding of selected.bindings) {
     if (!budget.step()) return undefined;
     const previous = bindingCounts.get(binding.sourceArgumentIndex);
     bindingCounts.set(binding.sourceArgumentIndex, {
@@ -88,12 +90,12 @@ export function snapshotSourceStorageCallEffect(
   }
   const admitted = new Map<Node, number>();
   const admit = (node: Node): void => { admitted.set(node, (admitted.get(node) ?? 0) + 1); };
-  for (const [argumentIndex, argument] of selected.sourceArguments.entries()) {
+  for (const [argumentIndex, argument] of selected.arguments.entries()) {
     if (!budget.step()) return undefined;
     const binding = bindingCounts.get(argumentIndex);
-    if (binding?.count === 1 && binding.scalar) admit(argument.expression);
+    if (binding?.count === 1 && binding.scalar) admit(argument);
   }
-  if (selected.sourceReceiver !== undefined) admit(selected.sourceReceiver.expression);
+  if (receiver !== undefined) admit(receiver);
   const input = (node: unknown): node is Node => admitted.get(node as Node) === 1;
   if (alias !== undefined && !input(alias)) return reject();
   return Object.freeze({

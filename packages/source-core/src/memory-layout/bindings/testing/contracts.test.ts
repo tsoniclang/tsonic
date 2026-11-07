@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../../host-program-fixtures.js";
 import { pointerOperationFactKey } from "@tsonic/tsts";
-import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, selectTsonicRawLocationOperation, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { readTsonicMemoryType, selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, selectTsonicRawLocationOperation, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../../public/facts.js";
+import { createTsonicMemoryMetadataIndex } from "../../metadata-index.js";
 import { memoryCall, memoryCalls } from "../../testing/fixtures.js";
 import { bindingPrelude, bindingSession, boundRecordSource } from "./fixtures.js";
 
@@ -30,7 +31,7 @@ test("bound record selects reordered fields and preserves already captured logic
 
 test("layout metadata is erased only at its binding operand, never at the runtime binding or pointer", () => {
   const checked = bindingSession(boundRecordSource);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const index = createTsonicMemoryMetadataIndex(source);
   for (const name of ["bindmemoryfield", "bindmemoryrecord"]) {
     const call = memoryCall(checked, name);

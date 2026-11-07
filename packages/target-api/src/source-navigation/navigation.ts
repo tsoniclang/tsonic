@@ -1,4 +1,5 @@
-import type { CheckedSourceProgram, Node, SourceFile, Symbol } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { createSourceMemberDispatchNavigation } from "./member-dispatch.js";
 import { createSourceMemberImplementationNavigation } from "./member-implementation.js";
 import { createSourceMemberContractNavigation } from "./member-contracts.js";
@@ -12,10 +13,7 @@ import {
   sourceProjectModuleReferences, sourceProjectModuleSpecifierResolution,
 } from "./modules.js";
 import { createSourceReferenceNavigation } from "./references.js";
-import { projectDeclarationForType } from "./reference-selection.js";
-import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
-import { semanticTypeForNode } from "./syntax.js";
-import { sourceBindingWritesWithin, sourceSymbolHasReferenceOutside, sourceSymbolReferencesWithin } from "./references-usage.js";
+import { sourceBindingWritesWithin, sourceEntityHasReferenceOutside, sourceEntityReferencesWithin } from "./references-usage.js";
 import { sourceExpressionResultDisposition } from "./expression-use.js";
 import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
@@ -25,16 +23,20 @@ import { sourceExpressionValueFlow } from "./value-flow.js";
 import type { SourceProgramNavigation } from "./types.js";
 
 
+/**
+ * The program navigation. Its only checker input is `input` (host-input/navigation.ts, I3): every algorithm here
+ * reads authored syntax and the Node-keyed host-input records; no checker Type, Signature or Symbol.
+ */
 export function createSourceProgramNavigation(
-  source: CheckedSourceProgram,
+  input: SourceNavigationInput,
 ): SourceProgramNavigation {
-  const sourceFiles = sourceProjectFiles(source);
+  const source = input;
+  const sourceFiles = sourceProjectFiles(input);
   const nodeInventory = createSourceNodeInventory(source, sourceFiles);
   const sourceFileSet = new Set(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
   const references = createSourceReferenceNavigation(source, sourceFiles);
-  const declarationSymbol = createSourceDeclarationSymbolQuery(source, references);
   const dispatch = createSourceMemberDispatchNavigation(
     source,
     sourceFiles,
@@ -59,7 +61,6 @@ export function createSourceProgramNavigation(
   );
   const callableImplementations = createSourceCallableImplementationNavigation(
     source,
-    declarationSymbol,
     references.isProjectDeclaration,
   );
   const classConstructors = createSourceClassConstructorNavigation(
@@ -207,39 +208,6 @@ export function createSourceProgramNavigation(
     return exports;
   };
 
-  const isProjectShape = (node: Node | undefined): boolean => {
-    const declaration = projectTypeDeclaration(node);
-    return declaration !== undefined &&
-      (
-        source.ast.is.IsClassDeclaration(declaration) ||
-        source.ast.is.IsClassExpression(declaration) ||
-        source.ast.is.IsInterfaceDeclaration(declaration) ||
-        source.ast.is.IsEnumDeclaration(declaration) ||
-        source.ast.is.IsEnumMember(declaration)
-      );
-  };
-
-  const isProjectConstructibleObject = (node: Node | undefined): boolean => {
-    const declaration = projectTypeDeclaration(node);
-    return declaration !== undefined &&
-      (source.ast.is.IsClassDeclaration(declaration) || source.ast.is.IsClassExpression(declaration)) &&
-      acceptsNoConstructorArguments(source, declaration);
-  };
-
-  const projectTypeDeclaration = (node: Node | undefined): Node | undefined => {
-    const sourceFile = node === undefined ? undefined : source.ast.getSourceFile(node);
-    if (node === undefined || sourceFile === undefined || sourceFile.IsDeclarationFile) {
-      return undefined;
-    }
-    const queries = source.getSourceFileQueries(sourceFile);
-    return projectDeclarationForType(
-      queries.checker,
-      queries.typeShape,
-      semanticTypeForNode(source.ast, queries.checker, node),
-      references.isProjectDeclaration,
-    );
-  };
-
   return Object.freeze({
     sourceFiles,
     nodes: nodeInventory.nodes,
@@ -256,25 +224,25 @@ export function createSourceProgramNavigation(
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
     memberContracts: memberContracts.memberContracts,
-    declarationSymbol,
     callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
-    bindingWritesWithin(symbol: Symbol, root: Node) {
+    mergedDeclarations: (declaration: Node) => input.mergedDeclarations(declaration),
+    bindingWritesWithin(declaration: Node, root: Node) {
       return sourceBindingWritesWithin(
         source.ast,
-        symbol,
+        declaration,
         root,
-        references.referencesForSymbol,
+        references.referencesToEntity,
       );
     },
-    referencesWithin(symbol: Symbol, root: Node) {
-      return sourceSymbolReferencesWithin(
+    referencesWithin(declaration: Node, root: Node) {
+      return sourceEntityReferencesWithin(
         source.ast,
-        symbol,
+        declaration,
         root,
-        references.referencesForSymbol,
+        references.referencesToEntity,
       );
     },
     referencesToDeclaration: references.referencesToDeclaration,
@@ -292,11 +260,11 @@ export function createSourceProgramNavigation(
         source.ast,
         statement,
         references.sourceReferenceFor,
-        (symbol, root) => sourceBindingWritesWithin(
+        (declaration, root) => sourceBindingWritesWithin(
           source.ast,
-          symbol,
+          declaration,
           root,
-          references.referencesForSymbol,
+          references.referencesToEntity,
         ),
       );
     },
@@ -323,29 +291,30 @@ export function createSourceProgramNavigation(
         return cached;
       }
       const effects = sourceExpressionEffects(
-        source,
+        { ast: source.ast, sourceReferenceFor: references.sourceReferenceFor },
         expression,
         expressionEffectsCache,
       );
       expressionEffectsCache.set(expression, effects);
       return effects;
     },
-    hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
-      return sourceSymbolHasReferenceOutside(
+    hasReferenceOutside(declaration: Node, excludedNode: Node) {
+      return sourceEntityHasReferenceOutside(
         source.ast,
-        symbol,
+        declaration,
         excludedNode,
-        references.referencesForSymbol,
+        references.referencesToEntity,
       );
     },
-    isProjectShape,
-    isProjectConstructibleObject,
     isProjectDeclaration: references.isProjectDeclaration,
+    call: (use: Node) => input.call(use),
+    memberAccess: (access: Node) => input.memberAccess(access),
+    declaredParameters: (declaration: Node) => input.declaredParameters(declaration),
   });
 }
 
 export function sourceProjectFiles(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "sourceFiles">,
 ): readonly SourceFile[] {
   return Object.freeze(source.sourceFiles.filter(
     (sourceFile): sourceFile is SourceFile =>
@@ -354,26 +323,3 @@ export function sourceProjectFiles(
       !source.ast.getFileName(sourceFile).startsWith("tsts-provider://"),
   ));
 }
-
-function acceptsNoConstructorArguments(
-  source: CheckedSourceProgram,
-  classDeclaration: Node,
-): boolean {
-  const constructors = source.ast.members(classDeclaration)
-    .filter((member): member is Node =>
-      member !== undefined && source.ast.is.IsConstructorDeclaration(member));
-  if (constructors.length === 0) {
-    return true;
-  }
-  return constructors.some((constructor) =>
-    source.ast.parameters(constructor).every((parameter) => {
-      if (parameter === undefined || !source.ast.is.IsParameterDeclaration(parameter)) {
-        return false;
-      }
-      const declaration = source.ast.as.AsParameterDeclaration(parameter);
-      return declaration?.QuestionToken !== undefined ||
-        declaration?.Initializer !== undefined ||
-        declaration?.DotDotDotToken !== undefined;
-    }));
-}
-

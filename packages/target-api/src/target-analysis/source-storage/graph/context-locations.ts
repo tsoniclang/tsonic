@@ -1,4 +1,4 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -7,7 +7,7 @@ import type { SourceStorageCallEffect } from "../model/types.js";
 
 export type SourceStorageContextLocation = "allocation" | "binding";
 
-export function createSourceStorageContextLocations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageContextLocations(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   storesFor: (subject: SourceStorageSubject) => Iterable<SourceStorageStore> | undefined,
   callEffectFor: (subject: SourceStorageSubject) => SourceStorageCallEffect | undefined) {
   return (subject: SourceStorageSubject): SourceStorageContextLocation | undefined => {

@@ -1,8 +1,9 @@
-import type { Type } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 
+/** Host descriptors of the two ends of a storage value edge. */
 export interface SourceStorageEdgeTypes {
-  readonly from: Type;
-  readonly to: Type;
+  readonly from: SourceTypeDescriptor;
+  readonly to: SourceTypeDescriptor;
 }
 
 export type SourceStorageForwardSelection<Key, Value> =

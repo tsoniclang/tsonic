@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
-import { snapshotTargetPlanningSourceNavigation } from "../public/analysis.js";
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
+import { snapshotTargetPlanningSourceNavigation } from "./source-navigation-snapshot.js";
 
 test("the planning snapshot classifies every type-literal member once, whatever its name form", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -15,7 +15,7 @@ test("the planning snapshot classifies every type-literal member once, whatever 
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const members: Node[] = [];
@@ -57,7 +57,7 @@ test("the planning snapshot seals destructuring declaration roots as well as the
       export const first = { [key]: 1 }; export const second = { [objectKey]: 2 };`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the const destructuring program checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const declarations: Node[] = [];
   const pending: Node[] = [...source.navigation.sourceFiles];
   while (pending.length > 0) {

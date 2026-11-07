@@ -1,7 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
@@ -13,7 +15,7 @@ test("referenced native declarations retain ambient context without becoming col
     "/src/index.ts": "export {}; const alias = NativeStorageGlobal;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const native = checked.getSourceFile("/src/native.d.ts");
   const declaration = namedVariable(source.ast, native, "NativeStorageGlobal");
@@ -38,7 +40,7 @@ function fixture(text, limits = {}) {
     files: { "/src/index.ts": `export {}; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const pending = [file];
@@ -195,8 +197,8 @@ test("generic member and array projections preserve exact input-relative owner a
   sameSubjects(current.origins(current.subject(current.initializer("directRead")), context),
     [current.input("pair", 3, [{ kind: "array-element" }])], "callback array retains element path");
   const selected = current.exact(current.storage.typeFor(left));
-  const type = current.source.semantics.forNode(current.initializer("leftRead")).types.expressionType(current.initializer("leftRead"));
-  assert.equal(current.source.semantics.forFile(selected.sourceFile).types.isIdentical(selected.type, type), true, "generic selected member type remains exact");
+  const outcome = current.source.facts.values.type(current.initializer("leftRead"));
+  assert.equal(outcome.kind !== "refused" && sourceTypeDescriptorsEqual(selected.type, outcome.type), true, "generic selected member type remains exact");
   const standalone = current.exact(current.storage.memberSubjectFor(declaration)).subject;
   assert.equal(standalone.node === declaration && standalone.kind === "member" && standalone.projection.length === 0 && standalone !== left,
     true, "existing member identity is not repurposed");
@@ -420,7 +422,7 @@ for (const access of ["value.item", 'value["item"]']) for (const exported of [fa
       selected.origins.some(origin => origin.subject === projected) && selected.origins.some(origin => origin.subject === fallback), true, intent);
     const checkedValue = current.exact(current.storage.typeFor(fallback));
     const component = selected.origins.find(origin => origin.subject === projected);
-    assert.equal(current.source.semantics.forFile(checkedValue.sourceFile).types.isIdentical(component.type, checkedValue.type), true,
+    assert.equal(sourceTypeDescriptorsEqual(component.type, checkedValue.type), true,
       "the projected component retains the original checked generic Value, not its receiver or a widened type");
     if (exported) {
       assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-input" &&

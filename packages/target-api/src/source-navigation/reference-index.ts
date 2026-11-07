@@ -1,5 +1,5 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
-import { createSourceDeclarationReferenceSelector } from "./reference-selection.js";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { referenceQueryNode } from "./syntax.js";
 import type { SourceDeclarationReference, SourceReferenceIndexStatistics } from "./types.js";
 
@@ -12,7 +12,6 @@ export interface SourceReferenceIndexLimits {
   readonly selectedReferences: number;
   readonly selectedDeclarations: number;
   readonly reverseEdges: number;
-  readonly indexedSymbols: number;
   readonly moduleExportsExamined: number;
 }
 
@@ -20,14 +19,12 @@ export interface SourceDeclarationReferenceIndex {
   readonly statistics: SourceReferenceIndexStatistics;
   sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referencesToDeclaration(declaration: Node | undefined): readonly Node[];
-  referencesForSymbol(symbol: Symbol): readonly Node[];
 }
 
 interface BuiltSourceDeclarationReferenceIndex {
   readonly statistics: SourceReferenceIndexStatistics;
   readonly byReference: WeakMap<Node, SourceDeclarationReference>;
   readonly referencesByDeclaration: ReadonlyMap<Node, readonly Node[]>;
-  readonly referencesBySymbol: ReadonlyMap<Symbol, readonly Node[]>;
 }
 
 const defaultSourceReferenceIndexLimits: SourceReferenceIndexLimits =
@@ -38,12 +35,15 @@ const defaultSourceReferenceIndexLimits: SourceReferenceIndexLimits =
     selectedReferences: 4_194_304,
     selectedDeclarations: 2_097_152,
     reverseEdges: 4_194_304,
-    indexedSymbols: 2_097_152,
     moduleExportsExamined: 4_194_304,
   });
 
+/**
+ * The reverse reference index, built in one pass over the project files. Each reference occurrence is keyed by the
+ * declaration host-input selects for it (I3); one canonical reference record per declaration.
+ */
 export function createSourceDeclarationReferenceIndex(
-  source: CheckedSourceProgram,
+  input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   requestedLimits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
@@ -52,155 +52,76 @@ export function createSourceDeclarationReferenceIndex(
   if (sourceFiles.length > limits.sourceFiles) {
     throw sourceReferenceLimitError("source files", limits.sourceFiles);
   }
-  const built = buildSourceDeclarationReferenceIndex(
-    source,
-    sourceFiles,
-    isProjectDeclaration,
-    limits,
-  );
-  return sealSourceDeclarationReferenceIndex(
-    source.ast,
-    new Set(sourceFiles),
-    built,
-  );
+  const built = buildSourceDeclarationReferenceIndex(input, sourceFiles, isProjectDeclaration, limits);
+  return sealSourceDeclarationReferenceIndex(input.ast, new Set(sourceFiles), built);
 }
 
 function buildSourceDeclarationReferenceIndex(
-  source: CheckedSourceProgram,
+  input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   limits: SourceReferenceIndexLimits,
 ): BuiltSourceDeclarationReferenceIndex {
-  const { ast } = source;
+  const { ast } = input;
   const byReference = new WeakMap<Node, SourceDeclarationReference>();
   const pendingByDeclaration = new Map<Node, Node[]>();
-  const pendingDeclarationsBySymbol = new Map<Symbol, Set<Node>>();
-  const factsByDeclaration = new Map<
-    Node,
-    Map<Symbol | undefined, SourceDeclarationReference>
-  >();
+  const canonicalByDeclaration = new Map<Node, SourceDeclarationReference>();
   let nodesVisited = 0;
   let referenceCandidates = 0;
   let selectedReferences = 0;
   let reverseEdges = 0;
   let moduleExportsExamined = 0;
-  const selectReference = createSourceDeclarationReferenceSelector(
-    ast,
-    isProjectDeclaration,
-    (count) => {
-      moduleExportsExamined = reserveAmount(
-        moduleExportsExamined,
-        count,
-        limits.moduleExportsExamined,
-        "module exports examined",
-      );
-    },
-  );
+  const reserveModuleExports = (count: number): void => {
+    moduleExportsExamined = reserveAmount(moduleExportsExamined, count, limits.moduleExportsExamined, "module exports examined");
+  };
 
-  const record = (
-    referenceNode: Node,
-    selected: SourceDeclarationReference,
-    checker: TypeCheckerQueries,
-  ): void => {
+  const record = (referenceNode: Node, declaration: Node, sourceFile: SourceFile): void => {
     if (byReference.has(referenceNode)) {
       throw new Error(
         "One exact source occurrence was visited more than once while building the source reference index.",
       );
     }
-    selectedReferences = reserveCount(
-      selectedReferences,
-      limits.selectedReferences,
-      "selected references",
-    );
-    let factsBySymbol = factsByDeclaration.get(selected.declaration);
-    if (factsBySymbol === undefined) {
-      if (factsByDeclaration.size >= limits.selectedDeclarations) {
-        throw sourceReferenceLimitError(
-          "selected declarations",
-          limits.selectedDeclarations,
-        );
+    selectedReferences = reserveCount(selectedReferences, limits.selectedReferences, "selected references");
+    let canonical = canonicalByDeclaration.get(declaration);
+    if (canonical === undefined) {
+      if (canonicalByDeclaration.size >= limits.selectedDeclarations) {
+        throw sourceReferenceLimitError("selected declarations", limits.selectedDeclarations);
       }
-      factsBySymbol = new Map();
-      factsByDeclaration.set(selected.declaration, factsBySymbol);
-    }
-    const existing = factsBySymbol.get(selected.symbol);
-    if (
-      existing !== undefined &&
-      (
-        existing.declaration !== selected.declaration ||
-        existing.sourceFile !== selected.sourceFile ||
-        existing.project !== selected.project
-      )
-    ) {
-      throw new Error(
-        "Source reference selection produced conflicting facts for one exact declaration and symbol.",
-      );
-    }
-    const canonical = existing ?? selected;
-    if (existing === undefined) {
-      factsBySymbol.set(selected.symbol, canonical);
+      canonical = Object.freeze({ declaration, sourceFile, project: isProjectDeclaration(declaration) });
+      canonicalByDeclaration.set(declaration, canonical);
+    } else if (canonical.sourceFile !== sourceFile) {
+      throw new Error("Source reference selection produced conflicting facts for one exact declaration.");
     }
     byReference.set(referenceNode, canonical);
 
+    // A declaration's own name is not a reference to it.
     const owner = ast.parent(referenceNode);
     if (owner !== undefined && ast.name(owner) === referenceNode &&
-      canonical.symbol !== undefined && checker.getSymbolDeclarations(canonical.symbol).includes(owner)) {
+      input.mergedDeclarations(canonical.declaration).includes(owner)) {
       return;
     }
-    reverseEdges = reserveCount(
-      reverseEdges,
-      limits.reverseEdges,
-      "reverse reference edges",
-    );
-    const declarationReferences = pendingByDeclaration.get(
-      canonical.declaration,
-    );
+    reverseEdges = reserveCount(reverseEdges, limits.reverseEdges, "reverse reference edges");
+    const declarationReferences = pendingByDeclaration.get(canonical.declaration);
     if (declarationReferences === undefined) {
       pendingByDeclaration.set(canonical.declaration, [referenceNode]);
     } else {
       declarationReferences.push(referenceNode);
     }
-    if (canonical.symbol === undefined) {
-      return;
-    }
-    let symbolDeclarations = pendingDeclarationsBySymbol.get(canonical.symbol);
-    if (symbolDeclarations === undefined) {
-      if (pendingDeclarationsBySymbol.size >= limits.indexedSymbols) {
-        throw sourceReferenceLimitError(
-          "indexed symbols",
-          limits.indexedSymbols,
-        );
-      }
-      symbolDeclarations = new Set();
-      pendingDeclarationsBySymbol.set(canonical.symbol, symbolDeclarations);
-    }
-    symbolDeclarations.add(canonical.declaration);
   };
 
   for (const sourceFile of sourceFiles) {
-    let checker: TypeCheckerQueries | undefined;
     const pending: Node[] = [sourceFile];
     while (pending.length > 0) {
       const node = pending.pop();
       if (node === undefined) {
         continue;
       }
-      nodesVisited = reserveCount(
-        nodesVisited,
-        limits.nodesVisited,
-        "visited nodes",
-      );
-      const queryNode = referenceQueryNode(ast, node);
-      if (queryNode === node) {
-        checker ??= source.getSourceFileQueries(sourceFile).checker;
-        referenceCandidates = reserveCount(
-          referenceCandidates,
-          limits.referenceCandidates,
-          "reference candidates",
-        );
-        const selected = selectReference(checker, node);
+      nodesVisited = reserveCount(nodesVisited, limits.nodesVisited, "visited nodes");
+      if (referenceQueryNode(ast, node) === node) {
+        referenceCandidates = reserveCount(referenceCandidates, limits.referenceCandidates, "reference candidates");
+        const selected = input.reference(node, reserveModuleExports);
         if (selected !== undefined) {
-          record(node, selected, checker);
+          record(node, selected.declaration, selected.sourceFile);
         }
       }
       const children = ast.children(node);
@@ -216,37 +137,14 @@ function buildSourceDeclarationReferenceIndex(
   for (const references of pendingByDeclaration.values()) {
     Object.freeze(references);
   }
-  const referencesBySymbol = new Map<Symbol, readonly Node[]>();
-  for (const [symbol, declarations] of pendingDeclarationsBySymbol) {
-    const selected = [...declarations];
-    if (selected.length === 1) {
-      const declaration = selected[0];
-      if (declaration === undefined) {
-        throw new Error(
-          "A source reference symbol index lost its selected declaration.",
-        );
-      }
-      referencesBySymbol.set(
-        symbol,
-        pendingByDeclaration.get(declaration) ?? noSourceReferences,
-      );
-      continue;
-    }
-    referencesBySymbol.set(
-      symbol,
-      Object.freeze(selected.flatMap((declaration) =>
-        pendingByDeclaration.get(declaration) ?? noSourceReferences)),
-    );
-  }
   const statistics: SourceReferenceIndexStatistics = Object.freeze({
     constructionPasses: 1,
     sourceFiles: sourceFiles.length,
     nodesVisited,
     referenceCandidates,
     selectedReferences,
-    selectedDeclarations: factsByDeclaration.size,
+    selectedDeclarations: canonicalByDeclaration.size,
     reverseEdges,
-    indexedSymbols: referencesBySymbol.size,
     moduleExportsExamined,
   });
 
@@ -254,7 +152,6 @@ function buildSourceDeclarationReferenceIndex(
     statistics,
     byReference,
     referencesByDeclaration: pendingByDeclaration,
-    referencesBySymbol,
   });
 }
 
@@ -282,9 +179,6 @@ function sealSourceDeclarationReferenceIndex(
       return declaration === undefined
         ? noSourceReferences
         : built.referencesByDeclaration.get(declaration) ?? noSourceReferences;
-    },
-    referencesForSymbol(symbol: Symbol) {
-      return built.referencesBySymbol.get(symbol) ?? noSourceReferences;
     },
   });
 }

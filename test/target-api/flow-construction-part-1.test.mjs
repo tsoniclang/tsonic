@@ -1,8 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
@@ -205,11 +206,12 @@ test("declaration construction refuses a missing checked constructor contract wi
   const formal = current.source.navigation.nodesForFiles(current.source.sourceFiles).find(node =>
     current.ast.is.IsParameterDeclaration(node) && current.ast.text(current.ast.name(node)) === "Parent");
   assert.equal(formal !== undefined, true, "the declared native-constructor input has its original checked identity");
-  const source = { ...current.source, semantics: { ...current.source.semantics,
-    forNode(node) {
-      const selected = current.source.semantics.forNode(node);
-      return node === formal ? { ...selected, types: { ...selected.types, constructSignatures: () => [] } } : selected;
-    } } };
+  // The native base contract has no construct signatures in its Host type.
+  const values = { ...current.source.facts.values, type(node) {
+    return node === formal ? Object.freeze({ kind: "resolved", type: Object.freeze({ kind: "callable", calls: [], constructs: [] }) })
+      : current.source.facts.values.type(node);
+  } };
+  const source = { ...current.source, facts: { ...current.source.facts, values } };
   const result = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" } });
   assert.equal(result.kind, "unresolved", "missing native constructor evidence is not empty success");
   assert.equal(result.source === formal, true, "the missing contract belongs to the original declared constructor input");

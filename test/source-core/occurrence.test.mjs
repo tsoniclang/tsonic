@@ -1,3 +1,4 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -5,8 +6,8 @@ import {
   createCompilerSessionFromFiles,
 } from "@tsonic/tsts";
 import {
-  createTargetSourceProgram,
-} from "../../packages/target-api/dist/public/source.js";
+  createHostSourceProgram,
+} from "../../packages/target-api/dist/public/host.js";
 
 test("source occurrence locators round-trip exact checked UTF-16 syntax", () => {
   const sourceText = [
@@ -20,7 +21,7 @@ test("source occurrence locators round-trip exact checked UTF-16 syntax", () => 
     files: { "/project/index.ts": sourceText },
     compilerOptions: { noLib: true, strict: true },
   }).checkSource();
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = source.sourceFiles.find((candidate) =>
     source.ast.getFileName(candidate) === "/project/index.ts"
   );
@@ -65,7 +66,7 @@ test("source occurrence lookup fails closed for stale, foreign, or wrong-kind lo
     files: { "/project/index.ts": "const value = 1;\n" },
     compilerOptions: { noLib: true, strict: true },
   }).checkSource();
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = source.sourceFiles[0];
   const declaration = descendants(source, sourceFile).find((node) =>
     source.ast.is.IsVariableDeclaration(node)

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 
 import { test } from "node:test";
 
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
 
 import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
 
@@ -50,8 +49,7 @@ test("the reported allocation/import reproduction retains each checker-local typ
   const conversion = memoryCall(checked, "reinterpretrawptr");
   const result = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, conversion);
   assert.ok(result?.kind === "resolved");
-  const source = createTargetSourceProgram(checked);
-  const selectedCall = source.semantics.forNode(conversion).operations.call(conversion);
+  const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(conversion)!).checker.getResolvedCallInfo(conversion);
   const operationType = readTsonicMemoryType(checked.sourceFacts, conversion);
   const layoutType = readTsonicMemoryType(checked.sourceFacts, result.layout.call);
   const selectedLayout = readTsonicMemoryLayout(checked.sourceFacts, result.operation.layoutExpression);

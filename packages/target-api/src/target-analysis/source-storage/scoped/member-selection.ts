@@ -1,5 +1,7 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { sourcePresentStorageArms, sourceStorageInstanceType, sourceStorageMembers } from "../model/components.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageInputFrontier, SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -15,15 +17,15 @@ type SourceStoragePhysicalMembers =
       readonly excluded: boolean; readonly reason?: string }
   | { readonly kind: "pending" };
 
-export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStoragePhysicalMembers(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
     symbolic(value: SourceStorageReference | SourceStorageInputFrontier): boolean;
     lineages(value: SourceStorageReference): readonly SourceStorageClassLineage<SourceStorageScope>[] | undefined;
   }) {
-  return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: Type,
+  return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: SourceTypeDescriptor,
     mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {
-    const { ast, navigation, semantics } = source;
+    const { ast, navigation } = source;
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
       : !ast.is.IsGetAccessorDeclaration(declaration);
     const unresolved = (reason: string): SourceStoragePhysicalMembers =>
@@ -36,11 +38,10 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
       // The correspondence of a union receiver is the one of the union member that declares the target.
-      const declaring = (): Type => {
-        const { types, declarations: selected } = semantics.forNode(selectedView.node);
-        const members = types.isUnion(receiverType) ? types.unionOrIntersectionTypes(receiverType).filter(member =>
-          types.propertyInfos(member).some(property => [property.symbol, ...property.rootSymbols]
-            .some(symbol => selected.symbolDeclarations(symbol).includes(target)))) : [];
+      const declaring = (): SourceTypeDescriptor => {
+        const arms = sourcePresentStorageArms(receiverType);
+        const members = arms.length > 1 ? arms.filter(arm =>
+          sourceStorageMembers(source, arm)?.some(member => member.declarations.includes(target)) === true) : [];
         return members.length === 1 ? members[0]! : receiverType;
       };
       const declared = declaring();
@@ -49,7 +50,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const correspondence = transport.memberFlow.memberFor(selectedView, target, declared);
       if (correspondence === undefined) return unresolved("Source storage members require exact checked correspondence.");
       if (correspondence.kind === "absent") {
-        if (!correspondence.destination.property.optional) return unresolved("Source storage members require exact checked correspondence.");
+        if (!correspondence.destination.optional) return unresolved("Source storage members require exact checked correspondence.");
         const subject = sourceStorageMemberSubject(target, ast, transport.subject);
         const written = subject !== undefined && (transport.storedValuesFor(subject)?.length ?? 0) !== 0;
         return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []),
@@ -66,13 +67,15 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       }
       if (declarations.length > 0 && members.length === 0)
         return unresolved("Source storage correspondence does not provide the actual checked member operation mode.");
-      const optional = correspondence.source.property.optional;
+      const optional = correspondence.source.optional;
       return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional, excluded: false };
     }
     const owner = sourceMemberOwner(ast, target);
-    const selected = semantics.forNode(allocation);
-    const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
-      : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
+    const contract = owner === undefined ? undefined
+      : ast.is.IsTypeLiteralNode(owner) || ast.is.IsObjectLiteralExpression(owner) ? sourceAnalysisValueType(source, owner)
+      : ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) ? sourceStorageInstanceType(source, owner)
+      // An interface owner: the receiver arm that applies that interface (its Host descriptor, with its type arguments).
+      : sourcePresentStorageArms(receiverType).find(arm => arm.kind === "declared" && arm.declaration === owner);
     const operand = transport.invocationTargets.get(allocation);
     if (contract === undefined || operand === undefined)
       return unresolved("Source storage members require their checked construction contract.");

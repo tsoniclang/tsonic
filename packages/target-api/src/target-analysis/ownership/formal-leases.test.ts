@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
+import { createHostSourceProgramFixture } from "../../source-semantics/host-program-fixtures.js";
 import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
@@ -38,11 +38,11 @@ function fixture(kind: "input-duration" | "type-argument",
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const nodes = source.navigation.nodes;
   const storage = createSourceStorageQuery(source, source.sourceFiles, defaultSourceStorageLimits, {
     call(node, selected) {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const declaration = selected.signature;
       return declaration !== undefined && source.ast.is.IsFunctionDeclaration(declaration) && source.ast.body(declaration) === undefined
         ? { resultAllocation: node } : undefined;
     },
@@ -58,10 +58,8 @@ function fixture(kind: "input-duration" | "type-argument",
   };
   const selectedDeclaration = (node: Node): Node | undefined => {
     if (!source.ast.is.IsCallExpression(node)) return undefined;
-    const semantics = source.semantics.forNode(node);
-    const selected = semantics.operations.call(node);
-    return selected?.sourceSelectedSignatureKind === "resolved"
-      ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    const selected = source.navigation.call(node);
+    return selected?.selection === "resolved" ? selected.signature : undefined;
   };
   const premises: SourceDeclarationOwnershipPremises = {
     completionFor(call, selected) {
@@ -69,7 +67,7 @@ function fixture(kind: "input-duration" | "type-argument",
       return owner !== undefined && source.ast.hasModifierKind(owner, "async")
         ? { kind: "async", resultPolicy: "observe-rejection",
             contract: { kind: "declaration", declaration: owner,
-              component: { selectedType: selected.sourceResultType, contextualCall: selected } } }
+              component: { type: selected.result, call } } }
         : { kind: "not-async" };
     },
     suspensionFor(value) {
@@ -79,9 +77,8 @@ function fixture(kind: "input-duration" | "type-argument",
         contract: { kind: "expression", expression: value.node, component: value.component } };
     },
     retentionFor({ value }) {
-      const semantics = source.semantics.forNode(value.node);
-      const call = source.ast.is.IsCallExpression(value.node) ? semantics.operations.call(value.node) : undefined;
-      const nativeResult = selectedDeclaration(value.node) === declaration("keep") && call?.sourceSelectedSignatureKind === "resolved";
+      const call = source.ast.is.IsCallExpression(value.node) ? source.navigation.call(value.node) : undefined;
+      const nativeResult = selectedDeclaration(value.node) === declaration("keep") && call?.selection === "resolved";
       const reference = source.navigation.sourceReferenceFor(value.node)?.declaration;
       const formal = nativeResult ? source.ast.parameters(declaration("keep"))[0]
         : source.ast.is.IsParameterDeclaration(value.node) ? value.node
@@ -91,12 +88,17 @@ function fixture(kind: "input-duration" | "type-argument",
         value, reason: "owned-value", contract }] };
       const owner = nativeResult ? declaration("keep") : source.ast.parent(formal)!;
       const regionDeclaration = source.ast.typeParameters(value.region.owner)[0];
-      const direct = nativeResult ? call.sourceSelectedMethodTypeArguments?.[0] : undefined;
-      const binding = direct === undefined ? semantics.types.typeArgumentBindings(value.component.selectedType)?.find(argument => {
-        const symbol = semantics.declarations.typeSymbol(argument.argumentType);
-        return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(regionDeclaration!);
-      }) : { declaration: source.ast.typeParameters(owner)[0]!, parameterType: direct.typeParameter,
-        argumentType: direct.selectedType, scope: "local" as const };
+      // The native result's method instantiation, else the binder of the value's Host type bound to the region's
+      // own type parameter.
+      const instantiation = nativeResult ? source.facts.instantiations.at(value.node) : undefined;
+      const direct = instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.method[0];
+      const type = value.component.type;
+      const binders = type.kind === "declared" ? source.ast.typeParameters(type.declaration) : [];
+      const bindings = type.kind === "declared" && binders.length === type.typeArguments.length
+        ? type.typeArguments.map((argument, index) => ({ declaration: binders[index]!, type: argument })) : [];
+      const binding = direct === undefined ? bindings.find(argument =>
+        argument.type.kind === "declared" && argument.type.declaration === regionDeclaration)
+        : { declaration: source.ast.typeParameters(owner)[0]!, type: direct.type };
       assert.equal(kind !== "type-argument" || binding !== undefined && regionDeclaration !== undefined, true,
         "exact native formal-region substitution");
       const premise: SourceDeclarationRetentionPremise = { kind: "formal-borrowed", value, executionOwner: owner, mode: "shared",
@@ -119,7 +121,7 @@ test("native read erasure omits only its selected callee and preserves the real 
     const call = current.source.ast.parent(node);
     return call !== undefined && current.source.ast.is.IsCallExpression(call) &&
       current.selectedDeclaration(call) === current.declaration("read") &&
-      current.source.semantics.forNode(call).operations.call(call)?.sourceCallee.expression === node;
+      current.source.navigation.call(call)?.callee === node;
   }));
   assert.equal(erased.size, 1, "the selected native load has one original callee reference");
   const premises: SourceDeclarationOwnershipPremises = { ...current.premises, retentionFor(request) {
@@ -162,9 +164,9 @@ for (const kind of ["input-duration", "type-argument"] as const) {
       assert.equal(selected.disposition.kind, ["discarded", "passed", "consumed"][index],
         `owned result ${index} preserves its actual selected use`);
       const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: call, reason: "No completed native or source retention evidence." };
-      const checked = current.source.semantics.forNode(call).operations.call(call);
-      assert.equal(checked?.sourceSelectedSignatureKind === "resolved", true, "actual selected source call");
-      if (checked?.sourceSelectedSignatureKind !== "resolved") continue;
+      const checked = current.source.facts.selections.call(call);
+      assert.equal(checked !== undefined && checked.kind !== "refused", true, "actual selected source call");
+      if (checked === undefined || checked.kind === "refused") continue;
       const completion = current.premises.completionFor(call, checked);
       for (const retention of [unknown, { kind: "resolved" as const, reference: call, premises: [] }]) {
         const rejected = decideSourceDeclarationAsyncResultUse({ ...current, call, completion, disposition: selected.disposition,
@@ -234,9 +236,9 @@ test("the native result-use owner admits explicit void only after actual continu
   assert.equal(explicit !== undefined && implicit !== undefined, true, "both actual source discard forms remain distinct");
   if (explicit === undefined || implicit === undefined) throw new Error("missing checked discard forms");
   const completionFor = (call: Node) => {
-    const selected = current.source.semantics.forNode(call).operations.call(call);
-    assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "the actual native completion contract");
-    if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked completion contract");
+    const selected = current.source.facts.selections.call(call);
+    assert.equal(selected !== undefined && selected.kind !== "refused", true, "the actual native completion contract");
+    if (selected === undefined || selected.kind === "refused") throw new Error("missing checked completion contract");
     return premises.completionFor(call, selected);
   };
   let continuationReads = 0;
@@ -294,9 +296,9 @@ test("native discard and provider rejection observation remain distinct selected
       `${policy}: a native discard is never relabelled as provider rejection observation`);
       assert.equal(selected.kind === "resolved" && selected.dependencies.length === 0, true,
         `${policy}: the actual independent body introduces no invented lease`);
-      const contract = current.source.semantics.forNode(call).operations.call(call);
-      assert.equal(contract?.sourceSelectedSignatureKind === "resolved", true, `${policy}: exact selected source call`);
-      if (contract?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked discard contract");
+      const contract = current.source.facts.selections.call(call);
+      assert.equal(contract !== undefined && contract.kind !== "refused", true, `${policy}: exact selected source call`);
+      if (contract === undefined || contract.kind === "refused") throw new Error("missing checked discard contract");
       const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: call, reason: "No completed native continuation or retention." };
       const unresolved = decideSourceDeclarationAsyncResultUse({ ...current, call,
         completion: premises.completionFor(call, contract),
@@ -357,9 +359,9 @@ for (const kind of ["input-duration", "type-argument"] as const) {
     const unknown = { kind: "unresolved" as const, cause: { kind: "required-fact" as const }, at: call, reason: "The native projection has no completed lease premise." };
     const decide = (retention: SourceDeclarationRetentionReadSelection, selectedBudget = current.budget, selectedCall = call,
       continuation: SourceDeclarationContinuationSelection = unknown) => {
-      const selected = current.source.semantics.forNode(selectedCall).operations.call(selectedCall);
-      assert.equal(selected?.sourceSelectedSignatureKind === "resolved", true, "the actual async call contract");
-      if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked async contract");
+      const selected = current.source.facts.selections.call(selectedCall);
+      assert.equal(selected !== undefined && selected.kind !== "refused", true, "the actual async call contract");
+      if (selected === undefined || selected.kind === "refused") throw new Error("missing checked async contract");
       const completion = current.premises.completionFor(selectedCall, selected);
       return decideSourceDeclarationAsyncResultUse({ ...current, budget: selectedBudget, call: selectedCall, completion,
         disposition: resolveSourceDeclarationAsyncResultDisposition({ source: current.source, expression: selectedCall, budget: selectedBudget,
@@ -482,9 +484,9 @@ for (const nativeCapture of ["owned", "scoped", "missing", "empty"] as const) {
       current.selectedDeclaration(node) === owner);
     assert.equal(calls.length, 2, "both original selected closure calls remain checked");
     const calleeReads = new Set(calls.map(call => {
-      const selected = current.source.semantics.forNode(call).operations.call(call);
-      if (selected?.sourceSelectedSignatureKind !== "resolved") throw new Error("missing checked captured callable");
-      return selected.sourceCallee.expression;
+      const selected = current.source.navigation.call(call);
+      if (selected?.selection !== "resolved") throw new Error("missing checked captured callable");
+      return selected.callee;
     }));
     const premises: SourceDeclarationOwnershipPremises = {
       ...current.premises,

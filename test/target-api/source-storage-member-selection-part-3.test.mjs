@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
@@ -181,7 +182,7 @@ test("a chained primitive result retains its exact declared method without a fab
     const read = first.alter;
   `);
   const access = current.initializer("read");
-  const declaration = current.source.semantics.forNode(access).operations.propertyAccess(access)?.selectedDeclaration;
+  const declaration = current.source.navigation.memberAccess(access)?.declaration;
   assert.equal(declaration !== undefined, true, "the original source checker selects an exact primitive method");
   const selected = current.storage.subjectFor(access);
   assert.equal(selected.kind === "resolved", true);

@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsDirectCreation } from "../model/subjects.js";
@@ -16,7 +16,7 @@ interface SourceStorageInitializer {
   readonly contexts: Map<string | undefined, SourceStorageFrame>;
 }
 
-export function createSourceStorageInitializerSummaries(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageInitializerSummaries(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   scopes: SourceStorageScopes, creation: SourceStorageCreationContext,
   keys: ReturnType<typeof createSourceStorageScopedKeys>) {
   const summaries = new Map<SourceStorageSubject, SourceStorageInitializer>();

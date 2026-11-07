@@ -1,6 +1,8 @@
+import { createJsSourceApiFacts } from "../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../packages/target-api/dist/public/source.js";
+// host-input checker-query tests: the program and its own checker views (buildHostSourceProgram), never a second adapter.
+import { buildHostSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
 function inspect(text, files = {}) {
     const checked = createCompilerSessionFromFiles({
         currentDirectory: "/src",
@@ -9,10 +11,11 @@ function inspect(text, files = {}) {
     }).checkSource();
     assert.deepEqual(checked.extensionDiagnostics, []);
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
-    const source = createTargetSourceProgram(checked);
+    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    const source = built.program;
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);
-    const semantics = source.semantics.forFile(file);
+    const semantics = built.semantics.forFile(file);
     const results = [];
     const argumentTypes = [];
     for (const node of walk(file)) {

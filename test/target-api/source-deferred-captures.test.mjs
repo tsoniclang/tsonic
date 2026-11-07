@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceProgramNavigation, sourceBindingCapturedBeforeInitialization } from "../../packages/target-api/dist/public/source.js";
+import { createSourceNavigationInput, createSourceProgramNavigation, sourceBindingCapturedBeforeInitialization } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 test("deferred capture storage follows binding activation and exact creation order", async () => {
@@ -23,7 +23,7 @@ test("deferred capture storage follows binding activation and exact creation ord
   ` });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   for (const [name, expected] of [["self", true], ["forward", true], ["initialized", false], ["nested", true],
     ["methods", true], ["directAfter", false], ["directBefore", true], ["cycleAfter", false], ["shadow", false],
     ["recursive", false], ["recursiveExpression", false], ["recursiveWrapped", false], ["recursiveEarly", true]]) {

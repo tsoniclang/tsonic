@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceDeclarationIsModuleScoped, sourceLexicalCaptures } from "./lexical-captures.js";
 
 function fixture(extraSource = "") {
@@ -25,7 +25,7 @@ function fixture(extraSource = "") {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(value => value !== undefined).slice(0, 4)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/project/index.ts");
   assert.equal(file !== undefined, true, "exact checked source");
   const values = new Map<string, Node>();

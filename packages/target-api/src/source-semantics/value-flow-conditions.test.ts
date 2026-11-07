@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, pointerOperationFactKey, createCompilerSessionFromFiles, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
 import type { SourceNativeGuard } from "./value-flow-model.js";
 
@@ -15,7 +15,7 @@ function fixture(body: string) {
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const reads: Node[] = [];
@@ -23,25 +23,25 @@ function fixture(body: string) {
   const visit = (node: Node): void => {
     if (source.ast.is.IsCallExpression(node)) {
       calls.push(node);
-      const call = source.semantics.forNode(node).operations.call(node);
-      if (source.ast.text(call?.sourceCallee.expression) === "observe") {
-        assert.ok(call?.sourceArguments[0]);
-        reads.push(call.sourceArguments[0].expression);
+      const call = source.navigation.call(node);
+      if (source.ast.text(call?.callee) === "observe") {
+        assert.ok(call?.arguments[0]);
+        reads.push(call.arguments[0]);
       }
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   const guard = (expression: Node): SourceNativeGuard<"array" | "record"> | undefined => {
-    const call = source.semantics.forNode(expression).operations.call(expression);
-    const argument = call?.sourceArguments[0];
-    const name = source.ast.text(call?.sourceCallee.expression);
+    const call = source.navigation.call(expression);
+    const argument = call?.arguments[0];
+    const name = source.ast.text(call?.callee);
     return call === undefined || argument === undefined || name !== "isArray" && name !== "isRecord"
-      ? undefined : { sourceOperand: argument.expression, predicate: name === "isArray" ? "array" : "record" };
+      ? undefined : { sourceOperand: argument, predicate: name === "isArray" ? "array" : "record" };
   };
   const select = (members: readonly string[] = ["array", "record"], sourceFacts?: ReadonlySourceFactResolver) => reads.map(reference =>
     selectSourceGuardedValueMembers({ ast: source.ast, navigation: source.navigation,
-      sourceFacts: sourceFacts ?? source.sourceFacts, semanticsFor: node => source.semantics.forNode(node) },
+      sourceFacts: sourceFacts ?? source.sourceFacts, flowConditions: source.flowConditions, values: source.facts.values },
     reference, members, guard, (member, predicate) => member === "unknown" ? undefined : member === predicate));
   return { source, reads, calls, select, guard };
 }
@@ -117,7 +117,7 @@ test("native flow selection preserves original checked loop and finally conditio
 
 test("native flow selection rejects mutable passing and address exposure through canonical facts", () => {
   const current = fixture("if (isArray(value)) { consume(value); observe(value); }");
-  const call = current.calls.find(node => current.source.ast.text(current.source.semantics.forNode(node).operations.call(node)?.sourceCallee.expression) === "consume");
+  const call = current.calls.find(node => current.source.ast.text(current.source.navigation.call(node)?.callee) === "consume");
   assert.ok(call);
   for (const mode of ["by-value", "borrow-shared", "byref-readonly", "borrow-mut", "byref", "out"] as const) {
     const sourceFacts = { getFact(subject: Node, key: unknown) {
@@ -135,6 +135,6 @@ test("native flow selection rejects mutable passing and address exposure through
 test("deep finite guarded flow keeps its narrowing and checked provenance", () => {
   const current = fixture(`if (isArray(value)) { ${"consume(value);".repeat(1_000)} observe(value); }`);
   assert.deepEqual(current.select(), [["array"]]);
-  const flow = current.source.semantics.forNode(current.reads[0]!).operations.flowConditions(current.reads[0]!);
+  const flow = current.source.flowConditions(current.reads[0]!);
   assert.ok(flow?.conditions.length === 1 && Object.isFrozen(flow));
 });

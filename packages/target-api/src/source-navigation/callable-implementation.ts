@@ -1,4 +1,5 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import type { SourceCallableImplementationResult } from "./types.js";
 
 type CallableCategory = "function" | "method" | "get" | "set" | "constructor";
@@ -10,8 +11,7 @@ export interface SourceCallableImplementationNavigation {
 }
 
 export function createSourceCallableImplementationNavigation(
-  source: CheckedSourceProgram,
-  declarationSymbol: (declaration: Node, sourceFile: SourceFile) => Symbol | undefined,
+  source: Pick<SourceNavigationInput, "ast" | "mergedDeclarations">,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceCallableImplementationNavigation {
   const cache = new WeakMap<Node, SourceCallableImplementationResult>();
@@ -26,7 +26,6 @@ export function createSourceCallableImplementationNavigation(
     const result = resolveCallableImplementation(
       source,
       contractDeclaration,
-      declarationSymbol,
       isProjectDeclaration,
     );
     cache.set(contractDeclaration, result);
@@ -37,9 +36,8 @@ export function createSourceCallableImplementationNavigation(
 }
 
 function resolveCallableImplementation(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "mergedDeclarations">,
   contractDeclaration: Node,
-  declarationSymbol: (declaration: Node, sourceFile: SourceFile) => Symbol | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceCallableImplementationResult {
   const { ast } = source;
@@ -66,14 +64,10 @@ function resolveCallableImplementation(
         "Callable implementation resolution requires an exact project function, method, accessor, or constructor declaration.",
     });
   }
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const symbolOwner = category === "constructor" ? ast.parent(contractDeclaration) : contractDeclaration;
-  const symbol = symbolOwner === undefined ? undefined : declarationSymbol(symbolOwner, sourceFile);
   const implementationDeclaration = ast.body(contractDeclaration) !== undefined ? contractDeclaration : selectCallableImplementationDeclaration(
     ast,
-    checker,
     contractDeclaration,
-    symbol,
+    category === "constructor" ? [] : source.mergedDeclarations(contractDeclaration),
   );
   const implementationSourceFile = ast.getSourceFile(implementationDeclaration);
   if (implementationDeclaration === undefined ||
@@ -89,7 +83,6 @@ function resolveCallableImplementation(
     kind: "resolved",
     contractDeclaration,
     implementation: Object.freeze({
-      ...(symbol === undefined ? {} : { symbol }),
       declaration: implementationDeclaration,
       sourceFile: implementationSourceFile,
       project: true,
@@ -97,11 +90,11 @@ function resolveCallableImplementation(
   });
 }
 
+/** The one implementation (declaration with a body, same callable category) among the merged declarations. */
 export function selectCallableImplementationDeclaration(
   ast: AstReader,
-  checker: TypeCheckerQueries,
   contractDeclaration: Node,
-  symbol: Symbol | undefined,
+  mergedDeclarations: readonly Node[],
 ): Node | undefined {
   const category = callableCategory(ast, contractDeclaration);
   if (category === undefined) {
@@ -109,7 +102,7 @@ export function selectCallableImplementationDeclaration(
   }
   const candidates = category === "constructor"
     ? ast.members(ast.parent(contractDeclaration))
-    : symbol === undefined ? [] : checker.getSymbolDeclarations(symbol);
+    : mergedDeclarations;
   const implementations = candidates.filter((candidate): candidate is Node =>
     candidate !== undefined &&
     callableCategory(ast, candidate) === category &&

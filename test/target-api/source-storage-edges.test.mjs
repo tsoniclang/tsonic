@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/graph/edges.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
@@ -17,7 +18,7 @@ function fixture(limits = defaultSourceStorageLimits, selectSource = source => s
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length === 0 && checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics, "/src"));
-  const source = selectSource(createTargetSourceProgram(checked));
+  const source = selectSource(createHostSourceProgram(checked, { profile: createJsSourceApiFacts }));
   const file = projectSourceFile(source, "/src/index.ts");
   const budget = createSourceStorageBudget(limits);
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
@@ -89,16 +90,12 @@ test("projection revision replaces its charged cache without retaining supersede
   assert.equal(budget.failure() === undefined, true);
 });
 
-test("a checker exception unwinds cache and projection frontiers without changing its identity", () => {
+test("a Host fact exception unwinds cache and projection frontiers without changing its identity", () => {
   const expected = new Error("tuple proof failed");
-  const { budget, edges, types, pair, values, component } = fixture(
-    { ...defaultSourceStorageLimits, maximumTransportRows: 5 },
-    source => ({ ...source, semantics: { ...source.semantics, forFile: file => {
-      const semantics = source.semantics.forFile(file);
-      return { ...semantics, types: { ...semantics.types, tupleElementInfos: () => { throw expected; } } };
-    } } }),
-  );
-  assert.equal(edges.add(pair, values, types), true);
+  const { budget, edges, types, pair, values, component } = fixture({ ...defaultSourceStorageLimits, maximumTransportRows: 5 });
+  // The tuple descriptor fails when its elements are read during projection.
+  const failing = Object.freeze({ kind: "tuple", readonly: false, get elements() { throw expected; } });
+  assert.equal(edges.add(pair, values, { from: failing, to: types.to }), true);
   let observed;
   try { edges.incomingFor(component); } catch (error) { observed = error; }
   assert.equal(observed === expected, true, "original failure propagates unchanged");

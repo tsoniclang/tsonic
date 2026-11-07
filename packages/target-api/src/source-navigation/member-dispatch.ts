@@ -1,4 +1,5 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile, Type } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import type { SourceProjectMemberDispatch, SourceProjectReference } from "./types.js";
 import { sourceNodeIdentity, sourceNodesEqual } from "./identity.js";
 
@@ -7,7 +8,7 @@ export interface SourceMemberDispatchNavigation {
 }
 
 export function createSourceMemberDispatchNavigation(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "declaredMember">,
   sourceFiles: readonly SourceFile[],
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
@@ -34,10 +35,8 @@ export function createSourceMemberDispatchNavigation(
       return undefined;
     }
     const classDeclaration = ast.parent(node);
-    const sourceFile = ast.getSourceFile(node);
     if (
       classDeclaration === undefined ||
-      sourceFile === undefined ||
       !isClassDefinition(ast, classDeclaration)
     ) {
       if (nodeKey !== undefined) {
@@ -57,8 +56,7 @@ export function createSourceMemberDispatchNavigation(
         source,
         ast,
         classDeclaration,
-        memberName,
-        sourceFile,
+        node,
         referenceFor,
         isProjectDeclaration,
       ),
@@ -115,35 +113,22 @@ function dispatchMemberName(
 }
 
 function memberOverridesBase(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "declaredMember">,
   ast: AstReader,
   classDeclaration: Node,
-  memberName: string,
-  sourceFile: SourceFile,
+  member: Node,
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): boolean {
-  const baseType = projectBaseClassType(
-    source,
-    ast,
-    classDeclaration,
-    referenceFor,
-  );
-  if (baseType === undefined) {
+  const base = projectBaseClassDeclaration(ast, classDeclaration, referenceFor);
+  if (base === undefined) {
     return false;
   }
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const declaration = checker.getPrimarySymbolDeclaration(
-    checker.getPropertyOfType(baseType, memberName),
-  );
-  if (isDispatchMember(ast, declaration, isProjectDeclaration)) {
-    return true;
-  }
-  return false;
+  return isDispatchMember(ast, source.declaredMember(base, member)?.[0], isProjectDeclaration);
 }
 
 function hasDerivedOverride(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "declaredMember">,
   ast: AstReader,
   classes: readonly Node[],
   baseClass: Node,
@@ -162,16 +147,13 @@ function hasDerivedOverride(
       member !== undefined &&
       isDispatchMember(ast, member, isProjectDeclaration) &&
       dispatchMemberName(ast, member) === memberName);
-    const candidateFile = ast.getSourceFile(candidate);
     if (
       candidateMember !== undefined &&
-      candidateFile !== undefined &&
       memberOverridesBase(
         source,
         ast,
         candidate,
-        memberName,
-        candidateFile,
+        candidateMember,
         referenceFor,
         isProjectDeclaration,
       )
@@ -200,20 +182,6 @@ function classExtends(
       directBase !== undefined &&
       classExtends(ast, directBase, expectedBase, referenceFor, seen)
     );
-}
-
-function projectBaseClassType(
-  source: CheckedSourceProgram,
-  ast: AstReader,
-  classDeclaration: Node,
-  referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
-): Type | undefined {
-  const reference = referenceFor(baseClassReferenceNode(ast, classDeclaration));
-  if (reference === undefined || !isClassDefinition(ast, reference.declaration)) {
-    return undefined;
-  }
-  return source.getSourceFileQueries(reference.sourceFile)
-    .checker.getDeclaredTypeOfSymbol(reference.symbol);
 }
 
 function projectBaseClassDeclaration(

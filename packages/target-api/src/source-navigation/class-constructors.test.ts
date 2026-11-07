@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
 
 test("class expressions retain exact effective constructors without requiring an authored name", () => {
   const checked = createCompilerSessionFromFiles({
@@ -21,7 +21,7 @@ test("class expressions retain exact effective constructors without requiring an
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const expressions: Node[] = [];
@@ -38,19 +38,7 @@ test("class expressions retain exact effective constructors without requiring an
   const baseConstructor = source.ast.members(base).find(member => member !== undefined && source.ast.is.IsConstructorDeclaration(member));
   assert.ok(baseConstructor);
   for (const [index, expression] of expressions.entries()) {
-    const semantics = source.semantics.forNode(expression);
-    const instance = semantics.declarations.declaredType(expression);
-    const value = semantics.declarations.declaredValueType(expression);
-    assert.ok(instance);
-    assert.ok(value);
-    assert.ok(instance !== value);
-    assert.equal(semantics.types.constructSignatures(instance).length, 0);
-    assert.equal(semantics.types.constructSignatures(value).length, 1);
-    const symbol = semantics.declarations.typeSymbol(instance);
-    assert.ok(symbol);
-    const declarations = semantics.declarations.symbolDeclarations(symbol);
-    assert.equal(declarations.length, 1);
-    assert.ok(declarations[0] === expression);
+    assert.deepEqual(source.navigation.mergedDeclarations(expression), [expression], "a class expression is its own entity");
     const result = source.navigation.classConstructors(expression);
     assert.equal(result.kind, "resolved");
     if (result.kind !== "resolved") continue;
@@ -90,7 +78,7 @@ test("aliased cross-file class bases retain generic, default and rest constructo
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const baseFile = checked.getSourceFile("/src/base.ts");
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(baseFile && file);

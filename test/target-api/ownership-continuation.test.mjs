@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceDeclarationContinuationDependencyQuery, createSourceContinuationTransfer, createSourceDeclarationSuspensionQuery,
   createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 
 const fixture = ownershipFixture();

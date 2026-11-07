@@ -1,51 +1,44 @@
+import { sourceAnalysisIncludesFile, sourceAnalysisMayBeAbsent, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
-import { sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
+import { sourceStorageBindingArgumentType, sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-inputs.js";
 
-export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageExecutionRegions(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
   }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery, subject: SourceStorageSubjectQuery) {
-  const { ast, semantics } = source;
+  const { ast, navigation } = source;
   const step = budget.step;
   const lexical = createSourceStorageLexicalSelections(ast, budget);
   const invocations = new Map<Node, Set<Node>>();
   const invocationRows = budget.createRows();
   let sealed = false;
-  const typeMayBeAbsent = (type: Type, owner: Node): boolean => {
-    const types = semantics.forNode(owner).types;
-    if (!step()) return true;
-    if (types.isAny(type) || types.isUnknown(type) || types.isNullish(type) || types.isVoidLike(type)) return true;
-    const present = types.nonNullableType(type);
-    return present === undefined || !types.isIdentical(type, present);
-  };
+  const typeMayBeAbsent = (type: SourceTypeDescriptor): boolean => !step() || sourceAnalysisMayBeAbsent(type);
   const callable = (declaration: Node, invocation: Node | undefined,
-    argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry,
-    actualTypes?: readonly (readonly Type[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
+    argumentTypes?: (expression: Node) => readonly SourceTypeDescriptor[] | undefined, callback?: SourceStorageCallbackEntry,
+    actualTypes?: readonly (readonly SourceTypeDescriptor[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
-    const regions = phase === "active" || semantics.forNode(declaration).operations.generator(declaration) === undefined ? [body] : [];
-    const consumer = semantics.forNode(invocation ?? declaration);
-    const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
+    const regions = phase === "active" || source.facts.selections.generator(declaration) === undefined ? [body] : [];
+    const selection = invocation === undefined ? undefined : navigation.call(invocation);
     const inputs = inputSlotsFor(declaration, invocation, callback);
     const slots = sourceStorageSelectedInputSlots(inputs, declaration);
-    const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
+    const parameters = sourceCallableValueParameters(ast, declaration, navigation, { kind: "declaration" });
     if (parameters === undefined) {
       budget.reject("Source storage callable regions require their exact checked value parameters.");
       return [];
     }
     for (const parameter of parameters) {
       if (!step()) break;
-      const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
-      if (parameter === undefined || file === undefined || !semantics.includes(file) ||
+      if (parameter === undefined || !sourceAnalysisIncludesFile(source, ast.getSourceFile(parameter)) ||
         !ast.is.IsParameterDeclaration(parameter) || ast.parent(parameter) !== declaration) {
         budget.reject("Source storage callable inputs require exact checked parameter declaration ownership.");
         break;
@@ -56,7 +49,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
         const inputs = slots?.filter(slot => slot.parameter === parameter);
         if (inputs === undefined || inputs.length === 0 || inputs.some(input => {
           const supplied = actualTypes[input.effectiveIndex];
-          return supplied === undefined || supplied.length === 0 || supplied.some(type => typeMayBeAbsent(type, invocation ?? declaration));
+          return supplied === undefined || supplied.length === 0 || supplied.some(type => typeMayBeAbsent(type));
         })) regions.push(initializer);
         continue;
       }
@@ -64,22 +57,24 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
         const formal = subject(parameter, "input");
         if (formal === undefined) return [];
         const inputs = sourceStorageNativeInputSlots(source, declaration,
-          formal, inputSlotsFor(declaration, invocation, callback), consumer, step);
+          formal, inputSlotsFor(declaration, invocation, callback), step);
         if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
-          typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
+          typeMayBeAbsent(input.type))) regions.push(initializer);
         continue;
       }
       const inputs = slots?.filter(slot => slot.parameter === parameter);
-      const bindings = inputs === undefined ? undefined : selection?.sourceArgumentBindings.filter(binding =>
+      const bindings = inputs === undefined ? undefined : selection?.bindings.filter(binding =>
         inputs.some(slot => slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
         if (binding.sourceForm === "spread-element" && selection !== undefined &&
           sourceStorageInvocationArgumentAbsence(source, selection, binding) !== "present") return true;
-        const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;
-        const types = argumentTypes === undefined || binding.sourceForm === "spread-element" ? [binding.selectedArgumentType]
+        const expression = selection?.arguments[binding.sourceArgumentIndex];
+        const supplied = selection === undefined ? undefined : sourceStorageBindingArgumentType(source, selection, binding);
+        const types = argumentTypes === undefined || binding.sourceForm === "spread-element"
+          ? supplied === undefined ? undefined : [supplied]
           : expression === undefined ? undefined : argumentTypes(expression);
-        return types === undefined || types.length === 0 || types.some(type => typeMayBeAbsent(type, invocation!));
+        return types === undefined || types.length === 0 || types.some(type => typeMayBeAbsent(type));
       })) {
         regions.push(initializer);
       }

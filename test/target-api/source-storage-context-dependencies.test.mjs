@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/source-storage/queries.js";
@@ -14,7 +15,7 @@ function checkedSource(text) {
     files: { "/src/index.ts": text },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   assert.equal(file !== undefined, true, "exact checked source file");
   const nodes = [];
@@ -75,7 +76,7 @@ for (const [name, read] of [["field", "box.value"], ["computed field", "box['val
     const budget = createSourceStorageBudget(defaultSourceStorageLimits);
     const transport = createSourceStorageTransport(source, [file], budget);
     const invocation = call("consume");
-    const expression = source.semantics.forNode(invocation).operations.call(invocation).sourceArguments[0].expression;
+    const expression = source.navigation.call(invocation).arguments[0];
     const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
       transport.contextLocation, transport.contextualInputs.applicationFor);
     const input = transport.subjectFor(expression);

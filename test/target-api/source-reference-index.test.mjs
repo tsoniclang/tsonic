@@ -3,8 +3,8 @@ import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 
 import {
-  createSourceProgramNavigation,
-} from "../../packages/target-api/dist/public/source.js";
+  createSourceNavigationInput, createSourceProgramNavigation,
+} from "../../packages/target-api/dist/public/host.js";
 import {
   createSourceDeclarationReferenceIndex,
 } from "../../packages/target-api/dist/source-navigation/reference-index.js";
@@ -61,7 +61,7 @@ test("source reference index preserves exact source selections in both direction
   const apiFile = projectSourceFile(checked, "src/api.ts");
   const forwardFile = projectSourceFile(checked, "src/forward.ts");
   const defaultFile = projectSourceFile(checked, "src/default.ts");
-  const navigation = createSourceProgramNavigation(checked);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(checked));
   const apiRun = namedVariable(ast, apiFile, "run");
   const localRun = namedVariable(ast, indexFile, "run");
   const result = namedDeclaration(ast, apiFile, "Result");
@@ -166,7 +166,8 @@ test("source reference index preserves exact source selections in both direction
     true,
     "element access must retain its exact selected index declaration",
   );
-  assert.equal(elementSelection?.symbol === undefined, true);
+  // Selections are keyed by declaration (B3 D1); a reference record carries no Symbol.
+  assert.equal(elementSelection !== undefined && !("symbol" in elementSelection), true);
   assert.equal(elementSelection?.project, true);
 
   const runReferences = navigation.referencesToDeclaration(apiRun);
@@ -222,7 +223,7 @@ test("source reference index rejects exact nodes from another checked program", 
   const foreign = await checkedSource("source-reference-index-foreign", files);
   const selectedFile = projectSourceFile(selected, "src/index.ts");
   const foreignFile = projectSourceFile(foreign, "src/index.ts");
-  const navigation = createSourceProgramNavigation(selected);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(selected));
   const selectedDeclaration = namedVariable(selected.ast, selectedFile, "run");
   const foreignDeclaration = namedVariable(foreign.ast, foreignFile, "run");
   const foreignCall = requiredNode(foreign.ast, foreignFile, (node) =>
@@ -257,7 +258,7 @@ test("source reference index fails closed for a missing imported export", async 
     true,
     formatDiagnostics(checked.diagnostics),
   );
-  const navigation = createSourceProgramNavigation(checked);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(checked));
   assert.equal(navigation.sourceReferenceFor(missingUse), undefined);
 });
 
@@ -276,7 +277,7 @@ test("source reference index construction is transactional and bounded", () => {
   );
   assert.equal(reverse.length, 1);
   assert.equal(reverse[0] === valid.reference, true);
-  assert.equal(index.referencesForSymbol(valid.symbol) === reverse, true);
+  assert.equal(index.referencesToDeclaration(valid.declaration) === reverse, true);
   assert.equal(Object.isFrozen(reverse), true);
   assert.equal(index.statistics.nodesVisited, 4);
   assert.equal(index.statistics.selectedReferences, 2);
@@ -325,7 +326,6 @@ test("source reference index work scales linearly by deterministic counters", as
     "selectedReferences",
     "selectedDeclarations",
     "reverseEdges",
-    "indexedSymbols",
   ]) {
     const ratio = large[key] / small[key];
     assert.equal(
@@ -433,7 +433,7 @@ async function sourceReferenceScaleStatistics(fileCount) {
     ].join("\n"),
   ].join("\n");
   const checked = await checkedSource(`source-reference-scale-${fileCount}`, files);
-  return createSourceProgramNavigation(checked).referenceIndexStatistics;
+  return createSourceProgramNavigation(createSourceNavigationInput(checked)).referenceIndexStatistics;
 }
 
 function sourceReferenceLimits(overrides = {}) {
@@ -444,7 +444,6 @@ function sourceReferenceLimits(overrides = {}) {
     selectedReferences: 10_000,
     selectedDeclarations: 10_000,
     reverseEdges: 10_000,
-    indexedSymbols: 10_000,
     moduleExportsExamined: 10_000,
     ...overrides,
   };
@@ -459,7 +458,6 @@ function fakeSourceReferenceProgram(options = {}) {
     sourceFile,
   };
   const reference = { kind: "identifier", parent: sourceFile, sourceFile };
-  const symbol = {};
   declaration.name = declarationName;
   declaration.children = [declarationName];
   sourceFile.children = options.duplicateReference === true
@@ -477,25 +475,16 @@ function fakeSourceReferenceProgram(options = {}) {
     name: (node) => node?.name,
     getSourceFile: (node) => node?.kind === "source-file" ? node : node?.sourceFile,
   };
-  const checker = {
-    getSymbolAtLocation: (node) =>
-      node === declarationName || node === reference ? symbol : undefined,
-    getResolvedSymbol: (node) =>
-      node === declarationName || node === reference ? symbol : undefined,
-    getSymbolDeclarations: (candidate) =>
-      candidate === symbol ? [declaration] : [],
-    getPrimarySymbolDeclaration: (candidate) =>
-      candidate === symbol ? declaration : undefined,
-    getAliasedSymbol: () => undefined,
-  };
+  // The navigation input (host-input/navigation.ts): Node-keyed reference selection and merged declarations.
   return {
     sourceFile,
     declaration,
     reference,
-    symbol,
     source: {
       ast,
-      getSourceFileQueries: () => ({ checker, typeShape: {} }),
+      reference: (node) =>
+        node === declarationName || node === reference ? { declaration, sourceFile } : undefined,
+      mergedDeclarations: (selected) => selected === declaration ? [declaration] : [selected],
     },
   };
 }

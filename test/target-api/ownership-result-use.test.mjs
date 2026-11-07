@@ -1,11 +1,12 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceDeclarationContinuationDependencyQuery, createSourceContinuationTransfer, createSourceDeclarationSuspensionQuery,
   createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipBudget, createSourceDeclarationOwnershipValues,
   defaultSourceDeclarationOwnershipLimits,
-  decideSourceDeclarationAsyncResultUse, resolveSourceDeclarationAsyncResultDisposition } from "../../packages/target-api/dist/public/analysis.js";
+  decideSourceDeclarationAsyncResultUse, resolveSourceDeclarationAsyncResultDisposition } from "../../packages/target-api/dist/target-analysis/index.js";
 import { ownershipFixture } from "./ownership-fixture.mjs";
 import { createSourceDeclarationParameterUseQuery } from "../../packages/target-api/dist/target-analysis/ownership/contracts.js";
 
@@ -137,7 +138,7 @@ test("selected completion contracts reject foreign declarations and incompatible
   const completion = fixture.completion(call);
   const disposition = dispositionFor(call);
   for (const contract of [{ ...completion.contract, declaration: fixture.declaration("identity") },
-    { ...completion.contract, component: { selectedType: fixture.source.semantics.forNode(call).types.expressionType(fixture.source.ast.arguments(call)[0]) } }]) {
+    { ...completion.contract, component: { type: fixture.hostType(fixture.source.ast.arguments(call)[0]) } }]) {
     const selected = decideSourceDeclarationAsyncResultUse({ ...fixture, call, completion: { ...completion, contract },
       disposition, continuation: () => ({ kind: "resolved", dependencies: [] }), retention: () => retentionFor(call) });
     assert.equal(selected.kind, "unresolved", "a checked type or declaration mismatch cannot authorize a policy");
@@ -155,8 +156,8 @@ test("selected completion contracts retain checked dependency identity without e
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(item => item !== undefined)).slice(0, 2048));
-  const source = createTargetSourceProgram({ ...checked,
-    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) });
+  const source = createHostSourceProgram({ ...checked,
+    sourceFiles: checked.sourceFiles.filter(file => file !== undefined && !checked.ast.isDeclarationFile(file)) }, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const visit = node => {
@@ -166,18 +167,19 @@ test("selected completion contracts retain checked dependency identity without e
   visit(file);
   const call = nodes.find(node => source.ast.is.IsCallExpression(node));
   assert.equal(call !== undefined, true, "the original source call is checked");
-  const semantics = source.semantics.forNode(call);
-  const selected = semantics.operations.call(call);
-  assert.equal(selected?.sourceSelectedSignatureKind, "resolved", "the call owns its actual selected signature");
-  const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+  const selected = source.navigation.call(call);
+  assert.equal(selected?.selection, "resolved", "the call owns its actual selected signature");
+  const declaration = selected.signature;
+  const selection = source.facts.selections.call(call);
+  assert.equal(selection !== undefined && selection.kind !== "refused", true, "the Host call selection");
   const providerFile = source.ast.getSourceFile(declaration);
   assert.equal(checked.containsSourceFile(providerFile), true, "the hidden declaration belongs to the exact SDK program");
-  assert.equal(source.semantics.includes(providerFile), false, "provider bodies are not added to emitted-source traversal");
+  assert.equal(source.sourceFiles.includes(providerFile), false, "provider bodies are not added to emitted-source traversal");
   assert.equal(source.sourceFiles.length, 1, "only the original project source is exposed");
   const budget = createSourceDeclarationOwnershipBudget(file, defaultSourceDeclarationOwnershipLimits);
   const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const completion = { kind: "async", resultPolicy: "observe-rejection",
-    contract: { kind: "declaration", declaration, component: { selectedType: selected.sourceResultType } } };
+    contract: { kind: "declaration", declaration, component: { type: selection.result, call } } };
   const decide = contract => decideSourceDeclarationAsyncResultUse({ source, budget, call, completion: contract,
     disposition: resolveSourceDeclarationAsyncResultDisposition({ source, expression: call, budget,
       regionFor: context.values.regionFor, parameterUses: createSourceDeclarationParameterUseQuery({ source, budget }) }),

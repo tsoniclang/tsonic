@@ -2,24 +2,24 @@ import { type Node, type Type } from "@tsonic/tsts";
 declare function inspect(text: string, files?: Record<string, string>): {
     results: ({
         readonly kind: "available";
-        readonly source: import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralTypeMembers;
-        readonly destination: import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralTypeMembers;
-        readonly members: readonly import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralMemberPair[];
+        readonly source: import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralTypeMembers;
+        readonly destination: import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralTypeMembers;
+        readonly members: readonly import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralMemberPair[];
     } | {
         readonly kind: "unavailable";
         readonly reason: "unresolved-shape" | "missing-required-member" | "inconsistent-member" | "unreadable-member" | "disjoint-shape";
     })[];
-    source: import("../../../../packages/target-api/src/source-semantics/types.js").TargetSourceProgram;
-    semantics: import("../../../../packages/target-api/src/source-semantics/types.js").SourceFileSemantics;
+    source: import("../../../../packages/target-api/src/source-semantics/types.js").HostSourceProgram;
+    semantics: import("../../../../packages/target-api/src/host-input/semantics-types.js").SourceFileSemantics;
     argumentTypes: Type[];
     checked: import("@tsonic/tsts").CheckedSourceProgram;
     file: import("@tsonic/tsts").SourceFile;
 };
 declare function check(text: string, files?: Record<string, string>): ({
     readonly kind: "available";
-    readonly source: import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralTypeMembers;
-    readonly destination: import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralTypeMembers;
-    readonly members: readonly import("../../../../packages/target-api/src/source-semantics/structural-members.js").SourceStructuralMemberPair[];
+    readonly source: import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralTypeMembers;
+    readonly destination: import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralTypeMembers;
+    readonly members: readonly import("../../../../packages/target-api/src/host-input/semantics-structural-members.js").SourceStructuralMemberPair[];
 } | {
     readonly kind: "unavailable";
     readonly reason: "unresolved-shape" | "missing-required-member" | "inconsistent-member" | "unreadable-member" | "disjoint-shape";

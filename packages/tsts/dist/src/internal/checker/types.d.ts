@@ -864,12 +864,75 @@ export interface ResolvedCallSelectedSignatureParameterEvidence {
     readonly acceptsOmission: boolean;
     readonly rest: boolean;
 }
+export type ResolvedCallInferencePathPart = {
+    readonly kind: "element";
+    readonly owner: Type;
+} | {
+    readonly kind: "tuple";
+    readonly owner: Type;
+    readonly index: number;
+} | {
+    readonly kind: "type-argument";
+    readonly owner: Type;
+    readonly index: number;
+} | {
+    readonly kind: "member";
+    readonly owner: Type;
+    readonly symbol: Symbol_62f2f8bf;
+    readonly declaration: Node;
+} | {
+    readonly kind: "index";
+    readonly owner: Type;
+    readonly key: Type;
+    readonly declaration: Node;
+} | {
+    readonly kind: "callable-result";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly declaration: Node;
+} | {
+    readonly kind: "callable-parameter";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly index: number;
+    readonly declaration: Node;
+} | {
+    readonly kind: "union-member";
+    readonly owner: Type;
+    readonly member: Type;
+    readonly index: number;
+};
+export type ResolvedCallInferenceOrigin = {
+    readonly kind: "argument";
+    readonly subject: Node;
+    readonly effectiveArgumentIndex: number;
+    readonly parameterIndex: number;
+} | {
+    readonly kind: "receiver";
+    readonly subject: Node;
+} | {
+    readonly kind: "contextual-result";
+    readonly subject: Node;
+};
+export interface ResolvedCallInferenceContribution {
+    readonly typeParameter: Type;
+    readonly origin: ResolvedCallInferenceOrigin;
+    readonly sourcePath: readonly ResolvedCallInferencePathPart[];
+    readonly formalPath: readonly ResolvedCallInferencePathPart[];
+}
+export type ResolvedCallInferenceEvidence = {
+    readonly kind: "available";
+    readonly contributions: readonly ResolvedCallInferenceContribution[];
+} | {
+    readonly kind: "unavailable";
+};
 export interface ResolvedCallSelectionEvidence {
     readonly outcome: "applicable" | "untyped";
     readonly call: Node;
     readonly optionalChain: boolean;
     readonly selectedSignature: Signature;
     readonly sourceSelectedSignatureKind: "resolved" | "untyped";
+    readonly sourceInferenceContributions: ResolvedCallInferenceEvidence;
     readonly sourceSelectedMethodTypeArguments?: readonly ResolvedCallSelectedMethodTypeArgumentEvidence[];
     readonly sourceSelectedSignatureParameters: readonly ResolvedCallSelectedSignatureParameterEvidence[];
     readonly sourceCallee: ResolvedCallSourceValueEvidence;

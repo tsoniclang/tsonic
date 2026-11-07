@@ -1,5 +1,6 @@
-import type { CheckedSourceProgram, Node, Type } from "@tsonic/tsts";
-import type { SourceExpressionEffects } from "./types.js";
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceDeclarationReference, SourceExpressionEffects } from "./types.js";
+import { Node_Expression, Node_Initializer } from "./ast.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 const assignmentOperators = new Set([
@@ -62,8 +63,14 @@ const coerciveUnaryOperators = new Set([
   "KindTildeToken",
 ]);
 
+/** The inputs of the effect analysis: authored syntax and the reference index (declaration input). */
+export interface SourceExpressionEffectsInput {
+  readonly ast: AstReader;
+  sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
+}
+
 export function sourceExpressionEffects(
-  source: CheckedSourceProgram,
+  source: SourceExpressionEffectsInput,
   expression: Node,
   cache: WeakMap<Node, SourceExpressionEffects> = new WeakMap(),
 ): SourceExpressionEffects {
@@ -151,41 +158,100 @@ function frozenEffects(
   return Object.freeze({ invokes, mutates, suspends, mayThrow });
 }
 
+// Whether a coercing operator's operands are primitive, so the coercion calls no user code (valueOf/toString/
+// Symbol.toPrimitive). Decided from authored syntax and declared types only (R3: never from the checked type of the
+// operand). An operand whose primitiveness only inference could show counts as possibly invoking (conservative).
 function operandsAreDefinitelyPrimitive(
-  source: CheckedSourceProgram,
+  source: SourceExpressionEffectsInput,
   operands: readonly (Node | undefined)[],
 ): boolean {
-  return operands.length > 0 && operands.every((operand) => {
-    if (operand === undefined) {
-      return false;
-    }
-    const sourceFile = source.ast.getSourceFile(operand);
-    if (sourceFile === undefined) {
-      return false;
-    }
-    const queries = source.getSourceFileQueries(sourceFile);
-    const type = queries.checker.getTypeAtLocation(operand);
-    return type !== undefined && typeIsDefinitelyPrimitive(type, queries.typeShape);
-  });
+  return operands.length > 0 && operands.every(operand => operand !== undefined && primitiveExpression(source, operand, 0));
 }
 
-function typeIsDefinitelyPrimitive(
-  type: Type,
-  types: ReturnType<CheckedSourceProgram["getSourceFileQueries"]>["typeShape"],
-): boolean {
-  if (types.isAny(type) || types.isUnknown(type) || types.isIntersection(type)) {
-    return false;
+const maximumPrimitiveDepth = 32;
+const primitiveLiteralKinds: ReadonlySet<string> = new Set([
+  "KindNumericLiteral", "KindBigIntLiteral", "KindStringLiteral", "KindNoSubstitutionTemplateLiteral",
+  "KindTemplateExpression", "KindTrueKeyword", "KindFalseKeyword", "KindNullKeyword",
+  "KindPrefixUnaryExpression", "KindPostfixUnaryExpression", "KindTypeOfExpression", "KindVoidExpression",
+  "KindDeleteExpression",
+]);
+const primitiveResultOperators: ReadonlySet<string> = new Set([
+  ...coerciveBinaryOperators, "KindEqualsEqualsEqualsToken", "KindExclamationEqualsEqualsToken",
+  "KindInKeyword", "KindInstanceOfKeyword",
+]);
+const primitiveKeywordTypes: ReadonlySet<string> = new Set([
+  "KindNumberKeyword", "KindStringKeyword", "KindBooleanKeyword", "KindBigIntKeyword", "KindUndefinedKeyword",
+  "KindNullKeyword", "KindVoidKeyword", "KindNeverKeyword", "KindLiteralType", "KindTemplateLiteralType",
+]);
+
+function primitiveExpression(source: SourceExpressionEffectsInput, expression: Node, depth: number): boolean {
+  const { ast } = source;
+  if (depth > maximumPrimitiveDepth) return false;
+  const kind = ast.kindName(expression);
+  if (primitiveLiteralKinds.has(kind)) return true;
+  if (kind === "KindParenthesizedExpression" || kind === "KindSatisfiesExpression") {
+    const inner = Node_Expression(ast, expression);
+    return inner !== undefined && primitiveExpression(source, inner, depth + 1);
   }
-  if (types.isUnion(type)) {
-    const members = types.getUnionOrIntersectionTypes(type);
-    return members.length > 0 && members.every((member) =>
-      member !== undefined && typeIsDefinitelyPrimitive(member, types));
+  if (kind === "KindAsExpression" || kind === "KindTypeAssertionExpression") {
+    const type = ast.typeNode(expression);
+    return type !== undefined && primitiveTypeNode(source, type, depth + 1);
   }
-  return types.isNever(type) ||
-    types.isVoidLike(type) ||
-    types.isNullish(type) ||
-    types.isStringLike(type) ||
-    types.isNumberLike(type) ||
-    types.isBooleanLike(type) ||
-    types.isBigIntLike(type);
+  if (kind === "KindConditionalExpression") {
+    const conditional = ast.as.AsConditionalExpression(expression);
+    return conditional?.WhenTrue !== undefined && conditional.WhenFalse !== undefined &&
+      primitiveExpression(source, conditional.WhenTrue, depth + 1) && primitiveExpression(source, conditional.WhenFalse, depth + 1);
+  }
+  if (kind === "KindBinaryExpression") {
+    const operator = ast.operatorKindName(expression) ?? "";
+    const binary = ast.as.AsBinaryExpression(expression);
+    if (primitiveResultOperators.has(operator)) return true;
+    if (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken" || operator === "KindQuestionQuestionToken") {
+      return binary?.Left !== undefined && binary.Right !== undefined &&
+        primitiveExpression(source, binary.Left, depth + 1) && primitiveExpression(source, binary.Right, depth + 1);
+    }
+    return (operator === "KindEqualsToken" || operator === "KindCommaToken") && binary?.Right !== undefined &&
+      primitiveExpression(source, binary.Right, depth + 1);
+  }
+  if (kind === "KindIdentifier" || kind === "KindPropertyAccessExpression") {
+    const reference = source.sourceReferenceFor(expression);
+    if (reference === undefined) return kind === "KindIdentifier" && ast.text(expression) === "undefined";
+    return primitiveDeclaration(source, reference.declaration, depth + 1);
+  }
+  return false;
+}
+
+function primitiveDeclaration(source: SourceExpressionEffectsInput, declaration: Node, depth: number): boolean {
+  const { ast } = source;
+  const kind = ast.kindName(declaration);
+  if (kind === "KindEnumMember") return true;
+  const type = ast.typeNode(declaration);
+  if (type !== undefined) return primitiveTypeNode(source, type, depth);
+  if (kind !== "KindVariableDeclaration" && kind !== "KindParameter") return false;
+  const initializer = Node_Initializer(ast, declaration);
+  return initializer !== undefined && primitiveExpression(source, initializer, depth);
+}
+
+function primitiveTypeNode(source: SourceExpressionEffectsInput, type: Node, depth: number): boolean {
+  const { ast } = source;
+  if (depth > maximumPrimitiveDepth) return false;
+  const kind = ast.kindName(type);
+  if (primitiveKeywordTypes.has(kind)) return true;
+  if (kind === "KindParenthesizedType") {
+    const inner = ast.typeNode(type);
+    return inner !== undefined && primitiveTypeNode(source, inner, depth + 1);
+  }
+  if (kind === "KindUnionType") {
+    const members = ast.children(type);
+    return members.length > 0 && members.every(member => member !== undefined && primitiveTypeNode(source, member, depth + 1));
+  }
+  if (kind === "KindTypeReference") {
+    const declaration = source.sourceReferenceFor(type)?.declaration;
+    if (declaration === undefined) return false;
+    if (ast.kindName(declaration) === "KindEnumDeclaration") return true;
+    if (ast.kindName(declaration) !== "KindTypeAliasDeclaration" || (ast.typeParameters(declaration) ?? []).length > 0) return false;
+    const aliased = ast.typeNode(declaration);
+    return aliased !== undefined && primitiveTypeNode(source, aliased, depth + 1);
+  }
+  return false;
 }

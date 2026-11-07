@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceDeclarationOwnershipQuery, createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits }
-  from "../../packages/target-api/dist/public/analysis.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
 import { closureFixture, borrowed } from "./ownership-closure-fixture.mjs";
 
 const fixture = closureFixture();

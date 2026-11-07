@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 
 import { createTsonicPointerBackingQueries } from "./requirements.js";
 
@@ -17,7 +17,7 @@ function inspect(sourceText: string, options: { closed?: boolean; budget?: numbe
   const call = memoryCall(checked, "torawptr");
   const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
   assert.ok(operation?.operation === "to-raw");
-  const queries = createTsonicPointerBackingQueries(createTargetSourceProgram(checked), {
+  const queries = createTsonicPointerBackingQueries(createHostSourceProgramFixture(checked), {
     hasClosedCallers: () => options.closed ?? true,
     maximumValues: options.budget ?? 4096,
   });

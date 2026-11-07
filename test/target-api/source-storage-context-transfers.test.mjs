@@ -13,24 +13,12 @@ function fixture(limits = {}, callee = false) {
   const count = 64;
   const parameters = Array.from({ length: count }, () => ({}));
   const parameterNodes = new Set(parameters);
-  const parameterSymbols = parameters.map(() => ({}));
-  const parameterDeclarations = new Map(parameterSymbols.map((symbol, index) => [symbol, parameters[index]]));
   const candidate = {};
-  const signature = {};
-  const semantics = {
-    declarations: {
-      declarationSignature: declaration => declaration === candidate ? signature : undefined,
-      signatureParameters: selected => {
-        assert.equal(selected === signature, true, "the fixture's exact checked declaration signature");
-        return parameterSymbols;
-      },
-      primarySymbolDeclaration: symbol => parameterDeclarations.get(symbol),
-    },
-    operations: {
-      generator: declaration => {
-        assert.equal(declaration === candidate, true, "the fixture's exact synchronous callable");
-        return undefined;
-      },
+  // The navigation declared-parameter witness of the one candidate (Node-keyed, B3 §0.3).
+  const navigation = {
+    declaredParameters: declaration => {
+      assert.equal(declaration === candidate, true, "the fixture's exact checked callable context");
+      return parameters;
     },
   };
   const ports = parameters.map(node => subject(node, "input"));
@@ -49,11 +37,9 @@ function fixture(limits = {}, callee = false) {
   const selections = createSourceStorageContextApplications({ ast: {
     hasModifierKind: () => false,
     is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsNewExpression: () => false,
-      IsParameterDeclaration: node => parameterNodes.has(node) },
-  }, semantics: { forNode: declaration => {
-    assert.equal(declaration === candidate, true, "the fixture's exact checked callable context");
-    return semantics;
-  } } }, budget, {
+      IsParameterDeclaration: node => parameterNodes.has(node), IsFunctionDeclaration: () => false,
+      IsFunctionExpression: () => false, IsMethodDeclaration: () => false },
+  }, navigation }, budget, {
     subject,
     invocationInputs: (port, owner, invocation) => {
       assert.equal(owner === candidate, true, "exact selected candidate");

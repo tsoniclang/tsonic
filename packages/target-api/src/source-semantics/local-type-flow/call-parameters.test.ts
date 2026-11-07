@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import { sourceTypeDescriptorStructure } from "./terms.js";
 
 test("instantiated calls retain ambient parameter descriptors with the same solved native binders", () => {
@@ -30,7 +30,7 @@ test("instantiated calls retain ambient parameter descriptors with the same solv
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createSourceTypeFlowTestProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The original project file is required.");
   const pending: Node[] = [file];

@@ -1,13 +1,15 @@
 import { AsEnumMember } from "../source-navigation/checked-casts.js";
-import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
-import { analyzeSourceEnumNumericUses } from "./enum-numeric-uses.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex,
   SourceEnumConstantSelection, SourceEnumIntegerWidthSelection } from "./enum-model.js";
 
 type Constant =
-  | { readonly kind: "resolved"; readonly value: bigint | string; readonly bits: bigint }
+  // `float`: the JS (float64) evaluation of the same initializer, for numeric members. TypeScript and the JS runtime
+  // evaluate enum initializers in float64; the Host evaluates exactly and in float64 side by side, and admits a numeric
+  // member only when both agree (coherence below).
+  | { readonly kind: "resolved"; readonly value: bigint | string; readonly bits: bigint; readonly float?: number }
   | { readonly kind: "rejected"; readonly reason: string; readonly failure: "source" | "resource" };
 
 type Step =
@@ -22,16 +24,24 @@ interface EvaluationBudget {
 
 const maximumConstantBits = 1_048_576n;
 const maximumEvaluationWork = 67_108_864n;
-const resolved = (value: bigint | string): Constant => Object.freeze({ kind: "resolved", value,
-  bits: typeof value === "string" ? BigInt(value.length) * 16n : BigInt((value < 0n ? -value : value).toString(2).length) });
+const resolved = (value: bigint | string, float: number | undefined = typeof value === "bigint" ? Number(value) : undefined): Constant =>
+  Object.freeze({ kind: "resolved", value,
+    bits: typeof value === "string" ? BigInt(value.length) * 16n : BigInt((value < 0n ? -value : value).toString(2).length),
+    ...(float === undefined ? {} : { float }) });
 const rejected = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "source" });
 const resourceExhausted = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "resource" });
 
+/**
+ * The Host enum constant facts: the exact value of every enum member of the program (enum initializer evaluation from
+ * syntax and declarations), the integer width of each enum declaration, and the declaration-level admission issues
+ * (merged declarations). Checker-free (I3). The use-site admission issues (enum values used as numbers or strings) are
+ * Host-fact analyses over the value model: analyzeSourceEnumNumericUses (enum-numeric-uses.ts).
+ */
 export function analyzeSourceEnumConstants(
-  source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationSymbol" | "declarationUseSummary" | "sourceFiles" | "expressionResultDisposition">,
+  ast: AstReader,
+  sourceFiles: readonly SourceFile[],
+  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "mergedDeclarations" | "memberAccess">,
 ): SourceEnumConstantIndex {
-  const { ast } = source;
   const members: Node[] = [];
   const declarations: { readonly declaration: Node; readonly members: readonly Node[] }[] = [];
   type DeclarationGroup = {
@@ -42,8 +52,7 @@ export function analyzeSourceEnumConstants(
   const groupsByDeclaration = new WeakMap<Node, DeclarationGroup>();
   const previous = new WeakMap<Node, Node>();
   const membership = new WeakSet<Node>();
-  for (const file of source.sourceFiles) {
-    if (file === undefined) continue;
+  for (const file of sourceFiles) {
     const pending: Node[] = [file];
     while (pending.length !== 0) {
       const node = pending.pop()!;
@@ -62,10 +71,8 @@ export function analyzeSourceEnumConstants(
         declarations.push(declaration);
         let group = groupsByDeclaration.get(node);
         if (group === undefined) {
-          const symbol = navigation.declarationSymbol(node, file);
-          if (symbol === undefined) throw new Error("A checked enum declaration requires its actual declaration symbol.");
-          const checkedDeclarations = source.getSourceFileQueries(file).checker.getSymbolDeclarations(symbol)
-            .filter((selected): selected is Node => selected !== undefined && ast.is.IsEnumDeclaration(selected));
+          const checkedDeclarations = navigation.mergedDeclarations(node)
+            .filter(selected => ast.is.IsEnumDeclaration(selected));
           if (!checkedDeclarations.includes(node)) throw new Error("A checked enum symbol requires its actual declaration membership.");
           group = { checkedDeclarations: new Set(checkedDeclarations), declarations: [] };
           for (const selected of checkedDeclarations) {
@@ -84,7 +91,6 @@ export function analyzeSourceEnumConstants(
   }
 
   const completed = new WeakMap<Node, Constant>();
-  const checkedConstants = new WeakMap<Node, { readonly value: unknown }>();
   const selections = new WeakMap<Node, SourceEnumConstantSelection>();
   const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
   const disagreements = new WeakMap<Node, Constant>();
@@ -108,25 +114,25 @@ export function analyzeSourceEnumConstants(
   for (const member of members) evaluate(member);
   for (const declaration of declarations) {
     if (mergedDeclarations.has(declaration.declaration)) continue;
-    const checkedValues = new Map<number, { readonly member: Node; readonly exact: bigint }[]>();
+    const floatValues = new Map<number, { readonly member: Node; readonly exact: bigint }[]>();
     for (const member of declaration.members) {
       const value = completed.get(member)!;
       if (value.kind !== "resolved" || typeof value.value !== "bigint") continue;
-      const checked = checkedConstant(member);
-      if (typeof checked !== "number" || checked !== Number(value.value)) {
-        disagreements.set(member, rejected(enumDisagreement(member, value.value, checked)));
-      }
-      if (typeof checked !== "number") continue;
-      const prior = checkedValues.get(checked);
+      // The member is a JS number at runtime: the float64 evaluation of its initializer must be the float64 rounding
+      // of its exact value.
+      const float = floatOf(value);
+      if (float !== Number(value.value)) disagreements.set(member, rejected(enumDisagreement(member, value.value, float)));
+      const prior = floatValues.get(float);
       const entry = { member, exact: value.value };
-      if (prior === undefined) checkedValues.set(checked, [entry]);
+      if (prior === undefined) floatValues.set(float, [entry]);
       else prior.push(entry);
     }
-    for (const [checked, values] of checkedValues) {
+    // Distinct exact values that are one JS number at runtime cannot keep distinct native identities.
+    for (const [float, values] of floatValues) {
       if (values.every(value => value.exact === values[0]!.exact)) continue;
       const members = values.map(value => `${ast.text(ast.name(value.member))} (exact value ${value.exact})`).join(", ");
       for (const value of values) disagreements.set(value.member, rejected(
-        `Enum members ${members} have distinct exact values but share checker value ${checked}. Write distinct explicit values with distinct checker identities.`));
+        `Enum members ${members} have distinct exact values but share JS number value ${float}. Write distinct explicit values that are distinct JS numbers.`));
     }
   }
   for (const member of members) {
@@ -165,22 +171,11 @@ export function analyzeSourceEnumConstants(
   }
   const constants = Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
     integerWidth: (declaration: Node) => widths.get(declaration) });
-  issues.push(...analyzeSourceEnumNumericUses(source, navigation, constants));
   return Object.freeze({ ...constants, issues: Object.freeze(issues) });
 
-  function checkedConstant(member: Node): unknown {
-    const existing = checkedConstants.get(member);
-    if (existing !== undefined) return existing.value;
-    const file = ast.getSourceFile(member);
-    if (file === undefined) throw new Error("A checked enum member must belong to its source file.");
-    const value = source.getSourceFileQueries(file).typeShape.getConstantValue(member);
-    checkedConstants.set(member, { value });
-    return value;
-  }
-
-  function enumDisagreement(member: Node, exact: bigint, checked: unknown): string {
+  function enumDisagreement(member: Node, exact: bigint, float: number): string {
     const name = ast.name(member);
-    return `Enum member ${name === undefined ? "<unnamed>" : ast.text(name)} has exact value ${exact}, but its checker value is ${String(checked)}. Write the value explicitly with a coherent checker identity.`;
+    return `Enum member ${name === undefined ? "<unnamed>" : ast.text(name)} has exact value ${exact}, but its JS number value is ${String(float)}. Write the value explicitly so that both agree.`;
   }
 
   function evaluate(root: Node): Constant {
@@ -247,9 +242,7 @@ export function analyzeSourceEnumConstants(
     if (membership.has(node)) {
       const member = AsEnumMember(ast, node)!;
       if (member.Initializer !== undefined) {
-        const constant = checkedConstant(node);
-        return depends(node, [member.Initializer], values => typeof constant === "number" || typeof constant === "string"
-          ? values[0]! : rejected("The enum member is computed rather than a checked source constant."));
+        return depends(node, [member.Initializer], values => values[0]!);
       }
       const owner = ast.parent(node);
       const file = ast.getSourceFile(node);
@@ -259,7 +252,7 @@ export function analyzeSourceEnumConstants(
       const prior = previous.get(node);
       return prior === undefined ? resolved(0n) : depends(node, [prior], values => {
         const value = values[0]!;
-        return value.kind === "resolved" && typeof value.value === "bigint" ? resolved(value.value + 1n)
+        return value.kind === "resolved" && typeof value.value === "bigint" ? resolved(value.value + 1n, floatOf(value) + 1)
           : rejected("An implicit enum member requires a preceding exact integer constant.");
       }, values => ({ bits: constantBits(values[0]!) + 1n, work: constantBits(values[0]!) + 1n }));
     }
@@ -301,7 +294,9 @@ export function analyzeSourceEnumConstants(
       return depends(node, [operand], values => {
         const value = values[0]!;
         if (value.kind !== "resolved" || typeof value.value !== "bigint") return rejected("An enum numeric unary operator requires an exact integer operand.");
-        return resolved(operator === "KindPlusToken" ? value.value : operator === "KindMinusToken" ? -value.value : ~BigInt.asIntN(32, value.value));
+        const float = floatOf(value);
+        return operator === "KindPlusToken" ? resolved(value.value, float) : operator === "KindMinusToken" ? resolved(-value.value, -float)
+          : resolved(~BigInt.asIntN(32, value.value), ~float);
       }, values => ({ bits: operator === "KindTildeToken" ? 32n : constantBits(values[0]!),
         work: constantBits(values[0]!) + 32n }));
     }
@@ -312,12 +307,10 @@ export function analyzeSourceEnumConstants(
       return depends(node, [binary.Left, binary.Right], values => binaryConstant(operator, values[0]!, values[1]!),
         values => binaryAllocation(operator, values[0]!, values[1]!));
     }
-    const file = ast.getSourceFile(node);
-    if (file === undefined) return rejected("The enum constant reference is outside the checked source program.");
-    const checker = source.getSourceFileQueries(file).checker;
+    if (ast.getSourceFile(node) === undefined) return rejected("The enum constant reference is outside the checked source program.");
     const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration
-      : ast.is.IsPropertyAccessExpression(node) ? checker.getResolvedPropertyAccessInfo(node)?.selectedDeclaration
-        : ast.is.IsElementAccessExpression(node) ? checker.getResolvedElementAccessInfo(node)?.selectedDeclaration : undefined;
+      : ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)
+        ? navigation.memberAccess(node)?.declaration : undefined;
     if (declaration !== undefined && membership.has(declaration)) return depends(node, [declaration], values => values[0]!);
     if (declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.variableDeclarationKind(declaration) === "const") {
       const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
@@ -375,7 +368,26 @@ export function selectSourceEnumIntegerWidth(values: readonly (bigint | string)[
   return Object.freeze({ kind: "resolved", integerWidth });
 }
 
+function floatOf(constant: Extract<Constant, { kind: "resolved" }>): number {
+  return constant.float ?? Number(constant.value);
+}
+
+/** The exact result with the float64 result of the same JS operator attached (numeric results only). */
 function binaryConstant(operator: string | undefined, left: Constant, right: Constant): Constant {
+  const exact = exactBinaryConstant(operator, left, right);
+  if (exact.kind !== "resolved" || typeof exact.value !== "bigint" || left.kind !== "resolved" || right.kind !== "resolved") return exact;
+  const first = floatOf(left);
+  const second = floatOf(right);
+  const float = operator === "KindPlusToken" ? first + second : operator === "KindMinusToken" ? first - second
+    : operator === "KindAsteriskToken" ? first * second : operator === "KindSlashToken" ? first / second
+    : operator === "KindPercentToken" ? first % second : operator === "KindAsteriskAsteriskToken" ? first ** second
+    : operator === "KindBarToken" ? first | second : operator === "KindAmpersandToken" ? first & second
+    : operator === "KindCaretToken" ? first ^ second : operator === "KindLessThanLessThanToken" ? first << second
+    : operator === "KindGreaterThanGreaterThanToken" ? first >> second : first >>> second;
+  return resolved(exact.value, float);
+}
+
+function exactBinaryConstant(operator: string | undefined, left: Constant, right: Constant): Constant {
   if (left.kind === "rejected") return left;
   if (right.kind === "rejected") return right;
   if (operator === "KindPlusToken" && (typeof left.value === "string" || typeof right.value === "string")) return resolved(String(left.value) + String(right.value));

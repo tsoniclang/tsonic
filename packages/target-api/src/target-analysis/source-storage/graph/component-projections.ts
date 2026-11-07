@@ -1,24 +1,29 @@
-import type { AstReader, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "../../../source-semantics/index.js";
-import { sourceStorageComponentType, sourceStorageOriginalComponents } from "../model/components.js";
+import type { AstReader } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import {
+  sourceStorageComponentType, sourceStorageIsNeverType, sourceStorageOriginalComponents, sourceStorageTypeHasTypeVariables,
+  sourceStorageTypesEqual,
+} from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 
 export function sourceStorageProjectComponents(
   origin: readonly SourceStorageProjection[],
-  from: Type,
-  to: Type,
+  from: SourceTypeDescriptor,
+  to: SourceTypeDescriptor,
   remaining: readonly SourceStorageProjection[],
-  semantics: SourceFileSemantics,
+  source: Pick<SourceAnalysisProgram, "ast" | "facts">,
   ast: AstReader,
   budget: SourceStorageBudget,
   collect: (projection: readonly SourceStorageProjection[]) => void,
 ): void {
-  if (semantics.types.couldContainTypeVariables(to) && from === to) {
+  if (sourceStorageTypeHasTypeVariables(to, ast) && sourceStorageTypesEqual(from, to)) {
     collect([...origin, ...remaining]);
     return;
   }
-  let candidates: { readonly projection: readonly SourceStorageProjection[]; readonly from: Type; readonly to: Type }[] = [];
+  let candidates: { readonly projection: readonly SourceStorageProjection[]; readonly from: SourceTypeDescriptor;
+    readonly to: SourceTypeDescriptor }[] = [];
   let frontierRows = budget.createRows();
   let nextRows: ReturnType<SourceStorageBudget["createRows"]> | undefined;
   try {
@@ -29,16 +34,16 @@ export function sourceStorageProjectComponents(
       nextRows = budget.createRows();
       for (const candidate of candidates) {
         if (!budget.step()) return;
-        const target = sourceStorageComponentType(candidate.to, component, semantics, ast);
+        const target = sourceStorageComponentType(source, candidate.to, component);
         if (target === undefined) continue;
-        if (semantics.types.isNever(candidate.from)) {
+        if (sourceStorageIsNeverType(candidate.from)) {
           if (!nextRows.add(1)) return;
           next.push({ projection: candidate.projection, from: candidate.from, to: target });
           continue;
         }
-        for (const original of sourceStorageOriginalComponents(candidate.from, candidate.to, component, semantics)) {
+        for (const original of sourceStorageOriginalComponents(source, candidate.from, candidate.to, component)) {
           if (!budget.step()) return;
-          const sourceType = sourceStorageComponentType(candidate.from, original, semantics, ast);
+          const sourceType = sourceStorageComponentType(source, candidate.from, original);
           if (sourceType === undefined) continue;
           if (!nextRows.add(1)) return;
           next.push({ projection: [...candidate.projection, original], from: sourceType, to: target });

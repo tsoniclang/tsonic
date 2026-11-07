@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageDomainPublications } from "../../packages/target-api/dist/target-analysis/source-storage/graph/domain-publications.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -16,7 +17,7 @@ interface ReadonlyArray<Value> { readonly [index: number]: Value; readonly lengt
     "src/index.ts": `export {}; ${body}`,
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const variable = name => namedVariable(source.ast, file, name);
@@ -84,9 +85,11 @@ test("publication admission preserves union, intersection and nested argument co
   const bindings = Object.freeze({});
   const publications = createSourceStorageDomainPublications(budget, bindings);
   const subject = current.subject("union");
-  const types = ["union", "intersection", "crossed", "aligned"].map(name =>
-    current.source.semantics.forFile(current.file).declarations.declaredValueType(current.variable(name)));
-  assert.equal(types.every(type => type !== undefined) && new Set(types).size === 4, true, "four exact checked types");
+  const types = ["union", "intersection", "crossed", "aligned"].map(name => {
+    const outcome = current.source.facts.values.type(current.variable(name));
+    return outcome.kind === "refused" ? undefined : outcome.type;
+  });
+  assert.equal(types.every(type => type !== undefined) && new Set(types).size === 4, true, "four exact Host types");
   const exposure = current.variable("union");
   const receiver = Object.freeze({ subject, view: subject, component: { kind: "member", declaration: exposure }, bindings, type: types[0] });
   for (const type of types) {

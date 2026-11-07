@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 import { fixture } from "./source-storage-recursive-projections-fixtures.mjs";
@@ -88,9 +89,8 @@ test("an escaping private callable retains future opaque inputs independently of
   const parameter = current.source.ast.parameters(owner)[0];
   const storage = createSourceStorageQuery(current.source, [current.file], undefined, {
     call(node, selected) {
-      const semantics = current.source.semantics.forNode(node);
-      return semantics.declarations.signatureDeclaration(selected.selectedSignature) === declaration
-        ? { resultAlias: selected.sourceArguments[0].expression } : undefined;
+      return selected.signature === declaration
+        ? { resultAlias: current.source.navigation.call(node).arguments[0] } : undefined;
     },
   });
   const subject = storage.subjectFor(parameter);

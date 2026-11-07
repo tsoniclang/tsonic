@@ -1,6 +1,13 @@
+import { createJsSourceApiFacts } from "../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { buildHostSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+// A Host program with its checker views and host-input adapter (the HostSourceProgramFixture shape), JS profile on.
+function hostProgramFixture(checked) {
+    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    return Object.freeze(Object.assign(Object.create(null), built.program, { semantics: built.semantics, input: built.input }));
+}
+
 export function fixture(sourceText) {
     const checked = createCompilerSessionFromFiles({
         currentDirectory: "/src",
@@ -12,7 +19,7 @@ export function fixture(sourceText) {
     const file = checked.getSourceFile("/src/index.ts");
     if (file === undefined)
         throw new Error("The checked fixture source file is required.");
-    const source = createTargetSourceProgram(checked);
+    const source = hostProgramFixture(checked);
     const queries = checked.getSourceFileQueries(file);
     const literals = [];
     const declarations = [];

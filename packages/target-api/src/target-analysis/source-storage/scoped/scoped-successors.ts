@@ -1,6 +1,6 @@
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
@@ -13,7 +13,9 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey,
+  sourceStorageTypeHasTypeVariables } from "../model/components.js";
+import { sourceStorageCompletionFallsThrough } from "../transport/host-reads.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors } from "./scoped-member-successors.js";
@@ -27,7 +29,7 @@ import { createSourceStorageApplicationSuccessors } from "./application-successo
 import { completeSourceStorageChildReduction, sourceStorageChildDependencies,
   type SourceStorageChildContext, type SourceStoragePendingReduction } from "./child-reduction.js";
 
-export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopedSuccessors(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   equations: ReturnType<typeof createSourceStorageEquations>,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
@@ -36,7 +38,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined,
   initialize: (value: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageTerm | undefined,
   outside: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageReference | undefined = () => undefined) {
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined });
   const absent: Extract<SourceStorageReduction, { readonly kind: "replace" }> = Object.freeze({
     kind: "replace", terms: Object.freeze([empty]),
@@ -48,8 +50,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     createSourceStorageExecutionContext(source, budget, transport, scopes, reachability, readRelation);
   const { member, symbolicProjection } = createSourceStorageMemberSuccessors({ source, budget, transport, scopes, reachability,
     birth, readRelation, readEffects, initialize, leaf, outside, creatorScope, passiveMember, regionsFor, application, classLineages,
-    pointerWrites: (destination, store, projection, invocation, scope) =>
-      pointerValues.writes(destination, store, projection, invocation, scope),
+    pointerWrites: (destination, store, projection, scope) => pointerValues.writes(destination, store, projection, scope),
     materializeChild: (child, select, independentCallee) => materializeChild(child, select, independentCallee),
     replaceChild: (child, replace, childContext) => replaceChild(child, replace, childContext) });
   const materializeChild = (child: SourceStorageTerm,
@@ -168,12 +169,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         absence: sourceStorageReference(term.subject, term.scope) })] };
     if (term.subject.kind === "value" && ast.is.IsElementAccessExpression(node) &&
       ast.as.AsElementAccessExpression(node)?.QuestionDotToken !== undefined) {
-      const context = semantics.forNode(node);
-      const selected = context.operations.elementAccess(node);
-      const component = selected === undefined ? undefined
-        : sourceIndexedStorageProjection(selected.receiver.type, selected.argument.expression, context, ast);
+      const selected = navigation.memberAccess(node);
+      const receiverType = selected === undefined ? undefined : sourceAnalysisValueType(source, selected.receiver);
+      const component = receiverType === undefined ? undefined
+        : sourceIndexedStorageProjection(source, receiverType, ast.as.AsElementAccessExpression(node)?.ArgumentExpression);
       if (component !== undefined) {
-        const receiver = transport.subjectFor(selected?.receiver.expression);
+        const receiver = transport.subjectFor(selected?.receiver);
         const projection = receiver === undefined ? undefined
           : transport.subject(receiver.node, receiver.kind, [component, ...term.subject.projection]);
         if (receiver === undefined || projection === undefined) return undefined;
@@ -217,7 +218,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       (ast.is.IsVariableDeclaration(node) || ast.is.IsIdentifier(node) || ast.is.IsBindingElement(node))) {
       const root = transport.subject(node, term.subject.kind);
       const declared = root === undefined ? undefined : sourceStorageSubjectType(source, root);
-      if (root !== undefined && declared !== undefined && semantics.forNode(node).types.couldContainTypeVariables(declared)) {
+      if (root !== undefined && declared !== undefined && sourceStorageTypeHasTypeVariables(declared, ast)) {
         const inputs = transport.incomingFor(term.subject);
         if (inputs.size !== 0) {
           const terms: SourceStorageTerm[] = [];
@@ -238,7 +239,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (from === undefined || to === undefined) return undefined;
         const selected: SourceStorageTerm[] = [];
         sourceStorageProjectComponents(value.subject.projection, from, to, term.subject.projection,
-          semantics.forNode(value.subject.node), ast, budget, projection => {
+          source, ast, budget, projection => {
             const projected = transport.subject(value.subject.node, value.subject.kind, projection);
             if (projected !== undefined) selected.push(sourceStorageReference(projected, value.scope));
           });
@@ -255,11 +256,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection.slice(memberIndex + 1), mode: "value" })] };
     }
     if (term.subject.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))) {
-      const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
+      const selected = navigation.memberAccess(node);
       const declarations = sourceStorageAccessDeclarations(source, node, "read");
       if (selected !== undefined && (declarations !== undefined && declarations.length !== 0 ||
         sourceStorageDynamicMemberKey(source, node) !== undefined)) {
-        const receiver = transport.subjectFor(selected.receiver.expression);
+        const receiver = transport.subjectFor(selected.receiver);
         if (receiver === undefined) return undefined;
         return { kind: "replace", terms: [Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node }), scope: term.scope,
           receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection, mode: "value" })] };
@@ -328,7 +329,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (store.reason !== undefined) continue;
         if (store.destination === "pointer") {
           const written = pointerValues.writes(leaf(term.subject,
-            creatorScope(term.subject.node, term.scope)), store, [], term.subject.node, term.scope);
+            creatorScope(term.subject.node, term.scope)), store, [], term.scope);
           if (written === undefined) return undefined;
           terms.push(...written); continue;
         }
@@ -397,9 +398,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return !selectedBody;
     }).map(parent => sourceStorageReference(parent, term.scope));
     if (term.subject.kind === "return" && ast.body(node) !== undefined && !ast.is.IsConstructorDeclaration(node)) {
-      const completion = semantics.forNode(node).operations.callableCompletion(node);
-      if (completion === undefined || completion.declaration !== node) return undefined;
-      if (completion.canFallThrough) terms.push(Object.freeze({ kind: "empty",
+      const completion = source.facts.selections.completion(node);
+      if (completion === undefined) return undefined;
+      if (sourceStorageCompletionFallsThrough(completion)) terms.push(Object.freeze({ kind: "empty",
         absence: sourceStorageReference(term.subject, term.scope) }));
     }
     if (ambient || sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))

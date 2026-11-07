@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, createSourceArrayDensityQuery } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, createSourceArrayDensityQuery } from "../../packages/target-api/dist/public/host.js";
 import { jsArrayMemberEffect } from "../../packages/js-source-profile/dist/index.js";
 
 test("array effect declarations require exact owners and own member rows", () => {
@@ -104,7 +105,7 @@ function inspect(text, closed = false, omitIdentity = false, files = {}) {
   }).checkSource();
   assert.equal(formatDiagnostics(checked.diagnostics), "");
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const { ast } = source;
@@ -133,8 +134,7 @@ function inspect(text, closed = false, omitIdentity = false, files = {}) {
   const results = [];
   const visit = node => {
     if (ast.is.IsCallExpression(node)) {
-      const call = source.semantics.forNode(node).operations.call(node);
-      const signature = call === undefined ? undefined : source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+      const signature = source.navigation.call(node)?.signature;
       const identity = identities.get(signature);
       if (identity?.ownerName === "ArrayConstructor" && identity.memberName === "from") {
         results.push(query.array(ast.arguments(node)[0]));

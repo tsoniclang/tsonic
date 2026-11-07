@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
@@ -15,11 +15,11 @@ import { sourceFlowStatement } from "./statements.js";
 
 const sourceControlFlowDomains = new WeakMap<SourceControlFlowSelectedDomain, {
   readonly domain: SourceControlFlowSelectedDomain;
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly members: ReadonlySet<Node>;
 }>();
 
-export function createSourceControlFlowDomain(source: TargetSourceProgram, nodes: readonly Node[]):
+export function createSourceControlFlowDomain(source: SourceAnalysisProgram, nodes: readonly Node[]):
   | { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain }
   | SourceFlowUnresolved {
   const fail = (reason: string, node?: Node): SourceFlowUnresolved => Object.freeze({ kind: "unresolved", reason, source: node });
@@ -56,7 +56,7 @@ interface PatternContinuation {
   entry: number | undefined;
 }
 
-export function createSourceDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
+export function createSourceDeclarationControlFlow(source: SourceAnalysisProgram, declaration: Node,
   options: SourceDeclarationControlFlowOptions): SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
   try {
     const { ast } = source;
@@ -174,7 +174,7 @@ export function createSourceDeclarationControlFlow(source: TargetSourceProgram, 
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
       const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      const receiver = implicit || propertyRoot || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+      const receiver = implicit || propertyRoot || ast.is.IsSourceFile(declaration) ? undefined : sourceFlowThisParameter(ast, declaration);
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
         if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
@@ -190,4 +190,11 @@ export function createSourceDeclarationControlFlow(source: TargetSourceProgram, 
     return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source,
       ...(error.resource === undefined ? {} : { resource: error.resource }) });
   }
+}
+
+/** The explicit `this` parameter declaration of a callable (authored syntax: a first parameter named `this`). */
+function sourceFlowThisParameter(ast: SourceAnalysisProgram["ast"], declaration: Node): Node | undefined {
+  const first = ast.parameters(declaration)[0];
+  const name = first === undefined ? undefined : ast.name(first);
+  return first !== undefined && name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "this" ? first : undefined;
 }

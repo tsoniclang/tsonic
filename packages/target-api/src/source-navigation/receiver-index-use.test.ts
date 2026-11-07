@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 
 test("using a receiver field as an index does not transport the receiver", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
@@ -17,7 +17,7 @@ test("using a receiver field as an index does not transport the receiver", () =>
     function consume(value: Cursor): void { void value; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const occurrences: { readonly owner: string; readonly node: Node }[] = [];
   const visit = (node: Node, owner = ""): void => {
     const next = source.ast.is.IsMethodDeclaration(node) ? source.ast.text(source.ast.name(node)) : owner;

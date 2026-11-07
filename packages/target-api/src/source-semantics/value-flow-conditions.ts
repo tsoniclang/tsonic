@@ -1,4 +1,4 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
@@ -49,49 +49,6 @@ export function selectSourceNativeGuardResult<Member, Predicate>(
   return undefined;
 }
 
-export function selectSourceGuardedTypeMembers<Predicate>(
-  context: SourceValueFlowQueryContext,
-  reference: Node,
-  sourceType: Type,
-  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
-  testType: (type: Type, predicate: Predicate) => boolean | undefined,
-): readonly Type[] | undefined {
-  const types = context.semanticsFor(reference).types;
-  if (!types.isUnion(sourceType)) return undefined;
-  const members = types.unionOrIntersectionTypes(sourceType);
-  let cyclic = false;
-  const test = (type: Type, predicate: Predicate): boolean | undefined => {
-    const active = new Set<Type>();
-    const results: (boolean | undefined)[] = [];
-    const pending: { readonly type: Type; readonly children?: number }[] = [{ type }];
-    while (pending.length > 0) {
-      const current = pending.pop()!;
-      if (current.children !== undefined) {
-        const parts = results.splice(results.length - current.children);
-        active.delete(current.type);
-        results.push(types.isIntersection(current.type)
-          ? parts.includes(false) ? false : parts.every(value => value === true) ? true : undefined
-          : parts.every(value => value === true) ? true : parts.every(value => value === false) ? false : undefined);
-      } else if (active.has(current.type)) {
-        cyclic = true;
-        return undefined;
-      } else if (!types.isUnion(current.type) && !types.isIntersection(current.type)) {
-        results.push(testType(current.type, predicate));
-      } else {
-        const parts = types.unionOrIntersectionTypes(current.type);
-        if (parts.length === 0) return undefined;
-        active.add(current.type);
-        pending.push({ type: current.type, children: parts.length });
-        for (const part of parts) pending.push({ type: part });
-      }
-    }
-    return results.length === 1 ? results[0] : undefined;
-  };
-  const selected = selectSourceGuardedValueMembers(context, reference, members, selectGuard,
-    (member, predicate) => test(member, predicate));
-  return cyclic ? undefined : selected;
-}
-
 export function selectSourceGuardedValueMembers<Member, Predicate>(
   context: SourceValueFlowQueryContext,
   reference: Node,
@@ -110,7 +67,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   const enter = createSourceSyntaxDomain(context.ast, reference);
   if (sourceBindingHasMutableExposure(context, summary, enter)) return undefined;
-  const flow = context.semanticsFor(reference).operations.flowConditions(reference);
+  const flow = context.flowConditions(reference);
   if (flow === undefined || flow.reference !== reference) return undefined;
   let selected = members;
   let consulted = false;
@@ -176,7 +133,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   for (const condition of flow.conditions) {
     if (!enter(condition.expression)) return undefined;
     if (condition.assignments.some(assignment =>
-      context.navigation.bindingWritesWithin(binding.symbol, assignment).length > 0)) continue;
+      context.navigation.bindingWritesWithin(binding.declaration, assignment).length > 0)) continue;
     if (capturedWrites && !sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter)) continue;
     const narrowed = selectCondition(condition.expression, condition.assumed, selected);
     if (invalid) return undefined;

@@ -1,5 +1,6 @@
-import type { AstReader, Node, ResolvedSourcePropertyAccessInfo, ResolvedSourceElementAccessInfo } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceNavigationQueryContext } from "./query-context.js";
+import type { SourceNavigationMemberAccess } from "./types.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { Node_Expression } from "./ast.js";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
@@ -7,8 +8,8 @@ import { failTargetCompilerResourceLimit } from "../artifacts.js";
 export interface SourceCallableValue {
   readonly expression: Node;
   readonly selectedDeclaration: Node;
-  readonly property?: ResolvedSourcePropertyAccessInfo;
-  readonly element?: ResolvedSourceElementAccessInfo;
+  /** The member selection of a property or element access value (host-input witness). */
+  readonly access?: SourceNavigationMemberAccess;
   readonly receiverDeclaration?: Node;
   readonly aliases: readonly Node[];
 }
@@ -110,29 +111,24 @@ export function createSourceCallableValueQuery(source: SourceNavigationQueryCont
         expression = sourceCallableValueExpression(ast, initializer, expressionOptions);
       }
       if (expression === undefined || !member(expression)) return undefined;
-      const operations = source.semantics.forNode(expression).operations;
-      const property = ast.is.IsPropertyAccessExpression(expression) ? operations.propertyAccess(expression) : undefined;
-      const element = ast.is.IsElementAccessExpression(expression) ? operations.elementAccess(expression) : undefined;
-      const access = property ?? element;
-      const declaration = access?.selectedDeclaration;
+      const access = navigation.memberAccess(expression);
+      const declaration = access?.declaration;
       if (access === undefined || access.optionalChain || declaration === undefined ||
         ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration) ||
         navigation.expressionValueFlow(expression).memberWritten) return undefined;
-      const receiver = resolve(access.receiver.expression, depth + 1);
+      const receiver = resolve(access.receiver, depth + 1);
       if (receiver === undefined || !receiverUnchanged(receiver.selectedDeclaration)) return undefined;
       const references = navigation.referencesToDeclaration(declaration);
       if (references.length > 131_072) failTargetCompilerResourceLimit("tsonic", "Callable member references", "references", 131_072, expression);
       for (const reference of references) {
         const parent = ast.parent(reference);
         const access = member(reference) ? reference : parent !== undefined && member(parent) ? parent : undefined;
-        const operations = access === undefined ? undefined : source.semantics.forNode(access).operations;
-        const selectedAccess = access === undefined ? undefined : ast.is.IsPropertyAccessExpression(access)
-          ? operations?.propertyAccess(access) : operations?.elementAccess(access);
+        const selectedAccess = access === undefined ? undefined : navigation.memberAccess(access);
         if (selectedAccess === undefined || selectedAccess.accessMode === "read") continue;
         return undefined;
       }
       return { expression, selectedDeclaration: declaration,
-        ...(property === undefined ? {} : { property }), ...(element === undefined ? {} : { element }),
+        access,
         receiverDeclaration: receiver.selectedDeclaration, aliases: Object.freeze([...aliases]) };
     };
     let selected: SourceCallableValue | undefined;

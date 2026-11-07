@@ -1,3 +1,4 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,7 +11,7 @@ test("expression-bodied arrow results retain exact return roles without reclassi
     function arithmetic(value: number) { return () => value + 1; }
     function stored(value: string) { return () => [value]; }
   ` });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, role, unclassified, returned] of [
     ["direct", "return", false, true], ["wrapped", "return", false, true],
@@ -31,15 +32,18 @@ import {
   finalizeTargetDiagnostics,
 } from "../../packages/host/dist/diagnostics.js";
 import {
-  createSourceProgramNavigation,
-  createTargetSourceProgram,
+  createSourceNavigationInput, createSourceProgramNavigation,
+  createHostSourceProgram,
   projectSourceNodeIdentity,
   sourceTypeSyntaxIsCompositional,
   sourceMayReadBeforeInitialization,
-} from "../../packages/target-api/dist/public/source.js";
+} from "../../packages/target-api/dist/public/host.js";
 import {
   sourcePrimitiveFactKey,
 } from "../../packages/tsts/dist/src/index.js";
+// The checker views (host-input, I3) are reachable only through the Host test fixture; Host answers are facts.
+import { createHostSourceProgramFixture } from "../../packages/target-api/dist/source-semantics/host-program-fixtures.js";
+import { getEffectiveSourceTypeArguments } from "../../packages/target-api/dist/host-input/navigation-checker.js";
 import {
   checkedSource,
   constructorReference,
@@ -63,7 +67,7 @@ test("field flow does not escape its receiver but returning and capturing the re
   ` });
   const ast = source.ast;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const summary = name => navigation.parameterUseSummary(ast.parameters(namedDeclaration(ast, file, name))[0]);
   assert.equal(summary("field").returned, false);
   assert.equal(summary("field").receiverUsed, true);
@@ -84,7 +88,7 @@ test("instance initializers retain captured bindings without capturing immediate
     function closure<Value>(value: Value) { return class { static read = () => value; }; }
     function mixed<Value>(value: Value) { return class { static eager = value; deferred = value; }; }
   ` });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const { ast, navigation } = source;
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, expected] of [["instance", true], ["declared", true], ["staticValue", false],
@@ -124,7 +128,7 @@ test("initialization proof follows deferred bodies and exact early invocation ro
     const ast = source.ast;
     const file = projectSourceFile(source, "src/index.ts");
     assert.equal(sourceMayReadBeforeInitialization(namedVariable(ast, file, "value"), ast,
-      createSourceProgramNavigation(source)), early, text);
+      createSourceProgramNavigation(createSourceNavigationInput(source))), early, text);
   }
 });
 
@@ -143,7 +147,7 @@ test("variable exports retain exact statement ownership without exporting locals
   ` });
   const ast = source.ast;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   for (const name of ["direct", "multiple", "listed", "defaulted"]) {
     assert.equal(navigation.declarationUseSummary(namedVariable(ast, file, name)).exported, true, name);
   }
@@ -225,6 +229,7 @@ test("source navigation resolves project references, shapes, constructors, and d
       "  constructor(value: number) { void value; }",
       "}",
       "export interface Shape { value: number; }",
+      "export const shaped: Shape = { value: 1 };",
       "export const derived = new Derived();",
       "export const optional = new OptionalConstructor();",
       "export const required = new RequiredConstructor(1);",
@@ -233,7 +238,7 @@ test("source navigation resolves project references, shapes, constructors, and d
   });
   const ast = source.ast;
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const baseClass = namedDeclaration(ast, sourceFile, "Base");
   const derivedClass = namedDeclaration(ast, sourceFile, "Derived");
   const baseRead = namedMember(ast, baseClass, "read");
@@ -261,11 +266,15 @@ test("source navigation resolves project references, shapes, constructors, and d
   assert.strictEqual(navigation.referenceFor(derivedBase)?.declaration, baseClass);
   assert.strictEqual(navigation.declarationFor(derivedReference), derivedClass);
   assert.equal(navigation.isProjectDeclaration(derivedClass), true);
-  assert.equal(navigation.isProjectShape(derivedReference), true);
-  assert.equal(navigation.isProjectShape(ast.name(shape)), true);
-  assert.equal(navigation.isProjectConstructibleObject(derivedReference), true);
-  assert.equal(navigation.isProjectConstructibleObject(optionalReference), true);
-  assert.equal(navigation.isProjectConstructibleObject(requiredReference), false);
+  // Project shape / constructibility are role-model facts over the Host value type of a value node (B3 D2).
+  const identity = createHostSourceProgram(source, { profile: createJsSourceApiFacts }).facts.navigation.identity;
+  const construction = (reference) => ast.parent(reference);
+  assert.equal(identity.isProjectShape(construction(derivedReference)), true);
+  assert.equal(identity.isProjectShape(namedVariable(ast, sourceFile, "shaped")), true);
+  assert.equal(shape !== undefined, true);
+  assert.equal(identity.isProjectConstructibleObject(construction(derivedReference)), true);
+  assert.equal(identity.isProjectConstructibleObject(construction(optionalReference)), true);
+  assert.equal(identity.isProjectConstructibleObject(construction(requiredReference)), false);
   assert.deepEqual(navigation.memberDispatch(baseRead), {
     overridesBase: false,
     hasDerivedOverride: true,
@@ -315,7 +324,7 @@ test("source navigation resolves exact class implementations for base and interf
   });
   const { ast } = source;
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const readable = namedDeclaration(ast, sourceFile, "Readable");
   const baseShape = namedDeclaration(ast, sourceFile, "BaseShape");
   const derivedShape = namedDeclaration(ast, sourceFile, "DerivedShape");
@@ -427,7 +436,7 @@ test("source navigation resolves overload signatures to one concrete callable bo
   });
   const { ast } = source;
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const functions = ast.statements(sourceFile).filter((statement) =>
     statement !== undefined && ast.is.IsFunctionDeclaration(statement));
   const formatter = namedDeclaration(ast, sourceFile, "Formatter");
@@ -460,7 +469,7 @@ test("source navigation retains exact checked arrow and function-expression impl
   });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   for (const predicate of [ast.is.IsArrowFunction, ast.is.IsFunctionExpression]) {
     const declaration = requiredNode(ast, file, predicate);
     const selected = navigation.callableImplementation(declaration);
@@ -472,7 +481,7 @@ test("source navigation retains exact checked arrow and function-expression impl
   }
 });
 
-test("target source semantics answer checked-source questions without exposing raw checker access", async () => {
+test("host-input checker views answer checked-source questions without exposing raw checker access", async () => {
   const checked = await checkedSource("target-source-semantics", {
     "src/index.ts": [
       "function identity<T>(value: T): T { return value; }",
@@ -480,7 +489,7 @@ test("target source semantics answer checked-source questions without exposing r
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const call = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsCallExpression(node));
@@ -499,6 +508,11 @@ test("target source semantics answer checked-source questions without exposing r
     "resolved",
   );
   assert.equal(first.types.isStringLike(first.types.expressionType(call)), true);
+  // The Host answer for the same call is the published value fact.
+  const published = source.facts.values.type(call);
+  assert.equal(published.kind !== "refused" && published.type.kind === "string", true);
+  assert.equal("semantics" in createHostSourceProgram(checked, { profile: createJsSourceApiFacts }), false,
+    "the Host program carries no checker service (I3)");
 });
 
 test("authored type fact subjects include exact imported semantic provenance", async () => {
@@ -509,7 +523,7 @@ test("authored type fact subjects include exact imported semantic provenance", a
       "",
     ].join("\n"),
   }, { sourceCore: true });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const typeReference = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsTypeReferenceNode(node) &&
@@ -534,7 +548,7 @@ test("target source semantics preserve selected signature return syntax", async 
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const call = requiredNode(source.ast, sourceFile, (node) =>
@@ -570,7 +584,7 @@ test("target source semantics expand exact selected symbols to their declaration
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const property = requiredNode(source.ast, sourceFile, (node) =>
@@ -608,7 +622,7 @@ test("target source semantics expose checker-owned declared value types", async 
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const mutable = namedVariable(source.ast, sourceFile, "mutable");
@@ -630,7 +644,7 @@ test("target source semantics expose checker-owned declared type identities", as
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const declaration = requiredNode(source.ast, sourceFile, (node) =>
@@ -655,7 +669,7 @@ test("target source semantics classify value uses against their exact declaratio
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const returnedValue = requiredNode(source.ast, sourceFile, (node) =>
@@ -706,7 +720,7 @@ test("source navigation separates type-only references from runtime callable use
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const format = namedDeclaration(source.ast, sourceFile, "format");
   const uses = source.navigation.declarationUses(format);
@@ -732,7 +746,7 @@ test("source navigation separates class-member mutation from binding writes", as
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const counter = namedDeclaration(source.ast, sourceFile, "Counter");
   const value = namedMember(source.ast, counter, "value");
@@ -759,7 +773,7 @@ test("source navigation exposes exact member receivers for declaration uses", as
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const counter = namedDeclaration(source.ast, sourceFile, "Counter");
   const increment = namedMember(source.ast, counter, "increment");
@@ -805,7 +819,7 @@ test("source expression effects stop at function boundaries", async () => {
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const arrow = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsArrowFunction(node));
@@ -846,7 +860,7 @@ test("source expression effects retain coercion, iteration, and computed-key beh
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const byOperator = (operator) => requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsBinaryExpression(node) &&
@@ -930,7 +944,7 @@ test("target source semantics retain authored, contextual, and flow-selected uni
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const declaration = namedDeclaration(source.ast, sourceFile, "maybeValue");
@@ -977,11 +991,11 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   assert.equal(semantics.types.isStringLike(semanticRefinement.types[0]), true);
   const contextualPayload = semantics.types.contextualValueSelection(payloadObject);
   assert.equal(contextualPayload.kind, "selected");
-  assert.equal(sourceTypeSymbolName(semantics, contextualPayload.component.selectedType), "Payload");
+  assert.equal(sourceTypeSymbolName(source.ast, semantics, contextualPayload.component.selectedType), "Payload");
   const contextualEither = semantics.types.contextualValueSelection(eitherObject);
   assert.equal(contextualEither.kind, "ambiguous");
   assert.deepEqual(
-    contextualEither.types.map((type) => sourceTypeSymbolName(semantics, type)),
+    contextualEither.types.map((type) => sourceTypeSymbolName(source.ast, semantics, type)),
     ["Left", "Right"],
   );
 });
@@ -1001,7 +1015,7 @@ export function inferred({ index } = { index: 4 }): number { return index; }
 export function authored({ index }: Counter = { index: 5 }): number { return index; }
 `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(file);
   const selections = new Map();
@@ -1027,7 +1041,7 @@ export function authored({ index }: Counter = { index: 5 }): number { return ind
   for (const text of ["{ index: 2 }", "{ index: 5 }"]) {
     const selection = selections.get(text);
     assert.equal(selection?.kind, "selected", text);
-    assert.equal(sourceTypeSymbolName(semantics, selection.component.selectedType), "Counter");
+    assert.equal(sourceTypeSymbolName(source.ast, semantics, selection.component.selectedType), "Counter");
   }
 });
 
@@ -1040,7 +1054,7 @@ export function text(value: Merged<string>): string { return value.value; }
 export function numeric(value: Merged<number>): number { return value.value; }
 `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(file);
   for (const [typeKind, predicate] of [
@@ -1051,7 +1065,7 @@ export function numeric(value: Merged<number>): number { return value.value; }
       source.ast.is.IsTypeReferenceNode(candidate) &&
       source.ast.kindName(source.ast.typeArguments(candidate)[0]) === typeKind);
     const type = semantics.types.authoredType(node);
-    const arguments_ = semantics.types.effectiveTypeArguments(type);
+    const arguments_ = getEffectiveSourceTypeArguments(source.ast, checked.getSourceFileQueries(file), type);
     assert.equal(arguments_?.length, 1);
     assert.equal(predicate(arguments_[0]), true);
     assert.equal(Object.isFrozen(arguments_), true);
@@ -1069,7 +1083,7 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const boxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
@@ -1077,7 +1091,7 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
     source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "Box" &&
     source.ast.kindName(source.ast.typeArguments(node)[0]) === "KindStringKeyword");
   const boxType = semantics.types.authoredType(boxTypeNode);
-  const arguments_ = semantics.types.effectiveTypeArguments(boxType);
+  const arguments_ = getEffectiveSourceTypeArguments(source.ast, checked.getSourceFileQueries(sourceFile), boxType);
   const numberBoxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsTypeReferenceNode(node) &&
     source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "Box" &&
@@ -1120,7 +1134,7 @@ test("effective type arguments follow the instantiated generic target through a 
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(sourceFile);
   const aliasReference = requiredNode(source.ast, sourceFile, (node) =>
@@ -1128,10 +1142,10 @@ test("effective type arguments follow the instantiated generic target through a 
     source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) ===
       "TextBox");
   const aliasType = semantics.types.authoredType(aliasReference);
-  const arguments_ = semantics.types.effectiveTypeArguments(aliasType);
+  const arguments_ = getEffectiveSourceTypeArguments(source.ast, checked.getSourceFileQueries(sourceFile), aliasType);
 
-  assert.equal(semantics.declarations.symbolName(semantics.declarations.typeAliasSymbol(aliasType)), "TextBox");
-  assert.equal(semantics.declarations.symbolName(semantics.declarations.typeSymbol(aliasType)), "Box");
+  assert.equal(symbolDeclarationName(source.ast, semantics, semantics.declarations.typeAliasSymbol(aliasType)), "TextBox");
+  assert.equal(symbolDeclarationName(source.ast, semantics, semantics.declarations.typeSymbol(aliasType)), "Box");
   assert.equal(arguments_?.length, 1);
   assert.equal(semantics.types.isStringLike(arguments_?.[0]), true);
 });
@@ -1151,7 +1165,7 @@ const text = make("text");
 const numeric = make(8);
 `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = projectSourceFile(source, "src/index.ts");
   const semantics = source.semantics.forFile(file);
   const outer = source.ast.typeParameters(namedDeclaration(source.ast, file, "make"))[0];
@@ -1164,7 +1178,7 @@ const numeric = make(8);
     assert.deepEqual(bindings?.map(binding => binding.scope), ["outer", "local"]);
     assert.equal(semantics.types.isStringLike(bindings[0].argumentType), isText);
     assert.equal(semantics.types.isNumberLike(bindings[1].argumentType), true);
-    assert.deepEqual(semantics.types.effectiveTypeArguments(type), [bindings[1].argumentType]);
+    assert.deepEqual(getEffectiveSourceTypeArguments(source.ast, checked.getSourceFileQueries(file), type), [bindings[1].argumentType]);
     assert.equal(Object.isFrozen(bindings), true);
     assert.equal(bindings.every(Object.isFrozen), true);
   }
@@ -1182,7 +1196,7 @@ import type { Stored } from "./types.js";
 export type Value = Stored<{ count: number }>;
 `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = projectSourceFile(source, "src/index.ts");
   const definitionFile = projectSourceFile(source, "src/types.ts");
   const semantics = source.semantics.forFile(file);
@@ -1216,7 +1230,7 @@ import type { Storage as Selected } from "./storage.js";
 export function read<T>(value: Selected<T>): Selected<T> { return value; }
 `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = projectSourceFile(source, "src/index.ts");
   const definitions = projectSourceFile(source, "src/storage.ts");
   const declaration = namedDeclaration(source.ast, file, "read");
@@ -1295,10 +1309,14 @@ test("host finalizes target source-node diagnostics through the shared AST", asy
   assert.equal(diagnostics[0].sourceSpan?.fileName.endsWith("src/index.ts"), true);
 });
 
-function sourceTypeSymbolName(semantics, type) {
+function sourceTypeSymbolName(ast, semantics, type) {
   const symbol = semantics.declarations.typeAliasSymbol(type) ??
     semantics.declarations.typeSymbol(type);
-  return symbol === undefined
-    ? undefined
-    : semantics.declarations.symbolName(symbol);
+  return symbolDeclarationName(ast, semantics, symbol);
+}
+
+// A checker symbol named by its first declaration (the views carry no symbol-name query).
+function symbolDeclarationName(ast, semantics, symbol) {
+  const declaration = symbol === undefined ? undefined : semantics.declarations.symbolDeclarations(symbol)[0];
+  return declaration === undefined ? undefined : ast.text(ast.name(declaration));
 }

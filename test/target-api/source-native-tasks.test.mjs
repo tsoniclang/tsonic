@@ -1,17 +1,26 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/host.js";
+import { isSourceCallableSignatureDeclaration } from "../../packages/target-api/dist/source-navigation/callable-boundaries.js";
+
+// The Host component of a native scope declaration: its callable result, else its value type (facts.values).
+function declarationComponent(source, declaration) {
+  const outcome = isSourceCallableSignatureDeclaration(source.ast, declaration)
+    ? source.facts.values.callableReturn(declaration) : source.facts.values.type(declaration);
+  return outcome.kind === "refused" ? undefined : outcome.type;
+}
 import { createSourceStorageQuery,
-  defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+  defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { analyzeSourceDeclarationNativeTaskGraph, createSourceDeclarationOwnershipValues,
-  createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "../../packages/target-api/dist/public/analysis.js";
+  createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 
 function fixture(body) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const nodes = source.navigation.nodesForFiles([file]);
@@ -37,12 +46,10 @@ function fixture(body) {
             cause: { kind: "required-fact" } };
         if (use === undefined) return { kind: "unresolved", at: declaration,
           reason: "The selected declaration has no completed native scope requirement.", cause: { kind: "required-fact" } };
-        const semantics = source.semantics.forNode(declaration);
-        const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
-          semantics.declarations.declaredValueType(declaration);
-        assert.equal(selectedType !== undefined, true, "the native scope fact has its exact checked declaration component");
+        const type = declarationComponent(source, declaration);
+        assert.equal(type !== undefined, true, "the native scope fact has its exact Host declaration component");
         return { kind: use.capture ? "capture" : use.parameter ? "parameter" : "none",
-          contract: { kind: "declaration", declaration, component: { selectedType } } };
+          contract: { kind: "declaration", declaration, component: { type } } };
       },
     });
   };
@@ -59,12 +66,10 @@ function declaredTasks(current, required, changes = {}) {
     spawns: nodes.filter(node => source.ast.is.IsVoidExpression(node))
       .map(node => ({ node, operand: Node_Expression(source.ast, node) })),
     scopeFor(declaration) {
-      const semantics = source.semantics.forNode(declaration);
-      const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
-        semantics.declarations.declaredValueType(declaration);
-      assert.equal(selectedType !== undefined, true, "the declared native scope uses a real checked component");
+      const type = declarationComponent(source, declaration);
+      assert.equal(type !== undefined, true, "the declared native scope uses a real Host component");
       return { kind: required.has(declaration) ? "parameter" : "none",
-        contract: { kind: "declaration", declaration, component: { selectedType } } };
+        contract: { kind: "declaration", declaration, component: { type } } };
     }, ...changes });
 }
 
@@ -110,10 +115,9 @@ for (const scope of ["capture", "none"]) {
   test(`declaration-native task demand cannot invent a parameter from a ${scope} contract`, () => {
     const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work();");
     const selected = declaredTasks(current, new Set(), { scopeFor(declaration) {
-      const semantics = current.source.semantics.forNode(declaration);
-      const selectedType = semantics.types.declarationSignatureInfo(declaration)?.returnType;
-      assert.equal(selectedType !== undefined, true, "the real selected native declaration result");
-      return { kind: scope, contract: { kind: "declaration", declaration, component: { selectedType } } };
+      const type = declarationComponent(current.source, declaration);
+      assert.equal(type !== undefined, true, "the real selected native declaration result");
+      return { kind: scope, contract: { kind: "declaration", declaration, component: { type } } };
     } });
     assert.equal(selected.kind === "unresolved" && selected.issues.some(issue => issue.kind === "scope-owner"), true,
       "missing declared scope ownership cannot become a hidden signature parameter");
@@ -125,10 +129,10 @@ test("declaration-native task scope rejects an unrelated checked component", () 
   const current = fixture("declare function child(): Promise<void>; function work(): void { void child(); } work(); const unrelated = true;");
   const literal = current.nodes.find(node => current.source.ast.kindName(node) === "KindTrueKeyword");
   assert.equal(literal !== undefined, true, "the wrong component has a real checked source");
-  const selectedType = current.source.semantics.forNode(literal).types.expressionType(literal);
-  assert.equal(selectedType !== undefined, true, "the wrong native scope component is checked but unrelated");
+  const wrong = current.source.facts.values.type(literal);
+  assert.equal(wrong.kind === "refused", false, "the wrong native scope component is a Host type but unrelated");
   const selected = declaredTasks(current, new Set(), { scopeFor: declaration => ({ kind: "parameter",
-    contract: { kind: "declaration", declaration, component: { selectedType } } }) });
+    contract: { kind: "declaration", declaration, component: { type: wrong.type } } }) });
   assert.equal(selected.kind === "unresolved" && selected.cause?.kind === "required-fact", true,
     "matching declaration spelling cannot replace its actual checked return component");
   assert.equal("graph" in selected, false, "incompatible component evidence is not a partial success");
@@ -292,10 +296,9 @@ test("a supported native task owner still requires its external iterator's compl
   const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.source.ast.is.IsPropertyAccessExpression(Node_Expression(current.source.ast, node)));
   assert.equal(call !== undefined, true, "the original external iterator call is checked");
-  const semantics = current.source.semantics.forNode(call);
-  const operation = semantics.operations.call(call);
-  assert.equal(operation?.sourceSelectedSignatureKind === "resolved", true, "the external call selects its real signature");
-  const declaration = semantics.declarations.signatureDeclaration(operation.selectedSignature);
+  const operation = current.source.navigation.call(call);
+  assert.equal(operation?.selection === "resolved", true, "the external call selects its real signature");
+  const declaration = operation.signature;
   assert.equal(declaration !== undefined && current.source.ast.getSourceFile(declaration) !== current.file, true,
     "the original iterator declaration is external, not a manufactured source owner");
   const selected = current.select();

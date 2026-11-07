@@ -1,38 +1,18 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile, TypeCheckerQueries } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { getStaticModuleReference } from "../module-reference.js";
 import { sourceFileIdentity } from "./identity.js";
 import type { SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectModuleSpecifierResolution } from "./types.js";
-import { aliasedSymbol, primaryDeclaration } from "./syntax.js";
 import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 
+/** The module's exports with a declaration in a source (non-declaration) file, sorted by name, file and position. */
 export function sourceProjectModuleExports(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "moduleExports">,
   sourceFile: SourceFile,
 ): readonly SourceProjectModuleExport[] {
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
-  if (moduleSymbol === undefined) {
-    return Object.freeze([]);
-  }
-  const moduleExports: SourceProjectModuleExport[] = [];
-  for (const exportedSymbol of checker.getExportsOfModule(moduleSymbol)) {
-    if (exportedSymbol === undefined) {
-      continue;
-    }
-    const symbol = aliasedSymbol(source.ast, checker, exportedSymbol) ?? exportedSymbol;
-    const declaration = primaryDeclaration(checker, symbol);
-    const declarationSourceFile = source.ast.getSourceFile(declaration);
-    if (declaration === undefined || declarationSourceFile === undefined ||
-      declarationSourceFile.IsDeclarationFile) {
-      continue;
-    }
-    moduleExports.push(Object.freeze({
-      exportName: checker.getSymbolName(exportedSymbol),
-      symbol,
-      declaration,
-      sourceFile: declarationSourceFile,
-    }));
-  }
+  const moduleExports = source.moduleExports(sourceFile)
+    .filter(entry => !entry.sourceFile.IsDeclarationFile)
+    .map(entry => Object.freeze({ exportName: entry.exportName, declaration: entry.declaration, sourceFile: entry.sourceFile }));
   moduleExports.sort((left, right) =>
     left.exportName.localeCompare(right.exportName, "en") ||
     source.ast.getFileName(left.sourceFile).localeCompare(
@@ -45,7 +25,7 @@ export function sourceProjectModuleExports(
 }
 
 export function sourceProjectModuleDependencies(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "moduleSourceFile">,
   sourceFiles: ReadonlySet<string>,
   sourceFile: SourceFile,
 ): readonly SourceProjectModuleDependency[] {
@@ -58,13 +38,12 @@ export function sourceProjectModuleDependencies(
 }
 
 export function sourceProjectModuleReferences(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "moduleSourceFile">,
   sourceFiles: ReadonlySet<string>,
   sourceFile: SourceFile,
   runtimeOnly = false,
 ): readonly SourceProjectModuleDependency[] {
   const ast = source.ast;
-  const checker = source.getSourceFileQueries(sourceFile).checker;
   const dependencies: SourceProjectModuleDependency[] = [];
   const seen = new Set<string>();
   for (const statement of ast.statements(sourceFile)) {
@@ -80,7 +59,7 @@ export function sourceProjectModuleReferences(
     }
     const dependency = resolveProjectDependency(
       ast,
-      checker,
+      source.moduleSourceFile(reference.moduleSpecifier),
       reference.declaration,
       reference.moduleSpecifier,
       reference.kind,
@@ -101,7 +80,7 @@ export function sourceProjectModuleReferences(
 }
 
 export function sourceProjectModuleSpecifierResolution(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "moduleSourceFile">,
   sourceFiles: ReadonlySet<string>,
   moduleSpecifier: Node,
 ): SourceProjectModuleSpecifierResolution {
@@ -109,7 +88,7 @@ export function sourceProjectModuleSpecifierResolution(
   if (sourceFile === undefined) {
     return Object.freeze({ kind: "unresolved", moduleSpecifier });
   }
-  const resolvedSourceFile = source.resolveModuleSourceFile(moduleSpecifier);
+  const resolvedSourceFile = source.moduleSourceFile(moduleSpecifier);
   if (resolvedSourceFile === undefined) {
     return Object.freeze({ kind: "unresolved", moduleSpecifier });
   }
@@ -170,13 +149,12 @@ export function sourceFileHasTopLevelAwait(
 
 function resolveProjectDependency(
   ast: AstReader,
-  checker: TypeCheckerQueries,
+  resolvedSourceFile: SourceFile | undefined,
   declaration: Node,
   moduleSpecifier: Node,
   kind: "import" | "export",
   sourceFiles: ReadonlySet<string>,
 ): SourceProjectModuleDependency | undefined {
-  const resolvedSourceFile = resolvedModuleSourceFile(ast, checker, moduleSpecifier);
   return resolvedSourceFile !== undefined &&
     !resolvedSourceFile.IsDeclarationFile &&
     sourceFiles.has(sourceFileIdentity(ast, resolvedSourceFile) ?? "")
@@ -187,20 +165,4 @@ function resolveProjectDependency(
         kind,
       }
     : undefined;
-}
-
-function resolvedModuleSourceFile(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  moduleSpecifier: Node,
-): SourceFile | undefined {
-  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
-  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
-    moduleSymbol,
-    false,
-  ) ?? moduleSymbol;
-  return ast.getSourceFile(
-    primaryDeclaration(checker, resolvedModuleSymbol) ??
-      primaryDeclaration(checker, moduleSymbol),
-  );
 }

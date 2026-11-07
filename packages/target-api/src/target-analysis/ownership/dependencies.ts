@@ -1,5 +1,5 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationContinuationDependency, SourceDeclarationContinuationSelection,
   SourceDeclarationOwnershipBudget, SourceDeclarationPendingOperation } from "./model.js";
 import type { SourceDeclarationSuspensionQueries } from "./suspension.js";
@@ -7,7 +7,7 @@ import type { createSourceDeclarationRetentionQuery } from "./retention.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
 export function createSourceDeclarationContinuationDependencyQuery(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly suspensions: SourceDeclarationSuspensionQueries;
   readonly retention: ReturnType<typeof createSourceDeclarationRetentionQuery>;
@@ -19,7 +19,7 @@ export function createSourceDeclarationContinuationDependencyQuery(input: {
       if (!budget.step(reference)) return budget.failure()!;
       const file = source.ast.getSourceFile(reference);
       const ownerFile = source.ast.getSourceFile(candidate);
-      if (file === undefined || ownerFile === undefined || !source.semantics.includes(file) || !source.semantics.includes(ownerFile))
+      if (!sourceAnalysisIncludesFile(source, file) || !sourceAnalysisIncludesFile(source, ownerFile))
         return sourceDeclarationOwnershipUnresolved(reference, "Continuation dependencies require original checked reads and their declaration owner.");
       if (state.size === 0) return Object.freeze({ kind: "resolved", dependencies: Object.freeze([]) });
       const selected = retention.forReference(reference);

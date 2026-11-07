@@ -27,6 +27,7 @@
     "test": "node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
+    "@tsonic/js-source-profile": "0.1.2",
     "@tsonic/source-core": "0.1.2",
     "@tsonic/target-api": "0.1.2",
     "@tsonic/tsts": "0.1.2"

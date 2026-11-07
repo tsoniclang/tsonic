@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicPointerBackingDemands, readTsonicMemoryLayout, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
+import { readTsonicMemoryLayout, readTsonicMemoryType, readTsonicRawMemoryOperation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
+import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
 import { memoryCall, memoryCalls } from "./fixtures.js";
 import { arrayMemoryLayout, arraySession, arrayTestPrelude, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
@@ -34,7 +35,7 @@ function backingSession(local: string, remote: string, type: string) {
     "/src/layout.ts": arrayTestPrelude + imports + remote + "\nexport { layout };",
     "/src/barrel.ts": 'export { layout as selected } from "./layout.js";',
   } });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const calls = memoryCalls(checked, "torawptr");
   assert.equal(calls.length, 2);
   const layouts = calls.map(call => {
@@ -109,7 +110,7 @@ for (const [name, declarations, type, size] of [
     assert.equal(second.sourceType, selected.layout.sourceType);
     assert.equal(operationType.identity, second.identity);
     if (name !== "record of array") {
-      const selectedCall = source.semantics.forNode(conversion).operations.call(conversion);
+      const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(conversion)!).checker.getResolvedCallInfo(conversion);
       const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, operation.layoutExpression);
       assert.equal(operation.call === conversion, true, `${name}: original checked conversion`);
       assert.equal(operation.pointeeType === selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,

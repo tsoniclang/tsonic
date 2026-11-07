@@ -7,7 +7,7 @@ import type { SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, Sou
 
 export function sourceStructMemberCorrespondence(context: SourceTypeFlowAnalysisContext, node: Node,
   type: SourceTypeDescriptor): readonly SourceLiteralMemberCorrespondence[] | undefined {
-  const { ast, sourceFacts, semantics } = context.source;
+  const { ast, sourceFacts } = context.source;
   const fact = sourceFacts.getFact(node, structFactKey);
   if (fact?.valueType !== true || fact.fields === undefined) return undefined;
   const call = ast.is.IsCallExpression(node) ? node
@@ -32,9 +32,8 @@ export function sourceStructMemberCorrespondence(context: SourceTypeFlowAnalysis
       sourceFacts.getFact(property, fieldFactKey)?.type !== field.type) return undefined;
     ordered.push(property);
   }
-  const selectedType = semantics.forNode(node).types.expressionType(node);
-  if (selectedType === undefined) return undefined;
-  const correspondence = sourceLiteralMemberCorrespondence(context, literal, type, { selectedType });
+  // The destination is the struct value at `node`: its member selection is a host-input witness (R3).
+  const correspondence = sourceLiteralMemberCorrespondence(context, literal, type, { destinationAt: node });
   if (correspondence === undefined) return undefined;
   const result: SourceLiteralMemberCorrespondence[] = [];
   for (const property of ordered) {

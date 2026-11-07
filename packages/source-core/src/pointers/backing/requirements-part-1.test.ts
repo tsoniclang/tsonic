@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { test } from "node:test";
 
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 
 import { createTsonicPointerBackingQueries } from "./requirements.js";
 
@@ -64,7 +64,7 @@ test("void pointer evidence rejects a missing source operand", () => {
   const call = memoryCall(checked, "torawptr");
   const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
   assert.ok(operation?.operation === "to-raw");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const queries = createTsonicPointerBackingQueries({
     ...source,
     ast: { ...source.ast, as: { ...source.ast.as, AsVoidExpression: () => undefined } },

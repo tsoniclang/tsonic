@@ -1,10 +1,10 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { SourceStorageTerm, SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { createSourceStorageExecutionContext } from "./execution-context.js";
 
 interface SourceStorageTransitionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "instanceCaptures"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly scopes: SourceStorageScopes;
   readonly absent: Extract<SourceStorageReduction, { readonly kind: "replace" }>;
 }

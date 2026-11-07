@@ -1,10 +1,10 @@
-import { pointerOperationFactKey } from "@tsonic/tsts";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourceStoragePointerOperation } from "./host-reads.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 
-export function createSourceStoragePointerBackings(source: TargetSourceProgram, budget: SourceStorageBudget, queries: {
+export function createSourceStoragePointerBackings(source: SourceAnalysisProgram, budget: SourceStorageBudget, queries: {
   subjectFor(node: Node): SourceStorageSubject | undefined;
   locationFor(node: Node): SourceStorageSubject | undefined;
   originsFor(subject: SourceStorageSubject): Iterable<SourceStorageSubject> | undefined;
@@ -26,7 +26,7 @@ export function createSourceStoragePointerBackings(source: TargetSourceProgram, 
       for (const origin of origins) {
         if (!budget.step()) return undefined;
         if (origin.kind !== "value" || origin.projection.length !== 0) continue;
-        const operation = source.sourceFacts.getFact(origin.node, pointerOperationFactKey);
+        const operation = sourceStoragePointerOperation(source, origin.node);
         if (operation?.operation === "address-of") {
           const location = queries.locationFor(operation.storageExpression);
           if (location !== undefined && !result.has(location) && rows.add(1)) result.add(location);
@@ -39,7 +39,7 @@ export function createSourceStoragePointerBackings(source: TargetSourceProgram, 
     return budget.failure() === undefined ? result : undefined;
   });
   const accessorsFor = (invocation: Node): ReadonlySet<Node> | undefined => budget.withRows(rows => {
-    const operation = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
+    const operation = sourceStoragePointerOperation(source, invocation);
     const result = new Set<Node>();
     if (operation?.operation !== "load" && operation?.operation !== "store") return result;
     const pointer = queries.subjectFor(operation.pointerExpression);
@@ -71,7 +71,7 @@ export function createSourceStoragePointerBackings(source: TargetSourceProgram, 
       for (const value of values) {
         if (!budget.step()) return undefined;
         if (value.kind !== "value" || value.projection.length !== 0) continue;
-        const selected = source.sourceFacts.getFact(value.node, pointerOperationFactKey);
+        const selected = sourceStoragePointerOperation(source, value.node);
         if (selected?.operation === "bind-pointer") {
           if (!accessor(operation.operation === "load" ? selected.readExpression : selected.writeExpression)) return undefined;
         } else if (selected?.operation === "project-pointer") {

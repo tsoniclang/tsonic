@@ -166,7 +166,7 @@ for (const ordinary of [false, true]) {
     if (selected.kind === "resolved") {
       assert.equal(selected.issues.length, 0, "approved C1373: the declared native result supports either actual");
       assert.equal(current.nodes.some(node => current.source.ast.is.IsCallExpression(node) &&
-        current.textFor(node) === "wrap(value)" && current.source.semantics.forNode(node).operations.call(node)?.sourceSelectedSignatureKind === "resolved"), true,
+        current.textFor(node) === "wrap(value)" && current.source.navigation.call(node)?.selection === "resolved"), true,
       "the original checked instantiation remains the exact native call");
     }
   });

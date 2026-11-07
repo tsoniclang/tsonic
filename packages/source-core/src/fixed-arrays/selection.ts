@@ -1,7 +1,7 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, SourceFileQueries, Symbol, Type } from "@tsonic/tsts";
-import { sourceIntegerLiteralValue, type SourceFileSemantics } from "@tsonic/target-api/source";
-import { snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "./facts.js";
+import { sourceIntegerLiteralValue } from "@tsonic/target-api/source";
+import { snapshotFixedArrayFact } from "./facts.js";
 import type { TsonicFixedArrayFact } from "./facts.js";
 import { isTsonicFixedArrayProviderType } from "./provider.js";
 
@@ -35,42 +35,6 @@ interface ResolvedFixedArrayQueries {
 interface FixedArrayExtent {
   readonly length: bigint;
   readonly lengthRuntimeBase: "number" | "bigint";
-}
-
-export function selectTsonicFixedArrayFromSource(
-  sourceType: Type,
-  semantics: SourceFileSemantics,
-  facts: Pick<ReadonlySourceFactResolver, "getFact">,
-): TsonicFixedArraySelection | undefined {
-  const alias = semantics.declarations.typeAliasSymbol(sourceType);
-  const elements = new Set<Node>();
-  let extent: FixedArrayExtent | undefined;
-  for (const declaration of alias === undefined ? [] : semantics.declarations.symbolDeclarations(alias)) {
-    for (const node of semantics.facts.authoredTypeNodes(declaration)) {
-      const authored = facts.getFact(node, tsonicFixedArrayFactKey);
-      if (authored === undefined || semantics.declarations.typeAliasSymbol(authored.sourceType) !== alias ||
-          semantics.types.couldContainTypeVariables(authored.sourceType)) continue;
-      if (extent !== undefined && (authored.length !== extent.length ||
-          authored.lengthRuntimeBase !== extent.lengthRuntimeBase)) {
-        return invalid("The selected FixedArray alias contradicts its authored array evidence.");
-      }
-      extent = authored;
-      if (authored.elementType !== undefined) elements.add(authored.elementType);
-    }
-  }
-  const selected = selectResolvedFixedArray(sourceType, {
-    typeSymbol: semantics.declarations.typeSymbol,
-    symbolDeclarations: semantics.declarations.symbolDeclarations,
-    isTypeReference: semantics.types.isTypeReference,
-    typeReferenceTarget: semantics.types.typeReferenceTarget,
-    typeArguments: semantics.types.typeArguments,
-    numericLiteralValue: semantics.types.numericLiteralValue,
-  }, facts, extent);
-  if (selected?.kind !== "selected") return selected;
-  if (elements.size > 1) return invalid("The selected FixedArray alias has ambiguous authored element evidence.");
-  const elementType = elements.values().next().value;
-  return elementType === undefined ? selected
-    : Object.freeze({ kind: "selected", fact: snapshotFixedArrayFact({ ...selected.fact, elementType }) });
 }
 
 export function selectTsonicFixedArray(

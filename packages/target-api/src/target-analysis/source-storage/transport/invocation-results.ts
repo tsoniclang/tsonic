@@ -1,6 +1,6 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceStorageInstanceCaptures } from "../model/construction.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
@@ -23,7 +23,7 @@ export interface SourceStorageInvocationResultQueriesContract {
 }
 
 export function createSourceStorageInvocationResults(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   budget: SourceStorageBudget,
   queries: SourceStorageInvocationResultQueries,
 ): SourceStorageInvocationResultQueriesContract {
@@ -32,10 +32,8 @@ export function createSourceStorageInvocationResults(
   const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageScope, capture?: SourceStorageScopedSubject) => {
     const target = queries.targetFor(invocation);
     const states = new Set<SourceStorageScope>();
-    const consumer = source.semantics.forNode(invocation);
-    const selected = consumer.operations.call(invocation);
-    const contract = selected?.sourceSelectedSignatureKind === "resolved"
-      ? consumer.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    const selected = source.navigation.call(invocation);
+    const contract = selected?.selection === "resolved" ? selected.signature : undefined;
     if (capture === undefined && contract === candidate && source.ast.body(candidate) === undefined) {
       const selected = queries.bindingsFor(candidate, invocation, bindings, bindings, target);
       if (selected !== undefined) states.add(selected);

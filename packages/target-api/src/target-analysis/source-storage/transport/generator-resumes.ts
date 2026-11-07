@@ -1,10 +1,12 @@
+import { sourceStorageInvocationReceiver } from "./host-reads.js";
+import { sourceStorageIsGenerator } from "./host-reads.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallEffect } from "../model/types.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 
-export function createSourceStorageGeneratorResumes(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageGeneratorResumes(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
     subjectFor(node: Node): SourceStorageSubject | undefined;
@@ -14,7 +16,7 @@ export function createSourceStorageGeneratorResumes(source: TargetSourceProgram,
   return (invocation: Node): ReadonlySet<Node> | undefined => budget.withRows(rows => {
     const result = new Set<Node>();
     if (queries.invocationEffects.get(invocation)?.resumeReceiver !== true) return result;
-    const receiver = source.semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
+    const receiver = sourceStorageInvocationReceiver(source, invocation);
     const selected = receiver === undefined ? undefined : queries.subjectFor(receiver);
     const origins = selected === undefined ? undefined : queries.originsFor(selected);
     if (origins === undefined) return undefined;
@@ -25,7 +27,7 @@ export function createSourceStorageGeneratorResumes(source: TargetSourceProgram,
       if (implementations === undefined) return undefined;
       for (const candidate of implementations) {
         if (!budget.step()) return undefined;
-        if (source.semantics.forNode(candidate).operations.generator(candidate) === undefined || result.has(candidate)) continue;
+        if (!sourceStorageIsGenerator(source.ast, candidate) || result.has(candidate)) continue;
         if (!rows.add(1)) return undefined;
         result.add(candidate);
       }

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
+import { createSourceHostInput } from "../../host-input/index.js";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { createSourceTypeDescriptorUnions } from "./terms.js";
 import type { SourceFileSemantics } from "../types.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
@@ -10,7 +12,7 @@ function fixture(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the original Source fixture checks without diagnostics");
-  const source = createTargetSourceProgram(checked);
+  const source = createSourceTypeFlowTestProgram(checked);
   const owner = source.navigation.nodes.find(node => source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node));
   const receiver = source.navigation.nodes.find(node => source.ast.kindName(node) === "KindThisKeyword");
   if (owner === undefined || receiver === undefined) throw new Error("The actual class and its original this occurrence are required.");
@@ -18,7 +20,7 @@ function fixture(text: string) {
   const declared = queries.declarations.declaredType(owner);
   const bindings = declared === undefined ? undefined : queries.types.typeArgumentBindings(declared);
   if (bindings === undefined) throw new Error("The checked class declaration requires its complete argument vector.");
-  return { source, owner, receiver, declared, bindings, queries };
+  return { source, unions: createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles), owner, receiver, declared, bindings, queries };
 }
 
 const examples = [
@@ -69,7 +71,7 @@ for (const unavailable of ["missing", "foreign"] as const) test(`a ${unavailable
     } } };
   const source = { ...current.source, semantics: { ...current.source.semantics,
     forNode: (_node: Node) => changed, forFile: () => changed } };
-  const context = createSourceTypeFlowAnalysisContext(source);
+  const context = createSourceTypeFlowAnalysisContext(source, current.unions, createSourceHostInput(source));
   assert.equal(context.context.describe(current.receiver) === undefined, true,
     "missing or foreign owner evidence cannot manufacture a lexical capture vector");
 });

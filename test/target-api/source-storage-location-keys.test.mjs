@@ -49,9 +49,10 @@ function fixture(count = 4, limits = {}) {
 
 function applicationFixture() {
   const current = fixture(0);
-  current.source.semantics = { forNode: () => ({ operations: {
-    call: () => ({ sourceArguments: [] }), propertyAccess: () => undefined,
-  } }) };
+  // Navigation call witness with no arguments and no member callee (Node-keyed, B3 §0.3).
+  current.source.navigation = { call: () => ({ arguments: [], callee: undefined }), memberAccess: () => undefined };
+  Object.assign(current.source.ast.is, { IsParenthesizedExpression: () => false, IsPropertyAccessExpression: () => false,
+    IsElementAccessExpression: () => false });
   current.transport.subject = node => node?.subject;
   current.transport.subjectFor = () => undefined;
   const application = (scope = current.first) => {

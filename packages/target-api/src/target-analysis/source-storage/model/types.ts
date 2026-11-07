@@ -1,6 +1,9 @@
-import type { Node, Signature, SourceFile, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationCallBinding } from "../../../host-input/navigation.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import type { SourceCallSelection } from "../../../public/source/selections.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export interface SourceStorageLimits {
@@ -18,9 +21,11 @@ export interface SourceStorageCallEffect {
 }
 
 export interface SourceStorageEffects {
-  readonly call?: (node: Node, selected: ResolvedSourceCallInfo) => SourceStorageCallEffect | undefined;
-  readonly nativeConstructorsFor?: (declaration: Node, context: SourceFileSemantics) => readonly Node[] | undefined;
-  readonly callbackEntries?: (node: Node, selected: ResolvedSourceCallInfo) => readonly {
+  /** Storage effect of a call, given the Host call selection (checker-free, I1). */
+  readonly call?: (node: Node, selected: SourceCallSelection) => SourceStorageCallEffect | undefined;
+  /** Native constructors a provider global binding (uninitialized variable or ambient class) constructs. */
+  readonly nativeConstructorsFor?: (binding: Node) => readonly Node[] | undefined;
+  readonly callbackEntries?: (node: Node, selected: SourceCallSelection) => readonly {
     readonly parameterIndex: number;
     readonly timing: "synchronous" | "deferred";
     readonly rejection?: number;
@@ -47,7 +52,8 @@ export type SourceStorageSubjectsSelection =
 
 export interface SourceStorageTypedSubject {
   readonly subject: SourceStorageSubject;
-  readonly type: Type;
+  /** The Host descriptor of the subject (I1). */
+  readonly type: SourceTypeDescriptor;
   readonly sourceFile: SourceFile;
 }
 
@@ -89,7 +95,7 @@ export interface SourceStorageProducer extends SourceStorageTypedSubject {
 }
 
 export type SourceStorageTypeSelection =
-  | { readonly kind: "resolved"; readonly type: Type; readonly sourceFile: SourceFile }
+  | { readonly kind: "resolved"; readonly type: SourceTypeDescriptor; readonly sourceFile: SourceFile }
   | SourceStorageUnresolved;
 
 export type SourceStorageOriginsSelection =
@@ -138,7 +144,8 @@ export type SourceStorageInputSlotsSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageInvocationInputSlots = {
-  readonly signature: Signature | undefined;
+  /** The selected signature declaration; undefined for a signature with no declaration. */
+  readonly signature: Node | undefined;
   readonly selectedDeclaration: Node | undefined;
   readonly selected: SourceStorageInputSlotsSelection;
   readonly implementation: { readonly kind: "resolved" } | SourceStorageUnresolved;
@@ -157,7 +164,12 @@ export interface SourceStorageArgumentTransport {
   readonly actual: SourceStorageSubject;
   readonly formal: SourceStorageSubject;
   readonly selectedParameterDeclaration: Node;
-  readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
+  /** The argument-to-parameter binding the call selected (navigation call witness). */
+  readonly binding: SourceNavigationCallBinding;
+  /** The argument expression of the binding. */
+  readonly argument: Node;
+  /** The Host descriptor of the selected parameter at this use (instantiated); undefined when the Host refused it. */
+  readonly parameterType: SourceTypeDescriptor | undefined;
 }
 
 export interface SourceStorageCallbackEntry {
@@ -243,7 +255,7 @@ export type SourceStorageConstructionSelection = SourceStorageUnresolved | {
 };
 
 export interface SourceStorageQueries {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];
   readonly subjects: readonly SourceStorageSubject[];

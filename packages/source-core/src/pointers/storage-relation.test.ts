@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageQuery } from "@tsonic/target-api/analysis";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import { cleanMemorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
 import { createTsonicPointerStorageRelation } from "./storage-relation.js";
@@ -11,8 +10,8 @@ function fixture(text: string) {
     import { allocateptr, addressof, bindptr, projectptr } from "@tsonic/core/lang.js";
     ${text}
   `);
-  const source = createTargetSourceProgram(checked);
-  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const source = createHostSourceProgramFixture(checked);
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
   const relation = createTsonicPointerStorageRelation(source, storage);
   const selections = memoryCalls(checked, "torawptr").map(call => {
     const operation = source.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
@@ -134,7 +133,7 @@ test("pointer storage retains one checked logical binding through value and retu
 
 test("pointer storage rejects foreign scoped bindings without an unbound retry", () => {
   const current = fixture("torawptr(allocateptr<uint32>(1), uint32Layout);");
-  const other = createSourceStorageQuery(current.source, current.source.sourceFiles);
+  const other = current.source.facts.analyses.storage({ sourceFiles: current.source.sourceFiles });
   const call = memoryCalls(current.checked, "allocateptr")[0]!;
   assert.equal(current.relation.value(call, other.emptyBindings).kind, "unresolved");
   assert.equal(createTsonicPointerStorageRelation(current.source, other).value(call).kind, "complete");

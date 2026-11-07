@@ -1,8 +1,8 @@
+import { sourceAnalysisArms, sourceAnalysisIsNeverArm, sourceAnalysisValueType, type SourceAnalysisProgram } from "./analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
 import { AsBinaryExpression, AsConditionalExpression, AsIfStatement, AsVariableStatement,
   AsVariableDeclarationList, Node_Expression, Node_Initializer, forEachSourceImmediateEvaluationChild,
-  isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceEnclosingCallable,
+  isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceEnclosing,
   sourceReceiverOwner } from "../source-navigation/index.js";
 
 export interface SourceConstructorResultIssue {
@@ -14,10 +14,18 @@ export interface SourceConstructorResultIssue {
 }
 
 export function analyzeSourceConstructorResults(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
 ): readonly SourceConstructorResultIssue[] {
   const issues: SourceConstructorResultIssue[] = [];
   const { ast } = source;
+  // A value read or call whose Host type is never (a binding or call that cannot complete). Only value-read and call
+  // syntax is asked; other syntax is "unknown" (the Host value model answers value nodes only).
+  const valueIsNever = (node: Node): boolean => {
+    if (!ast.is.IsIdentifier(node) && !ast.is.IsCallExpression(node) && !ast.is.IsPropertyAccessExpression(node) &&
+      !ast.is.IsElementAccessExpression(node)) return false;
+    const type = sourceAnalysisValueType(source, node);
+    return type !== undefined && sourceAnalysisArms(type).every(sourceAnalysisIsNeverArm);
+  };
   const constructors: Node[] = [...source.sourceFiles];
   while (constructors.length > 0) {
     const node = constructors.pop()!;
@@ -44,8 +52,8 @@ export function analyzeSourceConstructorResults(
     const deferredWrites = new Set<Node>();
     const collectDeferredWrites = (node: Node): void => {
       const selected = binding(node);
-      if (selected !== undefined && sourceEnclosingCallable(selected, ast) === declaration &&
-        sourceEnclosingCallable(node, ast) !== declaration && sourceBindingWriteAtReference(ast, node) !== undefined) {
+      if (selected !== undefined && sourceEnclosing(ast, selected, "callable-body") === declaration &&
+        sourceEnclosing(ast, node, "callable-body") !== declaration && sourceBindingWriteAtReference(ast, node) !== undefined) {
         deferredWrites.add(selected);
       }
       ast.forEachChild(node, child => { if (child !== undefined) collectDeferredWrites(child); });
@@ -95,9 +103,7 @@ export function analyzeSourceConstructorResults(
         if (selected !== undefined && bindings.has(selected)) return bindings.get(selected)!;
         const initializer = selected !== undefined && ast.is.IsVariableDeclaration(selected) ? Node_Initializer(ast, selected) : undefined;
         if (inspectInitializer && initializer !== undefined) return expression(initializer, new Map(), false);
-        const types = source.semantics.forNode(node).types;
-        const type = types.expressionType(node);
-        return initializer === undefined && type !== undefined && types.isNever(type) ? "never" : "unknown";
+        return initializer === undefined && valueIsNever(node) ? "never" : "unknown";
       }
       const conditional = AsConditionalExpression(ast, node);
       if (conditional?.Condition !== undefined && conditional.WhenTrue !== undefined && conditional.WhenFalse !== undefined) {
@@ -145,9 +151,7 @@ export function analyzeSourceConstructorResults(
       }
       if (ast.is.IsObjectLiteralExpression(node) || ast.is.IsArrayLiteralExpression(node) || ast.is.IsNewExpression(node) ||
         ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) || ast.is.IsClassExpression(node)) return "substitute";
-      const types = source.semantics.forNode(node).types;
-      const type = types.expressionType(node);
-      return type !== undefined && types.isNever(type) ? "never" : "unknown";
+      return valueIsNever(node) ? "never" : "unknown";
     };
     const statement = (node: Node, bindings: ConstructorBindings, inspectInitializer = true): boolean => {
       if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {

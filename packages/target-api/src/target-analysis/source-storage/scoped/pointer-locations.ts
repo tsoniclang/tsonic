@@ -1,8 +1,8 @@
-import { pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
+import { sourceStoragePointerOperation, type SourceStoragePointerOperation } from "../transport/host-reads.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceIndexedStorageProjection } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageRoleDeclaration } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
@@ -16,26 +16,25 @@ interface SourceStoragePointerLocationQueries {
 
 type SourceStoragePointerLocation = SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "input-frontier" | "empty" | "unresolved" }>;
 
-export function createSourceStoragePointerLocations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStoragePointerLocations(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerLocationQueries) {
-  const address = (operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
+  const address = (operation: Extract<SourceStoragePointerOperation, { readonly operation: "address-of" }>,
     scope: SourceStorageScope): readonly SourceStoragePointerLocation[] | undefined => budget.withRows(rows => {
-    const { ast, semantics } = source;
-    const context = semantics.forNode(operation.storageExpression);
-    const property = ast.is.IsPropertyAccessExpression(operation.storageExpression)
-      ? context.operations.propertyAccess(operation.storageExpression) : undefined;
-    const selected = property ?? (ast.is.IsElementAccessExpression(operation.storageExpression)
-      ? context.operations.elementAccess(operation.storageExpression) : undefined);
+    const { ast, navigation } = source;
+    const selected = navigation.memberAccess(operation.storageExpression);
     if (selected === undefined) {
       const subject = transport.locationFor(operation.storageExpression);
       return subject === undefined ? undefined : [Object.freeze({ kind: "leaf", subject,
         scope: queries.creatorScope(subject.node, scope) })];
     }
-    const receiver = transport.subjectFor(selected.receiver.expression);
+    const receiver = transport.subjectFor(selected.receiver);
+    const receiverType = sourceAnalysisValueType(source, selected.receiver);
+    if (receiverType === undefined) return undefined;
     const component = ast.is.IsElementAccessExpression(operation.storageExpression)
-      ? sourceIndexedStorageProjection(selected.receiver.type,
-        context.operations.elementAccess(operation.storageExpression)?.argument.expression, context, ast) : undefined;
-    const declaration = property?.selectedWriteDeclaration ?? selected.selectedDeclaration;
+      ? sourceIndexedStorageProjection(source, receiverType,
+        ast.as.AsElementAccessExpression(operation.storageExpression)?.ArgumentExpression) : undefined;
+    const declaration = selected.declaration === undefined ? undefined
+      : sourceStorageRoleDeclaration(source, selected.declaration, "write") ?? selected.declaration;
     if (receiver === undefined || component === undefined && declaration === undefined) return undefined;
     const originals = queries.read(sourceStorageReference(receiver, scope));
     if (originals === undefined) return undefined;
@@ -50,8 +49,8 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
       if (original.kind !== "leaf" && original.kind !== "input-frontier") return undefined;
       const type = sourceStorageProjectionType(source, original.subject, original.views, transport.sourceFileFor(original.subject));
       if (type === undefined) return undefined;
-      sourceStorageProjectComponents(original.subject.projection, type, selected.receiver.type,
-        component === undefined ? [{ kind: "member", declaration: declaration! }] : [component], context, ast, budget, projection => {
+      sourceStorageProjectComponents(original.subject.projection, type, receiverType,
+        component === undefined ? [{ kind: "member", declaration: declaration! }] : [component], source, ast, budget, projection => {
           const subject = transport.subject(original.subject.node, original.subject.kind, projection);
           if (subject !== undefined && rows.add(1)) result.push(original.kind === "input-frontier"
             ? Object.freeze({ ...original, subject, preservesInput: false })
@@ -76,7 +75,7 @@ export function createSourceStoragePointerLocations(source: TargetSourceProgram,
       const entries = visited ?? new Set();
       entries.add(original.subject); seen.set(original.scope, entries);
       const operation = original.subject.kind === "value" && original.subject.projection.length === 0
-        ? source.sourceFacts.getFact(original.subject.node, pointerOperationFactKey) : undefined;
+        ? sourceStoragePointerOperation(source, original.subject.node) : undefined;
       if (operation?.operation === "allocate") { result.push(original); continue; }
       if (operation?.operation === "address-of") {
         const selected = address(operation, original.scope);

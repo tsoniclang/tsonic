@@ -1,5 +1,6 @@
+import { sourceAnalysisIncludesFile, sourceAnalysisMayBeAbsent, type SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourcePresentStorageArms, sourceStorageIsAbsentType } from "../model/components.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageStoredProjection } from "../graph/store-projections.js";
@@ -116,7 +117,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
   };
 }
 
-export function sourceStorageInputBinding(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageInputBinding(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
   const owner = sourceStorageFormalOwner(term.subject, source);
@@ -151,11 +152,10 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   const native = activation?.nativeEntry;
   if (owner !== undefined && activation !== undefined && native !== undefined) {
-    const semantics = source.semantics.forNode(native.invocation);
     const inputs = sourceStorageNativeInputSlots(source, owner, term.subject,
-      transport.inputSlotsFor(owner, native.invocation, native.callback), semantics, budget.step);
+      transport.inputSlotsFor(owner, native.invocation, native.callback), budget.step);
     if (inputs !== undefined && inputs.length !== 0 && inputs.every(input => input.absent || input.type !== undefined &&
-      (semantics.types.isNullish(input.type) || semantics.types.isVoidLike(input.type))))
+      sourceStorageIsAbsentType(input.type)))
       return { kind: "replace", terms: [sourceStorageReference(fallback, activation.scope)] };
   }
   if (bound === undefined) {
@@ -173,7 +173,7 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
     select: value => sourceStorageInitializedValue(source, budget, scopes, term, defaultValue, value) };
 }
 
-export function sourceStorageInitializedValue(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageInitializedValue(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   scopes: SourceStorageScopes, input: SourceStorageReference, fallback: SourceStorageReference,
   value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm,
     { readonly kind: "empty" | "input-frontier" }>):
@@ -186,16 +186,16 @@ export function sourceStorageInitializedValue(source: TargetSourceProgram, budge
   }
   const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
   const file = source.ast.getSourceFile(value.subject.node);
-  const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
+  const type = file === undefined || !sourceAnalysisIncludesFile(source, file) ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
   if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
-  const types = source.semantics.forFile(file).types;
-  if (types.isNullish(type) || types.isVoidLike(type)) return [fallback];
-  const present = types.nonNullableType(type);
-  if (present === undefined) return unresolved("An initialized input has unresolved actual absence correspondence.");
-  if (!types.isAny(type) && !types.isUnknown(type) && types.isIdentical(type, present)) return [value];
-  const retained = types.isUnion(type) && !types.isNever(present)
-    ? Object.freeze({ ...value, views: sourceStorageWithProjectionView(value.views, value.subject, value.subject, present) })
+  if (sourceStorageIsAbsentType(type)) return [fallback];
+  if (!sourceAnalysisMayBeAbsent(type)) return [value];
+  // The value read after defaulting is present: a single present arm becomes the input view; several present arms keep
+  // the Host type (storage components are always read over present arms).
+  const present = sourcePresentStorageArms(type);
+  const retained = present.length === 1
+    ? Object.freeze({ ...value, views: sourceStorageWithProjectionView(value.views, value.subject, value.subject, present[0]!) })
     : value;
   return [retained, fallback];
 }

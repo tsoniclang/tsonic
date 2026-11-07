@@ -1,6 +1,7 @@
+import { sourceStorageInvocationReceiver } from "./host-reads.js";
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
@@ -10,7 +11,7 @@ import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 
 export function createSourceStorageCallbackInputFrontiers(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   budget: SourceStorageBudget,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   host: {
@@ -27,7 +28,7 @@ export function createSourceStorageCallbackInputFrontiers(
     }> | undefined;
   },
 ) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const step = budget.step;
   const { invocations, callbackEntriesFor, callbackImplementationsFor, invocationTargets,
     subjectFor, originSubjects, invocationInputs, nativePayloadCandidates } = host;
@@ -42,7 +43,7 @@ export function createSourceStorageCallbackInputFrontiers(
         for (const invocation of invocations) for (const callback of callbackEntriesFor(invocation))
           for (const candidate of callbackImplementationsFor(callback)) {
             if (!step()) return undefined;
-            const parameters = sourceCallableValueParameters(ast, candidate, semantics.forNode(candidate), { kind: "declaration" });
+            const parameters = sourceCallableValueParameters(ast, candidate, source.navigation, { kind: "declaration" });
             if (parameters === undefined) {
               budget.reject("Source storage native callback frontiers require their exact checked value parameters.");
               return undefined;
@@ -50,7 +51,7 @@ export function createSourceStorageCallbackInputFrontiers(
             for (const parameter of parameters) {
               if (!step()) return undefined;
               const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
-              if (parameter === undefined || file === undefined || !semantics.includes(file) ||
+              if (parameter === undefined || file === undefined || !sourceAnalysisIncludesFile(source, file) ||
                 !ast.is.IsParameterDeclaration(parameter) || ast.parent(parameter) !== candidate) {
                 budget.reject("Source storage native callback inputs require exact checked parameter declaration ownership.");
                 return undefined;
@@ -79,8 +80,7 @@ export function createSourceStorageCallbackInputFrontiers(
     const operands: { readonly subject: SourceStorageSubject; readonly callback?: SourceStorageCallbackEntry }[] = [];
     const target = invocationTargets.get(invocation);
     if (target !== undefined) operands.push({ subject: target });
-    const checked = semantics.forNode(invocation).operations.call(invocation);
-    const receiver = subjectFor(checked?.sourceReceiver?.expression ?? checked?.sourceCalleeAccess?.receiver.expression);
+    const receiver = subjectFor(sourceStorageInvocationReceiver(source, invocation));
     if (receiver !== undefined && receiver !== target) operands.push({ subject: receiver });
     for (const callback of callbackEntriesFor(invocation)) operands.push({ subject: callback.argument.actual, callback });
     for (const operand of operands) {
@@ -94,8 +94,7 @@ export function createSourceStorageCallbackInputFrontiers(
         for (const entry of entries) {
           if (!step()) return undefined;
           if (entry.candidate !== owner) continue;
-          const bounds = sourceStorageNativeInputSlots(source, owner, origin, host.inputSlotsFor(owner, entry.invocation, entry.callback),
-            semantics.forNode(entry.invocation), step);
+          const bounds = sourceStorageNativeInputSlots(source, owner, origin, host.inputSlotsFor(owner, entry.invocation, entry.callback), step);
           if (bounds !== undefined && bounds.every(bound => bound.absent)) continue;
           const inputs = invocationInputs(origin, owner, entry.invocation, entry.callback);
           if (!inputs.calleeSubjects?.includes(origin)) continue;

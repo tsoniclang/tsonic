@@ -7,7 +7,7 @@ declare function declaredQuery(current: ReturnType<typeof fixture>, limits?: Sou
 };
 export declare function checkedOperation(current: ReturnType<typeof fixture>, expression: string): {
     node: Node;
-    type: import("@tsonic/tsts").Type | undefined;
+    type: import("../../../../../packages/target-api/src/source-semantics/local-type-flow/types.js").SourceTypeDescriptor | undefined;
     declaration: Node | undefined;
     typeArgumentCount: number;
     sourceSpan: {

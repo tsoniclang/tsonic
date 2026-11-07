@@ -37,9 +37,15 @@ test("vendored TSTS artifact exposes only the approved public entrypoints", asyn
   );
 });
 
-test("packaged source access queries retain exact intrinsic receiver evidence", async () => {
+test("packaged target source entry publishes intrinsic receiver facts and keeps the Host program internal", async () => {
   const { createCompilerSessionFromFiles, formatDiagnostics } = await import("@tsonic/tsts");
-  const { createTargetSourceProgram } = await import("@tsonic/target-api/source");
+  const target = await import("@tsonic/target-api/source");
+  const host = await import("@tsonic/target-api/host");
+  const { createJsSourceApiFacts } = await import("@tsonic/js-source-profile");
+  assert.equal(typeof target.createTargetSourceProgram, "function");
+  assert.equal(target.createHostSourceProgram, undefined);
+  assert.equal(target.hostSourceProgramOf, undefined);
+  assert.equal(typeof host.createHostSourceProgram, "function");
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: { "/src/index.ts": `
@@ -49,20 +55,24 @@ test("packaged source access queries retain exact intrinsic receiver evidence", 
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = target.createTargetSourceProgram(checked, { profile: createJsSourceApiFacts });
+  assert.ok(Object.isFrozen(source));
+  assert.equal(source.semantics, undefined);
+  assert.equal(source.navigation, undefined);
+  assert.equal(typeof source.facts.analyses.integerRange, "function");
   const file = checked.getSourceFile("/src/index.ts");
   const accesses = [];
   function visit(node) {
-    if (source.ast.is.IsPropertyAccessExpression(node)) accesses.push(node);
-    source.ast.forEachChild(node, visit);
+    if (source.syntax.is.IsPropertyAccessExpression(node)) accesses.push(node);
+    source.syntax.forEachChild(node, visit);
   }
   visit(file);
   assert.equal(accesses.length, 2);
   for (const [index, node] of accesses.entries()) {
-    const info = source.semantics.forNode(node).operations.propertyAccess(node);
-    assert.equal(info.receiver.intrinsic, index === 0 ? "global-object" : undefined);
-    assert.equal(info, checked.getSourceFileQueries(file).checker.getResolvedPropertyAccessInfo(node));
-    assert.ok(Object.isFrozen(info.receiver));
+    const selected = source.facts.selections.memberAccess(node);
+    assert.ok(selected);
+    assert.equal(selected.receiverValue?.intrinsic, index === 0 ? "global-object" : undefined);
+    assert.ok(Object.isFrozen(selected));
   }
 });
 

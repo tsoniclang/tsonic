@@ -10,7 +10,8 @@ import { IsMethodDeclaration, IsTypeParameterDeclaration } from "../ast/generate
 import { SymbolFlagsOptional, SymbolFlagsProperty } from "../ast/symbolflags.js";
 import { CheckFlagsReadonly, CheckFlagsReverseMapped } from "../ast/checkflags.js";
 import { LinkStore_Get } from "../core/linkstore.js";
-import { copySelectedCallDefaults, retainSelectedCallDefault } from "./checker/selected-call-evidence-transaction.js";
+import { copySelectedCallDefaults, retainSelectedCallDefault, selectedCallInferenceJournal } from "./checker/selected-call-evidence-transaction.js";
+import { retainSelectedCallInferenceCandidate, selectCallInferenceProjection, selectedCallInferencePosition, selectedCallInferenceTypeArguments, withSelectedCallInferenceFrame, withSelectedCallInferenceProjection, withSelectedCallInferenceTypeArguments } from "./checker/selected-call-inference-evidence.js";
 import { InferenceFlagsNoDefault, InferenceFlagsAnyDefault, InferenceFlagsNone, InferencePriorityAlwaysStrict, InferencePriorityCircularity, InferencePriorityContravariantConditional, InferencePriorityHomomorphicMappedType, InferencePriorityMappedTypeConstraint, InferencePriorityMaxValue, InferencePriorityNakedTypeVariable, InferencePriorityNone, InferencePriorityPartialHomomorphicMappedType, InferencePriorityPriorityImpliesCombination, InferencePriorityReturnType, InferencePrioritySpeculativeTuple, UnionReductionSubtype, getEndElementCount, getMappedTypeModifiers, isTupleType, isLiteralType, someType, applyStringMapping, getNumberLiteralValue, getBigIntLiteralValue, getBooleanLiteralValue, getStringLiteralValue, InferencePriorityLiteralKeyof, InferencePriorityNoConstraints, InferencePrioritySubstituteSource, MappedTypeModifiersIncludeOptional, MappedTypeModifiersIncludeReadonly, } from "./checker/state.js";
 import { Checker_clearActiveMapperCaches, Checker_getBaseConstraintOfType, Checker_getConstraintOfType, Checker_getConstraintTypeFromMappedType, Checker_getDefaultConstraintOfConditionalType, Checker_getSubstitutionIntersection, Checker_isNoInferType, } from "./checker/inference.js";
 import { Checker_getApplicableIndexInfo, Checker_getBaseSignature, Checker_getConstraintOfTypeParameter, Checker_getDefaultFromTypeParameter, sourceTypeParameterDefaultNode, Checker_getErasedSignature, Checker_getMinTypeArgumentCount, Checker_fillMissingTypeArguments, Checker_getReturnTypeOfSignature, Checker_getSignaturesOfType, Checker_getTypeArguments, Checker_getTypeParameterFromMappedType, Checker_getTypeReferenceArity, Checker_getTypeWithThisArgument, Checker_isApplicableIndexType, } from "./checker/signatures.js";
@@ -344,6 +345,9 @@ export function Checker_inferTypes(receiver, inferences, originalSource, origina
  * }
  */
 export function Checker_inferFromTypes(receiver, n, source, target) {
+    withSelectedCallInferenceFrame(selectedCallInferenceJournal(receiver, n.inferences), n.inferences, () => inferFromTypes(receiver, n, source, target));
+}
+function inferFromTypes(receiver, n, source, target) {
     const c = receiver;
     const state = n;
     if (!c.couldContainTypeVariables(target) || Checker_isNoInferType(c, target)) {
@@ -401,6 +405,14 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
             return;
         }
         let newTarget = Checker_getUnionType(c, targets);
+        const selectedSource = sources.length === 0 ? source : Checker_getUnionType(c, sources);
+        const originalSource = source;
+        const originalTarget = target;
+        const sourceIndex = sources.length === 1 && (source.flags & TypeFlagsUnion) !== 0 ? Type_Types(source).indexOf(sources[0]) : -1;
+        const formalIndex = targets.length === 1 ? Type_Types(target).indexOf(targets[0]) : -1;
+        selectCallInferenceProjection(selectedCallInferenceJournal(c, state.inferences), state.inferences, selectedSource, newTarget, selectedSource === originalSource ? undefined
+            : sourceIndex < 0 ? null : { kind: "union-member", owner: originalSource, member: sources[0], index: sourceIndex }, newTarget === originalTarget ? undefined
+            : formalIndex < 0 ? null : { kind: "union-member", owner: originalTarget, member: targets[0], index: formalIndex });
         if (sources.length === 0) {
             // All source constituents have been matched and there is nothing further to infer from.
             // However, simply making no inferences is undesirable because it could ultimately mean
@@ -410,7 +422,7 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
             Checker_inferWithPriority(c, state, source, newTarget, InferencePriorityNakedTypeVariable);
             return;
         }
-        source = Checker_getUnionType(c, sources);
+        source = selectedSource;
         target = newTarget;
     }
     else if ((target.flags & TypeFlagsIntersection) !== 0 && !core.Every(Type_Types(target), (t) => Checker_isNonGenericObjectType(c, t))) {
@@ -466,6 +478,7 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
                     inference.priority = state.priority;
                 }
                 if (state.priority === inference.priority) {
+                    retainSelectedCallInferenceCandidate(selectedCallInferenceJournal(c, state.inferences), state.inferences, inference, source, target, candidate, state.priority, state.contravariant && !state.bivariant);
                     // We make contravariant inferences only if we are in a pure contravariant position,
                     // i.e. only if we have not descended into a bivariant position.
                     if (state.contravariant && !state.bivariant) {
@@ -509,7 +522,7 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
         (Type_Target(source) === Type_Target(target) || (Checker_isArrayType(c, source) && Checker_isArrayType(c, target))) &&
         !(Type_AsTypeReference(source).node !== undefined && Type_AsTypeReference(target).node !== undefined)) {
         // If source and target are references to the same generic type, infer from type arguments
-        Checker_inferFromTypeArguments(c, state, Checker_getTypeArguments(c, source), Checker_getTypeArguments(c, target), Checker_getVariances(c, Type_Target(source)));
+        withSelectedCallInferenceTypeArguments(selectedCallInferenceJournal(c, state.inferences), state.inferences, { source: source, formal: target, sourceArray: Checker_isArrayType(c, source), formalArray: Checker_isArrayType(c, target) }, () => Checker_inferFromTypeArguments(c, state, Checker_getTypeArguments(c, source), Checker_getTypeArguments(c, target), Checker_getVariances(c, Type_Target(source))));
     }
     else if ((source.flags & TypeFlagsIndex) !== 0 && (target.flags & TypeFlagsIndex) !== 0) {
         Checker_inferFromContravariantTypes(c, state, Type_AsIndexType(source).target, Type_AsIndexType(target).target);
@@ -541,7 +554,10 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
     else if ((source.flags & TypeFlagsUnion) !== 0) {
         // Source is a union or intersection type, infer from each constituent type
         for (const sourceType of Type_Types(source)) {
-            Checker_inferFromTypes(c, state, sourceType, target);
+            if (sourceType === undefined || target === undefined)
+                Checker_inferFromTypes(c, state, sourceType, target);
+            else
+                withSelectedCallInferenceProjection(selectedCallInferenceJournal(c, state.inferences), state.inferences, sourceType, target, { kind: "union-member", owner: source, member: sourceType, index: Type_Types(source).indexOf(sourceType) }, undefined, () => Checker_inferFromTypes(c, state, sourceType, target));
         }
     }
     else if ((target.flags & TypeFlagsTemplateLiteral) !== 0) {
@@ -585,13 +601,25 @@ export function Checker_inferFromTypes(receiver, n, source, target) {
 export function Checker_inferFromTypeArguments(receiver, n, sourceTypes, targetTypes, variances) {
     const c = receiver;
     const count = Math.min(sourceTypes.length, targetTypes.length);
-    for (let i = 0; i < count; i++) {
-        if (i < variances.length && (variances[i] & VarianceFlagsVarianceMask) === VarianceFlagsContravariant) {
-            Checker_inferFromContravariantTypes(c, n, sourceTypes[i], targetTypes[i]);
-        }
-        else {
-            Checker_inferFromTypes(c, n, sourceTypes[i], targetTypes[i]);
-        }
+    const journal = selectedCallInferenceJournal(c, n.inferences);
+    const owners = selectedCallInferenceTypeArguments(journal, n.inferences);
+    for (let index = 0; index < count; index++) {
+        const sourceType = sourceTypes[index];
+        const targetType = targetTypes[index];
+        const infer = () => {
+            if (index < variances.length && (variances[index] & VarianceFlagsVarianceMask) === VarianceFlagsContravariant) {
+                Checker_inferFromContravariantTypes(c, n, sourceType, targetType);
+            }
+            else {
+                Checker_inferFromTypes(c, n, sourceType, targetType);
+            }
+        };
+        if (owners === undefined || sourceType === undefined || targetType === undefined)
+            infer();
+        else
+            withSelectedCallInferenceProjection(journal, n.inferences, sourceType, targetType, owners.sourceArray ? { kind: "element", owner: owners.source }
+                : { kind: "type-argument", owner: owners.source, index }, owners.formalArray ? { kind: "element", owner: owners.formal }
+                : { kind: "type-argument", owner: owners.formal, index }, infer);
     }
 }
 /**
@@ -780,7 +808,7 @@ export function Checker_inferFromMatchingTypes(receiver, n, sources, targets, ma
     for (const t of targets) {
         for (const s of sources) {
             if (matches(c, s, t)) {
-                Checker_inferFromTypes(c, n, s, t);
+                withInferenceUnionMembers(c, n, s, t, () => Checker_inferFromTypes(c, n, s, t));
                 matchedSources = core.AppendIfUnique(matchedSources, s);
                 matchedTargets = core.AppendIfUnique(matchedTargets, t);
             }
@@ -912,7 +940,7 @@ export function Checker_inferToMultipleTypes(receiver, n, source, targets, targe
                 for (let i = 0; i < sources.length; i++) {
                     const saveInferencePriority = state.inferencePriority;
                     state.inferencePriority = InferencePriorityMaxValue;
-                    Checker_inferFromTypes(c, state, sources[i], t);
+                    withInferenceUnionMembers(c, state, sources[i], t, () => Checker_inferFromTypes(c, state, sources[i], t));
                     if (state.inferencePriority === state.priority) {
                         matched[i] = true;
                     }
@@ -943,7 +971,8 @@ export function Checker_inferToMultipleTypes(receiver, n, source, targets, targe
                 }
             }
             if (unmatched.length !== 0) {
-                Checker_inferFromTypes(c, state, Checker_getUnionType(c, unmatched), nakedTypeVariable);
+                const unmatchedType = Checker_getUnionType(c, unmatched);
+                withInferenceUnionMembers(c, state, unmatchedType, nakedTypeVariable, () => Checker_inferFromTypes(c, state, unmatchedType, nakedTypeVariable));
                 return;
             }
         }
@@ -957,7 +986,7 @@ export function Checker_inferToMultipleTypes(receiver, n, source, targets, targe
                 typeVariableCount++;
             }
             else {
-                Checker_inferFromTypes(c, state, source, t);
+                withInferenceUnionMembers(c, state, source, t, () => Checker_inferFromTypes(c, state, source, t));
             }
         }
     }
@@ -968,10 +997,25 @@ export function Checker_inferToMultipleTypes(receiver, n, source, targets, targe
     if (((targetFlags & TypeFlagsIntersection) !== 0 && typeVariableCount === 1) || ((targetFlags & TypeFlagsIntersection) === 0 && typeVariableCount > 0)) {
         for (const t of targets) {
             if (getInferenceInfoForType(state, t) !== undefined) {
-                Checker_inferWithPriority(c, state, source, t, InferencePriorityNakedTypeVariable);
+                withInferenceUnionMembers(c, state, source, t, () => Checker_inferWithPriority(c, state, source, t, InferencePriorityNakedTypeVariable));
             }
         }
     }
+}
+function withInferenceUnionMembers(checker, state, source, formal, operation) {
+    const journal = selectedCallInferenceJournal(checker, state.inferences);
+    const position = selectedCallInferencePosition(journal, state.inferences);
+    if (position === undefined || source === undefined || formal === undefined)
+        return operation();
+    const member = (owner, selected) => {
+        if (owner === selected)
+            return undefined;
+        if ((owner.flags & TypeFlagsUnion) === 0)
+            return null;
+        const index = Type_Types(owner).indexOf(selected);
+        return index < 0 ? null : { kind: "union-member", owner, member: selected, index };
+    };
+    return withSelectedCallInferenceProjection(journal, state.inferences, source, formal, member(position.sourceType, source), member(position.formalType, formal), operation);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::func::getSingleTypeVariableFromIntersectionTypes","kind":"func","status":"implemented","sigHash":"6f1efbb664994b58ff730e8a25eb4c9efb456b3483e9bf5c3f770eb72f614303","bodyHash":"9183b518d8ae566a1e602e640febd326ff52a4202761d8a06c1477dee22bd0ba"}
@@ -1498,7 +1542,7 @@ export function Checker_inferFromObjectTypes(receiver, n, source, target) {
         (target.objectFlags & ObjectFlagsReference) !== 0 &&
         (Type_Target(source) === Type_Target(target) || (Checker_isArrayType(c, source) && Checker_isArrayType(c, target)))) {
         // If source and target are references to the same generic type, infer from type arguments
-        Checker_inferFromTypeArguments(c, state, Checker_getTypeArguments(c, source), Checker_getTypeArguments(c, target), Checker_getVariances(c, Type_Target(source)));
+        withSelectedCallInferenceTypeArguments(selectedCallInferenceJournal(c, state.inferences), state.inferences, { source: source, formal: target, sourceArray: Checker_isArrayType(c, source), formalArray: Checker_isArrayType(c, target) }, () => Checker_inferFromTypeArguments(c, state, Checker_getTypeArguments(c, source), Checker_getTypeArguments(c, target), Checker_getVariances(c, Type_Target(source))));
         return;
     }
     if (Checker_isGenericMappedType(c, source) && Checker_isGenericMappedType(c, target)) {
@@ -1652,7 +1696,14 @@ export function Checker_inferFromProperties(receiver, n, source, target) {
     for (const targetProp of properties) {
         const sourceProp = Checker_getPropertyOfType(c, source, targetProp.Name);
         if (sourceProp !== undefined && !core.Some(sourceProp.Declarations, (node) => Checker_isSkipDirectInferenceNode(c, node))) {
-            Checker_inferFromTypes(c, n, Checker_removeMissingType(c, Checker_getTypeOfSymbol(c, sourceProp), (sourceProp.Flags & SymbolFlagsOptional) !== 0), Checker_removeMissingType(c, Checker_getTypeOfSymbol(c, targetProp), (targetProp.Flags & SymbolFlagsOptional) !== 0));
+            const sourceType = Checker_removeMissingType(c, Checker_getTypeOfSymbol(c, sourceProp), (sourceProp.Flags & SymbolFlagsOptional) !== 0);
+            const formalType = Checker_removeMissingType(c, Checker_getTypeOfSymbol(c, targetProp), (targetProp.Flags & SymbolFlagsOptional) !== 0);
+            const sourceDeclaration = sourceProp.ValueDeclaration ?? sourceProp.Declarations?.[0];
+            const formalDeclaration = targetProp.ValueDeclaration ?? targetProp.Declarations?.[0];
+            if (sourceType === undefined || formalType === undefined)
+                Checker_inferFromTypes(c, n, sourceType, formalType);
+            else
+                withSelectedCallInferenceProjection(selectedCallInferenceJournal(c, n.inferences), n.inferences, sourceType, formalType, sourceDeclaration === undefined ? null : { kind: "member", owner: source, symbol: sourceProp, declaration: sourceDeclaration }, formalDeclaration === undefined ? null : { kind: "member", owner: target, symbol: targetProp, declaration: formalDeclaration }, () => Checker_inferFromTypes(c, n, sourceType, formalType));
         }
     }
 }
@@ -1687,7 +1738,7 @@ export function Checker_inferFromSignatures(receiver, n, source, target, kind) {
         const targetLen = targetSignatures.length;
         for (let i = 0; i < targetLen; i++) {
             const sourceIndex = Math.max(sourceLen - targetLen + i, 0);
-            Checker_inferFromSignature(c, state, Checker_getBaseSignature(c, sourceSignatures[sourceIndex]), Checker_getErasedSignature(c, targetSignatures[i]));
+            withSelectedCallInferenceProjection(selectedCallInferenceJournal(c, state.inferences), state.inferences, source, target, undefined, undefined, () => Checker_inferFromSignature(c, state, Checker_getBaseSignature(c, sourceSignatures[sourceIndex]), Checker_getErasedSignature(c, targetSignatures[i])));
         }
     }
 }
@@ -1713,6 +1764,7 @@ export function Checker_inferFromSignatures(receiver, n, source, target, kind) {
 export function Checker_inferFromSignature(receiver, n, source, target) {
     const c = receiver;
     const state = n;
+    const position = selectedCallInferencePosition(selectedCallInferenceJournal(c, state.inferences), state.inferences);
     if ((source.flags & SignatureFlagsIsNonInferrable) === 0) {
         const saveBivariant = state.bivariant;
         let kind = KindUnknown;
@@ -1727,7 +1779,11 @@ export function Checker_inferFromSignature(receiver, n, source, target) {
         state.bivariant = saveBivariant;
     }
     Checker_applyToReturnTypes(c, source, target, (s, t) => {
-        Checker_inferFromTypes(c, state, s, t);
+        if (s === undefined || t === undefined)
+            return Checker_inferFromTypes(c, state, s, t);
+        withSelectedCallInferenceProjection(selectedCallInferenceJournal(c, state.inferences), state.inferences, s, t, source.declaration === undefined || position === undefined ? null
+            : { kind: "callable-result", owner: position.sourceType, signature: source, declaration: source.declaration }, target.declaration === undefined || position === undefined ? null
+            : { kind: "callable-result", owner: position.formalType, signature: target, declaration: target.declaration }, () => Checker_inferFromTypes(c, state, s, t));
     });
 }
 /**
@@ -1892,7 +1948,16 @@ export function Checker_inferFromIndexTypes(receiver, n, source, target) {
     for (const targetInfo of indexInfos) {
         const sourceInfo = Checker_getApplicableIndexInfo(c, source, targetInfo.keyType);
         if (sourceInfo !== undefined) {
-            Checker_inferWithPriority(c, n, sourceInfo.valueType, targetInfo.valueType, priority);
+            const sourceType = sourceInfo.valueType;
+            const formalType = targetInfo.valueType;
+            if (sourceType === undefined || formalType === undefined)
+                Checker_inferWithPriority(c, n, sourceType, formalType, priority);
+            else
+                withSelectedCallInferenceProjection(selectedCallInferenceJournal(c, n.inferences), n.inferences, sourceType, formalType, Checker_isArrayType(c, source) ? { kind: "element", owner: source }
+                    : sourceInfo.declaration === undefined || sourceInfo.keyType === undefined ? null
+                        : { kind: "index", owner: source, key: sourceInfo.keyType, declaration: sourceInfo.declaration }, Checker_isArrayType(c, target) ? { kind: "element", owner: target }
+                    : targetInfo.declaration === undefined || targetInfo.keyType === undefined ? null
+                        : { kind: "index", owner: target, key: targetInfo.keyType, declaration: targetInfo.declaration }, () => Checker_inferWithPriority(c, n, sourceType, formalType, priority));
         }
     }
 }

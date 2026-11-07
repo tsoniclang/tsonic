@@ -30,19 +30,12 @@ function fixture(limits = {}, length = 50) {
   const inner = callable([innerParameter]);
   const nodes = Array.from({ length }, () => subject({}));
   const values = new Set([input.node, parameter, innerParameter, ...nodes.map(value => value.node)]);
-  const elementType = Object.freeze({ kind: "fixture-element" });
-  const inputType = Object.freeze({ kind: "fixture-tuple" });
+  // Host descriptors: every fixture value is a one-element tuple of an opaque declared element type.
+  const elementType = Object.freeze({ kind: "declared", declaration: {}, typeArguments: Object.freeze([]) });
+  const inputType = Object.freeze({ kind: "tuple", readonly: false,
+    elements: Object.freeze([Object.freeze({ kind: "required", type: elementType })]) });
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
-  const semantics = Object.freeze({ declarations: Object.freeze({
-    declarationSignature: owner => signatures.get(owner),
-    signatureParameters: signature => signature.parameters,
-    primarySymbolDeclaration: symbol => symbol.declaration,
-    declaredValueType: node => values.has(node) ? inputType : undefined,
-  }), types: Object.freeze({ expressionType: () => undefined, signatureThisParameterInfo: () => undefined,
-    isNullish: () => false, isVoidLike: () => false, isUnion: () => false, isArrayLike: () => false,
-    isTuple: type => type === inputType,
-    tupleElementInfos: type => type === inputType ? [{ elementKind: "required", type: elementType }] : [],
-  }) });
+  const parametersOf = owner => signatures.get(owner)?.parameters.map(parameter => parameter.declaration);
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
     IsArrowFunction: () => false, IsInterfaceDeclaration: () => false,
     IsCallExpression: () => false, IsNewExpression: () => false, IsIdentifier: () => false, IsSpreadElement: () => false,
@@ -51,17 +44,14 @@ function fixture(limits = {}, length = 50) {
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameterOwners.has(node) },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
     getSourceFile: node => signatures.has(node) || values.has(node) ? file : undefined,
-    name: () => undefined, body: () => undefined, kindName: () => "test-node",
+    name: () => undefined, body: () => undefined, kindName: () => "test-node", parameters: owner => parametersOf(owner) ?? [],
     parent: node => parameterOwners.get(node) ?? (node === inner ? outer : undefined) },
-  semantics: { includes: candidate => candidate === file,
-    forNode(node) {
-      if (!signatures.has(node) && !values.has(node)) throw new Error("The substitution fixture requires its exact checked callable, parameter or input value.");
-      return semantics;
-    },
-    forFile(candidate) {
-      if (candidate !== file) throw new Error("The substitution fixture requires its exact checked source file.");
-      return semantics;
-    } } };
+  sourceFiles: [file],
+  navigation: { declaredParameters: parametersOf },
+  facts: { values: { type(node) {
+    if (!values.has(node)) throw new Error("The substitution fixture requires its exact checked parameter or input value.");
+    return Object.freeze({ kind: "resolved", type: inputType });
+  } } } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const invocationInputs = origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(),

@@ -1,15 +1,22 @@
-import type { Node, ResolvedSourceElementAccessInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { Node } from "@tsonic/tsts";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
 import { pointerFlowCallableBoundary, pointerFlowOperand, pointerFlowParent } from "./source-forms.js";
 
 export type TsonicClosedArrayStorage =
   | { readonly kind: "unproven"; readonly reason: string }
   | { readonly kind: "closed"; readonly declarations: readonly Node[]; readonly references: readonly Node[];
-      readonly literals: readonly Node[]; readonly elements: readonly ResolvedSourceElementAccessInfo[] };
+      readonly literals: readonly Node[];
+      /** The element access expressions of the closed array; their selections are facts.values.elementAccess(node). */
+      readonly elements: readonly Node[] };
 
-export function createTsonicClosedArrayStorageQueries(source: TargetSourceProgram, maximumValues: number) {
+export function createTsonicClosedArrayStorageQueries(source: HostSourceProgram, maximumValues: number) {
   if (!Number.isSafeInteger(maximumValues) || maximumValues < 1) throw new Error("Array storage requires a finite source-value budget.");
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
+  // The access is the callee of a call (a method call on the element, not a storage read).
+  const isCallCallee = (node: Node): boolean => {
+    const parent = ast.parent(node);
+    return parent !== undefined && ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent)?.Expression === node;
+  };
   const cache = new WeakMap<Node, TsonicClosedArrayStorage>();
   return Object.freeze({ resolve });
 
@@ -25,23 +32,23 @@ export function createTsonicClosedArrayStorageQueries(source: TargetSourceProgra
     if (cached !== undefined) return cached;
     const result = inspect(access);
     cache.set(access, result);
-    if (result.kind === "closed") for (const element of result.elements) cache.set(element.expression, result);
+    if (result.kind === "closed") for (const element of result.elements) cache.set(element, result);
     return result;
   }
 
   function inspect(access: Node): TsonicClosedArrayStorage {
     const reject = (reason: string): TsonicClosedArrayStorage => Object.freeze({ kind: "unproven", reason });
-    const selected = ast.is.IsElementAccessExpression(access) ? semantics.forNode(access).operations.elementAccess(access) : undefined;
+    const selected = ast.is.IsElementAccessExpression(access) ? navigation.memberAccess(access) : undefined;
     const callable = owner(access);
-    if (selected === undefined || selected.expression !== access || selected.optionalChain || callable === undefined) {
+    if (selected === undefined || selected.access !== access || selected.optionalChain || callable === undefined) {
       return reject("Native element storage requires an exact nonoptional local array access.");
     }
-    const queue = [selected.receiver.expression];
+    const queue = [selected.receiver];
     const seen = new Set<Node>();
     const declarations = new Set<Node>();
     const references = new Set<Node>();
     const literals = new Set<Node>();
-    const elements = new Map<Node, ResolvedSourceElementAccessInfo>();
+    const elements = new Set<Node>();
     let inspected = 0;
     for (let cursor = 0; cursor < queue.length; cursor++) {
       if (++inspected > maximumValues || queue.length > maximumValues) return reject("Native array source-value budget exceeded.");
@@ -95,17 +102,16 @@ export function createTsonicClosedArrayStorageQueries(source: TargetSourceProgra
           const other = assignment.Left === value ? assignment.Right : assignment.Right === value ? assignment.Left : undefined;
           if (other !== undefined) { queue.push(other); continue; }
         }
-        const element = parent !== undefined && ast.is.IsElementAccessExpression(parent)
-          ? semantics.forNode(parent).operations.elementAccess(parent) : undefined;
-        if (element === undefined || element.expression !== parent || element.receiver.expression !== value || element.optionalChain || element.callCallee ||
+        const element = parent !== undefined && ast.is.IsElementAccessExpression(parent) ? navigation.memberAccess(parent) : undefined;
+        if (element === undefined || element.access !== parent || element.receiver !== value || element.optionalChain || isCallCallee(parent!) ||
           ast.is.IsDeleteExpression(pointerFlowParent(ast, parent!).parent)) {
           return reject("Native array storage has an unproved escape, property operation, deletion or resize.");
         }
-        elements.set(parent!, element);
+        elements.add(parent!);
       }
     }
     if (literals.size === 0 || declarations.size === 0) return reject("Native array storage has no initialized local allocation.");
     return Object.freeze({ kind: "closed", declarations: Object.freeze([...declarations]), references: Object.freeze([...references]),
-      literals: Object.freeze([...literals]), elements: Object.freeze([...elements.values()]) });
+      literals: Object.freeze([...literals]), elements: Object.freeze([...elements]) });
   }
 }

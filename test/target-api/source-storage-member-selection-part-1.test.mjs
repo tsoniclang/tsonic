@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
@@ -201,11 +202,11 @@ test("checked setter metadata admits its exact physical write while retaining th
   const allocation = current.initializer("actual");
   const subject = transport.subjectFor(allocation);
   assert.equal(subject !== undefined, true, "the receiver is the original checked allocation");
-  const semantics = source.semantics.forNode(current.variable("destination"));
-  const type = semantics.declarations.declaredValueType(current.variable("destination"));
-  const properties = semantics.types.propertyInfos(type);
-  assert.equal(properties.length, 1, "the actual interface has one exact selected member");
-  const declarations = semantics.declarations.symbolDeclarations(properties[0].symbol);
+  const outcome = source.facts.values.type(current.variable("destination"));
+  const type = outcome.kind === "refused" ? undefined : outcome.type;
+  const properties = type === undefined ? [] : source.facts.objects.members(type);
+  assert.equal(Array.isArray(properties) && properties.length === 1, true, "the actual interface has one exact selected member");
+  const declarations = properties[0].declarations;
   assert.equal(declarations.length, 1, "the selected declaration belongs to the checked destination");
   const setter = source.ast.properties(allocation)[0];
   assert.equal(source.ast.is.IsSetAccessorDeclaration(setter), true, "the physical original is setter-only");
@@ -256,7 +257,9 @@ test("physical exclusion remains explicit when a completed alternative grows alo
       IsSetAccessorDeclaration: () => false, IsGetAccessorDeclaration: () => false },
       parent: node => node === declaration ? included : undefined, kindName: () => "test-member" },
     navigation: { isProjectDeclaration: () => true },
-    semantics: { forNode: () => ({ declarations: { declaredType: () => contract } }) },
+    // The Host construction facts of the owning class: one construct signature whose result is the instance contract.
+    facts: { objects: { construction: () => ({ declaration: included, implicit: true, signatures: [{ result: contract }],
+      initialization: [] }) } },
   };
   const transport = { subject, invocationImplementations: () => new Set([included]),
     invocationTargets: new Map([[allocation, subject(operand)]]), memberFlow: {

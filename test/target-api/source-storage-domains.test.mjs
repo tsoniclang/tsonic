@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
@@ -21,7 +22,7 @@ async function fixture(name, body, options = {}) {
     { sourceCore: options.sourceCore === true });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, options.limits ?? defaultSourceStorageLimits,
     options.effectsFactory === undefined ? options.effects : options.effectsFactory(source, file));
@@ -109,7 +110,7 @@ test("recognized source builtin identity does not certify native member preserva
     const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
     const declarations = new Set(source.ast.members(owner));
     return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const declaration = selected.signature;
       return declarations.has(declaration)
         ? selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "isFrozen", declaration }, selected)
         : undefined;
@@ -519,8 +520,8 @@ test("bodyless native API parameters retain outside inputs without publishing a 
     const native = namedDeclaration(source.ast, file, "Native");
     const constructor = source.ast.members(native).find(node => source.ast.is.IsConstructorDeclaration(node));
     return { call(node, selected) {
-      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === constructor
-        ? { resultAllocation: selected.call } : undefined;
+      return selected.signature === constructor
+        ? { resultAllocation: selected.use } : undefined;
     } };
   } });
   const selected = complete(current.selection("selected"), "a native API's signature is not a recursively executing source body");
@@ -551,8 +552,8 @@ test("an inherited bodyless native constructor does not become a source implemen
     const native = namedDeclaration(source.ast, file, "Native");
     const constructor = source.ast.members(native).find(node => source.ast.is.IsConstructorDeclaration(node));
     return { call(node, selected) {
-      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === constructor
-        ? { resultAllocation: selected.call } : undefined;
+      return selected.signature === constructor
+        ? { resultAllocation: selected.use } : undefined;
     } };
   } });
   const origins = complete(current.selection("selected"), "an inherited native signature has no authored recursive execution");
@@ -608,8 +609,8 @@ test("checked construction result closure is separate from fresh allocation, opa
     const constructor = source.ast.members(native).find(node => source.ast.is.IsConstructorDeclaration(node));
     const allocation = namedDeclaration(source.ast, file, "allocate");
     return { call(node, selected) {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
-      return declaration === constructor || declaration === allocation ? { resultAllocation: selected.call } : undefined;
+      const declaration = selected.signature;
+      return declaration === constructor || declaration === allocation ? { resultAllocation: selected.use } : undefined;
     } };
   } });
   const direct = complete(current.selection("direct"), "explicit native allocation contribution");
@@ -658,7 +659,7 @@ test("owned native Error call and constructor allocations do not certify externa
     const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
     const signatures = new Set(source.ast.members(owner));
     return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const declaration = selected.signature;
       if (!signatures.has(declaration)) return undefined;
       return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
     }, declaration => !signatures.has(declaration) || !source.ast.is.IsConstructSignatureDeclaration(declaration)
@@ -682,7 +683,7 @@ test("call result aliases and native writer completeness remain independent sema
       const result = operation(value);
       const selected = value.token;
     `, { effects: { call: (_node, selected) => mode === "opaque" ? undefined : mode === "alias"
-      ? { resultAlias: selected.sourceArguments[0].expression } : { resultAllocation: selected.call } } });
+      ? { resultAlias: selected.arguments[0].argument } : { resultAllocation: selected.use } } });
     if (mode === "opaque") open(current.selection("result"), "opaque-result", "an opaque signature does not prove result identity");
     else complete(current.selection("result"), "checked exact alias");
     open(current.selection("selected"), "opaque-write", "source alias and preservation claims do not prove native nonmutation");
@@ -698,7 +699,7 @@ test("owned native global members require their actual immutable receiver and se
     const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
     const members = new Set(source.ast.members(owner));
     return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      const declaration = selected.signature;
       return !members.has(declaration) ? undefined : selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor",
         memberName: source.ast.text(source.ast.name(declaration)), declaration }, selected);
     }, () => undefined);
@@ -731,9 +732,10 @@ test("native global effects reject foreign provider artifacts and operation decl
     { profile: sourceErrorDeclarations });
   const { source } = current;
   const node = current.initializer("selected");
-  const call = source.semantics.forNode(node).operations.call(node);
-  assert.equal(call !== undefined, true);
-  const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+  // The storage effect contract receives the Host call selection (facts.selections.call).
+  const call = source.facts.selections.call(node);
+  assert.equal(call !== undefined && call.kind !== "refused", true);
+  const declaration = call.signature;
   const binding = namedVariable(source.ast, projectSourceFile(source, "globals.d.ts"), "Error");
   const artifact = { providerId: "selected-profile", providerVersion: "1", providerModuleId: "globals",
     moduleSpecifier: "@profile/globals", artifactFileName: "/virtual/globals.d.ts" };
@@ -761,7 +763,7 @@ test("a result alias does not suppress either opaque argument's independent writ
     const value = { token: {} };
     operation(value, value);
     const selected = value.token;
-  `, { effects: { call: (_node, selected) => ({ resultAlias: selected.sourceArguments[0].expression }) } });
+  `, { effects: { call: (_node, selected) => ({ resultAlias: selected.arguments[0].argument }) } });
   open(current.selection("selected"), "opaque-write", "other occurrence retains independent exposure");
 });
 
@@ -788,7 +790,7 @@ test("allocation effects do not certify unknown external callable dispatch or ar
     const value = { token: {} };
     const allocated = allocate(value);
     const selected = value.token;
-  `, { effects: { call: (_node, selected) => ({ resultAllocation: selected.call }) } });
+  `, { effects: { call: (_node, selected) => ({ resultAllocation: selected.use }) } });
   complete(current.selection("allocated"), "known contributed allocation result");
   open(current.selection("selected"), "opaque-write", "allocation does not preserve argument contents");
   const run = namedDeclaration(current.source.ast, current.file, "run");
@@ -873,7 +875,7 @@ test("default-library recursive callback publication stays finite without poison
     }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unchanged recursive callback source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const selection = storage.storageSubjectFor(namedVariable(source.ast, file, "selected"));

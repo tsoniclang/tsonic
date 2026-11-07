@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
 import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../bindings/selection.js";
 import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
@@ -64,7 +64,7 @@ for (const swapped of [false, true]) {
         });
       `,
     });
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const calls = memoryCalls(checked, "torawptr");
     for (const order of [calls, [...calls].reverse()]) {
       const demands = createTsonicPointerBackingDemands(source);

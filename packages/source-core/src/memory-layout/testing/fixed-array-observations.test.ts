@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicMemoryMetadataIndex, readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
+import { readTsonicMemoryType, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation, tsonicDataLayoutFactKey, tsonicFixedArrayFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey, tsonicMemoryTypeFactKey } from "../../public/facts.js";
+import { createTsonicMemoryMetadataIndex } from "../metadata-index.js";
 import { memoryCall, memoryCalls, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, arraySession, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
@@ -273,7 +274,7 @@ function metadataFixture(escape = "") {
     torawptr(pointer, alias);
     ${escape}
   `);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const index = createTsonicMemoryMetadataIndex(source);
   function declaration(name: string): Node {
     const pending: Node[] = [checked.getSourceFile("/src/index.ts")!];

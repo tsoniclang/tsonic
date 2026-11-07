@@ -1,19 +1,20 @@
+import { createHostSourceProgramFixture } from "../../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
 import { analyzeSourceIntegerRanges } from "./analysis.js";
 
 function analyze(text: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const queries = analyzeSourceIntegerRanges({ ast: source.ast, navigation: source.navigation,
     sourceFiles: source.navigation.sourceFiles, isNumber(node: Node) {
-      const types = source.semantics.forNode(node).types;
-      const type = types.expressionType(node);
-      return type !== undefined && types.isNumberLike(type);
+      // Number-ness is the Host value fact (R3), not a checked type.
+      const outcome = source.facts.values.type(node);
+      return "type" in outcome && outcome.type.kind === "primitive" &&
+        !["string", "boolean", "bigint", "symbol", "null", "undefined", "void"].includes(outcome.type.primitive);
     } });
   return { source, queries };
 }

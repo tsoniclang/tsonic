@@ -1,7 +1,6 @@
-import type { CheckedSourceProgram, Node, SourceFile, Symbol } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { createSourceDeclarationReferenceIndex } from "./reference-index.js";
-import { projectDeclarationForType } from "./reference-selection.js";
-import { semanticTypeForNode } from "./syntax.js";
 import type { SourceDeclarationReference, SourceProjectReference, SourceReferenceIndexStatistics } from "./types.js";
 
 export interface SourceReferenceNavigation {
@@ -10,143 +9,64 @@ export interface SourceReferenceNavigation {
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
   referencesToDeclaration(declaration: Node | undefined): readonly Node[];
-  referencesForSymbol(symbol: Symbol): readonly Node[];
+  /** References to every merged declaration of the entity `declaration` declares. */
+  referencesToEntity(declaration: Node): readonly Node[];
   isProjectDeclaration(node: Node | undefined): boolean;
 }
 
+/**
+ * Reference navigation over the reference index. A reference is the declaration the occurrence selects; there is no
+ * fallback through the checked type of the node (R3): a node that selects no declaration has no reference.
+ */
 export function createSourceReferenceNavigation(
-  source: CheckedSourceProgram,
+  input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
 ): SourceReferenceNavigation {
-  const { ast } = source;
+  const { ast } = input;
   const sourceFileSet = new Set(sourceFiles);
-  const projectDeclarationsByNode = new WeakMap<Node, Node>();
-  const projectReferencesByDeclaration = new WeakMap<
-    Node,
-    WeakMap<Symbol, SourceProjectReference>
-  >();
+  const projectReferences = new WeakMap<Node, SourceProjectReference>();
+  const entityReferences = new WeakMap<Node, readonly Node[]>();
 
-  const isProjectSourceFile = (
-    sourceFile: SourceFile | undefined,
-  ): sourceFile is SourceFile =>
-    sourceFile !== undefined &&
-    !sourceFile.IsDeclarationFile &&
-    sourceFileSet.has(sourceFile);
-
+  const isProjectSourceFile = (sourceFile: SourceFile | undefined): sourceFile is SourceFile =>
+    sourceFile !== undefined && !sourceFile.IsDeclarationFile && sourceFileSet.has(sourceFile);
   const isProjectDeclaration = (declaration: Node | undefined): boolean =>
-    declaration !== undefined &&
-    isProjectSourceFile(ast.getSourceFile(declaration));
+    declaration !== undefined && isProjectSourceFile(ast.getSourceFile(declaration));
 
-  const referenceIndex = createSourceDeclarationReferenceIndex(
-    source,
-    sourceFiles,
-    isProjectDeclaration,
-  );
-  const directSemanticReferenceFor = (
-    node: Node,
-  ): SourceDeclarationReference | undefined =>
-    ast.is.IsTypeQueryNode(node)
-      ? undefined
-      : referenceIndex.sourceReferenceFor(node);
-
-  const declarationFor = (node: Node | undefined): Node | undefined => {
-    if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
-      return undefined;
-    }
-    const selected = directSemanticReferenceFor(node);
-    if (selected !== undefined) {
-      return selected.project ? selected.declaration : undefined;
-    }
-    const cached = projectDeclarationsByNode.get(node);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const sourceFile = ast.getSourceFile(node);
-    if (sourceFile === undefined) {
-      return undefined;
-    }
-    const queries = source.getSourceFileQueries(sourceFile);
-    const declaration = projectDeclarationForType(
-      queries.checker,
-      queries.typeShape,
-      semanticTypeForNode(ast, queries.checker, node),
-      isProjectDeclaration,
-    );
-    if (declaration !== undefined) {
-      projectDeclarationsByNode.set(node, declaration);
-    }
-    return declaration;
+  const referenceIndex = createSourceDeclarationReferenceIndex(input, sourceFiles, isProjectDeclaration);
+  const projectReferenceFor = (node: Node | undefined): SourceDeclarationReference | undefined => {
+    if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node)) || ast.is.IsTypeQueryNode(node)) return undefined;
+    const selected = referenceIndex.sourceReferenceFor(node);
+    return selected?.project === true ? selected : undefined;
   };
 
-  const referenceFor = (
-    node: Node | undefined,
-  ): SourceProjectReference | undefined => {
-    if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
-      return undefined;
-    }
-    const selected = directSemanticReferenceFor(node);
-    if (selected !== undefined) {
-      return selected.project && selected.symbol !== undefined
-        ? projectReferenceForDeclaration(
-            selected.symbol,
-            selected.declaration,
-            selected.sourceFile,
-            projectReferencesByDeclaration,
-          )
-        : undefined;
-    }
-    const declaration = declarationFor(node);
-    if (declaration === undefined) {
-      return undefined;
-    }
-    const declarationFile = ast.getSourceFile(declaration);
-    if (!isProjectSourceFile(declarationFile)) {
-      return undefined;
-    }
-    const symbol = source.getSourceFileQueries(declarationFile).checker
-      .getSymbolAtLocation(declaration);
-    return symbol === undefined
-      ? undefined
-      : projectReferenceForDeclaration(
-          symbol,
-          declaration,
-          declarationFile,
-          projectReferencesByDeclaration,
-        );
+  const referenceFor = (node: Node | undefined): SourceProjectReference | undefined => {
+    const selected = projectReferenceFor(node);
+    if (selected === undefined) return undefined;
+    const known = projectReferences.get(selected.declaration);
+    if (known !== undefined) return known;
+    const reference = Object.freeze({ declaration: selected.declaration, sourceFile: selected.sourceFile });
+    projectReferences.set(selected.declaration, reference);
+    return reference;
+  };
+
+  const referencesToEntity = (declaration: Node): readonly Node[] => {
+    const known = entityReferences.get(declaration);
+    if (known !== undefined) return known;
+    const declarations = input.mergedDeclarations(declaration);
+    const references = declarations.length === 1
+      ? referenceIndex.referencesToDeclaration(declarations[0])
+      : Object.freeze(declarations.flatMap(entry => referenceIndex.referencesToDeclaration(entry)));
+    entityReferences.set(declaration, references);
+    return references;
   };
 
   return Object.freeze({
     referenceIndexStatistics: referenceIndex.statistics,
     sourceReferenceFor: referenceIndex.sourceReferenceFor,
     referenceFor,
-    declarationFor,
+    declarationFor: (node: Node | undefined) => projectReferenceFor(node)?.declaration,
     referencesToDeclaration: referenceIndex.referencesToDeclaration,
-    referencesForSymbol: referenceIndex.referencesForSymbol,
+    referencesToEntity,
     isProjectDeclaration,
   });
-}
-
-function projectReferenceForDeclaration(
-  symbol: Symbol,
-  declaration: Node,
-  sourceFile: SourceFile,
-  cache: WeakMap<Node, WeakMap<Symbol, SourceProjectReference>>,
-): SourceProjectReference {
-  let referencesBySymbol = cache.get(declaration);
-  if (referencesBySymbol === undefined) {
-    referencesBySymbol = new WeakMap();
-    cache.set(declaration, referencesBySymbol);
-  }
-  const existing = referencesBySymbol.get(symbol);
-  if (existing !== undefined) {
-    if (existing.sourceFile !== sourceFile) {
-      throw new Error(
-        "One project declaration-symbol pair produced conflicting source-file evidence.",
-      );
-    }
-    return existing;
-  }
-  const reference = Object.freeze({ symbol, declaration, sourceFile });
-  referencesBySymbol.set(symbol, reference);
-  return reference;
 }

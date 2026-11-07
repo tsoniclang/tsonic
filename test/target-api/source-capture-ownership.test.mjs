@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as sourceNavigation from "../../packages/target-api/dist/public/source.js";
-import { createSourceProgramNavigation, sourceBindingScope, sourceDeclarationIsModuleScoped,
-  sourceLexicalCaptures } from "../../packages/target-api/dist/public/source.js";
+import * as sourceNavigation from "../../packages/target-api/dist/public/host.js";
+import { createSourceNavigationInput, createSourceProgramNavigation, sourceBindingScope, sourceDeclarationIsModuleScoped,
+  sourceLexicalCaptures } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("single capture ownership follows exact lexical activations and all uses", async () => {
@@ -19,7 +19,7 @@ test("single capture ownership follows exact lexical activations and all uses", 
   ` });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const domain = new Set();
   const visit = node => {
     domain.add(node);

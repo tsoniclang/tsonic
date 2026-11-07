@@ -1,4 +1,4 @@
-import type { AstReader, Node, SourceFile, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { relative, resolve } from "node:path";
 
 export function sourceFileIdentity(
@@ -59,34 +59,6 @@ export function sourceNodesEqual(
   const leftIdentity = sourceNodeIdentity(ast, left);
   return leftIdentity !== undefined &&
     leftIdentity === sourceNodeIdentity(ast, right);
-}
-
-export function sourceSymbolIdentity(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  symbol: Symbol | undefined,
-): string | undefined {
-  if (symbol === undefined) {
-    return undefined;
-  }
-  const declarations = checker.getSymbolDeclarations(symbol)
-    .map((declaration) => sourceNodeIdentity(ast, declaration))
-    .filter((identity): identity is string => identity !== undefined)
-    .sort();
-  return declarations.length === 0
-    ? undefined
-    : declarations.join("\u0001");
-}
-
-export function sourceSymbolsEqual(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  left: Symbol | undefined,
-  right: Symbol | undefined,
-): boolean {
-  const leftIdentity = sourceSymbolIdentity(ast, checker, left);
-  return leftIdentity !== undefined &&
-    leftIdentity === sourceSymbolIdentity(ast, checker, right);
 }
 
 function normalizePath(value: string): string {

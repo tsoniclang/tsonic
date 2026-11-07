@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -26,7 +27,7 @@ for (const arrow of [false, true]) {
       });
       assert.equal(checked.diagnostics.length, 0, "source is valid without extra annotations");
       assert.equal(checked.extensionDiagnostics.length, 0, "checked source facts are complete");
-      const source = createTargetSourceProgram(checked);
+      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
       const file = projectSourceFile(source, "src/index.ts");
       const owner = arrow
         ? source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, "accept")).Initializer

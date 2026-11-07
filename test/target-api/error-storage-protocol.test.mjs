@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 
@@ -29,7 +30,7 @@ async function checked(name) {
     `,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createTargetSourceProgram(result);
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const provider = projectSourceFile(source, "src/provider.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);

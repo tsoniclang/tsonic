@@ -1,7 +1,7 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
@@ -28,14 +28,14 @@ export type SourceStorageSubjectQuery = (
   projection?: readonly SourceStorageProjection[],
 ) => SourceStorageSubject | undefined;
 
-export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: TargetSourceProgram): Node | undefined {
+export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: SourceAnalysisProgram): Node | undefined {
   const { ast } = source;
   if (subject.kind === "receiver") return subject.node;
   if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node)) return undefined;
   const owner = ast.parent(subject.node);
   const file = owner === undefined ? undefined : ast.getSourceFile(owner);
-  if (owner === undefined || file === undefined || !source.semantics.includes(file)) return undefined;
-  const parameters = sourceCallableValueParameters(ast, owner, source.semantics.forFile(file), { kind: "declaration" });
+  if (owner === undefined || !sourceAnalysisIncludesFile(source, file)) return undefined;
+  const parameters = sourceCallableValueParameters(ast, owner, source.navigation, { kind: "declaration" });
   return parameters?.includes(subject.node) === true ? owner : undefined;
 }
 

@@ -1,5 +1,5 @@
-import type { Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import { ElementAccessExpression_ArgumentExpression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
   sourceStorageSubjectType } from "../model/components.js";
@@ -10,23 +10,22 @@ import type { SourceStorageScope, SourceStorageScopedSubject, SourceStorageProje
 import type { createSourceStorageTransport } from "./transport.js";
 
 interface SourceStoragePublicationDemand extends SourceStorageScopedSubject {
-  readonly type: Type;
+  readonly type: SourceTypeDescriptor;
   readonly receiver: SourceStorageProjectionReceiver;
 }
 
-export function createSourceStoragePublicationDemands(source: TargetSourceProgram,
+export function createSourceStoragePublicationDemands(source: SourceAnalysisProgram,
   transport: ReturnType<typeof createSourceStorageTransport>, budget: SourceStorageBudget,
   origins: (subject: SourceStorageSubject, bindings: SourceStorageScope) => ReadonlySet<SourceStorageScopedSubject> | undefined) {
   const demands = new Map<SourceStorageSubject, Map<SourceStorageScope, SourceStoragePublicationDemand[]>>();
   const rows = budget.createRows();
   let initialized = false;
-  const retain = (receiver: SourceStorageSubject, type: Type, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
-    const selectedComponents: { readonly component: SourceStorageProjection; readonly type: Type;
+  const retain = (receiver: SourceStorageSubject, type: SourceTypeDescriptor, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
+    const selectedComponents: { readonly component: SourceStorageProjection; readonly type: SourceTypeDescriptor;
       readonly subject: SourceStorageSubject | undefined }[] = [];
-    const semantics = source.semantics.forNode(receiver.node);
     for (const component of components) {
       if (!budget.step()) return;
-      const memberType = sourceStorageComponentType(type, component, semantics, source.ast);
+      const memberType = sourceStorageComponentType(source, type, component);
       if (memberType === undefined) continue;
       const member = sourceStorageIsMemberProjection(component);
       const subject = member ? sourceStorageMemberSubject(component.declaration, source.ast, transport.subject) : undefined;
@@ -82,24 +81,23 @@ export function createSourceStoragePublicationDemands(source: TargetSourceProgra
       if (!rows.add(1)) return;
       projected.push(subject);
     }
-    const { ast, semantics } = source;
+    const { ast, navigation } = source;
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsPropertyAccessExpression(node) && !ast.is.IsElementAccessExpression(node)) continue;
-      const context = semantics.forNode(node);
-      const access = ast.is.IsPropertyAccessExpression(node)
-        ? context.operations.propertyAccess(node) : context.operations.elementAccess(node);
-      const receiver = access === undefined ? undefined : transport.subjectFor(access.receiver.expression);
-      if (access === undefined || receiver === undefined) continue;
+      const access = navigation.memberAccess(node);
+      const receiver = access === undefined ? undefined : transport.subjectFor(access.receiver);
+      const receiverType = access === undefined ? undefined : sourceAnalysisValueType(source, access.receiver);
+      if (access === undefined || receiver === undefined || receiverType === undefined) continue;
       const declarations = new Set([...sourceStorageAccessDeclarations(source, node, "read") ?? [],
         ...sourceStorageAccessDeclarations(source, node, "write") ?? []]);
       const components: SourceStorageProjection[] = [...declarations].map(declaration => ({ kind: "member", declaration }));
       if (ast.is.IsElementAccessExpression(node)) {
-        const component = sourceIndexedStorageProjection(access.receiver.type,
-          ElementAccessExpression_ArgumentExpression(ast, node), context, ast);
+        const component = sourceIndexedStorageProjection(source, receiverType,
+          ElementAccessExpression_ArgumentExpression(ast, node));
         if (component !== undefined) components.push(component);
       }
-      retain(receiver, access.receiver.type, components);
+      retain(receiver, receiverType, components);
     }
     for (const subject of projected) {
       if (!budget.step()) return;

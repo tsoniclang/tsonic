@@ -1,6 +1,9 @@
+import { sourceAnalysisIncludesNode, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import { sourceStorageRoleDeclaration } from "../source-storage/model/components.js";
+import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipComponent, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";
 
 export const defaultSourceDeclarationOwnershipLimits: SourceDeclarationOwnershipLimits = Object.freeze({
@@ -13,7 +16,7 @@ export function sourceDeclarationOwnershipUnresolved(at: Node, reason: string): 
 }
 
 export function createSourceDeclarationParameterUseQuery(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceDeclarationOwnershipBudget;
 }) {
   const { source, budget } = input;
@@ -35,9 +38,8 @@ export function createSourceDeclarationParameterUseQuery(input: {
       for (const parameter of source.ast.parameters(declaration)) {
         if (parameter === undefined) continue;
         if (!budget.step(parameter)) return budget.failure()!;
-        const semantics = source.semantics.forNode(parameter);
-        const selectedType = semantics.declarations.declaredValueType(parameter);
-        if (selectedType === undefined) continue;
+        const type = sourceAnalysisValueType(source, parameter);
+        if (type === undefined) continue;
         const sites: Node[] = [];
         let use: "result" | "retained" | undefined;
         let complete = true;
@@ -55,7 +57,7 @@ export function createSourceDeclarationParameterUseQuery(input: {
         if (!rows.add(3 + sites.length)) return budget.failure()!;
         selected.set(parameter, Object.freeze({ kind: "resolved", declaration, parameter, use,
           sites: Object.freeze(sites), contract: Object.freeze({ kind: "declaration", declaration: parameter,
-            component: Object.freeze({ selectedType }) }) }));
+            component: Object.freeze({ type, declaration: parameter }) }) }));
       }
       if (!rows.add(1)) return budget.failure()!;
       declarations.set(declaration, selected);
@@ -66,18 +68,15 @@ export function createSourceDeclarationParameterUseQuery(input: {
   return Object.freeze({
     forArgument(call: Node, argument: Node): Contract | SourceDeclarationOwnershipUnresolved {
       if (!budget.step(call)) return budget.failure()!;
-      const file = source.ast.getSourceFile(call);
-      if (file === undefined || !source.semantics.includes(file) || !source.ast.is.IsCallExpression(call))
+      if (!sourceAnalysisIncludesNode(source, call) || !source.ast.is.IsCallExpression(call))
         return sourceDeclarationOwnershipUnresolved(call, "Native parameter consumption requires its original checked direct call.");
-      const semantics = source.semantics.forNode(call);
-      const selected = semantics.operations.call(call);
-      const declaration = selected?.sourceSelectedSignatureKind === "resolved"
-        ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
-      if (declaration === undefined || selected?.sourceSelectedSignatureKind !== "resolved")
+      const selected = source.navigation.call(call);
+      const declaration = selected?.selection === "resolved" ? selected.signature : undefined;
+      if (declaration === undefined || selected?.selection !== "resolved")
         return sourceDeclarationOwnershipUnresolved(call, "Native parameter consumption requires its exact selected declaration.");
       const index = source.ast.arguments(call).indexOf(argument);
-      const bindings = selected.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === index && binding.sourceForm === "value");
-      const parameter = bindings.length === 1 ? selected.sourceSelectedSignatureParameters.find(candidate =>
+      const bindings = selected.bindings.filter(binding => binding.sourceArgumentIndex === index && binding.sourceForm === "value");
+      const parameter = bindings.length === 1 ? selected.parameters.find(candidate =>
         candidate.parameterIndex === bindings[0]!.sourceParameterIndex)?.parameterDeclaration : undefined;
       if (index < 0 || parameter === undefined || !source.ast.parameters(declaration).includes(parameter))
         return sourceDeclarationOwnershipUnresolved(call, "Native parameter use requires one exact checked argument-to-formal correspondence.");
@@ -153,13 +152,11 @@ export function createSourceDeclarationOwnershipBudget(subject: Node,
   });
 }
 
-export function sourceDeclarationOwnershipContractProblem(source: TargetSourceProgram, node: Node,
-  component: SourceTypeComponentEvidence, contract: SourceDeclarationOwnershipContract): string | undefined {
-  const file = source.ast.getSourceFile(node);
-  if (file === undefined || !source.semantics.includes(file))
+export function sourceDeclarationOwnershipContractProblem(source: SourceAnalysisProgram, node: Node,
+  component: SourceDeclarationOwnershipComponent, contract: SourceDeclarationOwnershipContract): string | undefined {
+  if (!sourceAnalysisIncludesNode(source, node))
     return "Ownership evidence requires its original checked source operation or value.";
-  const semantics = source.semantics.forNode(node);
-  if (!semantics.types.isIdentical(component.selectedType, contract.component.selectedType))
+  if (!sourceTypeDescriptorsEqual(component.type, contract.component.type))
     return "Ownership evidence does not describe the exact completed checked component.";
   if (contract.kind === "expression") return contract.expression === node ? undefined
     : "Ownership expression evidence belongs to a different checked operation or value.";
@@ -167,22 +164,23 @@ export function sourceDeclarationOwnershipContractProblem(source: TargetSourcePr
   if (declarationFile === undefined)
     return "Ownership evidence requires the actual checked declaration, including checked provider declarations.";
   const declarations = new Set<Node>();
-  const declaration = semantics.declarations.declarationSignature(node);
-  if (declaration !== undefined || source.ast.is.IsParameterDeclaration(node) ||
+  if (isSourceCallableSignatureDeclaration(source.ast, node) || source.ast.is.IsParameterDeclaration(node) ||
     source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsPropertyDeclaration(node) ||
     source.ast.is.IsPropertySignatureDeclaration(node)) declarations.add(node);
   const reference = source.navigation.sourceReferenceFor(node);
   if (reference !== undefined) declarations.add(reference.declaration);
   if (source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)) {
-    const selected = semantics.operations.call(node);
-    const selectedDeclaration = selected?.sourceSelectedSignatureKind === "resolved"
-      ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    const selected = source.navigation.call(node);
+    const selectedDeclaration = selected?.selection === "resolved" ? selected.signature : undefined;
     if (selectedDeclaration !== undefined) declarations.add(selectedDeclaration);
   }
   if (source.ast.is.IsPropertyAccessExpression(node)) {
-    const selected = semantics.operations.propertyAccess(node);
-    if (selected?.selectedReadDeclaration !== undefined) declarations.add(selected.selectedReadDeclaration);
-    if (selected?.selectedWriteDeclaration !== undefined) declarations.add(selected.selectedWriteDeclaration);
+    // The read and the write declaration of the selected member (an accessor pair contributes both accessors).
+    const selected = source.navigation.memberAccess(node)?.declaration;
+    for (const mode of ["read", "write"] as const) {
+      const declaration = selected === undefined ? undefined : sourceStorageRoleDeclaration(source, selected, mode);
+      if (declaration !== undefined) declarations.add(declaration);
+    }
   }
   return declarations.has(contract.declaration) ? undefined
     : "Ownership evidence must identify this operation's selected declaration, not a declaration of its type.";

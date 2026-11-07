@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
 import { sourceSequenceConsumptionRoot, sourceSequenceInputChoice, sourceSequenceInputIsEmpty } from "./sequence-inputs.js";
 
 test("borrowed sequence alternatives retain source order, effects and exact control ownership", () => {
@@ -16,7 +16,7 @@ test("borrowed sequence alternatives retain source order, effects and exact cont
     const call = effectful();
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const spreads: Node[] = [];

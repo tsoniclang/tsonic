@@ -1,11 +1,11 @@
+import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceLexicalCapture, SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import { sourceLexicalEnvironment } from "../../source-navigation/lexical-environments.js";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { SourceFlowFailure } from "./resources.js";
 
-export function createSourceFlowCaptureQuery(source: TargetSourceProgram, step: (node?: Node) => void,
+export function createSourceFlowCaptureQuery(source: SourceAnalysisProgram, step: (node?: Node) => void,
   domain: SourceNodeDomain) {
   const completed = new WeakMap<Node, readonly SourceLexicalCapture[]>();
   const includes = (node: Node): boolean => domain === "source" || domain.has(node);

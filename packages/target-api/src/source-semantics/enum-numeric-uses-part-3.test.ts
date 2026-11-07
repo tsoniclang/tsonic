@@ -9,7 +9,7 @@ test("checked enum aliases do not require value replay at any binding length", (
     `const alias${index} = ${index === 0 ? "value" : `alias${index - 1}`};`).join("\n");
   const source = checked(`enum Value { First = 1, Second = 2 }
 export function use(value: Value): Value { ${aliases} return alias23; }`);
-  assert.equal(source.semantics.enumConstants.issues.length, 0,
+  assert.equal(source.enums.issues.length, 0,
     "every alias uses its actual checked enum contract, not a source binding-count restriction");
 });
 
@@ -22,7 +22,7 @@ for (const [label, body, expected] of [
 test(`enum domain recovery uses only fixed steps for ${label}`, () => {
     const source = checked(`enum Value { First = 1, Second = 2 }
 export function use(value: Value): number { ${body} }`);
-    assert.equal(source.semantics.enumConstants.issues.length, expected,
+    assert.equal(source.enums.issues.length, expected,
       "only checked/current-expression and permitted initializer/one-alias evidence decides this Host predicate");
   });
 }
@@ -30,6 +30,6 @@ export function use(value: Value): number { ${body} }`);
 for (const [label, body] of closedUseTwins){
 test(`closed enum use preserves ${label} from actual checked destination evidence`, () => {
     const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
-    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: no projection inferred from operator, callee or declaration spelling`);
+    assert.equal(source.enums.issues.length, 0, `${label}: no projection inferred from operator, callee or declaration spelling`);
   });
 }

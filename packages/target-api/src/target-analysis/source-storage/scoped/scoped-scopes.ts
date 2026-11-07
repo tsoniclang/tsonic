@@ -1,12 +1,12 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { createSourceStorageScopeFrames } from "./scope-frames.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsAbsentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectionType } from "./projection-views.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
@@ -32,7 +32,7 @@ function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: numb
   };
 }
 
-export function createSourceStorageScopes(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopes(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined,
@@ -259,8 +259,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
     const from = sourceStorageProjectionType(source, entry.subject, entry.views);
     if (from === undefined) return undefined;
-    const context = source.semantics.forNode(entry.subject.node);
-    if (context.types.isNullish(from) || context.types.isVoidLike(from))
+    if (sourceStorageIsAbsentType(from))
       return retain(1) ? [Object.freeze({ kind: "empty", absence: sourceStorageReference(entry.subject, entry.scope) })] : undefined;
     const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
@@ -278,7 +277,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const contract = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...prefix]);
       if (component === undefined || !sourceStorageIsMemberProjection(component) || contract === undefined) return undefined;
       sourceStorageProjectComponents(entry.subject.projection, from, to, prefix,
-        source.semantics.forNode(entry.subject.node), source.ast, budget, projection => {
+        source, source.ast, budget, projection => {
           const receiver = subject(entry.subject.node, entry.subject.kind, projection);
           if (receiver === undefined || !retain(1)) return;
           selected.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: contract,
@@ -475,7 +474,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       visited.add(current);
       if (current.kind === "variable") {
         const parameters = source.ast.is.IsClassDeclaration(current.owner) || source.ast.is.IsClassExpression(current.owner)
-          ? [] : sourceCallableValueParameters(source.ast, current.owner, source.semantics.forNode(current.owner),
+          ? [] : sourceCallableValueParameters(source.ast, current.owner, source.navigation,
             { kind: "declaration" });
         if (parameters === undefined) return undefined;
         for (const parameter of [...parameters, current.owner]) {

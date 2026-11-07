@@ -1,13 +1,15 @@
-import { pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
+import type { Node } from "@tsonic/tsts";
+import type { HostSourceProgram, SourceNavigationCall } from "@tsonic/target-api/host";
+import type { SourcePointerOperationRecord } from "@tsonic/target-api/source";
+import { tsonicDescriptorAdmitsAbsence, tsonicDescriptorIsAbsent, tsonicValueType } from "../host-values.js";
 import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 import type { TsonicRawMemoryOperationFact } from "../raw-memory/facts.js";
 import { createPointerContainerQueries } from "./containers.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./source-forms.js";
 
+/** A physical backing origin: the Host pointer operation record of an allocation or address-of (I1), or a reinterpretation. */
 export type TsonicPointerBackingOrigin =
-  | Extract<PointerOperationFact, { readonly operation: "allocate" | "address-of" }>
+  | (SourcePointerOperationRecord & { readonly operation: "allocate" | "address-of" })
   | Extract<TsonicRawMemoryOperationFact, { readonly operation: "reinterpret" }>;
 
 export interface TsonicPointerBackingIssue {
@@ -33,7 +35,7 @@ export interface TsonicPointerBackingQueries {
 }
 
 export function createTsonicPointerBackingQueries(
-  source: TargetSourceProgram,
+  source: HostSourceProgram,
   options: {
     readonly hasClosedCallers: (declaration: Node) => boolean;
     readonly maximumValues: number;
@@ -42,7 +44,7 @@ export function createTsonicPointerBackingQueries(
   if (!Number.isSafeInteger(options.maximumValues) || options.maximumValues < 1) {
     throw new Error("Pointer backing requires a positive finite source-value budget.");
   }
-  const { ast, navigation, semantics, sourceFacts } = source;
+  const { ast, navigation, facts, sourceFacts } = source;
   const cached = new WeakMap<Node, TsonicPointerBackingResolution>();
   const containers = createPointerContainerQueries(source, options.maximumValues);
 
@@ -83,12 +85,12 @@ export function createTsonicPointerBackingQueries(
     };
     const storageWrites = (node: Node): void => {
       const reference = navigation.sourceReferenceFor(ast.name(node));
-      if (reference?.symbol === undefined) {
+      if (reference === undefined) {
         reject(node, "Pointer storage has no exact selected binding identity.");
         return;
       }
       for (const file of navigation.sourceFiles) {
-        for (const write of navigation.bindingWritesWithin(reference.symbol, file)) {
+        for (const write of navigation.bindingWritesWithin(reference.declaration, file)) {
           if (write.kind !== "assignment" || ast.operatorKindName(write.operation) !== "KindEqualsToken") {
             reject(write.operation, "Pointer backing cannot omit a non-assignment storage write.");
           } else {
@@ -100,12 +102,16 @@ export function createTsonicPointerBackingQueries(
 
     for (let cursor = 0; cursor < queue.length && !exhausted; cursor++) {
       const node = queue[cursor]!;
-      const pointer = sourceFacts.getFact(node, pointerOperationFactKey);
+      const pointer = ast.is.IsCallExpression(node) ? facts.selections.pointerOperation(node) : undefined;
+      if (pointer !== undefined && "kind" in pointer) {
+        reject(node, pointer.message);
+        continue;
+      }
       if (pointer !== undefined) {
         if (pointer.call !== node) {
           reject(node, "Pointer evidence is attached to a different selected call.");
         } else if (pointer.operation === "allocate" || pointer.operation === "address-of") {
-          origins.set(node, pointer);
+          origins.set(node, pointer as SourcePointerOperationRecord & { readonly operation: "allocate" | "address-of" });
           terminals.add(node);
         } else {
           reject(node, "A logical pointer operation does not establish physical backing.");
@@ -147,9 +153,8 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
-      const types = semantics.forNode(node).types;
-      const valueType = types.expressionType(node);
-      if (valueType !== undefined && types.isNullish(valueType)) {
+      const valueType = tsonicValueType(source, node);
+      if (valueType !== undefined && tsonicDescriptorIsAbsent(valueType)) {
         includesUndefined = true;
         terminals.add(node);
         continue;
@@ -188,16 +193,15 @@ export function createTsonicPointerBackingQueries(
             reject(use.reference, "A first-class callable use has no exact incoming pointer argument.");
             continue;
           }
-          const call = semantics.forNode(callNode).operations.call(callNode);
+          const call = navigation.call(callNode);
           const implementation = call === undefined ? undefined : selectedImplementation(call);
-          const selectedParameter = call?.sourceSelectedSignatureParameters.find(parameter =>
-            parameter.parameterDeclaration === node);
+          const selectedParameter = call?.parameters.find(parameter => parameter.parameterDeclaration === node);
           if (call === undefined || implementation !== callable || selectedParameter === undefined ||
-            call.sourceArguments.some((_, index) => !call.sourceArgumentBindings.some(binding => binding.sourceArgumentIndex === index))) {
+            call.arguments.some((_, index) => !call.bindings.some(binding => binding.sourceArgumentIndex === index))) {
             reject(callNode, "The incoming call does not select this exact implementation parameter.");
             continue;
           }
-          const bindings = call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === selectedParameter.parameterIndex);
+          const bindings = call.bindings.filter(binding => binding.sourceParameterIndex === selectedParameter.parameterIndex);
           if (bindings.length === 0) {
             if (!selectedParameter.acceptsOmission) {
               reject(callNode, "A required pointer argument has no selected binding.");
@@ -212,7 +216,7 @@ export function createTsonicPointerBackingQueries(
             if (binding.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") {
               reject(callNode, "Pointer backing requires an exact non-spread parameter binding.");
             } else {
-              edge(node, call.sourceArguments[binding.sourceArgumentIndex]?.expression);
+              edge(node, call.arguments[binding.sourceArgumentIndex]);
             }
           }
         }
@@ -220,20 +224,18 @@ export function createTsonicPointerBackingQueries(
         continue;
       }
       if (ast.is.IsCallExpression(node)) {
-        const call = semantics.forNode(node).operations.call(node);
+        const call = navigation.call(node);
         const implementation = call === undefined ? undefined : selectedImplementation(call);
         const body = implementation === undefined ? undefined : ast.body(implementation);
         if (implementation === undefined || body === undefined || !ast.is.IsFunctionDeclaration(implementation)) {
           reject(node, "The pointer result has no exact non-virtual source implementation.");
           continue;
         }
-        if (call !== undefined) {
-          const types = semantics.forNode(node).types;
-          if (types.isNullish(call.sourceResultType) || types.isUnion(call.sourceResultType) &&
-            types.unionOrIntersectionTypes(call.sourceResultType).some(type => types.isNullish(type))) {
-            includesUndefined = true;
-            terminals.add(node);
-          }
+        // The Host result of the call admits absence (a null/undefined/void arm).
+        const result = tsonicValueType(source, node);
+        if (result !== undefined && tsonicDescriptorAdmitsAbsence(result)) {
+          includesUndefined = true;
+          terminals.add(node);
         }
         const pending: Node[] = [body];
         let returns = 0;
@@ -281,8 +283,8 @@ export function createTsonicPointerBackingQueries(
     return result;
   }
 
-  function selectedImplementation(call: ResolvedSourceCallInfo): Node | undefined {
-    const declaration = semantics.forNode(call.call).declarations.signatureDeclaration(call.selectedSignature);
+  function selectedImplementation(call: SourceNavigationCall): Node | undefined {
+    const declaration = call.signature;
     if (declaration === undefined) return undefined;
     const result = navigation.callableImplementation(declaration);
     return result.kind === "resolved" ? result.implementation.declaration : undefined;

@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceDeclarationControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
@@ -16,7 +17,7 @@ async function fixture(text, name = "run", limits, globals) {
   const files = { "src/index.ts": text };
   if (globals !== undefined) files["globals.d.ts"] = globals;
   const checked = await checkedSource(`flow-control-${caseNumber++}`, files);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
   const selection = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" }, limits });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
@@ -89,8 +90,8 @@ test("declaration flow retains one conditional parameter default independently o
     function run(value: number = fallback()) { return value; }
     function enter(maybe: number | undefined, spread: [number?]) { run(1); run(); run(maybe); run(...spread); }`);
   const storage = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
-  const invocations = storage.invocations.filter(node => current.source.semantics.forNode(node).operations.call(node)
-    ?.sourceSelectedSignatureKind === "resolved" && storage.invocationImplementationsFor(node).kind === "resolved" &&
+  const invocations = storage.invocations.filter(node => current.source.navigation.call(node)
+    ?.selection === "resolved" && storage.invocationImplementationsFor(node).kind === "resolved" &&
     storage.invocationImplementationsFor(node).nodes.includes(current.declaration));
   assert.equal(invocations.length, 4);
   const ordered = invocations.sort((left, right) => current.ast.pos(left) - current.ast.pos(right));
@@ -409,10 +410,10 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
       assert.equal(selection.resource?.limit, limit, "construction never raises its selected bound");
     } else assert.equal(selection.resource === undefined, true, "invalid limits are not actual resource exhaustion");
   }
-  const checked = createTargetSourceProgram(await checkedSource("flow-unsupported-import", {
+  const checked = createHostSourceProgram(await checkedSource("flow-unsupported-import", {
     "src/index.ts": "function run() { return import('./value.js'); }",
     "src/value.ts": "export const value = 1;",
-  }));
+  }), { profile: createJsSourceApiFacts });
   const selection = createSourceDeclarationControlFlow(checked, namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"), { domain: { kind: "source" } });
   assert.equal(selection.kind, "unresolved");
   assert.equal("graph" in selection, false);
@@ -458,18 +459,18 @@ test("flow default parameter and binding initializers remain conditional", async
 
 test("flow does not create an ordinary value binding for the checked this parameter", async () => {
   const current = await fixture("function run(this: { count: number }, value: number) { return this.count + value; }");
-  const receiver = current.source.semantics.forFile(projectSourceFile(current.source, "src/index.ts"))
-    .types.declarationSignatureInfo(current.declaration).thisParameter.declaration;
-  assert.equal(receiver !== undefined, true);
+  // The explicit this parameter is the first authored parameter named this.
+  const receiver = current.source.ast.parameters(current.declaration)[0];
+  assert.equal(receiver !== undefined && current.source.ast.text(current.source.ast.name(receiver)) === "this", true);
   assert.equal(current.graph.bindings.has(receiver), false);
   assert.equal(points(current, point => point.operation.kind === "write").length, 1);
 });
 
 test("flow constructor, method and expression-bodied arrow bodies stay separate graphs", async () => {
-  const source = createTargetSourceProgram(await checkedSource("flow-callable-bodies", { "src/index.ts": `
+  const source = createHostSourceProgram(await checkedSource("flow-callable-bodies", { "src/index.ts": `
     class Box { constructor(public count: number) { this.count = count; } read() { return this.count; } }
     const arrow = (value: number) => value + 1;
-  ` }));
+  ` }), { profile: createJsSourceApiFacts });
   const pending = [projectSourceFile(source, "src/index.ts")];
   const declarations = [];
   while (pending.length > 0) {
@@ -542,9 +543,9 @@ test("flow closure capture facts are computed once per exact checked scope", asy
 });
 
 test("flow budgets include capture-free closure scanning after syntax preflight", async () => {
-  const source = createTargetSourceProgram(await checkedSource(`flow-capture-budget-${caseNumber++}`, {
+  const source = createHostSourceProgram(await checkedSource(`flow-capture-budget-${caseNumber++}`, {
     "src/index.ts": `export function run() { return () => { ${"0;".repeat(256)} return 0; }; }`,
-  }));
+  }), { profile: createJsSourceApiFacts });
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), "run");
   const nodes = new Set();
   const pending = [declaration];

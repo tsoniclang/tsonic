@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { assertMemoryDiagnostics, memoryCalls, memorySession, valueMemoryLayout } from "../../memory-layout/testing/fixtures.js";
 import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../../memory-layout/type-contract/facts.js";
 import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
@@ -59,7 +59,7 @@ function session(local: string, remote: string, type: string, value: string) {
   const diagnostics = checked.diagnostics.filter(entry => entry !== undefined);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
   assertMemoryDiagnostics(checked);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const calls = memoryCalls(checked, "torawptr");
   assert.equal(calls.length, 2);
   const layouts = calls.map(call => {
@@ -67,7 +67,7 @@ function session(local: string, remote: string, type: string, value: string) {
     assert.ok(selected?.kind === "resolved");
     return selected.layout;
   });
-  return { source, calls, layouts };
+  return { source, checked, calls, layouts };
 }
 
 const scalar = "const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });";
@@ -80,7 +80,7 @@ const cases = [
 
 for (const [name, layout, type, value] of cases) {
   test(`cross-file ${name} backing demands share one origin in either discovery order`, () => {
-    const { source, calls, layouts } = session(layout, layout, type, value);
+    const { source, checked, calls, layouts } = session(layout, layout, type, value);
     const left = readTsonicMemoryType(source.sourceFacts, layouts[0]!.call);
     const right = readTsonicMemoryType(source.sourceFacts, layouts[1]!.call);
     assert.ok(left && right);
@@ -88,8 +88,8 @@ for (const [name, layout, type, value] of cases) {
     assert.equal(left.call === right.call, false, `${name}: distinct original layout sites`);
     for (const [index, selection] of [left, right].entries()) {
       assert.equal(selection.call === layouts[index]!.call, true, `${name}: original layout site ${index}`);
-      const checked = source.semantics.forNode(selection.call).operations.call(selection.call);
-      assert.equal(selection.sourceType === checked?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
+      const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(selection.call)!).checker.getResolvedCallInfo(selection.call);
+      assert.equal(selection.sourceType === selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType,
         true, `${name}: original checked layout type ${index}`);
     }
     if (name === "nested record") {
@@ -98,8 +98,8 @@ for (const [name, layout, type, value] of cases) {
       assert.equal(first.selectedDeclaration === second.selectedDeclaration, true, `${name}: same selected field declaration`);
       assert.equal(first.call === second.call, false, `${name}: distinct original field sites`);
       for (const field of [first, second]) {
-        const checked = source.semantics.forNode(field.call).operations.call(field.call);
-        assert.equal(field.fieldType === checked?.sourceSelectedMethodTypeArguments?.[1]?.selectedType,
+        const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(field.call)!).checker.getResolvedCallInfo(field.call);
+        assert.equal(field.fieldType === selectedCall?.sourceSelectedMethodTypeArguments?.[1]?.selectedType,
           true, `${name}: original checked field type`);
       }
     }

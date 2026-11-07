@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceAnnotationHint, type SourceAnnotationHintBindings } from "./annotation-hints.js";
 
 function fixture(body: string) {
@@ -11,7 +11,7 @@ function fixture(body: string) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
   }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const nodes: Node[] = [];
   const visit = (node: Node): void => {
     nodes.push(node);
@@ -21,7 +21,6 @@ function fixture(body: string) {
   const bindings: SourceAnnotationHintBindings = {
     ast: source.ast,
     navigation: source.navigation,
-    call: node => source.semantics.forNode(node).operations.call(node),
   };
   const selected = nodes.filter(node => source.ast.is.IsIdentifier(node) && source.ast.text(node) === "selected" &&
     source.ast.is.IsVariableDeclaration(source.ast.parent(node)) === false);
@@ -80,16 +79,13 @@ for (const body of [
 test("Source call hints require the exact original argument and a unique selected parameter", () => {
   const current = fixture("declare function take(value: Native): void; function run(): void { const selected = 1; take(selected); }");
   const selected = current.selected[0]!;
-  assert.equal(sourceAnnotationHint(selected, { ...current.bindings, call: () => undefined }), undefined);
+  const withCall = (call: typeof current.source.navigation.call): SourceAnnotationHintBindings =>
+    ({ ...current.bindings, navigation: { referenceFor: current.source.navigation.referenceFor, call } });
+  assert.equal(sourceAnnotationHint(selected, withCall(() => undefined)), undefined);
   const call = current.nodes.find(node => current.source.ast.is.IsCallExpression(node))!;
-  const original = current.bindings.call(call)!;
-  assert.equal(sourceAnnotationHint(selected, {
-    ...current.bindings, call: () => ({ ...original, sourceArguments: [] }),
-  }), undefined);
-  assert.equal(sourceAnnotationHint(selected, {
-    ...current.bindings, call: () => ({ ...original, sourceArgumentBindings: [
-      ...original.sourceArgumentBindings,
-      { ...original.sourceArgumentBindings[0]!, sourceParameterIndex: 1 },
-    ] }),
-  }), undefined);
+  const original = current.source.navigation.call(call)!;
+  assert.equal(sourceAnnotationHint(selected, withCall(() => ({ ...original, arguments: [] }))), undefined);
+  assert.equal(sourceAnnotationHint(selected, withCall(() => ({ ...original, bindings: [
+    ...original.bindings, { ...original.bindings[0]!, sourceParameterIndex: 1 },
+  ] }))), undefined);
 });

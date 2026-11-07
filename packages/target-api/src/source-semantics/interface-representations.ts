@@ -1,18 +1,20 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclaredHeritageEdge, SourceProgramNavigation } from "../source-navigation/index.js";
-import type { SourceFileSemantics } from "./types.js";
 
+/**
+ * The single base an interface is represented by: every merged declaration of the interface is an interface with no
+ * own members (no properties, methods, signatures or index signatures), and all of them together name exactly one
+ * `extends` heritage edge. Such an interface has exactly its base's structure, so it is represented by that base.
+ * Decided from declarations and authored heritage only (I3: no checked type identity).
+ */
 export function sourceInterfaceRepresentationBase(
   declaration: Node,
   ast: AstReader,
-  navigation: SourceProgramNavigation,
-  semantics: SourceFileSemantics,
+  navigation: Pick<SourceProgramNavigation, "mergedDeclarations" | "declaredHeritage">,
 ): SourceDeclaredHeritageEdge | undefined {
   if (!ast.is.IsInterfaceDeclaration(declaration)) return undefined;
-  const type = semantics.declarations.declaredType(declaration);
-  const symbol = type === undefined ? undefined : semantics.declarations.typeSymbol(type);
-  const declarations = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol);
-  if (type === undefined || declarations.length === 0 || declarations.some(member =>
+  const declarations = navigation.mergedDeclarations(declaration);
+  if (declarations.length === 0 || declarations.some(member =>
     !ast.is.IsInterfaceDeclaration(member) || ast.members(member).length !== 0)) return undefined;
   let edge: SourceDeclaredHeritageEdge | undefined;
   for (const member of declarations) {
@@ -23,5 +25,5 @@ export function sourceInterfaceRepresentationBase(
     if (edge !== undefined) return undefined;
     edge = selected;
   }
-  return edge?.kind === "extends" && semantics.types.isIdentical(type, edge.selectedType) ? edge : undefined;
+  return edge?.kind === "extends" ? edge : undefined;
 }

@@ -18,8 +18,10 @@ import type {
   TargetCompileOutput,
   TargetDiagnostic,
 } from "@tsonic/target-api/artifacts";
-import { sourceProjectFiles } from "@tsonic/target-api/source";
+import { sourceProjectFiles } from "@tsonic/target-api/host";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createJsSourceApiFacts } from "@tsonic/js-source-profile";
+import { tsonicCoreSourceAnalyses } from "@tsonic/source-core";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import { checkTargetSource } from "./compiler-session.js";
@@ -236,7 +238,11 @@ function compileTargetBuild(
           compileResult = rejectedTargetStage(diagnostics);
         } else {
           const targetResult = session.compile({
-            source: createTargetSourceProgram(checked.source),
+            // Composition root: the JS API profile (D18) and the source-core extension analyses are injected here.
+            source: createTargetSourceProgram(checked.source, {
+              profile: createJsSourceApiFacts,
+              analyses: [tsonicCoreSourceAnalyses],
+            }),
             sourcePackages: checked.sourcePackages,
             project: input.project,
             target: plan.target,

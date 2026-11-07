@@ -21,6 +21,6 @@ export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedA
 export type { Node, SourceFile } from "./internal/ast/ast.js";
 export type { Symbol } from "./internal/ast/symbol.js";
 export * from "./internal/ast/symbolflags.js";
-export type { ContextFlags, Signature, Type } from "./internal/checker/types.js";
+export type { ContextFlags, ResolvedCallInferenceContribution, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, Signature, Type } from "./internal/checker/types.js";
 export { ContextFlagsSkipBindingPatterns } from "./internal/checker/types.js";
 //# sourceMappingURL=index.d.ts.map

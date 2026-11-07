@@ -1,203 +1,9 @@
-import type {
-  AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver, ResolvedSourceCallableCompletionInfo,
-  ResolvedSourceFlowConditionInfo, ResolvedSourceGeneratorInfo,
-  ResolvedSourceIterationInfo, ResolvedSourceObjectLiteralElementInfo,
-  ResolvedSourcePropertyNameInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo,
-  ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, Signature, SourceFile, Symbol,
-  TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
-} from "@tsonic/tsts";
-import type { SourceProgramNavigation, SourceProjectReference } from "../source-navigation/types.js";
-import type { SourceNavigationDeclarationQueries, SourceNavigationOperationQueries,
-  SourceNavigationTypeQueries } from "../source-navigation/query-context.js";
-import type { SourceAuthoredTypeSelection } from "./authored-type-selection.js";
-import type { SourceContextualValueTypeSelection } from "./contextual-type-selection.js";
-import type { SourceTypeRelationship } from "./type-relationship.js";
-import type { SourceTypeRefinement } from "./type-refinement.js";
-import type { ResolvedSourceCallInfo, SourceCallResultSelection } from "./call-result-selection.js";
-import type { SourceCallParameterSlot } from "./call-parameter-slots.js";
-import type { SourceEffectiveTypes } from "./local-type-flow/types.js";
-
-export interface SourceOperationEvidenceQueries extends SourceNavigationOperationQueries {
-  propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
-  flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
-  iteration(node: Node): ResolvedSourceIterationInfo | undefined;
-  objectLiteralElement(node: Node): ResolvedSourceObjectLiteralElementInfo | undefined;
-  storage(node: Node): ResolvedSourceStorageInfo | undefined;
-  callableCompletion(node: Node): ResolvedSourceCallableCompletionInfo | undefined;
-  generator(node: Node): ResolvedSourceGeneratorInfo | undefined;
-  yield(node: Node): ResolvedSourceYieldInfo | undefined;
-  wellKnownSymbol(node: Node): ResolvedSourceWellKnownSymbolInfo | undefined;
-  resourceManagement(node: Node): ResolvedSourceResourceManagementInfo | undefined;
-  callResult(source: ResolvedSourceCallInfo): SourceCallResultSelection | undefined;
-  callParameterSlots(source: ResolvedSourceCallInfo): readonly SourceCallParameterSlot[] | undefined;
-}
-
-export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
-  awaitedType(type: Type): Type | undefined;
-  authoredType(node: Node): Type | undefined;
-  contextualType(node: Node): SourceTypeComponentEvidence | undefined;
-  typeOfSymbol(symbol: Symbol | undefined): Type | undefined;
-  declaredSymbolType(symbol: Symbol | undefined): Type | undefined;
-  writeSymbolType(symbol: Symbol | undefined): Type | undefined;
-  effectiveTypeArguments(type: Type): readonly Type[] | undefined;
-  typeArgumentBindings(type: Type): readonly import("./type-arguments.js").SourceTypeArgumentBinding[] | undefined;
-  instantiatedBaseTypes(type: Type): readonly Type[] | undefined;
-  instantiateAlias(declaration: Node, arguments_: readonly Type[]): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
-  aliasApplication(type: Type): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
-  typeArguments(type: Type): readonly Type[];
-  substitutionBaseType(type: Type): Type | undefined;
-  typeReferenceTarget(type: Type): Type | undefined;
-  tupleElementTypes(type: Type): readonly Type[];
-  tupleElementInfos(type: Type): readonly TypeTupleElementInfo[];
-  unionOrIntersectionTypes(type: Type): readonly Type[];
-  propertyInfos(type: Type): readonly import("@tsonic/tsts").TypePropertyInfo[];
-  indexInfos(type: Type): readonly import("@tsonic/tsts").TypeIndexInfo[];
-  indexedAccessComponents(type: Type): import("@tsonic/tsts").TypeIndexedAccessComponents | undefined;
-  selectIndexedAccess(objectType: Type, indexType: Type): import("@tsonic/tsts").TypeIndexedAccessSelection | undefined;
-  signatureInfos(type: Type, kind: "call" | "construct"): readonly import("@tsonic/tsts").TypeSignatureInfo[];
-  declarationSignatureInfo(declaration: Node): import("@tsonic/tsts").TypeSignatureInfo | undefined;
-  returnType(signature: Signature): Type | undefined;
-  signatureParameterInfos(signature: Signature): readonly TypeSignatureParameterInfo[];
-  signatureThisParameterInfo(
-    signature: Signature,
-  ): import("@tsonic/tsts").TypeSignatureThisParameterInfo | undefined;
-  apparentType(type: Type): Type | undefined;
-  widenedType(type: Type): Type | undefined;
-  literalBaseType(type: Type): Type | undefined;
-  withoutMissingOrUndefined(type: Type): Type | undefined;
-  nonNullableType(type: Type): Type | undefined;
-  constantValue(node: Node): unknown;
-  stringLiteralValue(type: Type): string | undefined;
-  booleanLiteralValue(type: Type): boolean | undefined;
-  isAny(type: Type): boolean;
-  isUnknown(type: Type): boolean;
-  isNever(type: Type): boolean;
-  isNonPrimitive(type: Type): boolean;
-  isUnion(type: Type): boolean;
-  isIntersection(type: Type): boolean;
-  isTypeReference(type: Type): boolean;
-  isTuple(type: Type): boolean;
-  isArrayLike(type: Type): boolean;
-  isIdentical(left: Type, right: Type): boolean;
-  couldContainTypeVariables(type: Type): boolean;
-  authoredSelection(
-    authoredTypeNode: Node,
-    selectedType: Type,
-  ): SourceAuthoredTypeSelection;
-  contextualValueSelection(node: Node): SourceContextualValueTypeSelection;
-  contextualTupleSelection(
-    node: Node,
-    presentElementCount: number,
-  ): SourceContextualTupleLiteralSelection;
-  refinement(declaredType: Type, selectedType: Type): SourceTypeRefinement;
-  relationship(left: Type, right: Type): SourceTypeRelationship;
-  structuralMembers(source: Type, destination: Type,
-    purpose: "correspondence" | "read"): import("./structural-members.js").SourceStructuralMemberCorrespondence;
-  structuralMember(source: Type, destination: Type, selectedDeclaration: Node,
-    purpose: "correspondence" | "read"): import("./structural-members.js").SourceStructuralMemberPair | undefined;
-  standardTransformation(
-    authoredTypeNode: Node | undefined,
-    selectedType: Type,
-  ): SourceStandardTypeTransformation | undefined;
-  callable(type: Type): SourceCallableTypeEvidence | undefined;
-}
-
-export interface SourceSelectedDeclarationQueries extends SourceNavigationDeclarationQueries {
-  aliasedSymbol(symbol: Symbol): Symbol | undefined;
-  authoredTypeDeclaration(node: Node): Node | undefined;
-  isDefaultLibraryDeclaration(node: Node): boolean;
-  declaredType(declaration: Node): Type | undefined;
-  typeSymbol(type: Type): Symbol | undefined;
-  typeAliasSymbol(type: Type): Symbol | undefined;
-  symbolName(symbol: Symbol): string;
-}
-
-export interface SourceFactSubjectQueries {
-  authoredTypeSubjects(node: Node): readonly ExtensionFactSubject[];
-  authoredTypeNodes(node: Node): readonly Node[];
-  selectedSubjects(
-    symbol: Symbol | undefined,
-    declaration: Node | undefined,
-  ): readonly ExtensionFactSubject[];
-  typeSubjects(type: Type): readonly ExtensionFactSubject[];
-}
-
-export interface SourceFileSemantics {
-  readonly sourceFile: SourceFile;
-  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
-  readonly operations: SourceOperationEvidenceQueries;
-  readonly types: SourceFinalTypeQueries;
-  readonly declarations: SourceSelectedDeclarationQueries;
-  readonly facts: SourceFactSubjectQueries;
-}
-
-export interface SourceTypeComponentEvidence {
-  readonly selectedType: Type;
-  readonly declaration?: Node;
-  readonly authoredTypeNode?: Node;
-  readonly contextualCall?: ResolvedSourceCallInfo;
-}
-
-export interface SourceCallableParameterEvidence extends TypeSignatureParameterInfo {
-  readonly omissionKind: "required" | "undefined" | "initializer" | "rest";
-}
-
-export interface SourceCallableTypeEvidence {
-  readonly parameters: readonly SourceCallableParameterEvidence[];
-  readonly result: SourceTypeComponentEvidence;
-}
-
-export type SourceStandardTypeTransformation =
-  | {
-      readonly kind: "non-nullish";
-      readonly component: SourceTypeComponentEvidence;
-    }
-  | {
-      readonly kind: "component";
-      readonly component: SourceTypeComponentEvidence;
-    }
-  | {
-      readonly kind: "parameter-list";
-      readonly parameters: readonly SourceCallableParameterEvidence[];
-    }
-  | {
-      readonly kind: "callable";
-      readonly callable: SourceCallableTypeEvidence;
-    }
-  | { readonly kind: "structural" }
-  | { readonly kind: "unresolved" };
-
-export type SourceContextualTupleLiteralSelection =
-  | {
-      readonly kind: "selected";
-      readonly type: Type;
-      readonly elements: readonly TypeTupleElementInfo[];
-      readonly omittedOptionalElementIndexes: readonly number[];
-    }
-  | { readonly kind: "unavailable" };
-
-export type SourceValueTypeRefinementSelection =
-  | { readonly kind: "not-project-reference" }
-  | {
-      readonly kind: "unresolved";
-      readonly reference: SourceProjectReference;
-      readonly missing: "declared-type" | "selected-type";
-    }
-  | {
-      readonly kind: "resolved";
-      readonly reference: SourceProjectReference;
-      readonly declaredType: Type;
-      readonly selectedType: Type;
-      readonly refinement: SourceTypeRefinement;
-    };
-
-export interface SourceProgramSemantics {
-  readonly enumConstants: import("./enum-model.js").SourceEnumConstantIndex;
-  includes(sourceFile: SourceFile): boolean;
-  forFile(sourceFile: SourceFile): SourceFileSemantics;
-  forNode(node: Node): SourceFileSemantics;
-  selectValueTypeRefinement(node: Node): SourceValueTypeRefinementSelection;
-}
+import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile } from "@tsonic/tsts";
+import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import type { SourceProgramFacts } from "../public/source/facts.js";
+import type { SourceEnumConstantIndex } from "./enum-model.js";
+import type { SourcePropertyNameIndex } from "./property-names-model.js";
+import type { SourceFlowConditions } from "./value-flow-model.js";
 
 export interface SourceDocument {
   readonly identity: string;
@@ -239,12 +45,27 @@ export interface SourceProgramDocuments {
 }
 
 
-export interface TargetSourceProgram {
+/**
+ * The Host-internal program (I1/I3): navigation, the published facts and the Host analyses that other Host packages
+ * (target-analysis, source-core) read. It carries no checker service: the checker views live only inside host-input
+ * (host-input/semantics-program.ts), built once by createHostSourceProgram and shared by every host-input translator.
+ * Never handed to a target. Targets receive TargetSourceProgramFacts (public/source/index.ts), built from this owner.
+ * Every per-program table lives under this object (I5).
+ */
+export interface HostSourceProgram {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
   readonly documents: SourceProgramDocuments;
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
-  readonly semantics: SourceProgramSemantics;
-  readonly effectiveTypes: SourceEffectiveTypes;
+  readonly facts: SourceProgramFacts;
+  /**
+   * Enum constant facts: exact member values, integer widths, and admission issues (merged declarations, plus the
+   * enum-use issues of enum-numeric-uses.ts over the value model, computed on first read of `issues`).
+   */
+  readonly enums: SourceEnumConstantIndex;
+  /** Property-name facts of one program file (computed keys, literal keys, element-access keys). */
+  propertyNames(sourceFile: SourceFile): SourcePropertyNameIndex;
+  /** The flow conditions at a reference: checker flow witness plus Host-retained guards (flow-conditions.ts). */
+  flowConditions(reference: Node): SourceFlowConditions | undefined;
 }

@@ -1,24 +1,24 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 
 import test from "node:test";
 
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 
-import { createTargetSourceProgram } from "../public/source.js";
 
 import { checked, compositionPreservations, extraNumericRefusals, extraPreservations } from "../../../../test/target-api/fixtures/source-semantics/enum-numeric-uses-fixtures.mjs";
 
 for (const [label, body] of compositionPreservations){
 test(`enum composition preserves ${label} without manufacturing a numeric use`, () => {
     const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
-    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: actual result identity and source effects remain unchanged`);
+    assert.equal(source.enums.issues.length, 0, `${label}: actual result identity and source effects remain unchanged`);
   });
 }
 
 for (const [label, body, expected] of extraNumericRefusals){
 test(`enum boundary refuses ${label} before a target can lose the domain`, () => {
     const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
-    const issues = source.semantics.enumConstants.issues;
+    const issues = source.enums.issues;
     assert.equal(issues.length, expected, `${label}: exactly one precise issue per actual source use`);
     assert.equal(issues.every(issue => issue.code === "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED" && issue.message.includes("used as a number")), true,
       `${label}: no native fallback, missing-fact invariant or string conversion`);
@@ -48,8 +48,8 @@ export function use(left: Value, right: Value, flag: boolean): Value {
   const conditional = nodes.find(node => original.ast.is.IsConditionalExpression(node));
   assert.equal(calls.length, 3, "one condition call and exactly one original call per branch");
   assert.equal(conditional !== undefined, true, "the actual conditional expression exists");
-  const source = createTargetSourceProgram(original);
-  assert.equal(source.semantics.enumConstants.issues.length, 0, "the same-enum effectful result stays admitted");
+  const source = createHostSourceProgramFixture(original);
+  assert.equal(source.enums.issues.length, 0, "the same-enum effectful result stays admitted");
   assert.equal(source.sourceFiles.every((file, index) => file === original.sourceFiles[index]), true, "source file identities are unchanged");
   assert.equal(calls.every(call => nodes.includes(call) && source.ast.parent(call) === original.ast.parent(call)), true,
     "source analysis does not replace, copy or reorder a call node");
@@ -63,6 +63,6 @@ export function use(left: Value, right: Value, flag: boolean): Value {
 for (const [label, body] of extraPreservations){
 test(`enum boundary preserves ${label}`, () => {
     const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
-    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: no implicit numeric projection is invented`);
+    assert.equal(source.enums.issues.length, 0, `${label}: no implicit numeric projection is invented`);
   });
 }

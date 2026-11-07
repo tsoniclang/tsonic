@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse, sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
 import { Node_Initializer, sourceTransparentExpressionOperand } from "./ast.js";
 
@@ -20,7 +20,7 @@ test("discarded callable creation includes nested definitions but not invoked or
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "exact checked file");
   const results = new Map<string, boolean>();
@@ -87,7 +87,7 @@ test("every stored callable binding retains its creation whatever its reads", ()
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "the alias controls use their exact checked source file");
   const results = new Map<string, boolean[]>();
@@ -120,7 +120,7 @@ function callableDemandFixture(sourceText: string) {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const definitions = new Map<string, { readonly declaration: Node; readonly expression: Node }>();
   const pending: Node[] = [checked.getSourceFile("/src/index.ts")!];
   while (pending.length !== 0) {
@@ -245,7 +245,7 @@ test("async result dispositions preserve selected values and distinguish storage
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const selected = new Map<string, { readonly kind: string; readonly completionReturned?: boolean }>();
   const visit = (node: Node): void => {
@@ -301,7 +301,7 @@ test("transparent operand selection has one exact checked syntax owner", () => {
     "/src/index.ts": "function read(value: number) { return (((<number>value) as number) satisfies number)!; }",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const expected = new Set(["KindParenthesizedExpression", "KindAsExpression", "KindTypeAssertionExpression",
     "KindSatisfiesExpression", "KindNonNullExpression"]);
@@ -333,7 +333,7 @@ test("shared construct inputs retain original owners, defaults, for order and sw
     `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "shared construct source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const loops: Node[] = [];
   let switchNode: Node | undefined;
@@ -374,7 +374,7 @@ test("shared expression inputs retain holes, spreads, spans and branch roles wit
     `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "shared expression source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const declarations = new Map<string, Node>();
   let conditional: Node | undefined;
@@ -412,7 +412,7 @@ test("shared value inputs never turn type queries or signature syntax into runti
     `,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "type metadata source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   let typeQuery: Node | undefined;
   let signature: Node | undefined;

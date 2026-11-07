@@ -14,6 +14,7 @@ const reasons: Readonly<Record<SourceTypeFlowRefusalCode, string>> = Object.free
   TSONIC_LOCAL_TYPE_ADDRESS: "An open local's address requires a fixed storage type. Annotate the local before taking its address.",
   TSONIC_LOCAL_TYPE_LIMIT: "Local type inference exceeds 64 bindings, 1024 uses per binding, or depth 4. Annotate the declaration.",
   TSONIC_LOCAL_TYPE_GENERIC: "The pinned generic declaration cannot establish one exact source instantiation. Annotate the arguments or provide explicit type arguments.",
+  TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT: "This number-origin integer cannot enter an unknown or object slot without a proven exact float64 representation.",
   TSONIC_LOCAL_TYPE_UNSUPPORTED: "This source operation has no proven local type-flow rule or required checked evidence is unavailable. Annotate the value or the selected signature.",
 });
 

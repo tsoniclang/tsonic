@@ -1,5 +1,23 @@
 import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectFakeTargetSourceProfile, compileProject, createProgramOptionsForProject, composeFakeTargetSourceCompiler, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference, targetArtifacts } from "./surface-composition.helpers.mjs";
-import { sourceProjectFiles } from "../../../packages/target-api/dist/public/source.js";
+import { sourceProjectFiles } from "../../../packages/target-api/dist/public/host.js";
+
+// A target receives TargetSourceProgramFacts: authored syntax is `syntax`; the project files are the program files
+// that are neither declaration files nor provider virtual files.
+const targetProjectFiles = source => sourceProjectFiles({ ast: source.syntax, sourceFiles: source.sourceFiles });
+const hostType = (source, node) => {
+  const outcome = source.facts.values.type(node);
+  assert.equal(outcome.kind === "refused", false, "the Host publishes a type for the value");
+  return outcome.type;
+};
+// Arms of a Host descriptor: union members (through alias definitions), an optional value plus absence.
+const descriptorArms = type => type.kind === "union" ? type.types.flatMap(descriptorArms)
+  : type.kind === "optional" ? [...descriptorArms(type.value), { kind: "intrinsic", intrinsic: "absence" }]
+  : type.kind === "declared" && type.definition?.kind === "union" ? descriptorArms(type.definition) : [type];
+const numberPrimitives = new Set(["int8", "uint8", "int16", "uint16", "int32", "uint32", "native-int", "native-uint",
+  "float16", "float32", "float64", "decimal"]);
+const isStringArm = arm => arm.kind === "string" || arm.kind === "primitive" && arm.primitive === "char";
+const isNumberArm = arm => arm.kind === "primitive" && numberPrimitives.has(arm.primitive);
+const isAbsentArm = arm => arm.kind === "intrinsic" && (arm.intrinsic === "absence" || arm.intrinsic === "void");
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
   const events = [];
@@ -313,8 +331,8 @@ test("host gives backends the TSTS source graph instead of the raw project file 
   };
   const targetPack = createFakeTargetPack(events, {
     onCompile(input) {
-      backendProjectSourceFiles = sourceProjectFiles(input.source)
-        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = targetProjectFiles(input.source)
+        .map((sourceFile) => input.source.syntax.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();
@@ -353,17 +371,12 @@ test("host exposes TSTS flow-narrowed source types through the checked source pr
   };
   const targetPack = createFakeTargetPack(events, {
     onCompile(input) {
-      const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      const sourceFile = targetProjectFiles(input.source).find((candidate) => input.source.syntax.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
-      const narrowedText = findVariableInitializer(input.source.ast, sourceFile, "narrowedText");
-      const narrowedNumber = findVariableInitializer(input.source.ast, sourceFile, "narrowedNumber");
-      const semantics = input.source.semantics.forFile(sourceFile);
-      narrowedTypes.text = semantics.types.isStringLike(
-        semantics.types.expressionType(narrowedText),
-      );
-      narrowedTypes.number = semantics.types.isNumberLike(
-        semantics.types.expressionType(narrowedNumber),
-      );
+      const narrowedText = findVariableInitializer(input.source.syntax, sourceFile, "narrowedText");
+      const narrowedNumber = findVariableInitializer(input.source.syntax, sourceFile, "narrowedNumber");
+      narrowedTypes.text = descriptorArms(hostType(input.source, narrowedText)).every(isStringArm);
+      narrowedTypes.number = descriptorArms(hostType(input.source, narrowedNumber)).every(isNumberArm);
     },
   });
   await writeProject(projectDirectory, {
@@ -465,15 +478,11 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
   };
   const targetPack = createFakeTargetPack(events, {
     onCompile(input) {
-      const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      const sourceFile = targetProjectFiles(input.source).find((candidate) => input.source.syntax.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
-      const semantics = input.source.semantics.forFile(sourceFile);
       for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
-        const initializer = findVariableInitializer(input.source.ast, sourceFile, name);
-        observedTypes[name] = summarizeSourceType(
-          semantics,
-          semantics.types.expressionType(initializer),
-        );
+        const initializer = findVariableInitializer(input.source.syntax, sourceFile, name);
+        observedTypes[name] = summarizeSourceType(input.source.syntax, hostType(input.source, initializer));
       }
     },
   });
@@ -537,19 +546,15 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
   ]);
 });
 
-function summarizeSourceType(semantics, type) {
-  const members = semantics.types.isUnion(type)
-    ? semantics.types.unionOrIntersectionTypes(type)
-    : [type];
-  const symbol = semantics.declarations.typeAliasSymbol(type) ??
-    semantics.declarations.typeSymbol(type);
+// The Host descriptor summary: the declared name of a single declared arm, and which primitive families the arms cover.
+function summarizeSourceType(ast, type) {
+  const members = descriptorArms(type);
+  const declared = members.length === 1 && members[0].kind === "declared" ? members[0].declaration : undefined;
   return {
-    symbol: symbol === undefined
-      ? undefined
-      : semantics.declarations.symbolName(symbol),
-    string: members.some((member) => semantics.types.isStringLike(member)),
-    number: members.some((member) => semantics.types.isNumberLike(member)),
-    nullish: members.some((member) => semantics.types.isNullish(member)),
+    symbol: declared === undefined ? undefined : ast.text(ast.name(declared)),
+    string: members.some(isStringArm),
+    number: members.some(isNumberArm),
+    nullish: members.some(isAbsentArm),
   };
 }
 test("host source graph follows relative ESM import and export edges through TSTS", async () => {
@@ -564,8 +569,8 @@ test("host source graph follows relative ESM import and export edges through TST
   };
   const targetPack = createFakeTargetPack(events, {
     onCompile(input) {
-      backendProjectSourceFiles = sourceProjectFiles(input.source)
-        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = targetProjectFiles(input.source)
+        .map((sourceFile) => input.source.syntax.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();
@@ -626,8 +631,8 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
   };
   const targetPack = createFakeTargetPack(events, {
     onCompile(input) {
-      backendProjectSourceFiles = sourceProjectFiles(input.source)
-        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = targetProjectFiles(input.source)
+        .map((sourceFile) => input.source.syntax.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();

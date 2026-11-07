@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { createTsonicMemoryBindingFactsIndex, selectTsonicMemoryFieldBindingFacts,
+import { createHostSourceProgramFixture } from "../../../host-program-fixtures.js";
+import { selectTsonicMemoryFieldBindingFacts,
   selectTsonicMemoryRecordBindingFacts, selectTsonicRawLocationFacts } from "../../../public/facts.js";
+import { createTsonicMemoryBindingFactsIndex } from "../usage.js";
 import { tsonicRawMemoryOperationFactKey } from "../../../pointers/raw-memory/facts.js";
 import { tsonicMemoryTypeFactKey } from "../../type-contract/facts.js";
 import { memoryCall, memoryCalls } from "../../testing/fixtures.js";
@@ -56,7 +57,7 @@ test("field and record facts preserve selected field order without legacy domain
 
 test("the structural binding index keeps exact bound fields without legacy domain reads", () => {
   const checked = bindingSession(boundRecordSource);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const facts = structuralFacts(checked.sourceFacts);
   const selected = selectTsonicMemoryRecordBindingFacts(checked.ast, facts, memoryCall(checked, "bindmemoryrecord"));
   assert.equal(selected?.kind, "resolved");

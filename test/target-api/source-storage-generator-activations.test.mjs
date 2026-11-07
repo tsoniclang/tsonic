@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { selectJsSourceCallStorageEffect, jsSourceCallableParameterEffects } from "../../packages/js-source-profile/dist/index.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
@@ -10,13 +11,13 @@ function fixture(body, override) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const visit = node => { nodes.push(node); source.ast.forEachChild(node, visit); };
   visit(file);
   const identity = (node, call) => {
-    const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+    const declaration = call.signature;
     const owner = declaration === undefined ? undefined : source.ast.parent(declaration);
     return owner === undefined ? undefined : { declaration,
       ownerName: source.ast.text(source.ast.name(owner)), memberName: source.ast.text(source.ast.name(declaration)) };

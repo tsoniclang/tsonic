@@ -17,7 +17,7 @@ const comparison = reversed ? `${absence} ${operator} ${operand}` : `${operand} 
 test(`enum absence ${label} preserves ${comparison}`, () => {
           const source = checked(`enum Value { First = 1, Second = 2 }
 export function use(value: Value | null | undefined, flag: boolean): boolean { ${setup} return ${comparison}; }`);
-          assert.equal(source.semantics.enumConstants.issues.length, 0,
+          assert.equal(source.enums.issues.length, 0,
             `${label}: observing canonical absence does not project an enum to a number`);
         });
 }

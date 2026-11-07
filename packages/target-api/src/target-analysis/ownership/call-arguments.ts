@@ -1,12 +1,13 @@
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceAnalysisProgram } from "../analysis-program.js";
 import { sourceCallArgumentCorrespondences, type SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
 
-export function createSourceCallArgumentCorrespondenceQuery(source: Pick<TargetSourceProgram, "ast" | "semantics">) {
-  const correspondences = new Map<ResolvedSourceCallInfo, readonly SourceCallArgumentCorrespondence[] | undefined>();
-  return (operation: ResolvedSourceCallInfo): readonly SourceCallArgumentCorrespondence[] | undefined => {
-    if (!correspondences.has(operation)) correspondences.set(operation,
-      sourceCallArgumentCorrespondences({ ast: source.ast, semantics: source.semantics.forNode(operation.call) }, operation));
-    return correspondences.get(operation);
+/** Argument-to-parameter rows of the navigation call witness at `call`, memoized per query (keyed by the call Node). */
+export function createSourceCallArgumentCorrespondenceQuery(source: Pick<SourceAnalysisProgram, "ast" | "navigation">) {
+  const correspondences = new Map<Node, readonly SourceCallArgumentCorrespondence[] | undefined>();
+  return (call: Node): readonly SourceCallArgumentCorrespondence[] | undefined => {
+    if (!correspondences.has(call)) correspondences.set(call,
+      sourceCallArgumentCorrespondences({ ast: source.ast, navigation: source.navigation }, call));
+    return correspondences.get(call);
   };
 }

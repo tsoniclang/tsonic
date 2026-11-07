@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, formatDiagnostics } from "@tsonic/tsts";
-import { createSourceProgramNavigation, createTargetSourceProgram, sourceIntegerInduction } from "../../packages/target-api/dist/public/source.js";
+import { createSourceNavigationInput, createSourceProgramNavigation, createHostSourceProgram, sourceIntegerInduction } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 const profile = `
@@ -37,9 +38,9 @@ test("bounded induction proves only unchanged zero-based counters with represent
     }
   ` });
   assert.equal(formatDiagnostics(source.diagnostics.filter(value => value !== undefined)), "");
-  const navigation = createSourceProgramNavigation(source);
-  const program = createTargetSourceProgram(source);
-  const evidence = { sourceFacts: source.sourceFacts, semanticsFor: node => program.semantics.forFile(source.ast.getSourceFile(node)) };
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
+  // Induction reads call selections through navigation (B3); the evidence is the fact resolver only.
+  const evidence = { sourceFacts: source.sourceFacts };
   const file = projectSourceFile(source, "src/index.ts");
   const declarations = [];
   const visit = node => {
@@ -67,14 +68,14 @@ test("integer call uses require exact project parameter and by-value evidence", 
   ` }, { sourceCore: true });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const declarations = [];
   const visit = node => {
     if (source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "index") declarations.push(node);
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(projectSourceFile(source, "src/index.ts"));
-  const evidence = { sourceFacts: source.sourceFacts, semanticsFor: node => source.semantics.forNode(node) };
+  const evidence = { sourceFacts: source.sourceFacts };
   assert.deepEqual(declarations.map(declaration => sourceIntegerInduction(declaration, source.ast, source.navigation, evidence) !== undefined),
     [true, false, false, false]);
   assert.equal(sourceIntegerInduction(declarations[0], source.ast, source.navigation, { ...evidence, sourceFacts: undefined }), undefined);

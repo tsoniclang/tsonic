@@ -1,14 +1,14 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
 import { selectCallableImplementationDeclaration } from "./callable-implementation.js";
 
 function fixture(sourceText: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": sourceText },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const declarations: Node[] = [];
   const pending: Node[] = [...source.navigation.sourceFiles];
   while (pending.length > 0) {
@@ -59,14 +59,13 @@ export function invoke(holder: Holder): number { return holder.ordinary(1) + hol
   const signatures = declarations.filter(node => source.ast.body(node) === undefined);
   assert.equal(signatures.length, 2, "both ordinary and computed overload contracts are present");
   for (const [index, declaration] of signatures.entries()) {
-    const sourceFile = source.ast.getSourceFile(declaration)!;
-    const symbol = source.navigation.declarationSymbol(declaration, sourceFile);
-    assert.equal(symbol !== undefined, true, `overload ${index}: exact checked declaration symbol`);
-    assert.equal(source.navigation.declarationSymbol(declaration, sourceFile) === symbol, true, `overload ${index}: one cached symbol`);
+    const entity = source.navigation.mergedDeclarations(declaration);
+    assert.equal(entity.includes(declaration) && entity.length > 1, true, `overload ${index}: merged entity declarations`);
+    assert.equal(source.navigation.mergedDeclarations(declaration) === entity, true, `overload ${index}: one memoized entity`);
     const selected = source.navigation.callableImplementation(declaration);
     assert.equal(selected.kind === "resolved" && source.ast.body(selected.implementation.declaration) !== undefined &&
       source.ast.parent(selected.implementation.declaration) === source.ast.parent(declaration) &&
-      selected.implementation.symbol === symbol, true, `overload ${index}: exact implementation and symbol correspondence`);
+      entity.includes(selected.implementation.declaration), true, `overload ${index}: exact implementation within its entity`);
   }
 });
 
@@ -86,16 +85,11 @@ export function make(): object { return new Holder(1); }
 });
 
 test("ambiguous checked implementation sets are refused rather than chosen by name", () => {
-  const { source, checked, declarations } = fixture(`
+  const { source, declarations } = fixture(`
 class Holder { first(): number { return 1; } second(): number { return 2; } }
 `);
   const methods = declarations.filter(node => source.ast.is.IsMethodDeclaration(node));
   const declaration = methods[0]!;
-  const checker = checked.getSourceFileQueries(source.ast.getSourceFile(declaration)!).checker;
-  const symbol = source.navigation.declarationSymbol(declaration, source.ast.getSourceFile(declaration)!);
-  assert.equal(symbol !== undefined, true, "the ambiguous control retains the same checked symbol input");
-  const selected = selectCallableImplementationDeclaration(source.ast, { ...checker,
-    getSymbolDeclarations: () => methods,
-  }, declaration, symbol);
+  const selected = selectCallableImplementationDeclaration(source.ast, declaration, methods);
   assert.equal(selected === undefined, true, "two same-category bodies do not select an arbitrary implementation");
 });

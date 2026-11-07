@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
+import { createSourceHostInput } from "../../host-input/index.js";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms } from "./terms.js";
+import { createSourceTypeDescriptorUnions, createSourceTypeFlowTerms } from "./terms.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowCall,
@@ -28,7 +29,7 @@ function fixture(text: string) {
   assert.equal(checked.diagnostics.length, 0,
     formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
   assert.equal(checked.extensionDiagnostics.length, 0, "the checked fixture has no extension refusal");
-  const source = createTargetSourceProgram(checked);
+  const source = createSourceTypeFlowTestProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The original checked source file is required.");
   const nodes: Node[] = [];
@@ -40,7 +41,8 @@ function fixture(text: string) {
   };
   visit(file);
   const context: SourceTypeFlowAnalysisContext = {
-    source,
+    source, unions: createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles),
+    input: createSourceHostInput(source),
     authoredInheritedBindings: () => new Map(),
     describe: () => undefined,
     literal: () => undefined,
@@ -76,7 +78,7 @@ function graph(
   calls: readonly SourceTypeFlowCall[] = [],
 ): SourceTypeFlowGraph {
   return Object.freeze({ roots: Object.freeze(roots), nodes: Object.freeze(nodes),
-    links: Object.freeze(links), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
+    links: Object.freeze(links), inferenceInputs: Object.freeze([]), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
 }
 
 function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariable): boolean {
@@ -569,7 +571,7 @@ test("C2388 contextual authored results do not become inferred signatures", () =
       const read: () => number[] = () => { const values = [1]; return values; }; return read();
     }
     function inferred() { const values = [1]; take(values); return values; }`);
-  const { context } = createSourceTypeFlowAnalysisContext(current.source);
+  const { context } = createSourceTypeFlowAnalysisContext(current.source, current.context.unions, createSourceHostInput(current.source));
   const collected = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(current.source.ast, collected);
   const signatures = collectSourceTypeFlowSignatures(context, collected, terms.isInference);

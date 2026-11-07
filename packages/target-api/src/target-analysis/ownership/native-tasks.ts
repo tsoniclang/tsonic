@@ -1,10 +1,13 @@
+import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipValues } from "./model.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
+import { sourceStorageRoleDeclaration } from "../source-storage/model/components.js";
 
 export interface SourceNativeTaskSpawn {
   readonly node: Node;
@@ -18,7 +21,7 @@ export interface SourceDeclarationNativeTaskScope {
 }
 
 export function analyzeSourceDeclarationNativeTaskGraph(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly values: SourceDeclarationOwnershipValues;
   readonly nodes: readonly Node[];
   readonly spawns: readonly { readonly node: Node; readonly operand: Node }[];
@@ -83,10 +86,11 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       failure = sourceDeclarationOwnershipUnresolved(declaration, "A native task declaration must belong to the checked program.");
       return undefined;
     }
-    const semantics = source.semantics.forNode(declaration);
-    const component = semantics.types.declarationSignatureInfo(declaration)?.returnType ??
-      semantics.declarations.declaredValueType(declaration);
-    if (component === undefined || !semantics.types.isIdentical(component, selected.contract.component.selectedType)) {
+    // The declaration's Host component: its callable result, else its value type.
+    const outcome = isSourceCallableSignatureDeclaration(source.ast, declaration)
+      ? source.facts.values.callableReturn(declaration) : source.facts.values.type(declaration);
+    const component = outcome.kind === "refused" ? undefined : outcome.type;
+    if (component === undefined || !sourceTypeDescriptorsEqual(component, selected.contract.component.type)) {
       failure = sourceDeclarationOwnershipUnresolved(declaration,
         "A native task scope needs its exact selected declaration component, not an unrelated checked type.");
       return undefined;
@@ -116,19 +120,19 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       return budget.failure() ?? Object.freeze({ kind: "unresolved", issues: Object.freeze(issues) });
     for (const node of input.nodes) {
       if (!budget.step(node)) return budget.failure()!;
-      const semantics = source.semantics.forNode(node);
       const targets: Node[] = [];
       if (source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)) {
-        const call = semantics.operations.call(node);
-        const declaration = call?.sourceSelectedSignatureKind === "resolved"
-          ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
+        const call = source.navigation.call(node);
+        const declaration = call?.selection === "resolved" ? call.signature : undefined;
         if (declaration !== undefined) targets.push(declaration);
       } else if (source.ast.is.IsPropertyAccessExpression(node)) {
-        const access = semantics.operations.propertyAccess(node);
-        if (access?.accessMode !== "write" && access?.selectedReadDeclaration !== undefined && source.ast.is.IsGetAccessorDeclaration(access.selectedReadDeclaration))
-          targets.push(access.selectedReadDeclaration);
-        if (access?.accessMode !== "read" && access?.selectedWriteDeclaration !== undefined && source.ast.is.IsSetAccessorDeclaration(access.selectedWriteDeclaration))
-          targets.push(access.selectedWriteDeclaration);
+        const access = source.navigation.memberAccess(node);
+        const read = access?.accessMode !== "write" && access?.declaration !== undefined
+          ? sourceStorageRoleDeclaration(source, access.declaration, "read") : undefined;
+        const write = access?.accessMode !== "read" && access?.declaration !== undefined
+          ? sourceStorageRoleDeclaration(source, access.declaration, "write") : undefined;
+        if (read !== undefined && source.ast.is.IsGetAccessorDeclaration(read)) targets.push(read);
+        if (write !== undefined && source.ast.is.IsSetAccessorDeclaration(write)) targets.push(write);
       }
       if (targets.length === 0) continue;
       const unsupported = unsupportedOwner(node);

@@ -1,127 +1,180 @@
+import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
-import type { Node, Signature, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceNavigationCall, SourceNavigationCallBinding } from "../../../host-input/navigation.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorSignature } from "../../../source-semantics/local-type-flow/types.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
-import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
+import {
+  sourcePresentStorageArms, sourceStorageArrayElementType, sourceStorageComponentType, sourceStorageIsAbsentType,
+  sourceStorageIsArrayLikeType, sourceStorageSubjectType, sourceStorageTupleElements,
+} from "../model/components.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisIsOpenArm, sourceAnalysisMayBeAbsent } from "../../analysis-program.js";
+import { sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
 
+/** The receiver expression of a member call (`o.m()` → `o`), from the callee's member witness. */
+export function sourceStorageCallReceiver(source: Pick<SourceAnalysisProgram, "ast" | "navigation">, selected: SourceNavigationCall): Node | undefined {
+  let callee = selected.callee;
+  while (source.ast.is.IsParenthesizedExpression(callee)) {
+    const inner = source.ast.as.AsParenthesizedExpression(callee)?.Expression;
+    if (inner === undefined) return undefined;
+    callee = inner;
+  }
+  return source.ast.is.IsPropertyAccessExpression(callee) || source.ast.is.IsElementAccessExpression(callee)
+    ? source.navigation.memberAccess(callee)?.receiver : undefined;
+}
+
+/**
+ * The Host descriptor of the parameter a binding fills at a call: the instantiated parameter of the Host call selection,
+ * else the declared parameter type. undefined when the Host refused it.
+ */
+export function sourceStorageBindingParameterType(source: SourceAnalysisProgram, selected: SourceNavigationCall,
+  binding: SourceNavigationCallBinding): SourceTypeDescriptor | undefined {
+  const selection = source.facts.selections.call(selected.call);
+  if (selection !== undefined && selection.kind !== "refused") {
+    const parameter = selection.parameters[binding.sourceParameterIndex];
+    if (parameter !== undefined) return parameter;
+  }
+  const declaration = selected.parameters[binding.sourceParameterIndex]?.parameterDeclaration;
+  return declaration === undefined ? undefined : sourceAnalysisValueType(source, declaration);
+}
+
+/**
+ * The Host descriptor of the value a binding supplies: the argument's type for a value argument; for a spread, the
+ * tuple element (spread-element) or the array element (spread-sequence) of the spread operand's type.
+ */
+export function sourceStorageBindingArgumentType(source: SourceAnalysisProgram, selected: SourceNavigationCall,
+  binding: SourceNavigationCallBinding): SourceTypeDescriptor | undefined {
+  const argument = selected.arguments[binding.sourceArgumentIndex];
+  if (argument === undefined) return undefined;
+  if (binding.sourceForm === "value") return sourceAnalysisValueType(source, argument);
+  const operand = source.ast.is.IsSpreadElement(argument) ? Node_Expression(source.ast, argument) : undefined;
+  const type = operand === undefined ? undefined : sourceAnalysisValueType(source, operand);
+  if (type === undefined) return undefined;
+  if (binding.sourceForm === "spread-sequence") return sourceStorageArrayElementType(type);
+  const index = binding.spreadElementIndex;
+  return index === undefined ? undefined : sourceStorageComponentType(source, type, { kind: "tuple-element", index });
+}
+
 export function sourceStorageInvocationActual(
-  source: TargetSourceProgram,
-  selected: ResolvedSourceCallInfo,
-  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+  source: SourceAnalysisProgram,
+  selected: SourceNavigationCall,
+  binding: SourceNavigationCallBinding,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
-): { readonly subject: SourceStorageSubject; readonly sourceType: Type; readonly targetType: Type } | undefined {
-  const argument = selected.sourceArguments[binding.sourceArgumentIndex];
+): { readonly subject: SourceStorageSubject; readonly sourceType: SourceTypeDescriptor | undefined;
+  readonly targetType: SourceTypeDescriptor | undefined } | undefined {
+  const argument = selected.arguments[binding.sourceArgumentIndex];
   if (argument === undefined) return undefined;
-  const { ast, semantics } = source;
+  const { ast } = source;
+  const typed = (projected: SourceStorageSubject) => Object.freeze({ subject: projected,
+    sourceType: sourceStorageBindingArgumentType(source, selected, binding),
+    targetType: sourceStorageBindingParameterType(source, selected, binding) });
   if (binding.sourceForm === "value") {
-    const actual = ast.is.IsSpreadElement(argument.expression) ? undefined : subjectFor(argument.expression);
-    return actual === undefined ? undefined : Object.freeze({ subject: actual,
-      sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
+    const actual = ast.is.IsSpreadElement(argument) ? undefined : subjectFor(argument);
+    return actual === undefined ? undefined : typed(actual);
   }
   const index = binding.spreadElementIndex;
-  const file = ast.getSourceFile(argument.expression);
-  if (!ast.is.IsSpreadElement(argument.expression) || file === undefined || !semantics.includes(file)) return undefined;
-  const context = semantics.forFile(file);
-  const { types } = context;
-  const actual = subjectFor(Node_Expression(ast, argument.expression));
-  if (actual === undefined) return undefined;
+  if (!ast.is.IsSpreadElement(argument) || !sourceAnalysisIncludesFile(source, ast.getSourceFile(argument))) return undefined;
+  const operand = Node_Expression(ast, argument);
+  const operandType = operand === undefined ? undefined : sourceAnalysisValueType(source, operand);
+  const actual = subjectFor(operand);
+  if (actual === undefined || operandType === undefined) return undefined;
   if (binding.sourceForm === "spread-sequence") {
     if (binding.sourceParameterForm !== "rest-sequence" || index !== undefined) return undefined;
     const component = Object.freeze({ kind: "array-element" as const });
-    const originalType = sourceStorageComponentType(argument.type, component, context, ast);
-    if (originalType === undefined) return undefined;
+    if (sourceStorageComponentType(source, operandType, component) === undefined) return undefined;
     const projected = subject(actual.node, actual.kind, [...actual.projection, component]);
-    return projected === undefined ? undefined : Object.freeze({ subject: projected,
-      sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
+    return projected === undefined ? undefined : typed(projected);
   }
   if (index === undefined || !Number.isSafeInteger(index) || index < 0) return undefined;
-  if (!types.isTuple(argument.type)) return undefined;
-  const element = types.tupleElementInfos(argument.type)[index];
-  if (element?.elementKind !== "required" && element?.elementKind !== "optional") return undefined;
+  const tuples = sourceStorageTupleElements(operandType);
+  if (tuples?.length !== 1) return undefined;
+  const element = tuples[0]![index];
+  if (element?.kind !== "required" && element?.kind !== "optional") return undefined;
   const projected = subject(actual.node, actual.kind, [...actual.projection, { kind: "tuple-element", index }]);
-  return projected === undefined ? undefined : Object.freeze({ subject: projected,
-    sourceType: binding.selectedArgumentType, targetType: binding.selectedParameterType });
+  return projected === undefined ? undefined : typed(projected);
 }
 
 export function sourceStorageInvocationArgumentAbsence(
-  source: TargetSourceProgram,
-  selected: ResolvedSourceCallInfo,
-  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+  source: SourceAnalysisProgram,
+  selected: SourceNavigationCall,
+  binding: SourceNavigationCallBinding,
 ): "absent" | "present" | "possible" {
-  const argument = selected.sourceArguments[binding.sourceArgumentIndex];
-  const file = argument === undefined ? undefined : source.ast.getSourceFile(argument.expression);
-  if (argument === undefined || file === undefined || !source.semantics.includes(file)) return "possible";
-  const types = source.semantics.forFile(file).types;
-  const type = binding.selectedArgumentType;
-  if (types.isNullish(type) || types.isVoidLike(type)) return "absent";
+  const argument = selected.arguments[binding.sourceArgumentIndex];
+  if (argument === undefined || !sourceAnalysisIncludesFile(source, source.ast.getSourceFile(argument))) return "possible";
+  const type = sourceStorageBindingArgumentType(source, selected, binding);
+  if (type === undefined) return "possible";
+  if (sourceStorageIsAbsentType(type)) return "absent";
   if (binding.sourceForm === "spread-element") {
     const index = binding.spreadElementIndex;
-    const element = index === undefined || !types.isTuple(argument.type) ? undefined : types.tupleElementInfos(argument.type)[index];
-    if (element?.elementKind !== "required") return "possible";
+    const operand = Node_Expression(source.ast, argument);
+    const operandType = operand === undefined ? undefined : sourceAnalysisValueType(source, operand);
+    const tuples = operandType === undefined ? undefined : sourceStorageTupleElements(operandType);
+    const element = index === undefined || tuples?.length !== 1 ? undefined : tuples[0]![index];
+    if (element?.kind !== "required") return "possible";
   } else if (binding.sourceForm !== "value") return "possible";
-  const present = types.nonNullableType(type);
-  return types.isAny(type) || types.isUnknown(type) || present === undefined || !types.isIdentical(type, present)
-    ? "possible" : "present";
+  return sourceAnalysisMayBeAbsent(type) || sourcePresentStorageArms(type).length === 0 ? "possible" : "present";
 }
 
-type SourceStorageCallableInputEvidence = {
-  readonly kind: "selected-signature" | "source-implementation";
-  readonly signature: Signature | undefined;
-};
+/** The selected signature declaration of a call or the callable's own declaration (source implementation). */
+type SourceStorageCallableInputEvidence =
+  | { readonly kind: "selected-signature"; readonly signature: Node; readonly use: Node | undefined }
+  | { readonly kind: "source-implementation"; readonly signature: Node | undefined };
 
-export function sourceStorageCallableInputSlots(source: TargetSourceProgram, declaration: Node,
-  semantics: SourceFileSemantics, evidence: SourceStorageCallableInputEvidence,
-  step: () => boolean): readonly SourceStorageCallableInputSlot[] | undefined {
-  const { ast } = source;
-  if (!source.semantics.includes(semantics.sourceFile)) return undefined;
-  const contract = evidence.signature === undefined ? undefined : semantics.declarations.signatureDeclaration(evidence.signature);
-  if (evidence.signature !== undefined && contract === undefined) return undefined;
-  if (evidence.kind === "source-implementation") {
-    const file = ast.getSourceFile(declaration);
-    if (file === undefined || !source.semantics.includes(file) || ast.body(declaration) === undefined) return undefined;
-  }
-  const signature = evidence.kind === "source-implementation" && contract !== declaration
-    ? semantics.declarations.declarationSignature(declaration) : evidence.signature;
-  if (signature === undefined || semantics.declarations.signatureDeclaration(signature) !== declaration) return undefined;
-  const parameters = sourceCallableValueParameters(ast, declaration, semantics,
-    { kind: "selected-invocation", signature });
+export function sourceStorageCallableInputSlots(source: SourceAnalysisProgram, declaration: Node,
+  evidence: SourceStorageCallableInputEvidence, step: () => boolean): readonly SourceStorageCallableInputSlot[] | undefined {
+  const { ast, navigation } = source;
+  // The consuming site must be a program file; a selected signature may be declared outside them (library or
+  // provider declaration), a source implementation may not.
+  const site = evidence.kind === "selected-signature" && evidence.use !== undefined ? evidence.use : declaration;
+  if (!sourceAnalysisIncludesFile(source, ast.getSourceFile(site))) return undefined;
+  if (evidence.kind === "source-implementation" && ast.body(declaration) === undefined) return undefined;
+  if (evidence.kind === "selected-signature" && evidence.signature !== declaration) return undefined;
+  const use = evidence.kind === "selected-signature" ? evidence.use : undefined;
+  const parameters = use === undefined
+    ? sourceCallableValueParameters(ast, declaration, navigation, { kind: "declaration" })
+    : sourceCallableValueParameters(ast, declaration, navigation, { kind: "selected-invocation", call: use });
   if (parameters === undefined) return undefined;
-  const symbols = semantics.declarations.signatureParameters(signature);
-  const effectiveParameters = semantics.types.signatureParameterInfos(signature);
+  const instantiated = use === undefined || evidence.kind !== "selected-signature" || evidence.signature !== declaration
+    ? undefined : source.facts.selections.call(use);
   const slots: SourceStorageCallableInputSlot[] = [];
-  for (const [effectiveIndex, selected] of effectiveParameters.entries()) {
+  let effectiveIndex = 0;
+  for (const [sourceParameterIndex, parameter] of parameters.entries()) {
     if (!step()) return undefined;
-    const owners = semantics.declarations.symbolDeclarations(selected.sourceSymbol).filter(node => parameters.includes(node));
-    const parameter = owners.length === 1 ? owners[0] : undefined;
-    const sourceParameterIndex = symbols.indexOf(selected.sourceSymbol);
-    if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter) || sourceParameterIndex < 0) return undefined;
+    if (!ast.is.IsParameterDeclaration(parameter)) return undefined;
     const rest = ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined;
-    let projection: readonly SourceStorageProjection[] | undefined = Object.freeze([]);
-    let repeated = false;
-    if (rest) {
-      const type = semantics.types.typeOfSymbol(selected.sourceSymbol);
-      if (type !== undefined && semantics.types.isTuple(type)) {
-        const elements = semantics.types.tupleElementInfos(type);
-        const group = effectiveParameters.filter(candidate => candidate.sourceSymbol === selected.sourceSymbol);
-        const index = group.indexOf(selected);
-        const element = elements[index];
-        projection = group.length === elements.length && (element?.elementKind === "required" || element?.elementKind === "optional")
-          ? Object.freeze([Object.freeze({ kind: "tuple-element" as const, index })]) : undefined;
-      } else if (type !== undefined && semantics.types.isArrayLike(type) && selected.parameterKind === "rest") {
-        projection = Object.freeze([Object.freeze({ kind: "array-element" as const })]);
-        repeated = true;
-      } else projection = undefined;
+    if (!rest) {
+      slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated: false, projection: Object.freeze([]) }));
+      effectiveIndex += 1;
+      continue;
     }
-    slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated, projection }));
+    const type = instantiated !== undefined && instantiated.kind !== "refused" && instantiated.parameters[sourceParameterIndex] !== undefined
+      ? instantiated.parameters[sourceParameterIndex] : sourceAnalysisValueType(source, parameter);
+    const tuples = type === undefined ? undefined : sourceStorageTupleElements(type);
+    if (tuples?.length === 1 && tuples[0]!.every(element => element.kind !== "rest")) {
+      for (const [index, element] of tuples[0]!.entries()) {
+        if (!step()) return undefined;
+        slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated: false,
+          projection: element.kind === "required" || element.kind === "optional"
+            ? Object.freeze([Object.freeze({ kind: "tuple-element" as const, index })]) : undefined }));
+        effectiveIndex += 1;
+      }
+    } else if (type !== undefined && sourceStorageArrayElementType(type) !== undefined) {
+      slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated: true,
+        projection: Object.freeze([Object.freeze({ kind: "array-element" as const })]) }));
+      effectiveIndex += 1;
+    } else {
+      slots.push(Object.freeze({ parameter, sourceParameterIndex, effectiveIndex, repeated: false, projection: undefined }));
+      effectiveIndex += 1;
+    }
   }
   return Object.freeze(slots);
 }
@@ -139,47 +192,54 @@ export function sourceStorageSelectedInputSlots(selection: SourceStorageInvocati
     ? selection.selected.slots : undefined;
 }
 
-export function sourceStorageInvocationInputSelection(source: TargetSourceProgram, key: SourceStorageInvocationSelectionKey,
+/**
+ * The callable signature a native callback argument is invoked with: the single call signature of the present
+ * instantiated parameter type of the callback binding. undefined when there is not exactly one.
+ */
+export function sourceStorageCallbackSignature(entry: SourceStorageCallbackEntry): SourceTypeDescriptorSignature | undefined {
+  const type = entry.argument.parameterType;
+  if (type === undefined) return undefined;
+  const signatures = sourcePresentStorageArms(type).flatMap(arm => sourceAnalysisCallSignatures(arm));
+  return signatures.length === 1 ? signatures[0] : undefined;
+}
+
+export function sourceStorageInvocationInputSelection(source: SourceAnalysisProgram, key: SourceStorageInvocationSelectionKey,
   nodes: ReadonlySet<Node>, exact: boolean, step: () => boolean, retain: (cost: number) => boolean,
   read: (declaration: Node) => SourceStorageInvocationInputSlots | undefined): SourceStorageInvocationInputSlots | undefined {
-  const { ast, semantics } = source;
+  const { ast, navigation } = source;
   const entry = "kind" in key && (key.kind === "source-storage-callback-entry" || key.kind === "source-storage-accessor-entry") ? key : undefined;
   const node = "invocation" in key ? key.invocation : key;
-  const consumer = semantics.forNode(node);
   const selectedCall = entry === undefined && (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))
-    ? consumer.operations.call(node) : undefined;
-  let signature = selectedCall?.sourceSelectedSignatureKind === "resolved" ? selectedCall.selectedSignature : undefined;
+    ? navigation.call(node) : undefined;
+  // `signature`: the selected signature declaration (the callable's own declaration for a declaration key).
+  let signature = selectedCall?.selection === "resolved" ? selectedCall.signature : undefined;
   let declaration: Node | undefined;
   if (entry?.kind === "source-storage-callback-entry") {
-    const present = consumer.types.nonNullableType(entry.argument.binding.selectedParameterType);
-    const signatures = present === undefined ? [] : consumer.types.callSignatures(present);
-    signature = signatures.length === 1 ? signatures[0] : undefined;
+    signature = sourceStorageCallbackSignature(entry)?.declaration;
   } else if (entry?.kind === "source-storage-accessor-entry") {
     declaration = entry.declaration;
-    signature = semantics.forNode(declaration).declarations.declarationSignature(declaration);
+    signature = entry.declaration;
   } else if (selectedCall === undefined) {
     declaration = node;
-    signature = consumer.declarations.declarationSignature(node);
+    signature = navigation.declaredParameters(node) === undefined ? undefined : node;
   }
-  declaration ??= signature === undefined ? undefined : consumer.declarations.signatureDeclaration(signature);
+  declaration ??= signature;
   const unresolved: SourceStorageInputSlotsSelection = Object.freeze({ kind: "unresolved",
     reason: "Source storage invocation inputs require their exact checked selected signature and implementation parameters." });
-  const declarationFile = declaration === undefined ? undefined : ast.getSourceFile(declaration);
-  const canonical = declaration === undefined || declaration === key || declarationFile === undefined || !semantics.includes(declarationFile)
-    ? undefined : read(declaration);
-  if (declaration !== undefined && declaration !== key && declarationFile !== undefined && semantics.includes(declarationFile) && canonical === undefined)
-    return undefined;
-  const shared = canonical !== undefined && canonical.signature === signature;
+  const included = declaration !== undefined && sourceAnalysisIncludesFile(source, ast.getSourceFile(declaration));
+  const canonical = declaration === undefined || declaration === key || !included ? undefined : read(declaration);
+  if (declaration !== undefined && declaration !== key && included && canonical === undefined) return undefined;
+  const shared = canonical !== undefined && canonical.signature === signature && selectedCall === undefined;
   const selectedSlots = shared || declaration === undefined || signature === undefined ? undefined
-    : sourceStorageCallableInputSlots(source, declaration, consumer, { kind: "selected-signature", signature }, step);
+    : sourceStorageCallableInputSlots(source, declaration,
+      { kind: "selected-signature", signature, use: selectedCall === undefined ? undefined : node }, step);
   const selected: SourceStorageInputSlotsSelection = shared ? canonical.selected : selectedSlots === undefined ? unresolved
     : Object.freeze({ kind: "resolved", slots: selectedSlots });
   const implementations: { readonly declaration: Node; readonly selected: SourceStorageInputSlotsSelection }[] = [];
   for (const candidate of nodes) {
     if (!step()) return undefined;
     let body: SourceStorageInputSlotsSelection = unresolved;
-    const candidateFile = ast.getSourceFile(candidate);
-    if (ast.body(candidate) !== undefined && candidateFile !== undefined && semantics.includes(candidateFile)) {
+    if (ast.body(candidate) !== undefined && sourceAnalysisIncludesFile(source, ast.getSourceFile(candidate))) {
       if (candidate === key) body = exact && candidate === declaration ? selected : unresolved;
       else {
         const implementation = candidate === declaration ? canonical : read(candidate);
@@ -210,19 +270,20 @@ export function sourceStorageInvocationInputSelection(source: TargetSourceProgra
 
 export interface SourceStorageNativeInputSlot {
   readonly parameterIndex: number;
-  readonly type: Type | undefined;
+  readonly type: SourceTypeDescriptor | undefined;
   readonly absent: boolean;
   readonly acceptsOmission: boolean;
   readonly projection: readonly SourceStorageProjection[];
 }
 
-export function sourceStorageNativeInputSlots(source: TargetSourceProgram, declaration: Node,
-  formal: SourceStorageSubject, selection: SourceStorageInvocationInputSlots | undefined, semantics: SourceFileSemantics,
+/** The native callback parameters a formal of the callback implementation receives (callback signature descriptors). */
+export function sourceStorageNativeInputSlots(source: SourceAnalysisProgram, declaration: Node,
+  formal: SourceStorageSubject, selection: SourceStorageInvocationInputSlots | undefined,
   step: () => boolean): readonly SourceStorageNativeInputSlot[] | undefined {
-  const signature = selection?.kind === "native-callback" ? selection.signature : undefined;
+  const signature = selection?.kind === "native-callback" ? sourceStorageCallbackSignature(selection.entry) : undefined;
   const inputs = sourceStorageSelectedInputSlots(selection, declaration);
   if (signature === undefined || inputs === undefined) return undefined;
-  const parameters = semantics.types.signatureParameterInfos(signature);
+  const parameters = signature.parameters;
   const matching = inputs.filter(input => input.parameter === formal.node);
   if (matching.length === 0) return undefined;
   const selected: SourceStorageNativeInputSlot[] = [];
@@ -238,26 +299,26 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
       projection = projection.slice(1);
     }
     const last = parameters[parameters.length - 1];
-    const restIndex = last?.parameterKind === "rest" ? parameters.length - 1 : undefined;
+    const restIndex = last?.kind === "rest" ? parameters.length - 1 : undefined;
     const maximum = input.repeated ? Math.max(input.effectiveIndex + 1, parameters.length) : input.effectiveIndex + 1;
     for (let parameterIndex = input.effectiveIndex; parameterIndex < maximum; parameterIndex += 1) {
       if (!step()) return undefined;
       const native = parameters[parameterIndex] ?? (restIndex !== undefined && parameterIndex >= restIndex ? last : undefined);
       let type = native?.type;
-      if (native?.parameterKind === "rest" && type !== undefined)
-        type = sourceStorageComponentType(type, { kind: "array-element" }, semantics, source.ast);
+      if (native?.kind === "rest" && type !== undefined)
+        type = sourceStorageComponentType(source, type, { kind: "array-element" });
       for (const component of projection) {
         if (!step()) return undefined;
-        type = type === undefined ? undefined : sourceStorageComponentType(type, component, semantics, source.ast);
+        type = type === undefined ? undefined : sourceStorageComponentType(source, type, component);
       }
       selected.push(Object.freeze({ parameterIndex, type, absent: native === undefined,
-        acceptsOmission: native === undefined || native.acceptsOmission, projection }));
+        acceptsOmission: native === undefined || native.kind !== "required", projection }));
     }
   }
   return selected.length === 0 ? undefined : Object.freeze(selected);
 }
 
-export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageNativeCallablePayloads<Bindings>(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings, queries: {
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
     inputsFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
@@ -271,7 +332,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
   }): { readonly values: readonly SourceStorageClassValue<Bindings>[];
     readonly uncertain: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean } | undefined {
   return budget.withRows(rows => {
-    const { ast, semantics } = source;
+    const { ast } = source;
     const pending: SourceStorageClassValue<Bindings>[] = [];
     const visited = new Map<Bindings, Set<SourceStorageSubject>>();
     const values: SourceStorageClassValue<Bindings>[] = [];
@@ -294,15 +355,15 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
       return true;
     };
     const inputs = (invocation: Node, bindings: Bindings): boolean => {
-      const selected = semantics.forNode(invocation).operations.call(invocation);
+      const selected = source.navigation.call(invocation);
       if (selected === undefined) { complete = false; return true; }
       const callbacks = queries.callbackEntriesFor(invocation);
-      for (const [index, argument] of selected.sourceArguments.entries()) {
+      for (const [index, argument] of selected.arguments.entries()) {
         if (!budget.step()) return false;
         if (callbacks.some(callback => callback.argument.binding.sourceArgumentIndex === index)) continue;
-        if (!schedule(queries.subjectFor(argument.expression), bindings)) return false;
+        if (!schedule(queries.subjectFor(argument), bindings)) return false;
       }
-      const receiver = selected.sourceReceiver?.expression ?? selected.sourceCalleeAccess?.receiver.expression;
+      const receiver = sourceStorageCallReceiver(source, selected);
       return receiver === undefined || schedule(queries.subjectFor(receiver), bindings);
     };
     if (!inputs(invocation, bindings)) return undefined;
@@ -337,15 +398,13 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
           continue;
         }
         const node = producer.subject.node;
-        const context = semantics.forNode(node);
         const type = sourceStorageSubjectType(source, producer.subject);
-        const alternatives = type === undefined ? [] : context.types.isUnion(type) || context.types.isIntersection(type)
-          ? context.types.unionOrIntersectionTypes(type) : [type];
+        const alternatives = type === undefined ? [] : sourcePresentStorageArms(type);
         if ((type === undefined || alternatives.some(alternative => {
-          const symbol = context.declarations.typeSymbol(alternative);
-          return context.types.isAny(alternative) || context.types.isUnknown(alternative) ||
-            context.types.callSignatures(alternative).length !== 0 || context.types.constructSignatures(alternative).length !== 0 ||
-            symbol !== undefined && context.declarations.symbolDeclarations(symbol).some(declaration => ast.is.IsTypeParameterDeclaration(declaration));
+          const structure = sourceTypeDescriptorStructure(alternative);
+          return sourceAnalysisIsOpenArm(alternative) ||
+            sourceAnalysisCallSignatures(alternative).length !== 0 || sourceAnalysisConstructSignatures(alternative).length !== 0 ||
+            structure.kind === "declared" && ast.is.IsTypeParameterDeclaration(structure.declaration);
         })) && !markUncertain(producer)) return undefined;
         if (producer.subject.kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
           ast.is.IsNewExpression(node) || ast.is.IsCallExpression(node) || ast.is.IsBindingElement(node))) {
@@ -386,7 +445,7 @@ export type SourceStorageInvocationInputQuery = (
   callback?: SourceStorageCallbackEntry,
 ) => SourceStorageInvocationInputs;
 
-export function createSourceStorageInvocationOrigins(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageInvocationOrigins(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationInputs: SourceStorageInvocationInputQuery;
     readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
@@ -396,7 +455,7 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
   return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
     if (queries.isUnresolved(invocation)) return undefined;
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? []
-      : sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate), { kind: "declaration" });
+      : sourceCallableValueParameters(source.ast, candidate, source.navigation, { kind: "declaration" });
     if (parameters === undefined) return undefined;
     const slots = sourceStorageSelectedInputSlots(queries.inputSlotsFor(candidate, invocation), candidate);
     return budget.withRows(rows => {
@@ -440,7 +499,7 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
 }
 
 export function createSourceStorageInvocationInputs(
-  source: TargetSourceProgram,
+  source: SourceAnalysisProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
@@ -450,7 +509,7 @@ export function createSourceStorageInvocationInputs(
   inputSlotsFor: SourceStorageInvocationInputSelectionQuery,
   argumentTransports: ReadonlyMap<Node, readonly SourceStorageArgumentTransport[]>,
 ): SourceStorageInvocationInputQuery {
-  const { ast, semantics } = source;
+  const { ast } = source;
   return (formal, candidate, invocation, callback) => {
     const subjects = new Set<SourceStorageSubject>();
     const calleeSubjects = new Set<SourceStorageSubject>();
@@ -460,24 +519,20 @@ export function createSourceStorageInvocationInputs(
       subjects.add(formal);
       return { subjects, context: "callee", omitted };
     }
-    const consumer = semantics.forNode(invocation);
-    const selected = consumer.operations.call(invocation);
+    const selected = source.navigation.call(invocation);
     if (callback !== undefined) {
-      if (selected === undefined || !selected.sourceArgumentBindings.some(binding =>
+      if (selected === undefined || !selected.bindings.some(binding =>
         binding.sourceArgumentIndex === callback.argument.binding.sourceArgumentIndex &&
         binding.sourceParameterIndex === callback.argument.binding.sourceParameterIndex &&
         binding.effectiveArgumentIndex === callback.argument.binding.effectiveArgumentIndex &&
         binding.sourceForm === callback.argument.binding.sourceForm &&
         binding.sourceParameterForm === callback.argument.binding.sourceParameterForm &&
-        binding.spreadElementIndex === callback.argument.binding.spreadElementIndex &&
-        binding.selectedArgumentType === callback.argument.binding.selectedArgumentType &&
-        binding.selectedParameterType === callback.argument.binding.selectedParameterType)) {
+        binding.spreadElementIndex === callback.argument.binding.spreadElementIndex)) {
         subjects.add(formal);
         return { subjects, context: "callee", omitted };
       }
-      const types = consumer.types;
       const nativeInputs = sourceStorageNativeInputSlots(source, candidate, formal,
-        inputSlotsFor(candidate, invocation, callback), consumer, budget.step);
+        inputSlotsFor(candidate, invocation, callback), budget.step);
       const initializer = Node_Initializer(ast, formal.node);
       if (initializer !== undefined && nativeInputs?.some(input => input.absent)) {
         const root = subjectFor(initializer);
@@ -493,7 +548,7 @@ export function createSourceStorageInvocationInputs(
         }
         const input = callback.inputs?.find(input => input.parameterIndex === native.parameterIndex);
         if (input?.from === "receiver-rejection") {
-          const receiver = selected.sourceReceiver?.expression;
+          const receiver = sourceStorageCallReceiver(source, selected);
           const rejected = receiver === undefined ? undefined : rejectionOriginsFor(receiver, formal);
           if (rejected === undefined || rejected.length === 0) calleeSubjects.add(formal);
           else for (const origin of rejected) {
@@ -504,14 +559,14 @@ export function createSourceStorageInvocationInputs(
           continue;
         }
         let receiver: Node | undefined;
-        if (input?.from === "receiver-element") receiver = selected.sourceReceiver?.expression;
+        if (input?.from === "receiver-element") receiver = sourceStorageCallReceiver(source, selected);
         else if (input?.from === "argument-element") {
-          const bindings = selected.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === input.sourceParameterIndex);
+          const bindings = selected.bindings.filter(binding => binding.sourceParameterIndex === input.sourceParameterIndex);
           if (bindings.length === 1 && bindings[0]!.sourceForm === "value" && bindings[0]!.sourceParameterForm === "parameter")
-            receiver = selected.sourceArguments[bindings[0]!.sourceArgumentIndex]?.expression;
+            receiver = selected.arguments[bindings[0]!.sourceArgumentIndex];
         }
-        const type = receiver === undefined ? undefined : types.expressionType(receiver);
-        const owner = receiver === undefined || type === undefined || !types.isArrayLike(type) ? undefined : subjectFor(receiver);
+        const type = receiver === undefined ? undefined : sourceAnalysisValueType(source, receiver);
+        const owner = receiver === undefined || type === undefined || !sourceStorageIsArrayLikeType(type) ? undefined : subjectFor(receiver);
         const projected = owner === undefined ? undefined : subject(owner.node, owner.kind,
           [...owner.projection, { kind: "array-element" }, ...native.projection]);
         if (projected === undefined) calleeSubjects.add(formal);
@@ -534,8 +589,8 @@ export function createSourceStorageInvocationInputs(
         add(ast.is.IsNewExpression(invocation) ? subject(invocation)
           : base !== undefined ? subject(base.owner, "receiver")
           : subjectFor(accessorTargets.get(invocation)?.find(target => target.declaration === candidate)?.receiver
-            ?? selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
-            ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
+            ?? (selected === undefined ? undefined : sourceStorageCallReceiver(source, selected))
+            ?? source.navigation.memberAccess(invocation)?.receiver));
       }
     } else {
       const mapping = inputSlotsFor(candidate, invocation);

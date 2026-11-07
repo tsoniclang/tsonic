@@ -93,7 +93,7 @@ export function collectSourceTypeFlowSignatures(
     if (!isInference(variable)) return;
     const origin = signatureOrigin(ast, node, declaration =>
       context.source.navigation.declarationUseSummary(declaration).exported);
-    if (origin !== undefined && declaredSlots.returned(origin.owner, context.source.semantics.forNode(origin.owner)) === undefined) {
+    if (origin !== undefined && declaredSlots.returned(origin.owner, context.input.at(origin.owner)) === undefined) {
       seeds.push({ variable: entry(variable), origin });
     }
   };

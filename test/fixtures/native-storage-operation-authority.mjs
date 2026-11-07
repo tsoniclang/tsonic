@@ -1,8 +1,10 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 
+// `source` is the target program (TargetSourceProgramFacts); `selected` is the Host call selection
+// (facts.selections.call): its signature declaration and the declaration its receiver expression references.
 export function nativeStorageOperationFactSource(source, selected, identity, bindingIdentity) {
-  const declaration = source.semantics.forNode(selected.call).declarations.signatureDeclaration(selected.selectedSignature);
-  const binding = selected.sourceCalleeAccess?.receiver.declaration ?? selected.sourceReceiver?.declaration;
+  const declaration = selected.signature;
+  const binding = selected.receiver === undefined ? undefined : source.facts.navigation.identity.target(selected.receiver)?.declaration;
   if (declaration === undefined || binding === undefined) throw new Error("Exact selected virtual operation and runtime binding are required.");
   const facts = source.sourceFacts;
   return Object.freeze({

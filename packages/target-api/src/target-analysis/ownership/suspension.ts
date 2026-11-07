@@ -1,12 +1,15 @@
-import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
+import {
+  sourceAnalysisArms, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsOpenArm,
+  sourceAnalysisIsScalar, type SourceAnalysisProgram,
+} from "../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipValues,
   SourceDeclarationPendingOperation, SourceDeclarationPendingSelection } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
 export function createSourceDeclarationSuspensionQuery(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly values: SourceDeclarationOwnershipValues;
   readonly premises: Pick<SourceDeclarationOwnershipPremises, "suspensionFor">;
   readonly budget: SourceDeclarationOwnershipBudget;
@@ -17,9 +20,9 @@ export function createSourceDeclarationSuspensionQuery(input: {
   const pending = new WeakSet<SourceDeclarationPendingOperation>();
   const select = (operation: Node, selection:
     | { readonly kind: "expression"; readonly expression: Node; readonly use: "operation" | "value" }
-    | { readonly kind: "resource-cleanup"; readonly resource: ResolvedSourceResourceManagementInfo }
+    | { readonly kind: "resource-cleanup"; readonly declaration: Node }
   ): SourceDeclarationPendingSelection => {
-    const subject = selection.kind === "expression" ? selection.expression : selection.resource.declaration;
+    const subject = selection.kind === "expression" ? selection.expression : selection.declaration;
     const use = selection.kind === "expression" ? selection.use : "resource-cleanup";
     if (!budget.step(operation)) return budget.failure()!;
     const cache = use === "operation" ? operations : results;
@@ -31,21 +34,13 @@ export function createSourceDeclarationSuspensionQuery(input: {
     if ("kind" in value) return value;
     if (value.region !== region)
       return sourceDeclarationOwnershipUnresolved(operation, "A native pending operand must belong to this exact checked execution region.");
-    if (selection.kind === "resource-cleanup" && !source.semantics.forNode(operation).types.isIdentical(
-      selection.resource.sourceResourceType, value.component.selectedType))
-      return sourceDeclarationOwnershipUnresolved(operation, "Resource cleanup requires its exact checked resource type and local value.");
     if (use === "value") {
-      const types = source.semantics.forNode(subject).types;
-      const immediate = (type: typeof value.component.selectedType): boolean => {
-        if (!budget.step(subject) || types.isAny(type) || types.isUnknown(type) || types.isIntersection(type)) return false;
-        if (types.isUnion(type)) {
-          const members = types.unionOrIntersectionTypes(type);
-          return members.length !== 0 && members.every(immediate);
-        }
-        return types.isNever(type) || types.isNumberLike(type) || types.isBooleanLike(type) || types.isStringLike(type) ||
-          types.isBigIntLike(type) || types.isSymbolLike(type) || types.isNullish(type) || types.isVoidLike(type);
-      };
-      if (immediate(value.component.selectedType)) {
+      // A value whose every Host arm is never, a scalar or absence cannot be a pending native completion.
+      const arms = sourceAnalysisArms(value.component.type);
+      const immediate = arms.length !== 0 && arms.every(arm => budget.step(subject) && !sourceAnalysisIsOpenArm(arm) &&
+        (sourceAnalysisIsNeverArm(arm) || sourceAnalysisIsAbsentArm(arm) ||
+          sourceAnalysisIsScalar(arm, node => source.ast.is.IsEnumDeclaration(node))));
+      if (immediate) {
         const rows = budget.createRows(operation);
         if (!rows.add(2)) { rows.release(); return budget.failure()!; }
         const result = Object.freeze({ kind: "never" as const });
@@ -74,7 +69,7 @@ export function createSourceDeclarationSuspensionQuery(input: {
     const contracts = Object.freeze([Object.freeze({ value, contract: selected.contract })]);
     const witness: SourceDeclarationPendingOperation = selection.kind === "expression"
       ? Object.freeze({ kind: "expression", operation, expression: subject, region, contracts })
-      : Object.freeze({ kind: "resource-cleanup", operation, resource: selection.resource, region, contracts });
+      : Object.freeze({ kind: "resource-cleanup", operation, declaration: selection.declaration, region, contracts });
     pending.add(witness);
     const result = Object.freeze({ kind: "resolved" as const, pending: witness });
     cache.set(operation, result);
@@ -84,33 +79,32 @@ export function createSourceDeclarationSuspensionQuery(input: {
     owns: (witness: SourceDeclarationPendingOperation): boolean => pending.has(witness),
     forAwait(operation: Node): SourceDeclarationPendingSelection {
       if (!budget.step(operation)) return budget.failure()!;
-      const file = source.ast.getSourceFile(operation);
       const expression = source.ast.is.IsAwaitExpression(operation)
         ? Node_Expression(source.ast, operation) : undefined;
-      if (file === undefined || !source.semantics.includes(file) || expression === undefined)
+      if (!sourceAnalysisIncludesNode(source, operation) || expression === undefined)
         return sourceDeclarationOwnershipUnresolved(operation, "A pending await requires its original checked operation and operand.");
       return select(operation, { kind: "expression", expression, use: "value" });
     },
-    forResourceCleanup(resource: ResolvedSourceResourceManagementInfo): SourceDeclarationPendingSelection {
-      const operation = resource.declaration;
+    forResourceCleanup(declaration: Node): SourceDeclarationPendingSelection {
+      const operation = declaration;
       if (!budget.step(operation)) return budget.failure()!;
-      const file = source.ast.getSourceFile(operation);
-      if (file === undefined || !source.semantics.includes(file) || !source.ast.is.IsVariableDeclaration(operation) ||
+      if (!sourceAnalysisIncludesNode(source, operation) || !source.ast.is.IsVariableDeclaration(operation) ||
         source.ast.variableDeclarationKind(operation) !== "await using")
         return sourceDeclarationOwnershipUnresolved(operation, "Cleanup suspension requires its original checked await-using declaration.");
-      const checked = source.semantics.forNode(operation).operations.resourceManagement(operation);
-      if (checked !== resource || checked.declarationKind !== "await using" || checked.disposal.kind !== "selected")
+      // The Host resource selection: an async disposal selected for this declaration. The cleaned value is the
+      // declaration's own Host value (values.forNode(declaration)).
+      const selected = source.facts.selections.resource(declaration);
+      if (selected?.declaration !== declaration || !selected.async)
         return sourceDeclarationOwnershipUnresolved(operation, "Cleanup suspension requires its exact checked acquisition and selected disposal facts.");
-      return select(operation, { kind: "resource-cleanup", resource: checked });
+      return select(operation, { kind: "resource-cleanup", declaration });
     },
     forCall(call: Node): SourceDeclarationPendingSelection {
       if (!budget.step(call)) return budget.failure()!;
-      const file = source.ast.getSourceFile(call);
-      if (file === undefined || !source.semantics.includes(file) ||
+      if (!sourceAnalysisIncludesNode(source, call) ||
         !source.ast.is.IsCallExpression(call) && !source.ast.is.IsNewExpression(call))
         return sourceDeclarationOwnershipUnresolved(call, "Native completion requires its exact checked call operation.");
-      const selected = source.semantics.forNode(call).operations.call(call);
-      if (selected?.sourceSelectedSignatureKind !== "resolved")
+      const selected = source.navigation.call(call);
+      if (selected?.selection !== "resolved")
         return sourceDeclarationOwnershipUnresolved(call, "Native completion requires its checked selected declaration contract.");
       return select(call, { kind: "expression", expression: call, use: "operation" });
     },

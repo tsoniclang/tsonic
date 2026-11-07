@@ -1,8 +1,9 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { Node_Expression } from "../../../source-navigation/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsAbsentType, sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsGenerator } from "../transport/host-reads.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -14,7 +15,7 @@ import type { SourceStorageChildContext, SourceStoragePendingReduction } from ".
 
 interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>,
   "dispatchDependencies" | "independentCalleeFor" | "regionsFor" | "classLineages" | "leaf"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly scopes: SourceStorageScopes;
@@ -30,7 +31,7 @@ interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeo
 export function createSourceStorageApplicationSuccessors(context: SourceStorageApplicationSuccessorContext) {
   const { source, budget, transport, scopes, equations, absent, nativeInputExecutions, conditionalExecutions,
     rejections, replaceChild, dispatchDependencies, independentCalleeFor, regionsFor, classLineages, leaf } = context;
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   return (term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStoragePendingReduction | undefined => {
     const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
     const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
@@ -63,7 +64,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
         if (implementations === undefined) return undefined;
         for (const candidate of implementations) {
           if (!budget.step()) return undefined;
-          if (semantics.forNode(candidate).operations.generator(candidate) === undefined) continue;
+          if (!sourceStorageIsGenerator(ast, candidate)) continue;
           const activation = scopes.boundActivation(term.callee.scope, candidate);
           const body = ast.body(candidate);
           if (activation?.invocation !== node || body === undefined) continue;
@@ -83,7 +84,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
     }
     if (term.callback !== undefined) {
       const type = sourceStorageSubjectType(source, term.callee.subject);
-      if (type !== undefined && semantics.forNode(term.invocation).types.isNullish(type)) return absent;
+      if (type !== undefined && sourceStorageIsAbsentType(type)) return absent;
       const selected = navigation.callableImplementation(node);
       const demand = term.mode === "execution" ? transport.subjectFor(term.demand) : undefined;
       if (term.mode !== "execution" || demand === undefined) return undefined;
@@ -154,7 +155,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
     }
     if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
       (contract !== undefined && ast.body(contract) === undefined || transport.declarationIsAmbient(node) === true &&
-        semantics.forNode(node).declarations.declarationSignature(node) !== undefined)) {
+        navigation.declaredParameters(node) !== undefined)) {
       const result = transport.subject(term.invocation, "value", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
         ? [leaf(result, term.scope)] : term.mode === "execution" ? []
@@ -172,7 +173,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
     }
     const candidate = selected.implementation.declaration;
-    const generator = semantics.forNode(candidate).operations.generator(candidate);
+    const generator = sourceStorageIsGenerator(ast, candidate) ? candidate : undefined;
     const asynchronous = ast.hasModifierKind(candidate, "async");
     const scope = asynchronous && term.activation.kind !== "entered" &&
       (term.mode === "throw" || term.mode === "value" && generator === undefined)

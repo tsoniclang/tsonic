@@ -1,11 +1,11 @@
-import type { AstReader, Node, Symbol } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceBindingWrite, SourceCountedLoop, SourceDeclarationReference } from "./types.js";
 
 export function sourceCountedLoop(
   ast: AstReader,
   statement: Node,
   sourceReferenceFor: (node: Node | undefined) => SourceDeclarationReference | undefined,
-  bindingWritesWithin: (symbol: Symbol, root: Node) => readonly SourceBindingWrite[],
+  bindingWritesWithin: (declaration: Node, root: Node) => readonly SourceBindingWrite[],
 ): SourceCountedLoop | undefined {
   if (!ast.is.IsForStatement(statement)) {
     return undefined;
@@ -37,7 +37,6 @@ export function sourceCountedLoop(
   const selectedCounter = sourceReferenceFor(counterReference);
   if (counterReference === undefined || bound === undefined ||
     selectedCounter === undefined ||
-    selectedCounter.symbol === undefined ||
     selectedCounter.declaration !== counterDeclaration ||
     sourceContainsDeclarationReference(
       ast,
@@ -55,13 +54,12 @@ export function sourceCountedLoop(
   if (incrementOperand === undefined ||
     ast.operatorKindName(incrementor) !== "KindPlusPlusToken" ||
     sourceReferenceFor(incrementOperand)?.declaration !== counterDeclaration ||
-    bindingWritesWithin(selectedCounter.symbol, body).length !== 0) {
+    bindingWritesWithin(counterDeclaration, body).length !== 0) {
     return undefined;
   }
   return Object.freeze({
     statement,
     counterDeclaration,
-    counterSymbol: selectedCounter.symbol,
     start,
     bound,
     body,

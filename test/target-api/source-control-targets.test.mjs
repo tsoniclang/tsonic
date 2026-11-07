@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceControlTransferTarget, selectSourceNativeGuardResult } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, sourceControlTransferTarget, selectSourceNativeGuardResult } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 import { minimalSourceGlobals } from "../fixtures/minimal-source-globals.mjs";
 
@@ -20,7 +21,7 @@ export function run(value: number): void {
 }
 ` });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.slice(0, 4)).slice(0, 2048));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const transfers = [];
   const labels = [];
@@ -56,7 +57,7 @@ test("native Boolean literal guards share exact truth through transparent syntax
   const checked = await checkedSource("native-boolean-literal-guards", { "globals.d.ts": minimalSourceGlobals,
     "src/index.ts": "export function run(flag: boolean): void { if (true) {} if (false) {} if (!(false)) {} if (flag) {} }" });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.slice(0, 4)).slice(0, 2048));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const conditions = [];
   const visit = node => {
@@ -64,7 +65,8 @@ test("native Boolean literal guards share exact truth through transparent syntax
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  const context = { ast: source.ast, navigation: source.navigation, semanticsFor: node => source.semantics.forNode(node) };
+  const context = { ast: source.ast, navigation: source.navigation,
+    flowConditions: reference => source.flowConditions(reference), values: source.facts.values };
   const expected = [true, false, true, undefined];
   assert.equal(conditions.length, expected.length);
   for (const [index, condition] of conditions.entries())

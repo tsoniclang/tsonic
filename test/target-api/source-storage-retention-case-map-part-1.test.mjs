@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { sourceDeclarationUses } from "../../packages/target-api/dist/source-navigation/declaration-uses.js";
 import { sourceCallableValueParameters } from "../../packages/target-api/dist/source-navigation/callable-parameters.js";
 import { sourceStorageFormalOwner } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
@@ -44,7 +45,7 @@ test("a checked type-only this parameter never becomes a runtime formal port", (
   const current = fixture(`function select(this: void, value: object): object { return value; }
     const original = {}; select(original);`);
   const owner = current.declaration("select");
-  const parameters = sourceCallableValueParameters(current.source.ast, owner, current.source.semantics.forNode(owner),
+  const parameters = sourceCallableValueParameters(current.source.ast, owner, current.source.navigation,
     { kind: "declaration" });
   assert.equal(parameters?.length === 1, true, "the checked signature has exactly one runtime value parameter");
   const subject = current.storage.subject(parameters[0], "input");

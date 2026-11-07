@@ -13,7 +13,7 @@ export interface NativeFixtureLifetimeContract {
     }[];
 }
 export declare function fixture(reverse: boolean, recursive: "self" | "mutual", additional?: string, nativeLifetimes?: readonly NativeFixtureLifetimeContract[]): {
-    source: import("../../../../../packages/target-api/src/source-semantics/types.js").TargetSourceProgram;
+    source: import("../../../../../packages/target-api/src/source-semantics/types.js").HostSourceProgram;
     sourceNodes: readonly Node[];
     nodes: readonly Node[];
     storage: import("../../../../../packages/target-api/src/target-analysis/index.js").SourceStorageQueries;

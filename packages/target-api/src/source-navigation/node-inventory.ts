@@ -1,4 +1,5 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import type { SourceProgramNavigation } from "./types.js";
 
 export function createSourceSyntaxDomain(ast: Pick<AstReader, "getSourceFile">, owner: Node): (node: Node) => boolean {
@@ -7,7 +8,7 @@ export function createSourceSyntaxDomain(ast: Pick<AstReader, "getSourceFile">, 
 }
 
 export function createSourceNodeInventory(
-  source: Pick<CheckedSourceProgram, "ast" | "containsSourceFile">,
+  source: Pick<SourceNavigationInput, "ast" | "containsSourceFile">,
   sourceFiles: readonly SourceFile[],
 ): Pick<SourceProgramNavigation, "nodes" | "nodesForFiles"> {
   const defaultFiles = Object.freeze([...sourceFiles]);

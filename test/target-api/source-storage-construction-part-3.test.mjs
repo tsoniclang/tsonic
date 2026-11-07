@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { analyzeSourceConstructorResults, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
@@ -90,12 +91,12 @@ test("constructor receiver admission preserves an actual effect before return th
   const invocation = nodes.find(node => source.ast.is.IsCallExpression(node) &&
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "log");
   assert.equal(invocation !== undefined, true, "The original checked effect precedes the receiver return.");
-  const before = source.semantics.forNode(invocation).operations.call(invocation);
+  const before = source.navigation.call(invocation);
   assert.equal(before !== undefined, true, "The actual invocation has its exact selected call contract.");
   assert.equal(analyzeSourceConstructorResults(source).length, 0,
     "A valid effectful constructor that returns its actual receiver stays admitted.");
-  const after = source.semantics.forNode(invocation).operations.call(invocation);
-  assert.equal(after !== undefined && after.selectedSignature === before.selectedSignature && nodes.includes(invocation), true,
+  const after = source.navigation.call(invocation);
+  assert.equal(after !== undefined && after.signature === before.signature && nodes.includes(invocation), true,
     "Admission does not remove or replace the original effect and its native lowering evidence.");
 });
 
@@ -175,7 +176,7 @@ test(`contextual constructor closure preserves native, unknown, open and mixed a
       }
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "The negative controls are real checked construction programs.");
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const storage = createSourceStorageQuery(source, source.sourceFiles);
     const invocations = ["Source", "NativeOnly", "Mixed", "Open", "Absent", "Formal"];
     for (const name of reverse ? [...invocations].reverse() : invocations) {

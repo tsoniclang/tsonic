@@ -1,9 +1,10 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type CheckedSourceProgram, type Node, type SourceFile } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../target-analysis/source-storage/transport/transport.js";
+import { createSourceNavigationInput } from "../host-input/navigation.js";
 import { createSourceProgramNavigation } from "./navigation.js";
 import { createSourceNodeInventory } from "./node-inventory.js";
 
@@ -26,7 +27,7 @@ function fixture() {
     if (selected === undefined) throw new Error("Expected an original checked inventory file.");
     return selected;
   };
-  return { checked, source: createTargetSourceProgram(checked), alpha: file("alpha.ts"),
+  return { checked, source: createHostSourceProgramFixture(checked), alpha: file("alpha.ts"),
     beta: file("beta.ts"), native: file("native.d.ts") };
 }
 
@@ -69,7 +70,7 @@ test("node inventory defaults do not widen to target files and exact explicit vi
   assert.equal(navigation.sourceFiles.includes(current.native), false, "navigation's default file contract excludes declarations");
   assert.equal(navigation.nodes.some(node => current.checked.ast.getSourceFile(node) === current.native), false,
     "the default node inventory does not accidentally include declarations or library nodes");
-  const filtered = createSourceProgramNavigation({ ...current.checked, sourceFiles: Object.freeze([current.alpha]) });
+  const filtered = createSourceProgramNavigation(createSourceNavigationInput({ ...current.checked, sourceFiles: Object.freeze([current.alpha]) }));
   assertNodes(filtered.nodes, originalNodes(current.checked, current.alpha), "filtered default");
   const selected = filtered.nodesForFiles([current.beta, current.native]);
   assertNodes(selected, [...originalNodes(current.checked, current.native), ...originalNodes(current.checked, current.beta)],
@@ -81,7 +82,7 @@ test("node inventory defaults do not widen to target files and exact explicit vi
 
 test("node inventory has an empty declaration-only default and an exact explicit declaration view", () => {
   const current = fixture();
-  const navigation = createSourceProgramNavigation({ ...current.checked, sourceFiles: Object.freeze([current.native]) });
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput({ ...current.checked, sourceFiles: Object.freeze([current.native]) }));
   assert.equal(navigation.sourceFiles.length, 0, "declaration-only input has no project implementation files");
   assert.equal(navigation.nodes.length, 0, "the default inventory is exactly empty");
   assert.equal(navigation.nodesForFiles([]) === navigation.nodes, true, "the repeated empty default keeps array identity");
@@ -226,7 +227,7 @@ test("canonical node inventory stays complete and identical across storage resou
 
 test("explicit checked syntax views never widen storage's selected semantic-file boundary", () => {
   const current = fixture();
-  const source = createTargetSourceProgram({ ...current.checked, sourceFiles: Object.freeze([current.alpha]) });
+  const source = createHostSourceProgramFixture({ ...current.checked, sourceFiles: Object.freeze([current.alpha]) });
   assert.equal(source.semantics.includes(current.beta), false, "the checked second file is not part of this semantic selection");
   assertNodes(source.navigation.nodesForFiles([current.beta]), originalNodes(current.checked, current.beta), "valid explicit checked syntax");
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);

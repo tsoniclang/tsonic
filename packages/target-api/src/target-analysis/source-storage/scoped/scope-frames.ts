@@ -1,6 +1,6 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -11,7 +11,7 @@ import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageReference, SourceStorageInputFrontier, SourceStorageReduction, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 
 export function createSourceStorageScopeFrames(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceStorageBudget;
   readonly rows: SourceStorageRows;
   readonly subject: SourceStorageSubjectQuery;
@@ -43,7 +43,7 @@ export function createSourceStorageScopeFrames(input: {
       entries, parents: Object.freeze([captured]) });
     const slots = sourceStorageSelectedInputSlots(inputSlotsFor(candidate, undefined), candidate);
     if (slots === undefined) return undefined;
-    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.navigation,
       { kind: "declaration" });
     if (parameters === undefined) return undefined;
     for (const parameter of parameters) {
@@ -96,7 +96,7 @@ export function createSourceStorageScopeFrames(input: {
     const cached = retained?.get(parent);
     if (cached !== undefined) return cached;
     const parameters = source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ? []
-      : sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner), { kind: "declaration" });
+      : sourceCallableValueParameters(source.ast, owner, source.navigation, { kind: "declaration" });
     if (parameters === undefined) return undefined;
     if (!rows.add(3 + (parameters.length + 1) * 2 + (retained === undefined ? 1 : 0))) return undefined;
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
@@ -127,7 +127,7 @@ export function createSourceStorageScopeFrames(input: {
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, callback, entries,
       parents: Object.freeze([captured]) });
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? []
-      : sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate), { kind: "declaration" });
+      : sourceCallableValueParameters(source.ast, candidate, source.navigation, { kind: "declaration" });
     if (parameters === undefined) return undefined;
     const formals = new Set<SourceStorageSubject>();
     for (const parameter of [...parameters, candidate]) {

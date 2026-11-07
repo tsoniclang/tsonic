@@ -1,7 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -14,7 +16,7 @@ function fixture(body) {
     files: { "/src/index.ts": `export {}; ${body}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary authored source is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   assert.equal(budget.failure() === undefined, true, "original construction bounds remain intact");
@@ -209,9 +211,9 @@ test("implicit declaration absence has no authored store while explicit absence 
       assert.equal(initializer !== undefined && origins.origins.length === 1 && origin.subject.kind === "value" &&
         origin.subject.node === initializer && origin.subject.projection.length === 0, true,
         "explicit absence retains only its exact checked authored initializer");
-      const types = current.source.semantics.forNode(initializer).types;
-      const authoredType = types.expressionType(initializer);
-      assert.equal(authoredType !== undefined && types.isNullish(origin.type) && types.isIdentical(origin.type, authoredType), true,
+      const outcome = current.source.facts.values.type(initializer);
+      const absent = origin.type.kind === "intrinsic" && (origin.type.intrinsic === "absence" || origin.type.intrinsic === "void");
+      assert.equal(outcome.kind !== "refused" && absent && sourceTypeDescriptorsEqual(origin.type, outcome.type), true,
         "the retained origin has exactly the initializer's checked native absence type");
       const store = current.stores(declaration)[0];
       assert.equal(store.kind === "initialization" && store.value?.node === initializer, true,
@@ -445,8 +447,8 @@ test("one store inventory retains exact creator, constructor, method, accessor a
     const assignment = ast.as.AsBinaryExpression(store.operation);
     assert.equal(assignment.Left === store.reference && current.transport.subjectFor(assignment.Right) === store.value, true,
       "exact checked destination and RHS are not replaced by the later reader's scope");
-    const selection = current.source.semantics.forNode(store.reference).operations.propertyAccess(store.reference);
-    assert.equal(current.transport.subjectFor(selection.receiver.expression) === store.receiver, true);
+    const selection = current.source.navigation.memberAccess(store.reference);
+    assert.equal(current.transport.subjectFor(selection.receiver) === store.receiver, true);
   }
 });
 

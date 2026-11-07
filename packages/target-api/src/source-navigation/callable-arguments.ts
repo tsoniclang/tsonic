@@ -1,53 +1,47 @@
-import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo } from "./call-info.js";
-import type { SourceNavigationOperationQueries } from "./query-context.js";
-
-interface SourceCallArgumentSemantics {
-  readonly sourceFile: SourceFile;
-  readonly operations: Pick<SourceNavigationOperationQueries, "call">;
-}
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceNavigationCallBinding, SourceNavigationSignatureParameter, SourceProgramNavigation } from "./types.js";
 
 interface SourceCallArgumentContext {
   readonly ast: AstReader;
-  readonly semantics: SourceCallArgumentSemantics;
+  readonly navigation: Pick<SourceProgramNavigation, "call">;
 }
 
 export interface SourceCallArgumentCorrespondence {
   readonly bindingIndex: number;
-  readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
-  readonly argument: ResolvedSourceCallInfo["sourceArguments"][number];
-  readonly parameter: ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number];
+  readonly binding: SourceNavigationCallBinding;
+  readonly argument: { readonly expression: Node };
+  readonly parameter: SourceNavigationSignatureParameter;
 }
 
+/** Argument-to-parameter rows of the call host-input selected at `call`; undefined for an untyped or unselected call. */
 export function sourceCallArgumentCorrespondences(
   context: SourceCallArgumentContext,
-  selected: ResolvedSourceCallInfo,
+  call: Node,
 ): readonly SourceCallArgumentCorrespondence[] | undefined {
-  if (selected.sourceSelectedSignatureKind !== "resolved") return undefined;
-  const { ast, semantics } = context;
-  if (ast.getSourceFile(selected.call) !== semantics.sourceFile ||
-    semantics.operations.call(selected.call) !== selected) return undefined;
+  const selected = context.navigation.call(call);
+  if (selected === undefined || selected.selection !== "resolved") return undefined;
+  const { ast } = context;
   const arguments_ = ast.arguments(selected.call);
-  if (arguments_.length !== selected.sourceArguments.length ||
-    selected.sourceArguments.some((argument, index) => argument.expression !== arguments_[index]))
+  if (arguments_.length !== selected.arguments.length ||
+    selected.arguments.some((argument, index) => argument !== arguments_[index]))
     throw new Error("A checked call argument vector must preserve its original source expressions.");
   const effectiveIndexes = new Set<number>();
   const result: SourceCallArgumentCorrespondence[] = [];
-  for (const [bindingIndex, binding] of selected.sourceArgumentBindings.entries()) {
+  for (const [bindingIndex, binding] of selected.bindings.entries()) {
     if (!Number.isSafeInteger(binding.sourceArgumentIndex) || binding.sourceArgumentIndex < 0 ||
       !Number.isSafeInteger(binding.effectiveArgumentIndex) || binding.effectiveArgumentIndex < 0 ||
       !Number.isSafeInteger(binding.sourceParameterIndex) || binding.sourceParameterIndex < 0 ||
       effectiveIndexes.has(binding.effectiveArgumentIndex))
       throw new Error("A checked call binding must have valid, distinct effective argument indexes and selected formal indexes.");
-    const argument = selected.sourceArguments[binding.sourceArgumentIndex];
-    const parameter = selected.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
-    if (argument === undefined || parameter?.parameterIndex !== binding.sourceParameterIndex ||
+    const expression = selected.arguments[binding.sourceArgumentIndex];
+    const parameter = selected.parameters[binding.sourceParameterIndex];
+    if (expression === undefined || parameter?.parameterIndex !== binding.sourceParameterIndex ||
       (binding.sourceForm === "spread-element"
         ? !Number.isSafeInteger(binding.spreadElementIndex) || binding.spreadElementIndex! < 0
         : binding.spreadElementIndex !== undefined))
       throw new Error("A checked call binding must preserve its exact argument, formal and spread-element correspondence.");
     effectiveIndexes.add(binding.effectiveArgumentIndex);
-    result.push(Object.freeze({ bindingIndex, binding, argument, parameter }));
+    result.push(Object.freeze({ bindingIndex, binding, argument: Object.freeze({ expression }), parameter }));
   }
   return Object.freeze(result);
 }
@@ -69,12 +63,7 @@ export interface SourceClosedCallableArgument {
 
 export function sourceExpressionCallArgument(
   reference: Node,
-  source: {
-    readonly ast: AstReader;
-    readonly semantics: {
-      forNode(node: Node): Pick<SourceCallArgumentSemantics, "operations">;
-    };
-  },
+  source: SourceCallArgumentContext,
 ): SourceClosedCallableArgument | undefined {
   const { ast } = source;
   let argument = reference;
@@ -96,7 +85,6 @@ export function sourceExpressionCallArgument(
   const argumentIndex = arguments_.indexOf(argument);
   if (argumentIndex < 0 || arguments_.filter(node => node === argument).length !== 1 ||
     ast.is.IsSpreadElement(argument)) return undefined;
-  const checked = source.semantics.forNode(parent).operations.call(parent);
-  if (checked?.sourceArguments[argumentIndex]?.expression !== argument) return undefined;
+  if (source.navigation.call(parent)?.arguments[argumentIndex] !== argument) return undefined;
   return Object.freeze({ call: parent, argument, argumentIndex });
 }

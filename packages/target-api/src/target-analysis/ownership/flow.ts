@@ -1,5 +1,5 @@
+import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
@@ -12,7 +12,7 @@ import type { SourceDeclarationContinuationDependencyQueries } from "./dependenc
 import type { SourceDeclarationSuspensionQueries } from "./suspension.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 
-function sourceContinuationRead(source: TargetSourceProgram, point: SourceFlowPoint): Node | undefined {
+function sourceContinuationRead(source: SourceAnalysisProgram, point: SourceFlowPoint): Node | undefined {
   if (point.operation.kind === "read") return point.source;
   if (point.operation.kind === "capture") return point.operation.binding;
   if (point.operation.kind !== "evaluate" || point.source === undefined) return undefined;
@@ -31,7 +31,7 @@ export function sourceDeclarationOwnershipFlowFailure(selected: SourceFlowUnreso
 }
 
 export function createSourceDeclarationOwnershipValues(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly sourceNodes: readonly Node[];
   readonly nodes: readonly Node[];
   readonly budget: SourceDeclarationOwnershipBudget;
@@ -78,7 +78,7 @@ export function createSourceDeclarationOwnershipValues(input: {
   const regionFor = (node: Node): SourceDeclarationFlowExecutionRegion | SourceDeclarationOwnershipUnresolved => {
     if (!budget.step(node)) return budget.failure()!;
     const file = source.ast.getSourceFile(node);
-    if (file === undefined || !source.semantics.includes(file) || !checkedNodes.has(node))
+    if (!sourceAnalysisIncludesFile(source, file) || !checkedNodes.has(node))
       return sourceDeclarationOwnershipUnresolved(node, "A local region requires an original node from this checked source program.");
     const declaration = declarationFor(node);
     if ("kind" in declaration) return declaration;
@@ -113,19 +113,18 @@ export function createSourceDeclarationOwnershipValues(input: {
       if (existing !== undefined) return existing;
       const region = regionFor(node);
       if ("kind" in region) return region;
-      const semantics = source.semantics.forNode(node);
+      // The value's Host component: its descriptor (values.type, the call's result for a call), the selected signature
+      // declaration of a call, else the referenced declaration.
       const call = source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)
-        ? semantics.operations.call(node) : undefined;
-      const selectedType = call?.sourceSelectedSignatureKind === "resolved" ? call.sourceResultType
-        : semantics.types.expressionType(node) ?? semantics.declarations.declaredValueType(node);
-      if (selectedType === undefined)
-        return sourceDeclarationOwnershipUnresolved(node, "A local native value needs its exact completed checked type component.");
-      const declaration = call?.sourceSelectedSignatureKind === "resolved"
-        ? semantics.declarations.signatureDeclaration(call.selectedSignature) : source.navigation.sourceReferenceFor(node)?.declaration;
+        ? source.navigation.call(node) : undefined;
+      const type = sourceAnalysisValueType(source, node);
+      if (type === undefined)
+        return sourceDeclarationOwnershipUnresolved(node, "A local native value needs its exact completed Host type component.");
+      const declaration = call?.selection === "resolved" ? call.signature : source.navigation.sourceReferenceFor(node)?.declaration;
       const authoredTypeNode = declaration === undefined ? undefined : source.ast.typeNode(declaration);
-      const component = Object.freeze({ selectedType, ...(declaration === undefined ? {} : { declaration }),
+      const component = Object.freeze({ type, ...(declaration === undefined ? {} : { declaration }),
         ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }),
-        ...(call === undefined ? {} : { contextualCall: call }) });
+        ...(call === undefined ? {} : { call: node }) });
       const value: SourceDeclarationOwnershipValue = Object.freeze({ node, component, region });
       const rows = rowsFor(node);
       if (!rows.add(2)) { rows.release(); return budget.failure()!; }
@@ -156,7 +155,7 @@ export interface SourceDeclarationContinuationFlowSelection {
 }
 
 export function resolveSourceDeclarationContinuationFlow(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly graph: SourceControlFlowGraph<SourceDeclarationFlowExecutionRegion>;
   readonly runtimeNodes: ReadonlySet<Node>;
   readonly budget: SourceDeclarationOwnershipBudget;
@@ -168,7 +167,7 @@ export function resolveSourceDeclarationContinuationFlow(input: {
   const at = graph.declaration;
   const suspensionFor = (operation: Extract<SourceFlowOperation, { readonly kind: "await" }>, node: Node) => {
     if (operation.awaitKind === "authored") return suspensions.forAwait(node);
-    return operation.resource.declaration === node ? suspensions.forResourceCleanup(operation.resource)
+    return operation.declaration === node ? suspensions.forResourceCleanup(node)
       : sourceDeclarationOwnershipUnresolved(node, "Cleanup suspension requires its original flow declaration identity.");
   };
   const transfer = createSourceContinuationTransfer<SourceDeclarationPendingOperation>({
@@ -235,7 +234,7 @@ export function resolveSourceDeclarationContinuationFlow(input: {
             const held = transfer.suspend(transfer.lattice.empty(), selected.pending);
             if (held === undefined) return budget.failure()!;
             const reference = selected.pending.kind === "expression" ? selected.pending.expression
-              : selected.pending.resource.declaration;
+              : selected.pending.declaration;
             const problem = append(held, reference, region);
             if (problem !== undefined) return problem;
           }

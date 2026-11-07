@@ -1,4 +1,4 @@
-import type { AstReader, Node, Symbol } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression } from "./ast.js";
 import type { SourceBindingWrite, SourceBindingWriteValue } from "./types.js";
 
@@ -28,36 +28,36 @@ const updateOperatorKinds = new Set([
 
 export function sourceBindingWritesWithin(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   root: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
+  referencesToEntity: (declaration: Node) => readonly Node[],
 ): readonly SourceBindingWrite[] {
   return Object.freeze(
-    sourceSymbolReferencesWithin(ast, symbol, root, referencesForSymbol)
+    sourceEntityReferencesWithin(ast, declaration, root, referencesToEntity)
       .map((reference) => sourceBindingWriteAtReference(ast, reference))
       .filter((write): write is SourceBindingWrite => write !== undefined && write.kind !== "initialization"),
   );
 }
 
-export function sourceSymbolReferencesWithin(
+export function sourceEntityReferencesWithin(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   root: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
+  referencesToEntity: (declaration: Node) => readonly Node[],
 ): readonly Node[] {
   return Object.freeze(
-    referencesForSymbol(symbol).filter((reference) =>
+    referencesToEntity(declaration).filter((reference) =>
       sourceNodeIsWithin(ast, reference, root)),
   );
 }
 
-export function sourceSymbolHasReferenceOutside(
+export function sourceEntityHasReferenceOutside(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   excludedNode: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
+  referencesToEntity: (declaration: Node) => readonly Node[],
 ): boolean {
-  return referencesForSymbol(symbol).some((reference) =>
+  return referencesToEntity(declaration).some((reference) =>
     !sourceNodeIsWithin(ast, reference, excludedNode));
 }
 

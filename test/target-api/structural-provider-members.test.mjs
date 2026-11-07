@@ -1,6 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+// A host-input checker-query test: the program and its own checker views (buildHostSourceProgram).
+import { buildHostSourceProgram } from "../../packages/target-api/dist/source-semantics/target-source-program.js";
 import { checkCsharpSource, assertCsharpCheckingSucceeded } from "../../../tsonic-csharp/test/helpers/direct-csharp-session.mjs";
 import { createTsonicPlugin } from "../../../csharp-nodejs/dist/index.js";
 
@@ -15,19 +17,20 @@ test("the public structural query relates a variable to actual Node provider opt
     }
   ` });
   assertCsharpCheckingSucceeded(checked);
-  const source = createTargetSourceProgram(checked.source);
+  const built = buildHostSourceProgram(checked.source, { profile: createJsSourceApiFacts });
+  const source = built.program;
   const file = checked.source.getSourceFile("/project/index.ts");
   assert.ok(file);
   const relations = [];
   function visit(node) {
     if (source.ast.is.IsCallExpression(node)) {
-      const semantics = source.semantics.forNode(node);
+      const semantics = built.semantics.forNode(node);
       const call = semantics.operations.call(node);
       if (call?.sourceArguments.length === 2) {
         const actual = call.sourceArguments[1].type;
         const selected = call.sourceSelectedSignatureParameters[1].selectedType;
         assert.ok(actual && selected);
-        const destination = semantics.types.withoutMissingOrUndefined(selected);
+        const destination = semantics.types.nonNullableType(selected);
         assert.ok(destination);
         relations.push(semantics.types.structuralMembers(actual, destination, "read"));
       }

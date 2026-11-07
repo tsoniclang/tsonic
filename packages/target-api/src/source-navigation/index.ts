@@ -1,3 +1,4 @@
+// Host-internal barrel of navigation algorithms. NOT a target surface: targets read SourceRoleModel (I1, R4).
 export * from "./navigation.js";
 export * from "./ast.js";
 export * from "./class-members.js";
@@ -31,15 +32,18 @@ export type {
   SourceProjectReference,
   SourceReferenceIndexStatistics,
   SourceValueEscapeKind,
+  SourceNavigationCall,
+  SourceNavigationCallBinding,
+  SourceNavigationMemberAccess,
+  SourceNavigationSignatureParameter,
 } from "./types.js";
+export type { SourceNavigationQueryContext } from "./query-context.js";
 export { sourceCallableValueParameters } from "./callable-parameters.js";
 export {
   projectSourceNodeIdentity,
   sourceFileIdentity,
   sourceNodeIdentity,
   sourceNodesEqual,
-  sourceSymbolIdentity,
-  sourceSymbolsEqual,
 } from "./identity.js";
 export { sourceBindingWriteAtReference } from "./references-usage.js";
 export { sourceAnnotationHint } from "./annotation-hints.js";
@@ -62,10 +66,12 @@ export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingSc
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
 export { sourceBindingCapturedBeforeInitialization, sourceBindingCapturedBeforeFirstWrite } from "./deferred-captures.js";
 export { sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
-export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
+export { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused,
   sourceNodesOutsideErasedSubtrees, createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
 export type { SourceSubtreeParticipation, SourceCallableInvocationReference } from "./callable-invocations.js";
-export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+export {
+  isSourceCallableBodyBoundary, isSourceCallableSignatureDeclaration, sourceEnclosing, sourceNodeHasRole, sourceNodeRoles,
+} from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
@@ -85,3 +91,4 @@ export { sourceSequenceInputChoice, sourceSequenceConsumptionRoot, sourceSequenc
 export type { SourceSequenceInputChoice } from "./sequence-inputs.js";
 export { sourceControlTransferTarget, sourceLabeledStatementTarget, sourceNodeIsIteration } from "./control-targets.js";
 export type { SourceLabeledStatementTarget } from "./control-targets.js";
+export { createSourceRoleModel } from "./roles.js";

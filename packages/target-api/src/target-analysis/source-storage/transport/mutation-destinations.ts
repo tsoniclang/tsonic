@@ -1,21 +1,22 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import type { createSourceStorageMemberFlow } from "../graph/member-flow.js";
 
-export function createSourceStorageMutationDestinations<Bindings>(source: TargetSourceProgram,
+export function createSourceStorageMutationDestinations<Bindings>(source: SourceAnalysisProgram,
   budget: SourceStorageBudget, memberFlow: ReturnType<typeof createSourceStorageMemberFlow>,
   lineagesFor: (origin: SourceStorageSubject) => readonly SourceStorageClassLineage<Bindings>[] | undefined) {
-  return (origin: SourceStorageSubject, declarations: readonly Node[], receiverType: Type): ReadonlySet<Node> | undefined => {
+  return (origin: SourceStorageSubject, declarations: readonly Node[], receiverType: SourceTypeDescriptor): ReadonlySet<Node> | undefined => {
     const destinations = new Set<Node>();
     const ordinary = (): boolean => {
       if (memberFlow.excludes(origin, receiverType)) return true;
       for (const declaration of declarations) {
         if (!budget.step()) return false;
         const member = memberFlow.memberFor(origin, declaration, receiverType);
-        if (member === undefined || member.kind === "absent" && !member.destination.property.optional) return false;
+        if (member === undefined || member.kind === "absent" && !member.destination.optional) return false;
         for (const original of member.kind === "present" ? member.source.declarations : member.destination.declarations) {
           if (!budget.step()) return false;
           destinations.add(original);

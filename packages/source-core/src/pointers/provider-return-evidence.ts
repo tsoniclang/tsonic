@@ -1,6 +1,8 @@
 import { providerVirtualDeclarationFactKey, sourceMarkerFactKey } from "@tsonic/tsts";
-import type { AstReader, ExtensionFactSubject, Node, ProviderTypeExpression, ReadonlySourceFactResolver, SourcePrimitiveKind, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, SourceProviderTypeParameterSelection } from "@tsonic/target-api/source";
+import type { ExtensionFactSubject, Node, ProviderTypeExpression, SourcePrimitiveKind } from "@tsonic/tsts";
+import { selectSourceProviderSignature, type HostSourceProgram } from "@tsonic/target-api/host";
+import { tsonicDescriptorArms, tsonicValueType } from "./host-values.js";
+import type { SourceProviderTypeParameterSelection, SourceTypeDescriptor } from "@tsonic/target-api/source";
 import { tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
 
@@ -12,6 +14,20 @@ export type TsonicProviderPointerResult<Carrier> =
   | { readonly kind: "resolved"; readonly carrier: Carrier }
   | { readonly kind: "invalid"; readonly reason: string };
 
+/** Carrier-neutral shape of a provider pointer result, published by the Host (checker-free, I1). */
+export type TsonicProviderPointerShape =
+  | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
+  | { readonly kind: "pointer"; readonly pointee: TsonicProviderPointerShape }
+  | { readonly kind: "raw" }
+  | { readonly kind: "optional"; readonly value: TsonicProviderPointerShape }
+  | { readonly kind: "array"; readonly element: TsonicProviderPointerShape }
+  | { readonly kind: "tuple"; readonly elements: readonly TsonicProviderPointerShape[] }
+  | { readonly kind: "type-parameter"; readonly parameter: SourceProviderTypeParameterSelection }
+  /** An authored Source type position, with its Host descriptor. */
+  | { readonly kind: "source"; readonly syntax: Node; readonly type: SourceTypeDescriptor };
+
+export type TsonicProviderPointerSelection = TsonicProviderPointerResult<TsonicProviderPointerShape>;
+
 export interface TsonicProviderPointerCarrierPolicy<Carrier> {
   readonly primitive: (kind: SourcePrimitiveKind) => Carrier | undefined;
   readonly pointer: (pointee: Carrier) => Carrier | undefined;
@@ -20,18 +36,58 @@ export interface TsonicProviderPointerCarrierPolicy<Carrier> {
   readonly array: (element: Carrier) => Carrier | undefined;
   readonly tuple: (elements: readonly Carrier[]) => Carrier | undefined;
   readonly typeParameter: (parameter: SourceProviderTypeParameterSelection) => Carrier | undefined;
-  readonly sourceType: (type: Type, syntax: Node | undefined) => Carrier | undefined;
+  readonly sourceType: (type: SourceTypeDescriptor, syntax: Node) => Carrier | undefined;
 }
 
-export function selectTsonicProviderPointerResult<Carrier>(
-  source: ResolvedSourceCallInfo,
-  ast: AstReader,
-  semantics: SourceFileSemantics,
-  facts: ReadonlySourceFactResolver,
+/** Target-side fold of a published pointer shape into the target carrier (program-free). */
+export function foldTsonicProviderPointerResult<Carrier>(
+  selected: TsonicProviderPointerSelection | undefined,
   policy: TsonicProviderPointerCarrierPolicy<Carrier>,
 ): TsonicProviderPointerResult<Carrier> | undefined {
-  const selected = semantics.operations.callResult(source);
-  if (selected?.authoredTypeNode === undefined) return undefined;
+  if (selected === undefined || selected.kind === "invalid") return selected;
+  const fold = (shape: TsonicProviderPointerShape): Carrier | undefined => {
+    switch (shape.kind) {
+      case "primitive": return policy.primitive(shape.primitive);
+      case "raw": return policy.raw();
+      case "type-parameter": return policy.typeParameter(shape.parameter);
+      case "source": return policy.sourceType(shape.type, shape.syntax);
+      case "pointer": { const pointee = fold(shape.pointee); return pointee === undefined ? undefined : policy.pointer(pointee); }
+      case "optional": { const value = fold(shape.value); return value === undefined ? undefined : policy.optional(value); }
+      case "array": { const element = fold(shape.element); return element === undefined ? undefined : policy.array(element); }
+      case "tuple": {
+        const elements = shape.elements.map(fold);
+        return elements.every((value): value is Carrier => value !== undefined) ? policy.tuple(elements) : undefined;
+      }
+    }
+  };
+  const carrier = fold(selected.carrier);
+  return carrier === undefined
+    ? { kind: "invalid", reason: "The selected provider pointer result has no closed canonical target carrier." }
+    : { kind: "resolved", carrier };
+}
+
+/** Host: the pointer result shape of a provider call (undefined when the call has no pointer result). */
+export function selectTsonicProviderPointerShape(host: HostSourceProgram, call: Node): TsonicProviderPointerSelection | undefined {
+  const { ast, sourceFacts: facts, navigation } = host;
+  // The selected signature declaration (navigation call witness) and its authored result annotation.
+  const signature = navigation.call(call)?.signature;
+  if (signature === undefined) return undefined;
+  const authoredResult = ast.typeNode(signature);
+  type Carrier = TsonicProviderPointerShape;
+  const policy = {
+    primitive: (primitive: SourcePrimitiveKind): Carrier => Object.freeze({ kind: "primitive", primitive }),
+    pointer: (pointee: Carrier): Carrier => Object.freeze({ kind: "pointer", pointee }),
+    raw: (): Carrier => Object.freeze({ kind: "raw" }),
+    optional: (value: Carrier): Carrier => Object.freeze({ kind: "optional", value }),
+    array: (element: Carrier): Carrier => Object.freeze({ kind: "array", element }),
+    tuple: (elements: readonly Carrier[]): Carrier => Object.freeze({ kind: "tuple", elements: Object.freeze([...elements]) }),
+    typeParameter: (parameter: SourceProviderTypeParameterSelection): Carrier => Object.freeze({ kind: "type-parameter", parameter }),
+    sourceType: (syntax: Node): Carrier | undefined => {
+      const outcome = host.facts.values.type(syntax);
+      return outcome.kind === "refused" ? undefined : Object.freeze({ kind: "source", syntax, type: outcome.type });
+    },
+  };
+  if (authoredResult === undefined) return undefined;
   const invalid = (reason: string): TsonicProviderPointerResult<Carrier> => ({ kind: "invalid", reason });
   let identityConflict = false;
   const unwrap = (node: Node): Node => {
@@ -63,9 +119,12 @@ export function selectTsonicProviderPointerResult<Carrier>(
     if (markers.size > 1) identityConflict = true;
     return markers.size === 1 ? markers.values().next().value : undefined;
   };
+  // The marker subjects of an authored type position: the node and the declarations its type reference selects.
+  const declarationSubjects = (declaration: Node | undefined): readonly Node[] =>
+    declaration === undefined ? [] : navigation.mergedDeclarations(declaration);
   const markerFor = (node: Node): string | undefined => {
-    const type = semantics.types.authoredType(node);
-    return markerForSubjects(type === undefined ? [node] : [node, ...semantics.facts.typeSubjects(type)]);
+    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
+    return markerForSubjects([node, ...declarationSubjects(name === undefined ? undefined : navigation.declarationFor(name))]);
   };
   const isPointer = (node: Node): boolean => {
     node = unwrap(node);
@@ -73,16 +132,17 @@ export function selectTsonicProviderPointerResult<Carrier>(
     return marker === "pointer" || marker === "raw-pointer" ||
       (ast.is.IsUnionTypeNode(node) && ast.children(node).some(child => child !== undefined && isPointer(child)));
   };
-  const resultTypes = semantics.types.isUnion(selected.resultType)
-    ? semantics.types.unionOrIntersectionTypes(selected.resultType) : [selected.resultType];
-  const selectedPointer = resultTypes.some(type => {
-    const marker = markerForSubjects(semantics.facts.typeSubjects(type));
+  // The Host result of the call: an arm whose declared descriptor names a pointer marker declaration.
+  const result = tsonicValueType(host, call);
+  const selectedPointer = result !== undefined && tsonicDescriptorArms(result).some(type => {
+    if (type.kind !== "declared") return false;
+    const marker = markerForSubjects(declarationSubjects(type.declaration));
     return marker === "pointer" || marker === "raw-pointer";
   });
-  const pointerResult = isPointer(selected.authoredTypeNode) || selectedPointer;
+  const pointerResult = isPointer(authoredResult) || selectedPointer;
   if (identityConflict) return invalid("The selected provider result has contradictory source marker identities.");
   if (!pointerResult) return undefined;
-  const provider = selected.providerSignature;
+  const provider = selectSourceProviderSignature(facts, signature);
   if (provider === undefined || provider.kind === "invalid") {
     return invalid(provider?.reason ?? "The pointer result has no exact retained provider signature.");
   }
@@ -131,11 +191,10 @@ export function selectTsonicProviderPointerResult<Carrier>(
       const carrier = resolve(value.value, value.node, depth + 1);
       return carrier === undefined ? undefined : policy.optional(carrier);
     }
-    const type = semantics.types.authoredType(node);
-    return type === undefined ? undefined : policy.sourceType(type, node);
+    return policy.sourceType(node);
   };
   const carrier = provider.signature.returnType === undefined ? undefined :
-    resolve(provider.signature.returnType, selected.authoredTypeNode, 0);
+    resolve(provider.signature.returnType, authoredResult, 0);
   if (identityConflict) return invalid("The selected provider result has contradictory source marker identities.");
   return carrier === undefined
     ? invalid("The selected provider pointer result has no closed canonical source carrier.")

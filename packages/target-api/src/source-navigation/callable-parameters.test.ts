@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableValueParameters } from "./callable-parameters.js";
 
 test("only the checker's actual this parameter is erased from the value parameter vector", () => {
@@ -9,14 +9,14 @@ test("only the checker's actual this parameter is erased from the value paramete
     "/src/index.ts": "export function read(this: void, thisValue: number, value = 1, ...rest: number[]): number { return thisValue + value + rest.length; }",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the source has a checked callable contract");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const owner = source.ast.statements(file).find(node => node !== undefined && source.ast.is.IsFunctionDeclaration(node))!;
-  const selected = sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner));
+  const selected = sourceCallableValueParameters(source.ast, owner, source.navigation);
   assert.equal(selected !== undefined, true, "the complete checked parameter vector is available");
   assert.deepEqual(selected!.map(parameter => source.ast.text(source.ast.name(parameter))), ["thisValue", "value", "rest"]);
   assert.equal(Object.isFrozen(selected), true, "the source parameter evidence is immutable");
-  assert.equal(sourceCallableValueParameters(source.ast, file, source.semantics.forFile(file)), undefined,
+  assert.equal(sourceCallableValueParameters(source.ast, file, source.navigation), undefined,
     "a noncallable subject never fabricates a runtime parameter vector");
 });
 
@@ -50,7 +50,7 @@ for (const example of checkedCallableCases) {
       "/src/index.ts": example.source,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${example.name} source is checked`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts")!;
     const calls: Node[] = [];
     const visit = (node: Node): void => {
@@ -60,18 +60,15 @@ for (const example of checkedCallableCases) {
     visit(file);
     assert.equal(calls.length, example.parameters.length, `${example.name} complete invocation count`);
     for (const [index, node] of calls.entries()) {
-      const semantics = source.semantics.forNode(node);
-      const call = semantics.operations.call(node);
-      assert.equal(call?.sourceSelectedSignatureKind === "resolved", true, `${example.name} exact selected signature`);
-      const selected = sourceCallableValueParameters(source.ast, node, semantics,
-        { kind: "selected-invocation", signature: call!.selectedSignature });
+      const call = source.navigation.call(node);
+      assert.equal(call?.selection === "resolved", true, `${example.name} exact selected signature`);
+      const selected = sourceCallableValueParameters(source.ast, node, source.navigation, { kind: "selected-invocation", call: node });
       assert.equal(selected !== undefined, true, `${example.name} complete logical vector`);
       assert.deepEqual(selected!.map(parameter => source.ast.text(source.ast.name(parameter))), example.parameters[index],
         `${example.name} original checker parameter order`);
-      const symbols = semantics.declarations.signatureParameters(call!.selectedSignature);
-      assert.equal(selected!.length === symbols.length && selected!.every((parameter, position) =>
-        parameter === semantics.declarations.primarySymbolDeclaration(symbols[position]!)), true,
-      `${example.name} original symbol-owned identities rather than expanded native slots`);
+      assert.equal(selected!.length === call!.parameters.length && selected!.every((parameter, position) =>
+        parameter === call!.parameters[position]!.parameterDeclaration), true,
+      `${example.name} the selected signature's own parameter declarations rather than expanded native slots`);
       assert.equal(Object.isFrozen(selected), true, `${example.name} immutable source vector`);
     }
   });
@@ -82,7 +79,7 @@ test("declaration context never picks a public overload for a callable holder", 
     "/src/index.ts": "declare function read(numeric: number): number; declare function read(textual: string): string; const alias = read;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the overload holder is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   let holder: Node | undefined;
   const visit = (node: Node): void => {
@@ -91,7 +88,7 @@ test("declaration context never picks a public overload for a callable holder", 
   };
   visit(file);
   assert.equal(holder !== undefined, true, "the actual variable declaration is retained");
-  assert.equal(sourceCallableValueParameters(source.ast, holder!, source.semantics.forNode(holder!)) === undefined, true,
+  assert.equal(sourceCallableValueParameters(source.ast, holder!, source.navigation) === undefined, true,
     "a holder without checked invocation selection does not choose its first overload");
 });
 
@@ -107,7 +104,7 @@ for (const example of overloadedImplementationCases) {
       "/src/index.ts": example.source,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${example.name} overload correspondence is checked`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     const file = checked.getSourceFile("/src/index.ts")!;
     let implementation: Node | undefined;
     let invocation: Node | undefined;
@@ -119,13 +116,10 @@ for (const example of overloadedImplementationCases) {
     };
     visit(file);
     assert.equal(implementation !== undefined && invocation !== undefined, true, "both actual checked contexts are retained");
-    const semantics = source.semantics.forNode(invocation!);
-    const call = semantics.operations.call(invocation!);
-    assert.equal(call?.sourceSelectedSignatureKind === "resolved", true, "the public overload is selected");
-    const logical = sourceCallableValueParameters(source.ast, implementation!, semantics,
-      { kind: "selected-invocation", signature: call!.selectedSignature });
-    const native = sourceCallableValueParameters(source.ast, implementation!, source.semantics.forNode(implementation!),
-      { kind: "declaration" });
+    assert.equal(source.navigation.call(invocation!)?.selection === "resolved", true, "the public overload is selected");
+    const logical = sourceCallableValueParameters(source.ast, implementation!, source.navigation,
+      { kind: "selected-invocation", call: invocation! });
+    const native = sourceCallableValueParameters(source.ast, implementation!, source.navigation, { kind: "declaration" });
     assert.equal(logical?.length, 1, "the selected public overload has one logical input");
     assert.equal(native?.length, 2, "the emitted implementation keeps its required and optional native inputs");
     assert.equal(native?.[1] === source.ast.parameters(implementation!)[1], true,
@@ -142,12 +136,12 @@ for (const [label, text, count] of [
   ["optional", "export function step(value?: number): number { return value ?? 7; }", 1],
   ["empty", "export function step(): number { return 7; }", 0],
 ] as const) {
-  test(`${label} source formals do not query their owner's result`, () => {
+  test(`${label} source formals are the declared signature's parameter declarations`, () => {
     const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
       "/src/index.ts": text,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${label}: checked source`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     let owner: Node | undefined;
     const visit = (node: Node): void => {
       if (source.ast.is.IsFunctionDeclaration(node) || source.ast.is.IsArrowFunction(node) ||
@@ -156,19 +150,9 @@ for (const [label, text, count] of [
     };
     visit(checked.getSourceFile("/src/index.ts")!);
     assert.equal(owner !== undefined, true, `${label}: actual callable owner`);
-    const semantics = source.semantics.forNode(owner!);
-    const original = semantics.declarations.signatureParameters(semantics.declarations.declarationSignature(owner!)!)
-      .map(symbol => semantics.declarations.primarySymbolDeclaration(symbol));
-    const guarded = { ...semantics, types: { ...semantics.types,
-      declarationSignatureInfo(): never { throw new Error("Input enumeration queried full declaration evidence."); },
-      signatureInfos(): never { throw new Error("Input enumeration queried full signature evidence."); },
-      expressionType(node: Node) {
-        if (node === owner) throw new Error("Input enumeration queried its owner's complete callable type.");
-        return semantics.types.expressionType(node);
-      },
-    } };
+    const original = source.ast.parameters(owner!);
     for (const context of [undefined, { kind: "declaration" } as const]) {
-      const selected = sourceCallableValueParameters(source.ast, owner!, guarded, context);
+      const selected = sourceCallableValueParameters(source.ast, owner!, source.navigation, context);
       assert.equal(selected !== undefined && selected.length === count, true, `${label}: complete original input count`);
       assert.equal(selected?.every((parameter, index) => parameter === original[index]), true,
         `${label}: original checked parameter identities`);
@@ -177,35 +161,22 @@ for (const [label, text, count] of [
   });
 }
 
-test("selected invocation formals require neither a definition query nor full signature evidence", () => {
+test("selected invocation formals are the selected signature's parameter declarations", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": "function read(value: number): number { return value; } read(1);",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the invocation is checked");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   let invocation: Node | undefined;
   const visit = (node: Node): void => {
     if (source.ast.is.IsCallExpression(node)) invocation = node;
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(checked.getSourceFile("/src/index.ts")!);
-  const semantics = source.semantics.forNode(invocation!);
-  const call = semantics.operations.call(invocation!);
-  assert.equal(call?.sourceSelectedSignatureKind === "resolved", true, "the actual invocation supplies a selected signature");
-  const guarded = { ...semantics,
-    declarations: { ...semantics.declarations,
-      declarationSignature(): never { throw new Error("A selected invocation reselected its definition."); },
-    },
-    types: { ...semantics.types,
-      declarationSignatureInfo(): never { throw new Error("A selected invocation queried full declaration evidence."); },
-      signatureInfos(): never { throw new Error("A selected invocation queried full signature evidence."); },
-      expressionType(): never { throw new Error("A selected invocation queried a complete callable type."); },
-    },
-  };
-  const selected = sourceCallableValueParameters(source.ast, invocation!, guarded,
-    { kind: "selected-invocation", signature: call!.selectedSignature });
-  assert.equal(selected?.length, 1, "the actual selected input is retained");
-  assert.equal(selected?.[0] === call!.sourceSelectedSignatureParameters[0]?.parameterDeclaration, true,
+  const call = source.navigation.call(invocation!);
+  assert.equal(call?.selection === "resolved", true, "the actual invocation supplies a selected signature");
+  const selected = sourceCallableValueParameters(source.ast, invocation!, source.navigation, { kind: "selected-invocation", call: invocation! });
+  assert.equal(selected?.[0] === call!.parameters[0]?.parameterDeclaration, true,
     "selection retains the original checked parameter identity");
 });
 
@@ -213,34 +184,19 @@ for (const [label, text, construction, count] of [
   ["callable holder", "const read: (value: number) => number = value => value;", false, 1],
   ["implicit constructor", "class Owner {}", true, 0],
 ] as const) {
-  test(`${label} formals use unique raw signatures rather than full signature results`, () => {
+  test(`${label} formals come from the authored annotation or the effective constructor`, () => {
     const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
       "/src/index.ts": text,
     }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${label}: checked source`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgramFixture(checked);
     let holder: Node | undefined;
     const visit = (node: Node): void => {
       if (construction ? source.ast.is.IsClassDeclaration(node) : source.ast.is.IsVariableDeclaration(node)) holder = node;
       source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
     };
     visit(checked.getSourceFile("/src/index.ts")!);
-    const semantics = source.semantics.forNode(holder!);
-    let rawQueries = 0;
-    const guarded = { ...semantics, types: { ...semantics.types,
-      declarationSignatureInfo(): never { throw new Error("A holder queried full declaration evidence."); },
-      signatureInfos(): never { throw new Error("A holder queried full signature evidence."); },
-      callSignatures(type: Parameters<typeof semantics.types.callSignatures>[0]) {
-        rawQueries++;
-        return semantics.types.callSignatures(type);
-      },
-      constructSignatures(type: Parameters<typeof semantics.types.constructSignatures>[0]) {
-        rawQueries++;
-        return semantics.types.constructSignatures(type);
-      },
-    } };
-    const selected = sourceCallableValueParameters(source.ast, holder!, guarded);
+    const selected = sourceCallableValueParameters(source.ast, holder!, source.navigation);
     assert.equal(selected !== undefined && selected.length === count, true, `${label}: original checked input count`);
-    assert.equal(rawQueries, 1, `${label}: the actual unique raw signature is selected once`);
   });
 }

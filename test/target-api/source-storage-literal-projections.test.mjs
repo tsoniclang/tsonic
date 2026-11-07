@@ -1,8 +1,23 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
+
+// Host value type of a node, or undefined when the Host refused it.
+const typeOf = (source, node) => {
+  const outcome = source.facts.values.type(node);
+  return outcome.kind === "refused" ? undefined : outcome.type;
+};
+const same = (left, right) => left !== undefined && right !== undefined && sourceTypeDescriptorsEqual(left, right);
+const isUnion = type => type !== undefined && sourceTypeDescriptorStructure(type).kind === "union";
+const isArrayLike = type => {
+  const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+  return structure?.kind === "array" || structure?.kind === "tuple";
+};
+const isAbsent = type => type.kind === "intrinsic" && (type.intrinsic === "absence" || type.intrinsic === "void");
 import { namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 
 function fixture(body) {
@@ -10,7 +25,7 @@ function fixture(body) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" },
     files: { "/src/index.ts": `export {}; ${body}` } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const storage = createSourceStorageQuery(source, [file]);
@@ -25,33 +40,33 @@ function fixture(body) {
 }
 
 function invocationEvidence(current, spread) {
-  const { ast, semantics } = current.source;
+  const { ast, navigation } = current.source;
   const call = ast.parent(spread);
   if (call === undefined) return { kind: "missing-call" };
-  const context = semantics.forNode(call);
-  const { types } = context;
-  const checked = context.operations.call(call);
+  const checked = navigation.call(call);
   const selected = current.storage.invocationImplementationsFor(call);
   const transport = current.storage.argumentTransportsFor(call);
-  const describeType = type => type === undefined ? { missing: true } : {
-    array: types.isArrayLike(type), tuple: types.isTuple(type), union: types.isUnion(type),
-    indexes: types.indexInfos(type).map(info => ({ numeric: info.keyType !== undefined && types.isNumberLike(info.keyType) })),
+  // Diagnostic only: a Host descriptor kind, or the reason it has none.
+  const describe = node => {
+    if (node === undefined) return { missing: true };
+    try {
+      const type = typeOf(current.source, node);
+      return type === undefined ? { refused: true } : { kind: sourceTypeDescriptorStructure(type).kind };
+    } catch (error) { return { error: String(error) }; }
   };
-  const evidence = { kind: selected.kind, reason: selected.reason, exact: selected.exact,
+  const operand = node => node !== undefined && ast.is.IsSpreadElement(node) ? ast.as.AsSpreadElement(node)?.Expression : node;
+  return { kind: selected.kind, reason: selected.reason, exact: selected.exact,
     transport: transport.kind, transportReason: transport.reason,
     implementations: selected.kind === "resolved" ? selected.nodes.map(node => ({ kind: ast.kindName(node),
       name: ast.text(ast.name(node)), body: ast.body(node) !== undefined })) : [],
-    arguments: checked?.sourceArgumentBindings.map(binding => ({ form: binding.sourceForm,
+    arguments: checked?.bindings.map(binding => ({ form: binding.sourceForm,
       effectiveIndex: binding.effectiveArgumentIndex, sourceIndex: binding.sourceArgumentIndex,
       parameterIndex: binding.sourceParameterIndex, parameterForm: binding.sourceParameterForm,
-      originalType: describeType(checked.sourceArguments[binding.sourceArgumentIndex]?.type),
-      sourceType: describeType(binding.selectedArgumentType), targetType: describeType(binding.selectedParameterType) })),
-    parameters: checked === undefined ? [] : types.signatureParameterInfos(checked.selectedSignature).map(parameter => ({
-      kind: parameter.parameterKind, type: describeType(parameter.type),
-      originalType: describeType(types.typeOfSymbol(parameter.sourceSymbol)),
-      declarations: context.declarations.symbolDeclarations(parameter.sourceSymbol).map(node => ast.kindName(node)),
+      originalType: describe(operand(checked.arguments[binding.sourceArgumentIndex])) })),
+    parameters: checked === undefined ? [] : checked.parameters.map(parameter => ({
+      rest: parameter.rest, type: describe(parameter.parameterDeclaration),
+      declaration: parameter.parameterDeclaration === undefined ? undefined : ast.kindName(parameter.parameterDeclaration),
     })) };
-  return evidence;
 }
 
 test("checked tuple and array spread storage retains the original complete producer type", async context => {
@@ -74,8 +89,8 @@ test("checked tuple and array spread storage retains the original complete produ
     const selected = current.storage.storageSubjectFor(spread);
     assert.equal(selected.kind === "resolved", true, `original spread storage: ${selected.reason ?? ""}`);
     const actual = current.storage.typeFor(selected.subject);
-    const expected = current.source.semantics.forNode(expression).types.expressionType(expression);
-    assert.equal(actual.kind === "resolved" && actual.type === expected, true,
+    const expected = typeOf(current.source, expression);
+    assert.equal(actual.kind === "resolved" && same(actual.type, expected), true,
       "spread syntax retains the original tuple/array source value, not its element or callable");
     const component = current.storage.subject(selected.subject.node, selected.subject.kind,
       [...selected.subject.projection, name === "pair()" ? { kind: "tuple-element", index: 1 } : { kind: "array-element" }]);
@@ -97,15 +112,14 @@ test("a checked guarded array element retains its exact source type without eras
   const component = current.storage.storageSubjectFor(receiver, [{ kind: "array-element" }]);
   assert.equal(component.kind === "resolved", true, `guarded array component: ${component.reason ?? ""}`);
   const actual = current.storage.typeFor(component.subject);
-  const expected = current.source.semantics.forNode(access).types.expressionType(access);
-  assert.equal(actual.kind === "resolved" && actual.type === expected, true,
+  const expected = typeOf(current.source, access);
+  assert.equal(actual.kind === "resolved" && same(actual.type, expected), true,
     "the exact guarded occurrence supplies its checked element without selecting a guessed union arm");
   const root = current.storage.subjectFor(requiredNode(ast, current.file,
     node => ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === "value"));
   assert.equal(root.kind === "resolved", true);
   const selected = current.storage.typeFor(root.subject);
-  const types = current.source.semantics.forNode(root.subject.node).types;
-  assert.equal(selected.kind === "resolved" && types.isUnion(selected.type), true,
+  assert.equal(selected.kind === "resolved" && isUnion(selected.type), true,
     "projecting the array branch never replaces the original parameter's complete union");
 });
 
@@ -122,32 +136,29 @@ for (const optional of [false, true]) for (const [label, receiver] of [
   }`);
   const { ast } = current.source;
   const access = current.initializer("selected");
-  const semantics = current.source.semantics.forNode(access);
-  const checked = semantics.operations.elementAccess(access);
+  const checked = current.source.navigation.memberAccess(access);
   const original = ast.as.AsElementAccessExpression(access)?.Expression;
-  assert.equal(checked !== undefined && checked.receiver.expression === original, true,
+  assert.equal(checked !== undefined && checked.receiver === original, true,
     "the original indexed-use selection retains its exact guarded member occurrence");
-  assert.equal(semantics.types.isArrayLike(checked.receiver.type), true,
-    "the checked indexed-use receiver has no remaining string or absence arm");
-  const expected = semantics.types.expressionType(original);
-  assert.equal(expected !== undefined && semantics.types.isArrayLike(expected), true,
-    "the original occurrence's checked Type agrees with its actual indexed-use receiver");
+  const expected = typeOf(current.source, original);
+  assert.equal(isArrayLike(expected), true,
+    "the indexed-use receiver occurrence has no remaining string or absence arm in its Host type");
   const occurrence = current.storage.subjectFor(original);
   assert.equal(occurrence.kind, "resolved", `the exact evaluated member has a value subject: ${occurrence.reason ?? ""}`);
   const value = current.storage.typeFor(occurrence.subject);
-  assert.equal(value.kind === "resolved" && value.type === expected, true,
+  assert.equal(value.kind === "resolved" && same(value.type, expected), true,
     "a guarded member VALUE uses its checked occurrence Type, not the declared field union");
   const projected = current.storage.subject(occurrence.subject.node, occurrence.subject.kind,
     [...occurrence.subject.projection, { kind: "array-element" }]);
   assert.equal(projected.kind, "resolved", `the actual guarded array element is admitted: ${projected.reason ?? ""}`);
   const actual = current.storage.typeFor(projected.subject);
-  assert.equal(actual.kind === "resolved" && actual.type === semantics.types.expressionType(access), true,
+  assert.equal(actual.kind === "resolved" && same(actual.type, typeOf(current.source, access)), true,
     "the exact original checked element Type is preserved without selecting a guessed union arm");
   const field = requiredNode(ast, current.file, node => ast.is.IsPropertyDeclaration(node) && ast.text(ast.name(node)) === "mountpath");
   const raw = current.storage.subject(field, "member");
   assert.equal(raw.kind, "resolved", "the original raw member storage declaration remains present");
   const full = current.storage.typeFor(raw.subject);
-  assert.equal(full.kind === "resolved" && semantics.types.isUnion(full.type), true,
+  assert.equal(full.kind === "resolved" && isUnion(full.type), true,
     "flow narrowing never overwrites the real shared field's full declared union");
   assert.equal(current.storage.subject(field, "member", [{ kind: "array-element" }]).kind, "unresolved",
     "the raw mixed union cannot fabricate an all-array component proof");
@@ -266,12 +277,12 @@ test("all-array union projections retain the exact checked union of element type
     const { ast } = current.source;
     const parameter = requiredNode(ast, current.file, node => ast.is.IsParameterDeclaration(node));
     const access = requiredNode(ast, current.file, node => ast.is.IsElementAccessExpression(node));
+    // B4 D3: a union receiver component exists only when every arm yields the same Host descriptor; the Host builds no
+    // union outside its sums owner (I6). Arms with different element types leave the element component unresolved.
+    assert.equal(access !== undefined, true, `${label}: the original element read`);
     const selected = current.storage.subject(parameter, "input", [{ kind: "array-element" }]);
-    assert.equal(selected.kind === "resolved", true, `${label}: ${selected.reason ?? ""}`);
-    const actual = current.storage.typeFor(selected.subject);
-    const expected = current.source.semantics.forNode(access).types.expressionType(access);
-    assert.equal(actual.kind === "resolved" && actual.type === expected, true,
-      `${label}: every array arm contributes its original checked element type`);
+    assert.equal(selected.kind === "unresolved", true,
+      `${label}: arms with different element types have no single Host element component`);
   });
 });
 
@@ -316,8 +327,7 @@ const unknown = first(unknownValues());
     assert.equal(selected.kind, "complete", `${name}: exact checked absence is not an unresolved projection${
       selected.kind === "unresolved" ? ` (${selected.reason})` : ""}`);
     assert.equal(selected.producers.every(producer => producer.subject.projection.length === 0 &&
-      (current.source.semantics.forNode(producer.subject.node).types.isNullish(producer.type) ||
-        current.source.semantics.forNode(producer.subject.node).types.isVoidLike(producer.type))), true,
+      isAbsent(producer.type)), true,
     `${name}: no component is manufactured on an absent input`);
   }
   for (const name of ["present", "presentTuple", "presentMember", "presentNested", "defaultValue"]) {

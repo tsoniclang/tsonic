@@ -1,8 +1,10 @@
-import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, SourcePrimitiveKind, Type } from "@tsonic/tsts";
+import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourceTypeDescriptorUnions } from "./terms.js";
+import type {
+  SourceHostArgumentBinding, SourceHostCall, SourceHostCallParameter, SourceHostComponent, SourceHostInput, SourceHostQueries, SourceHostType,
+} from "../../host-input/index.js";
 import type { SourceProgramNavigation } from "../../source-navigation/types.js";
-import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
-import type { SourceFileSemantics, SourceProgramSemantics, SourceTypeComponentEvidence } from "../types.js";
 
 export type SourceTypeDescriptor =
   | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
@@ -25,6 +27,10 @@ export type SourceTypeDescriptor =
       // A consumer that needs the structure of an "unexpressible" reference refuses; it never rebuilds it.
       // Enum and type-parameter references carry neither definition nor cut.
       readonly cut?: "recursion" | "unexpressible";
+      // Present exactly on a FixedArray<T, N> reference (the declaration carries the canonical "fixed-array" type marker):
+      // the extent N, read from the authored type argument (through aliases), never from a checked type (R-C4-1, R3).
+      // FixedArray<T, 4> and FixedArray<T, 8> are distinct descriptors.
+      readonly extent?: { readonly length: bigint; readonly lengthRuntimeBase: "number" | "bigint" };
     }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor };
 
@@ -86,6 +92,7 @@ export type SourceTypeFlowRefusalCode =
   | "TSONIC_LOCAL_TYPE_ADDRESS"
   | "TSONIC_LOCAL_TYPE_LIMIT"
   | "TSONIC_LOCAL_TYPE_GENERIC"
+  | "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT"
   | "TSONIC_LOCAL_TYPE_UNSUPPORTED";
 
 export interface SourceTypeFlowRefusal {
@@ -131,10 +138,10 @@ export type SourceEffectiveTypeOutcome =
 export interface SourceTypeFlowAssociation {
   readonly occurrence: Node;
   readonly sourceFile: SourceFile;
-  readonly component?: SourceTypeComponentEvidence;
-  readonly call?: ResolvedSourceCallInfo;
-  readonly binding?: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
-  readonly parameter?: ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number];
+  readonly component?: SourceHostComponent;
+  readonly call?: SourceHostCall;
+  readonly binding?: SourceHostArgumentBinding;
+  readonly parameter?: SourceHostCallParameter;
 }
 
 export type SourceTypeFlowObligationKind =
@@ -166,15 +173,63 @@ export interface SourceEffectiveTypeArgument {
 }
 
 export interface SourceEffectiveCallInstantiation {
-  readonly call: ResolvedSourceCallInfo;
+  readonly call: SourceHostCall;
   readonly receiver: readonly SourceEffectiveTypeArgument[];
   readonly method: readonly SourceEffectiveTypeArgument[];
   readonly parameters: readonly (SourceTypeDescriptor | undefined)[];
   readonly result?: SourceTypeDescriptor;
 }
 
+export interface SourceSumIdentity {
+  readonly family: Node;
+  readonly application: readonly SourceTypeDescriptor[];
+}
+
+export interface SourceClosedSum {
+  readonly identity: SourceSumIdentity;
+  readonly arms: readonly { readonly role: number; readonly type: SourceTypeDescriptor }[];
+  readonly roles: readonly { readonly role: number; readonly arms: readonly number[] }[];
+}
+
+export interface SourceDeclaredSlot {
+  readonly slot: Node;
+  readonly type: SourceTypeDescriptor;
+  readonly broad: boolean;
+}
+
+export interface SourceMethodValueUse {
+  readonly occurrence: Node;
+  readonly read: Node;
+  readonly receiver: Node;
+  readonly declaration: Node;
+  readonly type: SourceTypeDescriptor;
+  readonly provenance: SourceEffectiveTypeProvenance;
+  readonly alias: {
+    readonly principal: Node;
+    readonly initializer: Node;
+    readonly provenance: SourceEffectiveTypeProvenance;
+  } | undefined;
+}
+export type SourceSlotAdmission =
+  | {
+      readonly kind: "admitted";
+      readonly use: Node;
+      readonly slot: Node;
+      readonly value: SourceTypeDescriptor;
+      readonly destination: SourceTypeDescriptor;
+      readonly permission: "identity" | "widening";
+      readonly conversion:
+        | { readonly kind: "identity" }
+        | { readonly kind: "exact-number-erasure"; readonly origin: Node; readonly result: SourceTypeDescriptor };
+    }
+  | { readonly kind: "refused"; readonly use: Node; readonly slot: Node; readonly refusal: SourceTypeFlowRefusal };
+
 export interface SourceEffectiveTypes {
+  sum(identity: SourceSumIdentity): SourceClosedSum | undefined;
   get(node: Node): SourceEffectiveTypeOutcome | undefined;
+  declaredSlot(slot: Node): SourceDeclaredSlot | undefined;
+  methodValueUse(occurrence: Node): SourceMethodValueUse | undefined;
+  slotAdmission(use: Node): SourceSlotAdmission | undefined;
   callableReturn(declaration: Node): SourceEffectiveTypeOutcome | undefined;
   callInstantiation(call: Node): SourceEffectiveCallInstantiation | undefined;
   obligations(): readonly SourceTypeFlowObligation[];
@@ -186,7 +241,6 @@ export interface SourceTypeFlowSource {
   readonly sourceFiles: readonly SourceFile[];
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
-  readonly semantics: SourceProgramSemantics;
 }
 
 export interface SourceTypeFlowOrder {
@@ -196,14 +250,17 @@ export interface SourceTypeFlowOrder {
 
 export interface SourceTypeFlowInheritedBinding {
   readonly value: SourceTypeDescriptor;
-  readonly authoredComponent?: SourceTypeComponentEvidence;
+  readonly authoredComponent?: SourceHostComponent;
 }
 
 export interface SourceTypeFlowAnalysisContext {
   readonly source: SourceTypeFlowSource;
-  describe(node: Node, component?: SourceTypeComponentEvidence,
+  readonly unions: SourceTypeDescriptorUnions;
+  /** The program checker adapter (I3): the only path from type flow to checker witnesses. */
+  readonly input: SourceHostInput;
+  describe(node: Node, component?: SourceHostComponent,
     arguments_?: readonly SourceEffectiveTypeArgument[]): SourceTypeDescriptor | undefined;
-  authoredInheritedBindings(type: Type, queries: SourceFileSemantics, bindings: ReadonlyMap<Node, SourceTypeDescriptor>):
+  authoredInheritedBindings(type: SourceHostType, queries: SourceHostQueries, bindings: ReadonlyMap<Node, SourceTypeDescriptor>):
     ReadonlyMap<Node, Required<SourceTypeFlowInheritedBinding>>;
   literal(node: Node): SourceLiteralValue | undefined;
   order(node: Node): SourceTypeFlowOrder;
@@ -224,8 +281,10 @@ export interface SourceTypeFlowVariable {
 export type SourceTypeFlowTerm =
   | { readonly kind: "numeric"; readonly site: Node; readonly form: "integer" | "fractional"; readonly literal: SourceLiteralValue }
   | { readonly kind: "fixed"; readonly site: Node; readonly type: SourceTypeDescriptor }
+  | { readonly kind: "template"; readonly site: Node; readonly type: SourceTypeDescriptor;
+      readonly bindings: readonly { readonly declaration: Node; readonly variable: SourceTypeFlowVariable }[] }
   | { readonly kind: "array"; readonly site: Node; readonly element: SourceTypeFlowVariable; readonly readonly: boolean }
-  | { readonly kind: "optional"; readonly site: Node; readonly value: SourceTypeFlowVariable; readonly source: SourceTypeComponentEvidence }
+  | { readonly kind: "optional"; readonly site: Node; readonly value: SourceTypeFlowVariable; readonly source: SourceHostComponent }
   | { readonly kind: "tuple"; readonly site: Node; readonly elements: readonly {
       readonly kind: "required" | "optional" | "rest";
       readonly variable: SourceTypeFlowVariable;
@@ -236,7 +295,7 @@ export type SourceTypeFlowTerm =
       readonly site: Node;
       readonly declaration: Node;
       readonly typeArguments: readonly SourceTypeFlowVariable[];
-      readonly source?: SourceTypeComponentEvidence;
+      readonly source?: SourceHostComponent;
     }
   | { readonly kind: "shape"; readonly site: Node; readonly members: readonly SourceTypeFlowMember[] };
 
@@ -296,12 +355,12 @@ export interface SourceTypeFlowDerived {
 export interface SourceTypeFlowBinder {
   readonly declaration: Node;
   readonly variable: SourceTypeFlowVariable;
-  readonly constraint?: SourceTypeComponentEvidence;
+  readonly constraint?: SourceHostComponent;
 }
 
 export interface SourceTypeFlowCall {
   readonly node: Node;
-  readonly source: ResolvedSourceCallInfo;
+  readonly source: SourceHostCall;
   readonly receiver: readonly SourceTypeFlowBinder[];
   readonly method: readonly SourceTypeFlowBinder[];
   readonly argumentPlaces: readonly SourceTypeFlowArgumentPlace[];
@@ -309,8 +368,8 @@ export interface SourceTypeFlowCall {
 }
 
 export interface SourceTypeFlowArgumentPlace {
-  readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
-  readonly parameter: ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number];
+  readonly binding: SourceHostArgumentBinding;
+  readonly parameter: SourceHostCallParameter;
   readonly binder: Node;
   readonly value: SourceTypeFlowVariable;
 }
@@ -319,6 +378,7 @@ export interface SourceTypeFlowGraph {
   readonly roots: readonly Node[];
   readonly nodes: readonly SourceTypeFlowNode[];
   readonly links: readonly SourceTypeFlowLink[];
+  readonly inferenceInputs: readonly SourceTypeFlowLink[];
   readonly derived: readonly SourceTypeFlowDerived[];
   readonly calls: readonly SourceTypeFlowCall[];
   readonly refusals: readonly SourceTypeFlowRefusal[];

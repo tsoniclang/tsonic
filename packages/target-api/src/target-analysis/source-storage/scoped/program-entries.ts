@@ -1,6 +1,6 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer, VariableDeclarationList_Declarations, VariableStatement_DeclarationList } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageTerm } from "../graph/scoped-model.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -9,7 +9,7 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 // Whole-program execution starts in every checked source file and in the body of every exported callable, which a
 // caller outside the program may run (RULINGS 2026-10-23). An exported body runs in its declaration activation, whose
 // parameters and receiver are the symbolic external inputs, so its writes are possible effects of the program.
-export function createSourceStorageProgramEntries(source: TargetSourceProgram, transport: SourceStorageScopedTransport,
+export function createSourceStorageProgramEntries(source: SourceAnalysisProgram, transport: SourceStorageScopedTransport,
   scopes: SourceStorageScopes, reachability: ReturnType<typeof createSourceStorageExecutionReachability>, step: () => boolean) {
   const { ast, navigation } = source;
   let entries: readonly { readonly region: Node; readonly owner?: Node }[] | undefined;

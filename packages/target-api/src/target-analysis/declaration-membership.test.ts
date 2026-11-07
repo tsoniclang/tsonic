@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
 import { createSourceDeclarationMembership } from "./declaration-membership.js";
 
 function fixture() {
@@ -16,7 +16,7 @@ function second() { class Same { right = 2; } return Same; }
 function outside(value: number) { return value; }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts")!;
   const nodes: Node[] = [];
   const visit = (node: Node): void => {

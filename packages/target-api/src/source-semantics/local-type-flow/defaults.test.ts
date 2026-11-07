@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
+import { createSourceHostInput } from "../../host-input/index.js";
 import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
-import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeDescriptorUnions, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 
 function fixture(text: string, noImplicitAny = true) {
@@ -20,8 +21,8 @@ function fixture(text: string, noImplicitAny = true) {
   extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/words", packageName: "@test/words",
     exports: [sourcePrimitive("int32", "int32", "number", true, 32), sourcePrimitive("float32", "float32", "number", true, 32)] }] })] } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
-  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const source = createSourceTypeFlowTestProgram(checked);
+  const defaults = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles), createSourceHostInput(source));
   const declaration = (name: string): Node => {
     const selected = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
     if (selected === undefined) throw new Error(`The original declaration ${name} is required.`);
@@ -29,6 +30,62 @@ function fixture(text: string, noImplicitAny = true) {
   };
   return { source, defaults, declaration };
 }
+
+test("C2533 void union arms publish canonical absence while whole void and sole type arguments stay void", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
+    "/src/node_modules/@test/words/index.d.ts": "export type uint64 = bigint;",
+    "/src/index.ts": `import type { uint64 } from "@test/words";
+      declare function fixed(value: uint64 | void): uint64 | void;
+      declare function generic<Value>(value: Value | void): Value | void;
+      declare function promised(value: Promise<void> | void): Promise<void> | void;
+      function whole(): void {}
+      declare const single: Promise<void>;
+      export { fixed, generic, promised, whole, single };`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{ moduleSpecifier: "@test/words", packageName: "@test/words",
+    exports: [sourcePrimitive("uint64", "uint64", "bigint", false, 64)] }] })] } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  assert.equal(checked.extensionDiagnostics.length, 0);
+  const source = createSourceTypeFlowTestProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  if (file === undefined) throw new Error("The original union publications are required.");
+  const nodes: Node[] = [];
+  const pending: Node[] = [file];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    nodes.push(node);
+    for (const child of source.ast.children(node)) if (child !== undefined) pending.push(child);
+  }
+  const unions = nodes.filter(node => source.ast.is.IsUnionTypeNode(node));
+  assert.equal(unions.length, 6, "the same checked three parameter and three return components are retained");
+  const generic = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "generic");
+  const originalParameter = generic === undefined ? undefined : source.ast.typeParameters(generic)[0];
+  for (const node of unions) {
+    const outcome = source.effectiveTypes.get(node);
+    const type = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.type;
+    assert.equal(type?.kind === "optional", true,
+      `original union ${source.ast.pos(node)} retains one absence and no void payload`);
+    if (type?.kind !== "optional") throw new Error("A union void arm must use the original optional descriptor owner.");
+    const payload = type.value;
+    const name = source.ast.text(source.ast.name(source.ast.parent(node)!));
+    const text = source.ast.getSourceText(file).slice(source.ast.pos(node), source.ast.end(node));
+    assert.equal(text.includes("uint64") ? payload.kind === "primitive" && payload.primitive === "uint64"
+      : text.includes("Value") ? payload.kind === "declared" && payload.declaration === originalParameter
+      : payload.kind === "declared" && payload.typeArguments[0]?.kind === "intrinsic" && payload.typeArguments[0].intrinsic === "void", true,
+    `the original payload width/binder/Promise<void> survives at ${name ?? "return"}`);
+  }
+  const whole = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "whole");
+  const result = whole === undefined ? undefined : source.effectiveTypes.callableReturn(whole);
+  assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "intrinsic" && result.type.intrinsic === "void", true,
+    "a whole void return is not a union arm and remains void");
+  const single = nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "single");
+  const value = single === undefined ? undefined : source.effectiveTypes.get(single);
+  assert.equal(value !== undefined && value.kind !== "refused" && value.type.kind === "declared" &&
+    value.type.typeArguments[0]?.kind === "intrinsic" && value.type.typeArguments[0].intrinsic === "void", true,
+    "a sole Promise type argument is never projected as an absence arm");
+  assert.equal(source.effectiveTypes.refusals().length, 0);
+});
 
 test("C2428 aliased generic method callbacks publish the original selected binder's exact argument", () => {
   const current = fixture(`export function run<Value>(values: Value[]): Value[] {
@@ -860,11 +917,11 @@ test("excluded annotations and tuple aliases retain the included consumer's quer
   const consumer = checked.getSourceFile("/src/index.ts");
   const native = checked.getSourceFile("/src/native.ts");
   if (consumer === undefined || native === undefined) throw new Error("The exact checked files are required.");
-  const source = createTargetSourceProgram({ ...checked, sourceFiles: Object.freeze([consumer]), getSourceFileQueries(file) {
+  const source = createSourceTypeFlowTestProgram({ ...checked, sourceFiles: Object.freeze([consumer]), getSourceFileQueries(file) {
     assert.equal(file === consumer, true, "foreign metadata keeps the original consumer query");
     return checked.getSourceFileQueries(file);
   } });
-  const defaults = createSourceTypeFlowAnalysisContext(source);
+  const defaults = createSourceTypeFlowAnalysisContext(source, createSourceTypeDescriptorUnions(checked.ast, checked.programSourceFiles), createSourceHostInput(source));
   const retained = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "retained");
   const pair = defaults.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "pair");
   if (retained === undefined || pair === undefined) throw new Error("The included declarations are required.");

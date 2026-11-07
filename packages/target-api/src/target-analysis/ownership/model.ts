@@ -1,12 +1,15 @@
-import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use-model.js";
-import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
-import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
-import type { SourceTypeComponentEvidence } from "../../source-semantics/types.js";
+import type { SourceCallSelection } from "../../public/source/selections.js";
+import type { SourceEffectiveTypeArgument, SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
 import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../flow/model.js";
 
+/**
+ * A type-argument lifetime region: the binder (type parameter declaration) of the value's type or of the call's
+ * instantiation, bound to a Host descriptor whose declaration is `declaration` (a type parameter of an enclosing owner).
+ */
 export type SourceFormalBorrowRegion =
-  | { readonly kind: "type-argument"; readonly binding: SourceTypeArgumentBinding; readonly declaration: Node }
+  | { readonly kind: "type-argument"; readonly binding: SourceEffectiveTypeArgument; readonly declaration: Node }
   | { readonly kind: "input-duration"; readonly parameter: Node };
 
 export interface SourceAsyncOwnershipDiagnostic {
@@ -28,9 +31,19 @@ export interface SourceDeclarationOwnershipUnresolved {
   readonly cause: SourceDeclarationOwnershipCause;
 }
 
+/** The Host description of an ownership value (I1): its descriptor and the declaration or call that produced it. */
+export interface SourceDeclarationOwnershipComponent {
+  readonly type: SourceTypeDescriptor;
+  /** The selected signature declaration of a call result, else the referenced declaration. */
+  readonly declaration?: Node;
+  readonly authoredTypeNode?: Node;
+  /** The call or construction whose result the value is. */
+  readonly call?: Node;
+}
+
 export type SourceDeclarationOwnershipContract =
-  | { readonly kind: "declaration"; readonly declaration: Node; readonly component: SourceTypeComponentEvidence }
-  | { readonly kind: "expression"; readonly expression: Node; readonly component: SourceTypeComponentEvidence };
+  | { readonly kind: "declaration"; readonly declaration: Node; readonly component: SourceDeclarationOwnershipComponent }
+  | { readonly kind: "expression"; readonly expression: Node; readonly component: SourceDeclarationOwnershipComponent };
 
 export interface SourceDeclarationOwnershipEvidence {
   readonly contract: SourceDeclarationOwnershipContract;
@@ -38,7 +51,7 @@ export interface SourceDeclarationOwnershipEvidence {
 
 export interface SourceDeclarationOwnershipValue {
   readonly node: Node;
-  readonly component: SourceTypeComponentEvidence;
+  readonly component: SourceDeclarationOwnershipComponent;
   readonly region: SourceDeclarationFlowExecutionRegion;
 }
 
@@ -70,7 +83,8 @@ export type SourceDeclarationAsyncCompletionSelection =
   | SourceDeclarationOwnershipUnresolved;
 
 export interface SourceDeclarationOwnershipPremises {
-  completionFor(call: Node, selected: ResolvedSourceCallInfo): SourceDeclarationAsyncCompletionSelection;
+  /** Async completion of the callee the Host selected for `call` (target policy over the published call selection). */
+  completionFor(call: Node, selected: SourceCallSelection): SourceDeclarationAsyncCompletionSelection;
   retentionFor(request: {
     readonly valueFor: SourceDeclarationOwnershipValues["forNode"];
   } & (
@@ -87,7 +101,7 @@ export type SourceDeclarationPendingOperation = {
   readonly contracts: readonly (SourceDeclarationOwnershipEvidence & { readonly value: SourceDeclarationOwnershipValue })[];
 } & (
   | { readonly kind: "expression"; readonly expression: Node }
-  | { readonly kind: "resource-cleanup"; readonly resource: ResolvedSourceResourceManagementInfo }
+  | { readonly kind: "resource-cleanup"; readonly declaration: Node }
 );
 
 export interface SourceDeclarationContinuationDependency {

@@ -1,6 +1,7 @@
+import { sourceStorageIsGenerator } from "../transport/host-reads.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
@@ -32,7 +33,7 @@ interface ContextBinding {
 type ContextSubject = SourceStorageSubject | ContextBinding;
 type ContextSelection = SourceStorageForwardSelection<ContextSubject, SourceStorageSubject>;
 
-export function createSourceStorageContextApplications(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageContextApplications(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   queries: ContextApplicationQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
   const rows = budget.createRows();
   const bindings = new Map<SourceStorageSubject, Map<Node, Map<Node, ContextBinding>>>();
@@ -42,7 +43,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
   const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean | undefined => {
     if (subject.kind === "receiver") return subject.node === candidate;
     if (subject.kind !== "input" || source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) return false;
-    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
+    const parameters = sourceCallableValueParameters(source.ast, candidate, source.navigation,
       { kind: "declaration" });
     if (parameters === undefined) {
       budget.reject("Source storage context ports require their exact checked value parameters.");
@@ -112,7 +113,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
     const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async") ||
-      source.semantics.forNode(candidate).operations.generator(candidate) !== undefined);
+      sourceStorageIsGenerator(source.ast, candidate));
     if (deferred && !emit(current)) return false;
     if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node) || deferred) {
       for (const expression of queries.argumentsFor(current.node)) {
@@ -128,7 +129,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     for (const candidate of candidates) {
       if (!budget.step()) return false;
       if (source.ast.hasModifierKind(candidate, "async") ||
-        source.semantics.forNode(candidate).operations.generator(candidate) !== undefined) continue;
+        sourceStorageIsGenerator(source.ast, candidate)) continue;
       const result = queries.subject(candidate, "return", current.projection);
       const projection = projectionFor(current, candidate, current.node);
       if (result === undefined || projection === undefined) {

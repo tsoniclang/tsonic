@@ -1,7 +1,7 @@
+import { createHostSourceProgramFixture } from "./host-program-fixtures.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { selectSourceNativeValueGuard } from "./native-value-guards.js";
 import { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
 
@@ -26,7 +26,7 @@ function run(value: unknown, other: unknown): void {
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.deepEqual(checked.diagnostics, []);
   assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const comparisons: Node[] = [];
@@ -34,14 +34,14 @@ function run(value: unknown, other: unknown): void {
   const visit = (node: Node): void => {
     if (source.ast.is.IsBinaryExpression(node)) comparisons.push(node);
     if (source.ast.is.IsCallExpression(node)) {
-      const call = source.semantics.forNode(node).operations.call(node);
-      if (source.ast.text(call?.sourceCallee.expression) === "observe" && call?.sourceArguments[0] !== undefined) reads.push(call.sourceArguments[0].expression);
+      const call = source.navigation.call(node);
+      if (source.ast.text(call?.callee) === "observe" && call?.arguments[0] !== undefined) reads.push(call.arguments[0]);
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    semanticsFor: (node: Node) => source.semantics.forNode(node) };
+    flowConditions: source.flowConditions, values: source.facts.values };
   const guards = comparisons.map(node => selectSourceNativeValueGuard(context, node));
   assert.deepEqual(guards.slice(0, 4).map(guard => guard?.kind === "typeof" ? [guard.value, guard.negated] : undefined),
     [["string", false], ["object", true], ["function", false], ["number", true]]);

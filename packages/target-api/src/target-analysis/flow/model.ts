@@ -1,6 +1,6 @@
-import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
+import type { SourceAnalysisProgram } from "../analysis-program.js";
+import type { Node } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -15,8 +15,8 @@ export type SourceFlowOperation =
   | { readonly kind: "entry" | "exit" | "exception-exit" | "merge" | "branch" |
       "evaluate" | "iteration" | "catch" | "yield" | "return" | "throw" }
   | { readonly kind: "await"; readonly awaitKind: "authored"; readonly value: Node | undefined }
-  | { readonly kind: "await"; readonly awaitKind: "resource-cleanup";
-      readonly resource: ResolvedSourceResourceManagementInfo }
+  /** Cleanup of an `await using` declaration: the declaration whose selected async disposal runs. */
+  | { readonly kind: "await"; readonly awaitKind: "resource-cleanup"; readonly declaration: Node }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
@@ -74,7 +74,7 @@ export interface SourceFlowLimits {
 
 export interface SourceControlFlowSelectedDomain {
   readonly kind: "selected";
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly nodes: readonly Node[];
 }
 

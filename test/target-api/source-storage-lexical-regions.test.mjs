@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageLexicalSelections } from "../../packages/target-api/dist/target-analysis/source-storage/graph/lexical-regions.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { checkedSource, namedDeclaration, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
@@ -21,7 +22,7 @@ interface String {} interface RegExp {} interface Array<T> { [index: number]: T;
 export class Holder { field = 1; method(value = 3) { return value; } }`,
   });
   assert.equal(checked.diagnostics.length, 0, "valid original checked AST");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const throwing = number => requiredNode(source.ast, file, node =>
     source.ast.is.IsThrowStatement(node) && source.ast.text(Node_Expression(source.ast, node)) === String(number));

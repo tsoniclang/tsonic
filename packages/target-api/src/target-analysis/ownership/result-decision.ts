@@ -1,5 +1,5 @@
+import { sourceAnalysisIncludesNode, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationAsyncCompletionSelection, SourceDeclarationAsyncOwnershipSelection,
   SourceDeclarationAsyncResultDisposition, SourceDeclarationContinuationSelection, SourceDeclarationOwnershipBudget,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationRetentionReadSelection,
@@ -9,7 +9,7 @@ import { sourceSingleCallValueArgument } from "../../source-navigation/callable-
 import { createSourceCallArgumentCorrespondenceQuery } from "./call-arguments.js";
 
 export function decideSourceDeclarationAsyncResultUse(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly call: Node;
   readonly completion: SourceDeclarationAsyncCompletionSelection;
@@ -19,17 +19,19 @@ export function decideSourceDeclarationAsyncResultUse(input: {
 }): SourceDeclarationAsyncOwnershipSelection {
   const { source, budget, call, completion, disposition } = input;
   if (!budget.step(call)) return budget.failure()!;
-  const file = source.ast.getSourceFile(call);
-  if (file === undefined || !source.semantics.includes(file) || !source.ast.is.IsCallExpression(call))
+  if (!sourceAnalysisIncludesNode(source, call) || !source.ast.is.IsCallExpression(call))
     return sourceDeclarationOwnershipUnresolved(call, "Async result-use requires its exact checked source call.");
   if (completion.kind !== "async") return completion;
-  const selected = source.semantics.forNode(call).operations.call(call);
-  if (selected?.sourceSelectedSignatureKind !== "resolved")
+  const selected = source.navigation.call(call);
+  if (selected?.selection !== "resolved")
     return sourceDeclarationOwnershipUnresolved(call, "Async result-use requires the exact selected checked signature.");
+  const resultType = sourceAnalysisValueType(source, call);
+  if (resultType === undefined)
+    return sourceDeclarationOwnershipUnresolved(call, "Async result-use requires the Host type of the call result.");
+  const result = Object.freeze({ type: resultType, call });
   const correspondenceFor = createSourceCallArgumentCorrespondenceQuery(source);
-  const declaration = source.semantics.forNode(call).declarations.signatureDeclaration(selected.selectedSignature);
-  const problem = sourceDeclarationOwnershipContractProblem(source, call,
-    { selectedType: selected.sourceResultType }, completion.contract);
+  const declaration = selected.signature;
+  const problem = sourceDeclarationOwnershipContractProblem(source, call, result, completion.contract);
   if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(call, problem);
   if (disposition.kind === "unresolved") return disposition;
   if (completion.resultPolicy === "must-observe" && disposition.kind === "discarded" &&
@@ -48,8 +50,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       "Native async retention must describe this exact result-use call, not another source read.");
   for (const premise of retention.premises) {
     if (!budget.step(call)) return budget.failure()!;
-    const problem = sourceDeclarationOwnershipContractProblem(source, call,
-      { selectedType: selected.sourceResultType }, premise.contract);
+    const problem = sourceDeclarationOwnershipContractProblem(source, call, result, premise.contract);
     if (problem !== undefined) return sourceDeclarationOwnershipUnresolved(call, problem);
   }
   const dependencies = continuation.dependencies;
@@ -77,7 +78,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
       return nativeRetention(reference);
     const owner = source.ast.parent(formal);
     if (owner === declaration) {
-      const argument = sourceSingleCallValueArgument(correspondenceFor(selected), formal);
+      const argument = sourceSingleCallValueArgument(correspondenceFor(call), formal);
       return argument === undefined ? sourceDeclarationOwnershipUnresolved(call,
         "A native formal continuation requires its exact selected caller input.") : nativeRetention(argument);
     }
@@ -92,7 +93,7 @@ export function decideSourceDeclarationAsyncResultUse(input: {
     }
     return current === undefined || owner === undefined ? sourceDeclarationOwnershipUnresolved(reference,
       "A native continuation requires its exact selected formal or lexical capture owner.")
-      : nativeRetention(selected.sourceCallee.expression);
+      : nativeRetention(selected.callee);
   };
   const leases = [...dependencies.map(dependency => dependency.retention), ...retention.premises];
   for (const premise of leases) {
@@ -101,14 +102,12 @@ export function decideSourceDeclarationAsyncResultUse(input: {
     if (premise.kind === "formal-borrowed" && premise.value.node !== call &&
       (declaration === premise.executionOwner || declaration === premise.value.region.owner)) {
       const node = premise.value.node;
-      const semantics = source.semantics.forNode(node);
-      const operation = source.ast.is.IsCallExpression(node) ? semantics.operations.call(node) : undefined;
-      const native = operation?.sourceSelectedSignatureKind === "resolved"
-        ? semantics.declarations.signatureDeclaration(operation.selectedSignature) : undefined;
+      const operation = source.ast.is.IsCallExpression(node) ? source.navigation.call(node) : undefined;
+      const native = operation?.selection === "resolved" ? operation.signature : undefined;
       let reference = node;
       const region = premise.region;
       if (native === premise.executionOwner && region.kind === "input-duration") {
-        const argument = sourceSingleCallValueArgument(correspondenceFor(operation!), region.parameter);
+        const argument = sourceSingleCallValueArgument(correspondenceFor(node), region.parameter);
         if (argument === undefined) return sourceDeclarationOwnershipUnresolved(node,
           "A pending native result requires its exact completed input-duration relation.");
         reference = argument;

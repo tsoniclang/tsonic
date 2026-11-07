@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -45,7 +46,7 @@ test(`unsupported shared ${label} exposes the exact source refusal`, () => {
   assert.equal(selected.kind, "unresolved", `${label}: unqualified receivers do not admit a native writable destination`);
   assert.match(selected.reason, /parameter|alias|element|property|call result/u);
   const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node) &&
-    current.source.semantics.forNode(node).operations.propertyAccess(node)?.accessMode === "write");
+    current.source.navigation.memberAccess(node)?.accessMode === "write");
   assert.equal(access !== undefined, true, `${label}: original source write access`);
   const write = current.storage.writeAt(access, current.storage.emptyBindings);
   assert.equal(write.kind, "resolved", `${label}: the exact original occurrence remains published`);
@@ -93,7 +94,7 @@ test("exporting a constant concrete binding does not turn its field write into a
   `);
   current.complete("forward", []);
   const access = current.nodes.find(node => current.source.ast.is.IsPropertyAccessExpression(node) &&
-    current.source.semantics.forNode(node).operations.propertyAccess(node)?.accessMode === "write");
+    current.source.navigation.memberAccess(node)?.accessMode === "write");
   assert.equal(access !== undefined, true, "the concrete field retains its original write access");
   const selected = current.storage.writeAt(access, current.storage.emptyBindings);
   assert.equal(selected.kind, "resolved", "the exact original write remains published");
@@ -114,8 +115,10 @@ test("the receiver declaration is not a runtime value parameter", () => {
   const current = formalFixture("function inspect(this: Reader, owner: Reader) { return owner.read(); }");
   current.complete("inspect", []);
   const declaration = current.callable("inspect");
-  const receiver = current.source.semantics.forNode(declaration).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
-  assert.equal(receiver !== undefined, true, "the original checked receiver contract is present");
+  // The explicit this parameter is the first authored parameter named this.
+  const receiver = current.source.ast.parameters(declaration)[0];
+  assert.equal(receiver !== undefined && current.source.ast.text(current.source.ast.name(receiver)) === "this", true,
+    "the original checked receiver contract is present");
   assert.equal(current.storage.formalMemberWriteDemand(declaration, receiver).kind, "unresolved",
     "explicit this never shifts or substitutes the canonical runtime parameter vector");
 });

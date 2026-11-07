@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
@@ -24,7 +25,7 @@ async function inheritedNativeMemberFixture(name, body, admitted = true) {
     "src/index.ts": `export {}; ${body} const created = new Retained(); const observed = created.message;`,
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const globals = projectSourceFile(source, "globals.d.ts");
   const error = namedDeclaration(source.ast, globals, "Error");
@@ -38,7 +39,10 @@ async function inheritedNativeMemberFixture(name, body, admitted = true) {
   const invocation = Node_Initializer(source.ast, namedVariable(source.ast, file, "created"));
   const lineages = transport.constructionLineagesFor(invocation, undefined, "heritage");
   const field = source.ast.members(error).find(member => source.ast.text(source.ast.name(member)) === "message");
-  const destination = source.semantics.forNode(error).declarations.declaredType(error);
+  // The native instance contract: the Host result of the ErrorConstructor construct signature (the Error type).
+  const resolved = constructors.length === 0 ? undefined : source.facts.values.callableReturn(constructors[0]);
+  const destination = resolved === undefined || resolved.kind === "refused" ? undefined : resolved.type;
+  assert.equal(destination?.kind === "declared" && destination.declaration === error, true, "the construct result is the Error declaration");
   assert.equal(field !== undefined && destination !== undefined, true, "the actual checked native member and instance contract");
   return { source, file, budget, transport, lineages, field, destination, constructors };
 }
@@ -49,7 +53,7 @@ function fixture(body, extraFiles = {}) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const storage = createSourceStorageQuery(source, Object.keys(files).map(name => checked.getSourceFile(name)));

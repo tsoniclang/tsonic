@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { requiredNode } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageDomainWitnesses } from "../../packages/target-api/dist/target-analysis/source-storage/graph/domain-witnesses.js";
@@ -118,7 +119,7 @@ test("checked public class instances retain every exact writable exposure under 
       `export const value${index} = new Holder();`).join("\n")}`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unmodified idiomatic TypeScript checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file], { ...defaultSourceStorageLimits, maximumSteps: 32768 });
   const field = requiredNode(source.ast, file, node => source.ast.is.IsPropertyDeclaration(node));
@@ -140,7 +141,7 @@ test("recursive readonly projections retain their inherited original external in
 export function first(children: Children): Children { return children?.[0]; }`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "checked recursive array and one absence");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const parameter = requiredNode(source.ast, file, node => source.ast.is.IsParameterDeclaration(node));

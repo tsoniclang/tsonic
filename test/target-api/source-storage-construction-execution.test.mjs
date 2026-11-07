@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -39,7 +40,7 @@ function fixture(limits = defaultSourceStorageLimits) {
     },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "actual cross-file inherited and generic construction checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, limits);
   const ast = source.ast;
   const named = name => storage.nodes.find(node => (ast.is.IsClassDeclaration(node) || ast.is.IsFunctionDeclaration(node) ||
@@ -185,7 +186,7 @@ for (const reverse of [false, true]) test(`recursive explicit super initializers
     },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "The original recursive explicit constructors are checked source.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const { ast } = source;
   const named = name => storage.nodes.find(node => ast.is.IsClassDeclaration(node) && ast.text(ast.name(node)) === name);
@@ -246,7 +247,7 @@ for (const body of [false, true]) for (const reverse of [false, true]) {
       },
     }).checkSource();
     assert.equal(checked.diagnostics.length === 0, true, "The actual independently reviewed captured-base program checks.");
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const storage = createSourceStorageQuery(source, source.sourceFiles);
     const { ast } = source;
     const allocation = name => storage.invocations.find(node => ast.is.IsNewExpression(node) &&
@@ -309,7 +310,7 @@ test("finite factory and copied conditional class values preserve each Base and 
     const copied = first; const Chosen = flag ? copied : second; const instance = new Chosen();
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const instance = storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "instance");
   const invocation = source.ast.as.AsVariableDeclaration(instance).Initializer;

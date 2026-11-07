@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram, sourceDeclarationHasOnlyTypeUses, sourceDeclarationIsModuleScoped } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, sourceDeclarationHasOnlyTypeUses, sourceDeclarationIsModuleScoped } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("declaration use classification owns erased contracts without inventing initializer purity", async () => {
@@ -23,7 +24,7 @@ const getterKey = new Source().key;
 interface GetterShape { [getterKey]: number; }
 export {};
 ` });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["interfaceKey", "literalKey", "methodKey", "queryValue", "ambientKey", "effectKey", "getterKey"]) {
     const declaration = namedVariable(source.ast, file, name);
@@ -67,7 +68,7 @@ const shadow = "outer";
 interface Shadow { [shadow]: number; }
 function inner(): string { const shadow = "inner"; return shadow; }
 ` });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["classKey", "objectKey", "elementKey", "bodyKey", "exported", "linkage", "written", "captured", "unused"]) {
     const declaration = namedVariable(source.ast, file, name);
@@ -88,7 +89,7 @@ test("import/export linkage preserves the actual originating declaration identit
     "src/index.ts": 'import { key as imported } from "./other.js"; interface Shape { [imported]: number; } export {};',
     "src/other.ts": 'export const key = "value"; interface Own { [key]: number; }',
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const declaration = namedVariable(source.ast, projectSourceFile(source, "src/other.ts"), "key");
   const summary = source.navigation.declarationUseSummary(declaration);
   assert.equal(summary.exported, true, "the real exported declaration remains an ABI/runtime obligation");

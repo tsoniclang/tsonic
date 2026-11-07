@@ -27,12 +27,19 @@ export const keelSkeletonFamilies = Object.freeze({
   print: ["project", "source"],
 });
 
+// representation/ (C#): the one mapping from Host descriptors to target type refs (nextgen plan §2, C-2542).
 export const keelRootFamilies = Object.freeze([
   "public", "descriptor", "options", "compilation", "toolchain",
-  "source", "providers", "target-model", "policy", "analysis", "backend", "print",
+  "source", "providers", "target-model", "representation", "policy", "analysis", "backend", "print",
 ]);
 
 export const keelNativeDifferences = Object.freeze([
+  { path: "representation", target: "tsonic-csharp",
+    reason: "The C# target maps published Host descriptors, sums and instantiations to CLR type refs in one owner (representSourceType / representSourceSum / representInstantiation / representObject). Rust adopts the Host facts in its own representation stage; until then it keeps its checked-type producers (C-2510). Scheduling difference, removed when Rust adds representation/.",
+    evidence: "nextgen Host ownership, ARCHITECTURE-AND-PLAN §2/§4 (C-2542); tsonic-csharp/src/representation/index.ts; Rust deferred C-2510" },
+  { path: "analysis/source-evidence/types/resolution", target: "tsonic-rust",
+    reason: "Rust keeps its checked-type resolution engine until its representation stage (C-2510). The C# engine was deleted and replaced by representation/ over Host descriptors. Scheduling difference, removed when Rust adopts the Host facts.",
+    evidence: "nextgen Host ownership, ARCHITECTURE-AND-PLAN §4 work split C (C-2542); carrier differences S11-25 in test/architecture/carrier-parity.mjs" },
   { path: "policy/operations/provider-selection", target: "tsonic-rust",
     reason: "Checked native operation/export identity rows from rustdoc correspond to CLR member-relation selection in C# policy/operations/members/selection; both targets keep this decision in policy.",
     evidence: "C399; tsonic-rust/src/policy/operations/provider-selection.ts:28,37,62; tsonic-csharp/src/policy/operations/members/selection/call-selection.ts:68,property-selection.ts:60,element-selection.ts:63,value-selection.ts:21" },

@@ -1,7 +1,6 @@
-import type { CheckedSourceProgram, Node, Symbol } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceNavigationInput } from "../host-input/navigation.js";
 import { sourceNodeIdentity } from "./identity.js";
-import { getEffectiveSourceTypeArguments } from "./type-arguments.js";
-import { aliasedSymbol, primaryDeclaration, symbolAtReferenceNode } from "./syntax.js";
 import type { SourceDeclarationReference, SourceDeclaredHeritageEdge, SourceDeclaredHeritageResult, SourceHeritagePathResult } from "./types.js";
 
 export interface SourceHeritageNavigation {
@@ -14,8 +13,12 @@ export interface SourceHeritageNavigation {
 
 const maximumHeritageDepth = 512;
 
+/**
+ * Declared heritage: each clause element, the declaration it names (host-input heritage target) and its authored type
+ * argument nodes. Type arguments are syntax; their Source meaning is the Host value model's (object facts).
+ */
 export function createSourceHeritageNavigation(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "heritageTarget">,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceHeritageNavigation {
   const cache = new Map<string, SourceDeclaredHeritageResult>();
@@ -56,37 +59,6 @@ export function createSourceHeritageNavigation(
         }
         return unresolved;
       }
-      const sourceFile = source.ast.getSourceFile(clause.heritage);
-      const queries = sourceFile === undefined
-        ? undefined
-        : source.getSourceFileQueries(sourceFile);
-      const selectedType = queries?.checker.getTypeAtLocation(
-        clause.heritage,
-      );
-      const selectedTypeArguments = selectedType === undefined
-        ? undefined
-        : queries === undefined
-          ? undefined
-          : getEffectiveSourceTypeArguments(
-              source.ast,
-              queries,
-              selectedType,
-            );
-      if (
-        selectedType === undefined ||
-        selectedTypeArguments === undefined
-      ) {
-        const unresolved = Object.freeze({
-          kind: "unresolved" as const,
-          heritage: clause.heritage,
-          reason:
-            "The checked source program did not provide one exact selected type for a declared heritage edge.",
-        });
-        if (identity !== undefined) {
-          cache.set(identity, unresolved);
-        }
-        return unresolved;
-      }
       edges.push(Object.freeze({
         kind: clause.kind,
         sourceDeclaration: declaration,
@@ -97,8 +69,6 @@ export function createSourceHeritageNavigation(
             (argument): argument is Node => argument !== undefined,
           ),
         ),
-        selectedType,
-        selectedTypeArguments,
       }));
     }
     const resolved = Object.freeze({
@@ -132,52 +102,18 @@ export function createSourceHeritageNavigation(
 }
 
 function heritageTarget(
-  source: CheckedSourceProgram,
+  source: Pick<SourceNavigationInput, "ast" | "heritageTarget">,
   heritage: Node,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceDeclarationReference | undefined {
-  const referenceNode = source.ast.is.IsExpressionWithTypeArguments(heritage)
-    ? source.ast.as.AsExpressionWithTypeArguments(heritage)?.Expression
-    : heritage;
-  const sourceFile = source.ast.getSourceFile(referenceNode);
-  if (referenceNode === undefined || sourceFile === undefined) {
-    return undefined;
-  }
-  const queries = source.getSourceFileQueries(sourceFile);
-  const selected = symbolAtReferenceNode(
-    source.ast,
-    queries.checker,
-    referenceNode,
-  );
-  const symbol = canonicalSourceSymbol(
-    source.ast,
-    queries.checker,
-    selected,
-  );
-  const declaration = primaryDeclaration(queries.checker, symbol);
-  const declarationSourceFile = source.ast.getSourceFile(declaration);
-  return symbol === undefined ||
-      declaration === undefined ||
-      declarationSourceFile === undefined
-    ? undefined
-    : Object.freeze({
-        symbol,
-        declaration,
-        sourceFile: declarationSourceFile,
-        project: isProjectDeclaration(declaration),
-      });
-}
-
-function canonicalSourceSymbol(
-  ast: CheckedSourceProgram["ast"],
-  checker: ReturnType<CheckedSourceProgram["getSourceFileQueries"]>["checker"],
-  symbol: Symbol | undefined,
-): Symbol | undefined {
-  return aliasedSymbol(ast, checker, symbol) ?? symbol;
+  const declaration = source.heritageTarget(heritage);
+  const sourceFile = source.ast.getSourceFile(declaration);
+  return declaration === undefined || sourceFile === undefined ? undefined
+    : Object.freeze({ declaration, sourceFile, project: isProjectDeclaration(declaration) });
 }
 
 function findHeritagePath(
-  source: CheckedSourceProgram,
+  source: { readonly ast: AstReader },
   declaredHeritage: (declaration: Node) => SourceDeclaredHeritageResult,
   current: Node,
   target: Node,
@@ -229,7 +165,7 @@ function findHeritagePath(
 }
 
 function sameDeclaration(
-  source: CheckedSourceProgram,
+  source: { readonly ast: AstReader },
   left: Node,
   right: Node,
 ): boolean {

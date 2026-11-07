@@ -1,6 +1,7 @@
+import { createJsSourceApiFacts } from "../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../../../packages/target-api/dist/public/host.js";
 import { sourceAbsenceUse } from "../../../../packages/target-api/dist/source-navigation/absence-use.js";
 function fixture(expression) {
     const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
@@ -8,7 +9,7 @@ function fixture(expression) {
     function select(value: number | undefined, other: number | undefined) { return ${expression}; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const file = checked.getSourceFile("/src/index.ts");
     assert.ok(file);
     const callable = source.ast.statements(file).find(node => source.ast.is.IsFunctionDeclaration(node) &&
@@ -20,6 +21,6 @@ function fixture(expression) {
     assert.equal(uses?.uses.length, 1, expression);
     const reference = uses?.uses[0]?.reference;
     assert.ok(reference);
-    return sourceAbsenceUse(reference, { ast: source.ast, semanticsFor: node => source.semantics.forNode(node) });
+    return sourceAbsenceUse(reference, { ast: source.ast, navigation: source.navigation });
 }
 export { fixture };

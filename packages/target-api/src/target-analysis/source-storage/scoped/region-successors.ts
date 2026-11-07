@@ -1,4 +1,5 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import { sourceStorageInvocationReceiver } from "../transport/host-reads.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -7,7 +8,7 @@ import type { createSourceStorageExecutionContext } from "./execution-context.js
 import type { createSourceStoragePointerValues } from "./pointer-values.js";
 
 interface SourceStorageRegionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "application" | "leaf"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly reachability: ReturnType<typeof createSourceStorageExecutionReachability>;
@@ -17,7 +18,7 @@ interface SourceStorageRegionSuccessorContext extends Pick<ReturnType<typeof cre
 
 export function createSourceStorageRegionSuccessors(context: SourceStorageRegionSuccessorContext) {
   const { source, budget, transport, reachability, nativeInputExecutions, pointerValues, application, leaf } = context;
-  const { ast, semantics } = source;
+  const { ast } = source;
   return (term: Extract<SourceStorageTerm, { readonly kind: "region" }>): SourceStorageReduction | undefined => {
     const terms: SourceStorageTerm[] = [];
     const demandRegion = transport.regions.enclosing(term.demand);
@@ -43,7 +44,7 @@ export function createSourceStorageRegionSuccessors(context: SourceStorageRegion
         terms.push(...pointerExecution); continue;
       }
       if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
-        const receiver = semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
+        const receiver = sourceStorageInvocationReceiver(source, invocation);
         const subject = transport.subjectFor(receiver);
         if (subject === undefined) return undefined;
         terms.push(application(invocation, subject, term.scope, [], {

@@ -1,5 +1,5 @@
 import type { ExtensionFactSubject, Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
 import { selectTsonicMemoryRecordBinding, selectTsonicMemoryRecordBindingFacts } from "./selection.js";
 
 export interface TsonicMemoryBindingIndex {
@@ -7,15 +7,15 @@ export interface TsonicMemoryBindingIndex {
   hasBoundField(subjects: readonly ExtensionFactSubject[]): boolean;
 }
 
-export function createTsonicMemoryBindingIndex(source: TargetSourceProgram): TsonicMemoryBindingIndex {
+export function createTsonicMemoryBindingIndex(source: HostSourceProgram): TsonicMemoryBindingIndex {
   return createMemoryBindingIndex(source, selectTsonicMemoryRecordBinding);
 }
 
-export function createTsonicMemoryBindingFactsIndex(source: TargetSourceProgram): TsonicMemoryBindingIndex {
+export function createTsonicMemoryBindingFactsIndex(source: HostSourceProgram): TsonicMemoryBindingIndex {
   return createMemoryBindingIndex(source, selectTsonicMemoryRecordBindingFacts);
 }
 
-function createMemoryBindingIndex(source: TargetSourceProgram,
+function createMemoryBindingIndex(source: HostSourceProgram,
   select: typeof selectTsonicMemoryRecordBindingFacts): TsonicMemoryBindingIndex {
   const subjects = new WeakSet<ExtensionFactSubject>();
   const issues: { readonly node: Node; readonly reason: string }[] = [];

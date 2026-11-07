@@ -1,10 +1,11 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTargetSourceProgram, selectSourceNativeValueGuard } from "../../packages/target-api/dist/public/source.js";
-import { checkedSource, namedDeclaration, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { createHostSourceProgram, selectSourceNativeValueGuard } from "../../packages/target-api/dist/public/host.js";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
-test("native absence guards query declared evidence through their checked references", async () => {
-  const source = createTargetSourceProgram(await checkedSource("native-value-guard-owners", {
+test("native absence guards classify their references by Host value facts", async () => {
+  const source = createHostSourceProgram(await checkedSource("native-value-guard-owners", {
     "src/absence.ts": "export const absent: undefined = undefined; export const present = 3;",
     "src/index.ts": `
 import { absent as imported, present } from "./absence.js";
@@ -22,7 +23,7 @@ export function narrowed(value: number | undefined) {
 }
 export function nominal(value: number | undefined) { return value === 3; }
 `,
-  }));
+  }), { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   for (const [name, kind, negated] of [
     ["global", "absence", true], ["alias", "absence", false], ["reversed", "absence", true],
@@ -32,20 +33,24 @@ export function nominal(value: number | undefined) { return value === 3; }
     const expression = requiredNode(source.ast, namedDeclaration(source.ast, file, name),
       node => source.ast.is.IsBinaryExpression(node));
     const queried = [];
-    const guard = selectSourceNativeValueGuard({ ...source, semanticsFor(node) {
+    // Guard operands are classified by the Host descriptor of the reference (R3), never a checked type.
+    const values = { type(node) {
       queried.push(node);
-      assert.equal(source.ast.is.IsIdentifier(node), true, `${name}: query the checked reference, not its declaration`);
-      assert.equal(source.ast.getSourceFile(node) === file, true, `${name}: exact checked source owner`);
-      return source.semantics.forNode(node);
-    } }, expression);
+      assert.equal(source.ast.is.IsIdentifier(node), true, `${name}: query the reference, not its declaration`);
+      assert.equal(source.ast.getSourceFile(node) === file, true, `${name}: exact source owner`);
+      return source.facts.values.type(node);
+    } };
+    const guard = selectSourceNativeValueGuard({ ast: source.ast, navigation: source.navigation, values }, expression);
     assert.equal(guard?.kind, kind, name);
     assert.equal(guard?.negated, negated, name);
     assert.equal(queried.length > 0, true, name);
     if (guard !== undefined) assert.equal(Object.isFrozen(guard), true, name);
   }
-  const foreign = createTargetSourceProgram(await checkedSource("foreign-native-value-guard", {
+  const foreign = createHostSourceProgram(await checkedSource("foreign-native-value-guard", {
     "src/index.ts": "export const value = 1;",
-  }));
+  }), { profile: createJsSourceApiFacts });
   const foreignFile = projectSourceFile(foreign, "src/index.ts");
-  assert.throws(() => source.semantics.forFile(foreignFile), /exact source file from the checked program/u);
+  const foreignValue = namedVariable(foreign.ast, foreignFile, "value");
+  assert.throws(() => source.facts.values.type(foreignValue), /Source value facts/u,
+    "a node of another program has no Host value fact in this program");
 });

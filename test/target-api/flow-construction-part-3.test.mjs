@@ -1,8 +1,9 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
@@ -107,7 +108,7 @@ test(`symbolic property initializer flow retains ${label} without a fabricated c
     "an initializer is neither a function return nor a synthetic parameter declaration");
   assert.equal(graph.points.some(point => point.operation.kind === "evaluate" && point.source !== undefined &&
     current.ast.is.IsPropertyAccessExpression(point.source) &&
-    current.source.semantics.forNode(point.source).operations.propertyAccess(point.source)?.accessMode === "read"), reads,
+    current.source.navigation.memberAccess(point.source)?.accessMode === "read"), reads,
   "only actual initializer reads observe the inherited value");
   assert.equal(graph.points.some(point => point.operation.kind === "write-location"), writes,
     "only the explicit RHS assignment writes storage; the native owner applies the field's own store");

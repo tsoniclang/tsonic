@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -34,7 +35,7 @@ for (const publication of ["opaque", "exported"]) {
       });
       assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
       assert.equal(checked.extensionDiagnostics.length, 0, "checked declarations are admitted");
-      const source = createTargetSourceProgram(checked);
+      const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
       const file = projectSourceFile(source, "src/index.ts");
       const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
       const variable = name => namedVariable(source.ast, file, name);
@@ -56,9 +57,9 @@ for (const publication of ["opaque", "exported"]) {
         "the same physical declaration never publishes another allocation's writer");
       const allocation = Node_Initializer(source.ast, variable("options"));
       assert.equal(allocation !== undefined, true, "the actual literal is retained");
-      assert.equal(source.semantics.forNode(allocation).types.propertyInfos(
-        source.semantics.forNode(allocation).types.expressionType(allocation)).some(property => property.name === "env"),
-      initialization === "present", "the raw expression type never acquires invented contextual fields");
+      const ownKeys = source.facts.objects.ownKeys(allocation);
+      assert.equal(ownKeys !== "ambiguous" && ownKeys.some(key => key.kind === "string" && key.value === "env"),
+      initialization === "present", "the literal own keys never acquire invented contextual fields");
       assert.equal(storage.failureReason(), undefined, "all exact correspondence completes under the unchanged budget");
     });
   }

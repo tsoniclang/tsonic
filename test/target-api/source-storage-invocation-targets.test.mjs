@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
@@ -21,7 +22,7 @@ test("checked invocation targets retain the authored callee value independently 
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "ordinary source checks without target annotations");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   assert.equal(transport.invocations.size === 9, true, "every direct, nested, constructor and property invocation is covered");
@@ -52,7 +53,7 @@ test("intrinsic base constructor dispatch retains the exact checked heritage cal
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const invocation = [...transport.invocations].find(node => source.ast.kindName(Node_Expression(source.ast, node)) === "KindSuperKeyword");

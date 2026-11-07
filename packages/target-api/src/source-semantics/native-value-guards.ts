@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-navigation/ast.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
+import { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
 
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
@@ -10,7 +11,7 @@ export type SourceNativeValueGuard =
   | { readonly kind: "nominal"; readonly sourceOperand: Node; readonly sourceConstructor: Node; readonly declaration: Node };
 
 export function selectSourceNativeValueGuard(
-  { ast, navigation, semanticsFor }: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "semanticsFor">,
+  { ast, navigation, values }: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "values">,
   expression: Node,
 ): SourceNativeValueGuard | undefined {
   const contains = createSourceSyntaxDomain(ast, expression);
@@ -40,14 +41,8 @@ export function selectSourceNativeValueGuard(
     if (ast.kindName(absent) === "KindNullKeyword") {
       return Object.freeze({ kind: "absence", sourceOperand, negated: different });
     }
-    if (ast.is.IsIdentifier(absent)) {
-      const declaration = navigation.sourceReferenceFor(absent)?.declaration;
-      const semantics = semanticsFor(absent);
-      const type = declaration === undefined ? semantics.types.expressionType(absent)
-        : semantics.declarations.declaredValueType(declaration);
-      if (type !== undefined && semantics.types.isNullish(type)) {
-        return Object.freeze({ kind: "absence", sourceOperand, negated: different });
-      }
+    if (ast.is.IsIdentifier(absent) && absenceValue(values, absent)) {
+      return Object.freeze({ kind: "absence", sourceOperand, negated: different });
     }
   }
   for (const [value, category] of [[left, right], [right, left]] as const) {
@@ -66,4 +61,15 @@ export function selectSourceNativeValueGuard(
     }
   }
   return undefined;
+}
+
+/**
+ * Whether an identifier operand is the absence value: its Host descriptor (R3: never the checked type) is the absence
+ * intrinsic (`undefined`, or a binding whose Host type is exactly null/undefined).
+ */
+function absenceValue(values: SourceValueFlowQueryContext["values"], operand: Node): boolean {
+  const outcome = values.type(operand);
+  if (outcome.kind === "refused") return false;
+  const structure = sourceTypeDescriptorStructure(outcome.type);
+  return structure.kind === "intrinsic" && structure.intrinsic === "absence";
 }

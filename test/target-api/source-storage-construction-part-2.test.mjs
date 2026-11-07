@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { analyzeSourceConstructorResults, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import * as construction from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
@@ -21,7 +22,7 @@ for (const [name, declarations, result] of [
       export function read(): number { return make().value(); }
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${name}: the actual source contract is valid.`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const storage = createSourceStorageQuery(source, source.sourceFiles);
     const implementation = storage.nodes.find(node => source.ast.is.IsMethodDeclaration(node) &&
       source.ast.is.IsClassDeclaration(source.ast.parent(node)));
@@ -56,7 +57,7 @@ test("scoped callable implementations retain actual caller alternatives instead 
     const first = invoke(left); const second = invoke(right);
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "Both actual native callback activations are checked.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const named = name => storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
   const variable = name => storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
@@ -92,7 +93,7 @@ test("scoped callable implementations keep native, abstract, mutable and foreign
       const mutable = changing(); const external = native();
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "The open callable contracts are checked native-valid source.");
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     return { source, storage: createSourceStorageQuery(source, source.sourceFiles) };
   };
   const { source, storage } = current();
@@ -121,7 +122,7 @@ test("optional calls retain an explicitly open source implementation domain", ()
     const present = invoke(body); const absent = invoke(undefined);
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "Both present and absent optional source calls are checked.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "callback");
@@ -145,7 +146,7 @@ test("formal interface calls distinguish whole-program producers from an unbound
     const left = invoke(new Left()); const right = invoke(new Right());
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "Both actual interface implementations are checked.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const invocation = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
     source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
@@ -174,7 +175,7 @@ test("an ungrounded constructor-field cycle cannot disappear beside an owned res
     export function inspect(flag: boolean): Lease { const instance = new Mixed(flag); return instance.value; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "The actual recursive field and owned sibling are checked source.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const inspect = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "inspect");
   const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
@@ -201,7 +202,7 @@ test("an explicitly empty source collection keeps its proved empty origin relati
     const values: Lease[] = [];
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "The empty native collection is valid checked source.");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const storage = createSourceStorageQuery(source, source.sourceFiles);
   const array = storage.nodes.find(node => source.ast.is.IsArrayLiteralExpression(node));
   const subject = storage.subject(array, "value", [{ kind: "array-element" }]);
@@ -226,7 +227,7 @@ for (const reverse of [false, true]) {
       const leftRead = left.value; const rightRead = right.value;
     ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, "Both allocations and the helper's actual receiver are checked.");
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const storage = createSourceStorageQuery(source, source.sourceFiles);
     const initializer = name => {
       const declaration = storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&

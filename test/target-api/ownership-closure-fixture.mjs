@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { ownershipFixture, sourceText } from "./ownership-fixture.mjs";
 import { createSourceStorageQuery, defaultSourceStorageLimits, createSourceDeclarationOwnershipQuery }
-  from "../../packages/target-api/dist/public/analysis.js";
-import { sourceLexicalCaptures } from "../../packages/target-api/dist/public/source.js";
+  from "../../packages/target-api/dist/target-analysis/index.js";
+import { sourceLexicalCaptures } from "../../packages/target-api/dist/public/host.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 
 export const closureText = `
   declare function nativeFuture<T>(view: Lease<T>): Promise<T>;
@@ -88,7 +89,7 @@ export function closureFixture(options = {}) {
     return result.subject;
   };
   const typeFor = value => {
-    if (value.component !== undefined) return value.component.selectedType;
+    if (value.component !== undefined) return value.component.type;
     const result = storage.typeFor(value);
     assert.equal(result.kind === "resolved", true, "checked actual type");
     return result.type;
@@ -99,19 +100,20 @@ export function closureFixture(options = {}) {
       return current !== undefined && (source.ast.hasModifierKind(current, "async") || pendingDeclarations.has(current) ||
         current === declaration("settledFuture")) ? { kind: "async", resultPolicy: options.resultPolicy ?? "observe-rejection",
         contract: { kind: "declaration", declaration: current,
-          component: { selectedType: selected.sourceResultType, contextualCall: selected } } } : { kind: "not-async" };
+          component: { type: selected.result, call } } } : { kind: "not-async" };
     },
     suspensionFor(value, use) {
       if (unprovenNativeCalls.has(value.node)) return undefined;
       const current = source.ast.is.IsCallExpression(value.node) ? selectedDeclaration(value.node) : undefined;
-      const semantics = source.semantics.forNode(value.node);
-      const awaited = semantics.types.awaitedType(value.component.selectedType);
+      // The awaited Host payload; a value whose payload is itself is not a thenable.
+      const awaitedOutcome = source.facts.values.awaited(value.node);
+      const awaited = awaitedOutcome.kind === "refused" ? undefined : awaitedOutcome.type;
+      const settled = awaited !== undefined && sourceTypeDescriptorsEqual(awaited, value.component.type);
       if (current !== undefined && !nativeDeclarations.has(current) && source.ast.body(current) === undefined) return undefined;
       const kind = current === declaration("settledFuture") ? "never"
         : pendingDeclarations.has(current) || current !== undefined && source.ast.hasModifierKind(current, "async") ||
-          use === "value" && current === undefined && awaited !== undefined &&
-            !semantics.types.isIdentical(awaited, value.component.selectedType) ? "may-suspend"
-          : awaited !== undefined && semantics.types.isIdentical(awaited, value.component.selectedType) ? "never" : undefined;
+          use === "value" && current === undefined && awaited !== undefined && !settled ? "may-suspend"
+          : settled ? "never" : undefined;
       return kind === undefined ? undefined : { kind, value,
         contract: { kind: "expression", expression: value.node, component: value.component } };
     },

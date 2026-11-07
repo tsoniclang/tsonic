@@ -1,6 +1,7 @@
 import type { Checker, InferenceContext } from "./state.js";
 import type { Signature, SignatureLinks, Type } from "../types.js";
 import type { Node } from "../../ast/spine.js";
+import type { SelectedCallInferenceJournal } from "./selected-call-inference-evidence.js";
 export type SelectedCallEvidenceFrameKind = "signature-resolution" | "overload-candidate" | "discard";
 export interface SelectedCallEvidenceFrame {
     readonly kind: SelectedCallEvidenceFrameKind;
@@ -19,6 +20,7 @@ interface SelectedCallEvidenceFrameRecord extends SelectedCallEvidenceFrame {
     candidate: Signature | undefined;
     readonly contexts: InferenceContext[];
     readonly defaults: SelectedDefaultContribution[];
+    readonly inference: SelectedCallInferenceJournal;
 }
 interface SelectedDefaultContribution {
     readonly context: InferenceContext | undefined;
@@ -30,6 +32,7 @@ export interface SelectedCallEvidenceTransactionState {
     failed: boolean;
     readonly frames: SelectedCallEvidenceFrameRecord[];
     entryCount: number;
+    inferenceEntryCount: number;
 }
 export declare function beginSelectedCallEvidenceFrame(checker: Checker, kind: SelectedCallEvidenceFrameKind): SelectedCallEvidenceFrame | undefined;
 export declare function commitSelectedCallEvidenceFrame(checker: Checker, frame: SelectedCallEvidenceFrame | undefined): void;
@@ -40,5 +43,6 @@ export declare function bindSelectedCallDefaultContext(checker: Checker, frame: 
 export declare function retainSelectedCallDefault(checker: Checker, context: InferenceContext | undefined, parameter: Type, selectedType: Type, defaultTypeNode: Node | undefined): void;
 export declare function selectedCallDefaultNode(checker: Checker, context: InferenceContext | undefined, parameter: Type, selectedType: Type): Node | undefined;
 export declare function copySelectedCallDefaults(checker: Checker, source: InferenceContext, destination: InferenceContext): void;
+export declare function selectedCallInferenceJournal(checker: Checker, inferences: InferenceContext["inferences"]): SelectedCallInferenceJournal | undefined;
 export {};
 //# sourceMappingURL=selected-call-evidence-transaction.d.ts.map

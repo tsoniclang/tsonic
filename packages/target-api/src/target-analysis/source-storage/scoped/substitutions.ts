@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -14,7 +14,7 @@ import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject,
   SourceStorageInputFrontier, SourceStorageProjectionView } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsNeverType, sourceStorageSubjectType } from "../model/components.js";
 import { isSourceCallableBodyBoundary } from "../../../source-navigation/index.js";
 import { createSourceStorageContextFootprints } from "../graph/context-footprints.js";
 import { sourceStorageActivationOwner } from "./activation-keys.js";
@@ -35,7 +35,7 @@ function sourceStorageIsProjectedInput(frontier: SourceStorageInputFrontier): bo
 type SourceStorageWalkBoundary = SourceStorageInputWalkBoundary |
   ((subject: SourceStorageScopedSubject & { readonly original: boolean }) => boolean);
 
-export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageSubstitutions(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
   const { invocationInputs } = transport;
@@ -326,7 +326,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
               : current.kind === "member" ? current.selection.kind !== "access" ? current.selection.subject
                 : transport.subject(current.selection.node) : undefined;
             const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
-            if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
+            if (type === undefined || !sourceStorageIsNeverType(type)) {
               if (!temporary.add(1)) return undefined;
               emptyDemands.push(current);
             }
@@ -488,10 +488,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (subject === undefined) return undefined;
         const target = transport.invocationTargets.get(invocation);
         const accessors = transport.accessorTargets.get(invocation);
-        const operation = accessors === undefined ? undefined
-          : source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
-          : source.ast.is.IsElementAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
-        const receiver = transport.subjectFor(operation?.receiver.expression);
+        const operation = accessors === undefined ? undefined : source.navigation.memberAccess(invocation);
+        const receiver = transport.subjectFor(operation?.receiver);
         const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
         for (const scope of bindings) {
           if (!budget.step() || !temporary.add(1)) return undefined;

@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceInterfaceRepresentationBase } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, sourceInterfaceRepresentationBase } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 test("interface representation aliases require exact single-base checker evidence across merged declarations", async () => {
@@ -27,22 +28,20 @@ class Nominal {}
 `,
   });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   for (const name of ["Tokens", "Redirect", "Merged", "Added", "Changed", "Multiple", "Empty", "Nominal"]) {
     const declaration = namedDeclaration(source.ast, file, name);
-    const semantics = source.semantics.forNode(declaration);
-    const edge = sourceInterfaceRepresentationBase(declaration, source.ast, source.navigation, semantics);
+    const edge = sourceInterfaceRepresentationBase(declaration, source.ast, source.navigation);
     const accepted = ["Tokens", "Redirect", "Merged"].includes(name);
     assert.equal(edge !== undefined, accepted, `${name}: exact representation contract`);
     if (!accepted) continue;
     assert.equal(edge.kind, "extends");
-    assert.equal(semantics.types.isArrayLike(edge.selectedType), true, `${name}: selected checked array`);
-    assert.equal(sourceInterfaceRepresentationBase(declaration, source.ast, source.navigation,
-      { ...semantics, types: { ...semantics.types, isIdentical: () => false } }) === undefined, true,
-      `${name}: absent identity evidence cannot erase the declaration`);
+    // The represented base is the single extends target (B5 D4: merged declarations + heritage, no checked identity).
+    assert.equal(source.ast.text(source.ast.name(edge.target.declaration)), name === "Tokens" ? "Values" : "ReadonlyArray",
+      `${name}: the single extended base declaration`);
     assert.equal(sourceInterfaceRepresentationBase(declaration, source.ast,
-      { ...source.navigation, declaredHeritage: () => ({ kind: "unresolved" }) }, semantics) === undefined, true,
+      { ...source.navigation, declaredHeritage: () => ({ kind: "unresolved" }) }) === undefined, true,
       `${name}: unresolved heritage cannot establish an alias`);
   }
 });

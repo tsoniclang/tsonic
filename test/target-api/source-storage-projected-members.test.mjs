@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable } from "../fixtures/source-navigation.mjs";
 
@@ -22,7 +23,7 @@ test("inline optional declaration members preserve correlated absence and real c
       const read = receiver.value;
     ` } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the original inline optional storage checks");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const { ast } = source;
   const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
   assert.equal(file !== undefined, true, "the original checked file is present");
@@ -86,7 +87,7 @@ for (const [name, container, prefix, fieldType = "object", stored = "value", suf
       ` },
     }).checkSource();
     assert.equal(checked.diagnostics.length, 0, `${name}: the original source checks`);
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const { ast } = source;
     const file = source.navigation.sourceFiles.find(value => ast.getFileName(value) === "/src/index.ts");
     assert.equal(file !== undefined, true, `${name}: the original file is present`);

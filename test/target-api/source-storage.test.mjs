@@ -1,8 +1,32 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, createSourceErrorStorageDemandQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
+
+const typeOf = (source, node) => {
+  const outcome = source.facts.values.type(node);
+  return outcome.kind === "refused" ? undefined : outcome.type;
+};
+const same = (left, right) => left !== undefined && right !== undefined && sourceTypeDescriptorsEqual(left, right);
+// An object (non-primitive) Host type: a structured or object descriptor.
+const isObjectType = type => {
+  const structure = sourceTypeDescriptorStructure(type);
+  return ["shape", "declared", "array", "tuple", "callable"].includes(structure.kind) ||
+    structure.kind === "intrinsic" && structure.intrinsic === "object";
+};
+// A transport binding agrees with the navigation call witness and the instantiated Host parameter of the selection.
+const sameBinding = (source, invocation, transported, index = 0) => {
+  const witness = source.navigation.call(invocation)?.bindings[index];
+  const selection = source.facts.selections.call(invocation);
+  const parameter = selection === undefined || selection.kind === "refused" ? undefined
+    : selection.parameters[transported.binding.sourceParameterIndex];
+  return witness !== undefined && witness.sourceArgumentIndex === transported.binding.sourceArgumentIndex &&
+    witness.sourceParameterIndex === transported.binding.sourceParameterIndex &&
+    witness.sourceForm === transported.binding.sourceForm && same(transported.parameterType, parameter);
+};
 import { checkedSource, namedDeclaration, namedMember, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -23,11 +47,10 @@ interface Values { [key: string]: object | undefined; }
 const values: Values = {};
 `);
   const declaration = current.variable("values");
-  const semantics = current.source.semantics.forNode(declaration);
-  const type = semantics.declarations.declaredValueType(declaration);
-  assert.equal(type !== undefined, true, "the original checked indexed type remains available");
-  const index = semantics.types.indexInfos(type)[0];
-  assert.equal(index !== undefined && index.keyType !== undefined && index.valueType !== undefined, true,
+  const type = typeOf(current.source, declaration);
+  assert.equal(type !== undefined, true, "the original indexed Host type remains available");
+  const index = current.source.facts.objects.indexes(type)[0];
+  assert.equal(index !== undefined && index.key !== undefined && index.value !== undefined, true,
     "independent indexed type evidence is preserved");
   const selected = current.storage.storageSubjectFor(declaration, [{ kind: "indexed-value",
     sourceType: type, ownerType: type, index }]);
@@ -61,7 +84,7 @@ export function head<T>(values: Values<T>): T { return values[0]; }
     const subject = resolvedSubject(storage.storageSubjectFor(variable(name), element), name);
     const type = storage.typeFor(subject);
     assert.equal(type.kind === "resolved", true, `${name}: inherited index type`);
-    assert.equal(source.semantics.forNode(variable(name)).types.isNonPrimitive(type.type), true,
+    assert.equal(isObjectType(type.type), true,
       `${name}: exact object element, not the unrelated generic string argument`);
     const origins = storage.closedOriginsFor(subject);
     assert.equal(origins.kind === "complete", true, `${name}: closed shared backing`);
@@ -121,7 +144,7 @@ ${provider}
     "src/index.ts": `import { Box, identity, first, second, forward, throwValue, Holder${imports.length === 0 ? "" : `, ${imports.join(", ")}`} } from "./provider.js"; ${body}`,
   });
   assert.equal(result.diagnostics.length, 0, formatDiagnostics(result.diagnostics, "/src"));
-  const source = createTargetSourceProgram(result);
+  const source = createHostSourceProgram(result, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const providerFile = projectSourceFile(source, "src/provider.ts");
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
@@ -208,24 +231,25 @@ const record = { value: 7 };
 `);
   for (const name of ["empty", "array", "record"]) {
     const allocation = initializer(name);
-    const semantics = source.semantics.forNode(allocation);
     const selected = resolvedSubject(storage.subject(allocation), `${name}: allocation`);
     assert.equal(selected.node === allocation, true, `${name}: exact allocation subject`);
     const type = storage.typeFor(selected);
     assert.equal(type.kind, "resolved", `${name}: exact allocation type`);
-    assert.equal(semantics.types.isIdentical(type.type, semantics.types.expressionType(allocation)), true, `${name}: exact checker expression identity`);
+    assert.equal(same(type.type, typeOf(source, allocation)), true, `${name}: exact Host expression identity`);
     const binding = storage.typeFor(resolvedSubject(storage.subjectFor(variable(name)), `${name}: binding`));
     assert.equal(binding.kind, "resolved", `${name}: exact binding type`);
-    assert.equal(semantics.types.isIdentical(binding.type, semantics.declarations.declaredValueType(variable(name))), true, `${name}: declared storage retained`);
+    assert.equal(same(binding.type, typeOf(source, variable(name))), true, `${name}: declared storage retained`);
     if (name === "empty") {
-      assert.equal(semantics.types.propertyInfos(type.type).length, 0, "fresh empty producer has no invented contextual members");
-      assert.equal(semantics.types.propertyInfos(binding.type).length, 1, "declared optional member belongs to binding only");
+      const ownKeys = source.facts.objects.ownKeys(allocation);
+      assert.equal(ownKeys !== "ambiguous" && ownKeys.length === 0, true, "fresh empty producer has no invented contextual members");
+      const members = source.facts.objects.members(binding.type);
+      assert.equal(Array.isArray(members) && members.length === 1, true, "declared optional member belongs to binding only");
     }
     const origins = storage.originsFor(selected);
     assert.equal(origins.kind, "resolved", `${name}: allocation origin`);
     assert.equal(origins.origins.length, 1, `${name}: one producer`);
     assert.equal(origins.origins[0].subject.node === allocation, true, `${name}: exact producer node`);
-    assert.equal(semantics.types.isIdentical(origins.origins[0].type, type.type), true, `${name}: exact checker origin identity`);
+    assert.equal(same(origins.origins[0].type, type.type), true, `${name}: exact Host origin identity`);
   }
 });
 
@@ -322,9 +346,8 @@ alias = original;
   const actualOrigins = storage.incomingFor(arguments_.arguments[0].actual);
   assert.equal(actualOrigins.kind === "resolved" && actualOrigins.subjects.length === 1 &&
     actualOrigins.subjects[0].node === variable("original"), true, "selected actual read retains its exact declaration");
-  const selectedCall = source.semantics.forNode(invocation).operations.call(invocation);
-  assert.equal(arguments_.arguments[0].binding.selectedArgumentType === selectedCall.sourceArgumentBindings[0].selectedArgumentType, true);
-  assert.equal(arguments_.arguments[0].binding.selectedParameterType === selectedCall.sourceArgumentBindings[0].selectedParameterType, true);
+  assert.equal(sameBinding(source, invocation, arguments_.arguments[0]), true);
+  assert.equal(arguments_.arguments[0].argument === source.navigation.call(invocation).arguments[0], true);
   const returns = storage.subject(identity, "return");
   assert.equal(returns.kind === "resolved", true);
   assert.equal(storage.subject(identity, "return").subject === returns.subject, true, "canonical return identity");
@@ -426,10 +449,9 @@ const selected = returned.value;
   const original = source.ast.properties(initializer("original"))[0];
   const originalValue = source.ast.as.AsPropertyAssignment(original).Initializer;
   assert.equal(origins.some(subject => subject.node === originalValue), true, "source member's exact initializer survives");
-  const selectedCall = source.semantics.forNode(call("forward")).operations.call(call("forward"));
   const transport = storage.argumentTransportsFor(call("forward"));
   assert.equal(transport.kind === "resolved", true);
-  assert.equal(transport.arguments[0].binding.selectedParameterType === selectedCall.sourceArgumentBindings[0].selectedParameterType, true);
+  assert.equal(sameBinding(source, call("forward"), transport.arguments[0]), true);
 });
 
 test("receiver and inherited accessor transport retain selected implementation and construction identities", async () => {
@@ -454,7 +476,7 @@ const result = holder.read();
   assert.equal(origins.subjects.length === 1 && origins.subjects[0].node === initializer("holder"), true, "current instance root");
   const setter = source.ast.members(holder).find(node => source.ast.is.IsSetAccessorDeclaration(node));
   const write = requiredNode(source.ast, file, node => source.ast.is.IsPropertyAccessExpression(node) &&
-    source.semantics.forNode(node).operations.propertyAccess(node)?.accessMode === "write");
+    source.navigation.memberAccess(node)?.accessMode === "write");
   const formal = resolvedSubject(storage.subject(source.ast.parameters(setter)[0]), "setter value");
   const substitution = storage.invocationOriginsFor(formal, setter, write);
   assert.equal(substitution.kind === "resolved", true);
@@ -481,8 +503,7 @@ export class Forwarded extends Base {}
     assert.equal(origins.some(origin => source.ast.text(origin.node) === value), true, `${name}: exact thrown origin`);
   }
   const implicit = storage.invocations.filter(invocation => source.ast.is.IsNewExpression(invocation) &&
-    source.semantics.forNode(invocation).declarations.signatureDeclaration(
-      source.semantics.forNode(invocation).operations.call(invocation).selectedSignature) === undefined);
+    source.navigation.call(invocation)?.signature === undefined);
   assert.equal(implicit.length >= 2, true, "implicit signatures genuinely lack authored declarations");
   assert.equal(storage.boundaries.some(boundary => implicit.includes(boundary.invocation)), false,
     "owned implicit construction is not an opaque native boundary");
@@ -608,10 +629,10 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
     [...spreadActual.projection, ...element]), "spread source elements");
   const formalElements = resolvedSubject(storage.subject(restFormal.node, "input",
     [...restFormal.projection, ...element]), "spread formal elements");
-  const checkedSpread = source.semantics.forNode(unknownRest).operations.call(unknownRest);
-  assert.equal(checkedSpread.sourceArgumentBindings.length === 1 &&
-    checkedSpread.sourceArgumentBindings[0].sourceForm === "spread-sequence" &&
-    checkedSpread.sourceArgumentBindings[0].sourceParameterForm === "rest-sequence", true,
+  const checkedSpread = source.navigation.call(unknownRest);
+  assert.equal(checkedSpread.bindings.length === 1 &&
+    checkedSpread.bindings[0].sourceForm === "spread-sequence" &&
+    checkedSpread.bindings[0].sourceParameterForm === "rest-sequence", true,
     "the checked unknown-length spread has aggregate rather than scalar correspondence");
   const spreadTransport = storage.argumentTransportsFor(unknownRest);
   assert.equal(spreadTransport.kind === "resolved" && spreadTransport.arguments.length === 1 &&
@@ -641,8 +662,8 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const unknownPositional = call("positional");
   const positionalDeclaration = namedDeclaration(source.ast, provider, "positional");
   const positionalFormal = resolvedSubject(storage.subject(source.ast.parameters(positionalDeclaration)[0], "input"), "positional formal");
-  const checkedPositional = source.semantics.forNode(unknownPositional).operations.call(unknownPositional);
-  assert.equal(checkedPositional.sourceArgumentBindings.some(binding => binding.sourceForm === "spread-sequence" &&
+  const checkedPositional = source.navigation.call(unknownPositional);
+  assert.equal(checkedPositional.bindings.some(binding => binding.sourceForm === "spread-sequence" &&
     binding.sourceParameterForm !== "rest-sequence"), true,
     "the refused spread genuinely requires an unproved scalar position");
   const reason = "Source storage argument transport requires exact selected scalar formal and actual subjects.";

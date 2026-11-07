@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageContextInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/context-inputs.js";
 import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
@@ -18,8 +19,9 @@ function fixture(limits = {}) {
   const source = { ast: { is: { IsPropertyAccessExpression: node => accesses.has(node), IsElementAccessExpression: () => false,
     IsObjectLiteralExpression: node => properties.has(node), IsArrayLiteralExpression: () => false,
     IsClassDeclaration: () => false, IsClassExpression: () => false, IsBindingElement: () => false },
-    body: () => undefined, properties: node => properties.get(node) }, navigation: {},
-    semantics: { forNode: node => ({ operations: { propertyAccess: () => accesses.get(node) } }) } };
+    body: () => undefined, properties: node => properties.get(node) },
+    // The navigation member witness (receiver Node) of each access.
+    navigation: { memberAccess: node => accesses.get(node) } };
   const contexts = createSourceStorageContextInputs(source, budget, {
     subject, incomingFor: selected => inputs.get(selected) ?? new Set(), subjectFor: node => subject(node),
     sourceFileFor: () => undefined, isInvocation: () => false, implementationsFor: () => new Set(),
@@ -37,9 +39,9 @@ test("unavailable checked member context is never cached as an empty or globally
   current.inputs.set(access, new Set([foreign]));
   current.accesses.set(access.node, undefined);
   assert.equal(current.contexts(access) === undefined, true, "the member requires its exact checked receiver");
-  current.accesses.set(access.node, { receiver: { expression: undefined } });
+  current.accesses.set(access.node, { receiver: undefined });
   assert.equal(current.contexts(access) === undefined, true, "a checked access without its owned receiver subject is unavailable");
-  current.accesses.set(access.node, { receiver: { expression: receiver.node } });
+  current.accesses.set(access.node, { receiver: receiver.node });
   const selected = current.contexts(access);
   assert.equal(selected !== undefined && selected.size === 1 && selected.has(receiver), true,
     "only the completed checked receiver relation supplies this read's environment");
@@ -103,7 +105,7 @@ test("canonical context footprints include checked object members, array compone
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the authored source checks without target annotations");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
   const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => undefined, transport.contextualInputs.applicationFor);

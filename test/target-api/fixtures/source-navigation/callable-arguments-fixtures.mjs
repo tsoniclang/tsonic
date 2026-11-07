@@ -1,6 +1,13 @@
+import { createJsSourceApiFacts } from "../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { buildHostSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+// A Host program with its checker views and host-input adapter (the HostSourceProgramFixture shape), JS profile on.
+function hostProgramFixture(checked) {
+    const built = buildHostSourceProgram(checked, { profile: createJsSourceApiFacts });
+    return Object.freeze(Object.assign(Object.create(null), built.program, { semantics: built.semantics, input: built.input }));
+}
+
 import { sourceExpressionCallArgument } from "../../../../packages/target-api/dist/source-navigation/callable-arguments.js";
 import { Node_Expression } from "../../../../packages/target-api/dist/source-navigation/ast.js";
 function fixture(body, inline = false) {
@@ -11,7 +18,7 @@ declare const construct: new (callback: (value: unknown) => void) => object;
 ${body}`,
         }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+    const source = hostProgramFixture(checked);
     let expression;
     const declarations = new Map();
     const calls = [];

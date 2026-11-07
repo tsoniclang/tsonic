@@ -197,7 +197,8 @@ test("CLI rejects byref source markers without finalized storage facts", async (
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.equal(
-    (build.stderr.match(/tsts\.source-semantics:TSTS_SOURCE_SEMANTICS_0001/g) ?? []).length,
+    // The Legacy refusals moved to the Host (ARCHITECTURE-AND-PLAN §1/§4, R5): one Host refusal per marker call.
+    (build.stderr.match(/TSONIC_ARGUMENT_MARKER_NOT_PLACE/g) ?? []).length,
     3,
   );
   assert.match(build.stderr, /requires a storage expression/);

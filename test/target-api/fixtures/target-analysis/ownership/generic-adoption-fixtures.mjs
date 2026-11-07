@@ -1,8 +1,15 @@
+import { createJsSourceApiFacts } from "../../../../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { createHostSourceProgram } from "../../../../../packages/target-api/dist/source-semantics/target-source-program.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits, sourceDeclarationOwnershipUnresolved } from "../../../../../packages/target-api/dist/target-analysis/ownership/contracts.js";
 import { analyzeSourceDeclarationGenericAdoption } from "../../../../../packages/target-api/dist/target-analysis/ownership/generic-adoption.js";
+import { sourceTypeDescriptorsEqual } from "../../../../../packages/target-api/dist/public/source.js";
+// A call result is not async when its awaited Host payload is the result itself (not a thenable).
+export function hostCallIsSettled(source, call, selected) {
+    const awaited = source.facts.values.awaited(call);
+    return awaited.kind !== "refused" && sourceTypeDescriptorsEqual(awaited.type, selected.result);
+}
 export function nativeEntryFixture(text, timing) {
     const current = fixture(text);
     const declaration = current.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node) &&
@@ -67,7 +74,7 @@ export function fixture(text, projectRoot = "/src") {
         compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics
         .filter((diagnostic) => diagnostic !== undefined).slice(0, 3)).slice(0, 2048));
-    const source = createTargetSourceProgram(checked);
+    const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
     const nodes = [];
     const visit = (node) => {
         nodes.push(node);
@@ -80,15 +87,13 @@ export function fixture(text, projectRoot = "/src") {
     const query = (maximumSteps = defaultSourceDeclarationOwnershipLimits.maximumSteps, exemptTypeParameter) => analyzeSourceDeclarationGenericAdoption({ source, projectRoot, nodes,
         budget: createSourceDeclarationOwnershipBudget(nodes[0], { ...defaultSourceDeclarationOwnershipLimits, maximumSteps }),
         premises: { completionFor(call, selected) {
-                const semantics = source.semantics.forNode(call);
-                const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+                const declaration = selected.signature;
                 if (declaration === undefined)
                     return sourceDeclarationOwnershipUnresolved(call, "The unit native contract requires its real selected declaration.");
-                const awaited = semantics.types.awaitedType(selected.sourceResultType);
-                if (awaited !== undefined && semantics.types.isIdentical(awaited, selected.sourceResultType))
+                if (hostCallIsSettled(source, call, selected))
                     return { kind: "not-async" };
                 return { kind: "async", resultPolicy: "must-observe", contract: { kind: "declaration", declaration,
-                        component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
+                        component: { type: selected.result, call } } };
             } },
         ...(exemptTypeParameter === undefined ? {} : { exemptTypeParameter }) });
     const textFor = (node) => Buffer.from(source.ast.getSourceText(source.ast.getSourceFile(node)))
@@ -111,18 +116,19 @@ export function assertDeclaredAdoption(current, expected, call) {
     assert.equal(selected.issues.length, expected, "approved C1373: declared native adoption is supported without callback histories");
     const calls = current.nodes.filter(node => current.source.ast.is.IsCallExpression(node) && current.textFor(node) === call);
     assert.equal(calls.length, 1, "the original checked instantiation remains unique");
-    const semantics = current.source.semantics.forNode(calls[0]);
-    const completed = semantics.operations.call(calls[0]);
-    assert.equal(completed?.sourceSelectedSignatureKind, "resolved", "the same original call has its completed checked signature");
-    if (completed?.sourceSelectedSignatureKind !== "resolved")
+    const completed = current.source.navigation.call(calls[0]);
+    assert.equal(completed?.selection, "resolved", "the same original call has its completed checked signature");
+    if (completed?.selection !== "resolved")
         return;
-    const declaration = semantics.declarations.signatureDeclaration(completed.selectedSignature);
+    const declaration = completed.signature;
     assert.equal(declaration !== undefined && current.nodes.includes(declaration), true, "the exact source generic owner stays checked");
-    const bindings = completed.sourceSelectedMethodTypeArguments ?? [];
+    // The per-use instantiation (facts.instantiations): one binder per method type parameter.
+    const instantiation = current.source.facts.instantiations.at(calls[0]);
+    const bindings = instantiation === undefined || instantiation.kind === "refused" ? [] : instantiation.method;
     assert.equal(bindings.length > 0, true, "the actual generic input relation is not replaced with an empty proof");
     for (const binding of bindings) {
-        const symbol = semantics.declarations.typeSymbol(binding.typeParameter);
-        assert.equal(symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).some(parameter => current.source.ast.is.IsTypeParameterDeclaration(parameter) && current.source.ast.parent(parameter) === declaration), true, "each actual input retains its original selected formal and owner");
+        assert.equal(current.source.ast.is.IsTypeParameterDeclaration(binding.declaration) &&
+            current.source.ast.parent(binding.declaration) === declaration, true, "each actual input retains its original selected formal and owner");
     }
 }
 export function sourceSpan(source, node) {

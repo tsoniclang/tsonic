@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageQuery } from "@tsonic/target-api/analysis";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import { cleanMemorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 import { createTsonicPointerStorageRelation } from "./storage-relation.js";
 import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
@@ -13,8 +12,8 @@ for (const [form, ending] of [["implicit fallthrough", ""], ["explicit bare retu
       export function maybe(flag: boolean) { if (flag) return allocateptr<uint32>(7); ${ending} }
       torawptr(maybe(true), uint32Layout);
     `);
-    const source = createTargetSourceProgram(checked);
-    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const source = createHostSourceProgramFixture(checked);
+    const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
     const relation = createTsonicPointerStorageRelation(source, storage);
     const declaration = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
       source.ast.text(source.ast.name(node)) === "maybe");
@@ -41,8 +40,8 @@ test("pointer storage does not invent fallthrough absence for a complete return"
     import { allocateptr } from "@tsonic/core/lang.js";
     export function make() { return allocateptr<uint32>(7); }
   `);
-  const source = createTargetSourceProgram(checked);
-  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const source = createHostSourceProgramFixture(checked);
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
   const declaration = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === "make");
   assert.equal(declaration !== undefined, true);

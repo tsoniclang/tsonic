@@ -1,10 +1,8 @@
 import { argumentPassingFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, type AstReader, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceCountedLoop, SourceProgramNavigation } from "../types.js";
-import type { SourceNavigationFileQueries } from "../query-context.js";
 
 interface IntegerUseEvidence {
   readonly sourceFacts: ReadonlySourceFactResolver | undefined;
-  semanticsFor(node: Node): Pick<SourceNavigationFileQueries, "operations" | "declarations">;
 }
 
 export function sourceIntegerInduction(
@@ -49,16 +47,15 @@ function isIntegerValueArgument(
 ): boolean {
   const facts = evidence.sourceFacts;
   if (facts === undefined || facts.getFact(call, sourceMarkerFactKey) !== undefined) return false;
-  const semantics = evidence.semanticsFor(call);
-  const selected = semantics.operations.call(call);
-  if (selected?.sourceSelectedSignatureKind !== "resolved" || selected.outcome !== "applicable") return false;
-  const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+  const selected = navigation.call(call);
+  if (selected?.selection !== "resolved" || !selected.applicable) return false;
+  const declaration = selected.signature;
   if (declaration === undefined || !navigation.isProjectDeclaration(declaration) || ast.body(declaration) === undefined) return false;
-  const argumentIndex = selected.sourceArguments.findIndex(argument => argument.expression === expression);
-  const bindings = selected.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === argumentIndex);
+  const argumentIndex = selected.arguments.indexOf(expression);
+  const bindings = selected.bindings.filter(binding => binding.sourceArgumentIndex === argumentIndex);
   const binding = bindings.length === 1 ? bindings[0] : undefined;
   if (binding?.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") return false;
-  const parameter = selected.sourceSelectedSignatureParameters.find(value => value.parameterIndex === binding.sourceParameterIndex);
+  const parameter = selected.parameters.find(value => value.parameterIndex === binding.sourceParameterIndex);
   if (parameter?.authoredTypeNode === undefined || parameter.parameterDeclaration === undefined) return false;
   const primitive = facts.getFact(parameter.authoredTypeNode, sourcePrimitiveFactKey);
   if (primitive === undefined || !integerKinds.has(primitive.kind)) return false;

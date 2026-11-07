@@ -1,12 +1,12 @@
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceDeclarationFlowExecutionRegion } from "../flow/model.js";
 import type { SourceDeclarationAsyncResultDisposition, SourceDeclarationOwnershipBudget,
   SourceDeclarationOwnershipUnresolved } from "./model.js";
 import { sourceDeclarationOwnershipUnresolved, type createSourceDeclarationParameterUseQuery } from "./contracts.js";
 
 export function resolveSourceDeclarationAsyncResultDisposition(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly expression: Node;
   readonly budget: SourceDeclarationOwnershipBudget;
   readonly regionFor: (node: Node) => SourceDeclarationFlowExecutionRegion | SourceDeclarationOwnershipUnresolved;
@@ -15,7 +15,7 @@ export function resolveSourceDeclarationAsyncResultDisposition(input: {
   const { source, expression, budget } = input;
   if (!budget.step(expression)) return budget.failure()!;
   const file = source.ast.getSourceFile(expression);
-  if (file === undefined || !source.semantics.includes(file))
+  if (!sourceAnalysisIncludesFile(source, file))
     return sourceDeclarationOwnershipUnresolved(expression,
       "Result disposition requires its original checked declaration-local expression.");
   const visited = new Set<Node>();

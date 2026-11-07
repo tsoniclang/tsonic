@@ -1,16 +1,13 @@
-import { pointerOperationFactKey, type AstReader, type Node, type Type } from "@tsonic/tsts";
+import { pointerOperationFactKey, type AstReader, type Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
-import type { ResolvedSourceCallInfo } from "../call-result-selection.js";
-import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../types.js";
+import type { SourceHostArgumentBinding, SourceHostCall, SourceHostComponent, SourceHostQueries, SourceHostType } from "../../host-input/index.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
-import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { sourceTypeFlowTypeDeclaration } from "./defaults.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
   SourceTypeFlowArgumentPlace, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowRefusalCode, SourceTypeFlowUse, SourceTypeFlowVariable,
@@ -30,6 +27,24 @@ const shifts = new Set([
   "KindLessThanLessThanEqualsToken", "KindGreaterThanGreaterThanEqualsToken",
   "KindGreaterThanGreaterThanGreaterThanEqualsToken",
 ]);
+
+export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
+  return sourceTypeFlowBroadSlotKind(type) !== undefined;
+}
+
+export function sourceTypeFlowBroadSlotKind(type: SourceTypeDescriptor): "unknown" | "any" | "object" | "void" | undefined {
+  const broad = (type: SourceTypeDescriptor, absorbing: boolean): "unknown" | "any" | "object" | "void" | undefined => {
+    const selected = sourceTypeDescriptorStructure(type);
+    if (selected.kind === "optional") return broad(selected.value, absorbing);
+    if (selected.kind === "union") {
+      const members = selected.types.map(member => broad(member, true));
+      return members.includes("any") ? "any" : members.includes("unknown") ? "unknown" : undefined;
+    }
+    return selected.kind === "intrinsic" && (selected.intrinsic === "unknown" || selected.intrinsic === "any" ||
+      !absorbing && (selected.intrinsic === "object" || selected.intrinsic === "void")) ? selected.intrinsic : undefined;
+  };
+  return broad(type, false);
+}
 
 export function collectSourceTypeFlowUses(
   context: SourceTypeFlowAnalysisContext,
@@ -60,11 +75,11 @@ export function collectSourceTypeFlowUses(
   for (const call of graph.calls) {
     const term = nodes.get(call.node)?.term;
     if (call.result === undefined || term?.kind !== "declared" || term.source === undefined) continue;
-    const queries = context.source.semantics.forNode(call.node);
-    const declaration = sourceTypeFlowTypeDeclaration(context.source, queries, term.source.selectedType, term.source.authoredTypeNode);
+    const queries = context.input.at(call.node);
+    const declaration = queries.typeDeclaration(term.source.selectedType, term.source.authoredTypeNode);
     if (declaration !== term.declaration) continue;
-    const input = sourceTypeFlowHomomorphicInput(context.source, queries, term.source.selectedType, term.source.authoredTypeNode);
-    const parameter = input === undefined ? undefined : sourceTypeFlowTypeDeclaration(context.source, queries, input);
+    const input = queries.homomorphicInput(term.source.selectedType, term.source.authoredTypeNode);
+    const parameter = input === undefined ? undefined : queries.typeDeclaration(input);
     const binder = [...call.receiver, ...call.method].find(binder => binder.declaration === parameter);
     if (binder === undefined) continue;
     const children = term.typeArguments.filter(argument => sourceTypeFlowReachableVariables([argument], aliasLinks).has(binder.variable));
@@ -96,7 +111,7 @@ export function collectSourceTypeFlowUses(
   function declaredSlotFill(record: SourceTypeFlowNode, site: Node, association: SourceTypeFlowAssociation): SourceTypeFlowUse | undefined {
     const slot = declaredSlots.get(record.node);
     if (slot?.authority !== "declared" || slot.type === undefined || slot.refusal !== undefined) return undefined;
-    if (slot.type.kind === "intrinsic" && ["unknown", "any", "object", "void"].includes(slot.type.intrinsic)) return undefined;
+    if (sourceTypeFlowIsBroadSlot(slot.type)) return undefined;
     const retained = slot.component === undefined ? association : Object.freeze({ ...association, component: slot.component });
     const selected = constructionFamilySlot(context, record, constructionFamilies.get(record.variable) ?? [], slot.type);
     if (selected.kind === "refused") return Object.freeze({ kind: "refused", site: selected.site,
@@ -129,7 +144,7 @@ export function collectSourceTypeFlowUses(
     if (call.method.some(binder => receiverBinders.has(binder.declaration))) {
       throw new Error("Local type uses require distinct receiver and method binder owners.");
     }
-    const bindings = new Map<ResolvedSourceCallInfo["sourceArgumentBindings"][number], SourceTypeFlowArgumentPlace[]>();
+    const bindings = new Map<SourceHostArgumentBinding, SourceTypeFlowArgumentPlace[]>();
     for (const place of call.argumentPlaces) {
       const association = callAssociation(context, place.value.node, call.source, place.binding);
       if (association.parameter !== place.parameter) {
@@ -197,7 +212,7 @@ export function collectSourceTypeFlowUses(
   });
   return Object.freeze(uses);
 
-  function required(record: SourceTypeFlowNode, site: Node, component: SourceTypeComponentEvidence | undefined,
+  function required(record: SourceTypeFlowNode, site: Node, component: SourceHostComponent | undefined,
     check = false, retained?: SourceTypeFlowAssociation, projected?: SourceTypeDescriptor): SourceTypeFlowUse {
     const input = homomorphicResults.get(record.variable);
     const use = requiredUse(context, record, site, component, check, retained, constructionFamilies.get(record.variable) ?? [], projected, input);
@@ -225,14 +240,14 @@ export function collectSourceTypeFlowUses(
     }
     if ((ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent) || ast.is.IsSatisfiesExpression(parent)) &&
       Node_Expression(ast, parent) === value && !ast.isConstAssertion(parent)) {
-      const queries = context.source.semantics.forNode(record.node);
+      const queries = context.input.at(record.node);
       return [required(record, parent, authoredComponent(context, parent, queries), ast.is.IsSatisfiesExpression(parent))];
     }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) || ast.is.IsParameterDeclaration(parent)) &&
       Node_Initializer(ast, parent) === value) {
       if (ast.typeNode(parent) === undefined) return captured
         ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
-      const queries = context.source.semantics.forNode(record.node);
+      const queries = context.input.at(record.node);
       return [required(record, parent, authoredComponent(context, parent, queries))];
     }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent) && ast.body(parent) === value) {
@@ -245,7 +260,7 @@ export function collectSourceTypeFlowUses(
       }
       if (owner === undefined || ast.typeNode(owner) === undefined) return captured
         ? [refusal(record, parent, "TSONIC_LOCAL_TYPE_SELF_REFERENCE")] : [];
-      const queries = context.source.semantics.forNode(record.node);
+      const queries = context.input.at(record.node);
       let component = authoredComponent(context, owner, queries);
       if (component !== undefined && ast.hasModifierKind(owner, "async")) {
         component = awaitedReturnComponent(context, component, queries);
@@ -291,7 +306,7 @@ export function collectSourceTypeFlowUses(
 
   function callUses(record: SourceTypeFlowNode, argument: Node, node: Node): readonly SourceTypeFlowUse[] {
     const retained = calls.get(node);
-    const call = retained?.source ?? context.source.semantics.forNode(node).operations.call(node);
+    const call = retained?.source ?? context.input.at(node).call(node);
     if (call === undefined) return [refusal(record, node, "TSONIC_LOCAL_TYPE_UNSUPPORTED")];
     assertRetainedCall(context, node, call);
     const pointer = context.source.sourceFacts.getFact(node, pointerOperationFactKey);
@@ -358,7 +373,7 @@ function requiredUse(
   context: SourceTypeFlowAnalysisContext,
   record: SourceTypeFlowNode,
   site: Node,
-  component: SourceTypeComponentEvidence | undefined,
+  component: SourceHostComponent | undefined,
   check = false,
   retained?: SourceTypeFlowAssociation,
   constructions: readonly SourceTypeFlowNode[] = [],
@@ -366,28 +381,27 @@ function requiredUse(
   homomorphicInput?: SourceTypeFlowVariable,
 ): SourceTypeFlowUse {
   if (component === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", retained);
-  const queries = context.source.semantics.forNode(record.node);
+  const queries = context.input.at(record.node);
   const association = retained ?? sourceAssociation(context, record.node, component);
   const none = (): SourceTypeFlowUse => Object.freeze({ kind: "none", site, variable: record.variable, association });
-  if (queries.types.isUnknown(component.selectedType) || queries.types.isAny(component.selectedType)) return none();
   // A declared `object` slot fills only a generic call's result binder (B2: the instantiation becomes concrete). It never
   // fills an ordinary value group: a literal stored there keeps its own construction (C-2246), and an unannotated empty
   // literal keeps its own refusal (28j').
-  if (queries.types.isNonPrimitive(component.selectedType) && homomorphicInput === undefined &&
+  if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
+  const rawUnion = constructions.length === 0 && queries.isUnion(component.selectedType) && !queries.isBooleanLike(component.selectedType);
+  let type = projected ?? context.describe(record.node, component);
+  if (type === undefined) return refusal(record, site, rawUnion ? "TSONIC_LOCAL_TYPE_UNION" : "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
+  const structure = sourceTypeDescriptorStructure(type);
+  if (sourceTypeFlowBroadSlotKind(type) === "object" && homomorphicInput === undefined &&
     !constructions.some(construction => construction.node === record.node)) {
     const ast = context.source.ast;
     if (!(ast.is.IsCallExpression(record.node) || ast.is.IsNewExpression(record.node)) ||
       record.term?.kind !== "shape" && record.term?.kind !== "array" && record.term?.kind !== "tuple") return none();
-    const type = context.describe(record.node, component);
-    return type === undefined ? refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association)
-      : Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
+    return Object.freeze({ kind: "fill", site, variable: record.variable, type, association });
   }
-  if (component.authoredTypeNode !== undefined && containsTypeVariables(context, component.authoredTypeNode)) return none();
-  if (constructions.length === 0 && queries.types.isUnion(component.selectedType) && !queries.types.isBooleanLike(component.selectedType)) {
-    return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
-  }
-  let type = projected ?? context.describe(record.node, component);
-  if (type === undefined) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNSUPPORTED", association);
+  if (sourceTypeFlowIsBroadSlot(type) && !(structure.kind === "intrinsic" && structure.intrinsic === "object" &&
+    homomorphicInput !== undefined)) return none();
+  if (rawUnion) return refusal(record, site, "TSONIC_LOCAL_TYPE_UNION", association);
   if (constructions.length > 0) {
     const selected = constructionFamilySlot(context, record, constructions, type);
     if (selected.kind === "refused") return Object.freeze({ kind: "refused", site: selected.site,
@@ -435,11 +449,11 @@ function transparentOperand(ast: AstReader, parent: Node, value: Node): boolean 
   return false;
 }
 
-function declaredStorageComponent(context: SourceTypeFlowAnalysisContext, expression: Node): SourceTypeComponentEvidence | undefined {
-  const { ast, semantics } = context.source;
+function declaredStorageComponent(context: SourceTypeFlowAnalysisContext, expression: Node): SourceHostComponent | undefined {
+  const { ast } = context.source;
   if (ast.is.IsPropertyAccessExpression(expression)) {
-    const queries = semantics.forNode(expression);
-    const access = queries.operations.propertyAccess(expression);
+    const queries = context.input.at(expression);
+    const access = queries.propertyAccess(expression);
     const declaration = access?.selectedWriteDeclaration ?? access?.selectedDeclaration;
     if (declaration !== undefined && ast.is.IsSetAccessorDeclaration(declaration)) {
       const parameter = ast.parameters(declaration);
@@ -451,11 +465,11 @@ function declaredStorageComponent(context: SourceTypeFlowAnalysisContext, expres
 }
 
 function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
-  component: SourceTypeComponentEvidence, queries: SourceFileSemantics): SourceTypeComponentEvidence | undefined {
+  component: SourceHostComponent, queries: SourceHostQueries): SourceHostComponent | undefined {
   const { ast, navigation } = context.source;
   const root = component.authoredTypeNode;
   if (root === undefined) return undefined;
-  const awaited = queries.types.awaitedType(component.selectedType);
+  const awaited = queries.awaitedType(component.selectedType);
   if (awaited === undefined) return undefined;
   const visited = new Set<Node>();
   let node: Node | undefined = root;
@@ -468,8 +482,8 @@ function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
     if (!ast.is.IsTypeReferenceNode(node)) return undefined;
     const candidates = ast.typeArguments(node).filter((argument): argument is Node => {
       if (argument === undefined) return false;
-      const selected = queries.types.authoredType(argument);
-      return selected !== undefined && queries.types.isIdentical(selected, awaited);
+      const selected = queries.authoredType(argument);
+      return selected !== undefined && queries.isIdentical(selected, awaited);
     });
     if (candidates.length === 1) return Object.freeze({ ...component, selectedType: awaited, authoredTypeNode: candidates[0]! });
     if (candidates.length !== 0) return undefined;
@@ -483,10 +497,10 @@ function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
 function sourceAssociation(
   context: SourceTypeFlowAnalysisContext,
   occurrence: Node,
-  component?: SourceTypeComponentEvidence,
+  component?: SourceHostComponent,
 ): SourceTypeFlowAssociation {
   const sourceFile = context.source.ast.getSourceFile(occurrence);
-  if (sourceFile === undefined || !context.source.semantics.includes(sourceFile)) {
+  if (sourceFile === undefined || !context.input.includes(occurrence)) {
     throw new Error("Local type uses require their exact checked source-file owner.");
   }
   return Object.freeze({ occurrence, sourceFile, ...(component === undefined ? {} : { component }) });
@@ -495,12 +509,12 @@ function sourceAssociation(
 function authoredComponent(
   context: SourceTypeFlowAnalysisContext,
   declaration: Node,
-  queries: SourceFileSemantics,
-  selectedType?: Type,
-): SourceTypeComponentEvidence | undefined {
+  queries: SourceHostQueries,
+  selectedType?: SourceHostType,
+): SourceHostComponent | undefined {
   const authoredTypeNode = context.source.ast.typeNode(declaration);
   if (authoredTypeNode === undefined) return undefined;
-  const selected = selectedType ?? queries.types.authoredType(authoredTypeNode);
+  const selected = selectedType ?? queries.authoredType(authoredTypeNode);
   return selected === undefined ? undefined : Object.freeze({ selectedType: selected, declaration, authoredTypeNode });
 }
 
@@ -518,12 +532,12 @@ function containsTypeVariables(context: SourceTypeFlowAnalysisContext, typeNode:
   return false;
 }
 
-function assertRetainedCall(context: SourceTypeFlowAnalysisContext, node: Node, call: ResolvedSourceCallInfo): void {
+function assertRetainedCall(context: SourceTypeFlowAnalysisContext, node: Node, call: SourceHostCall): void {
   const { ast } = context.source;
   if (call.call !== node || call.sourceCallee.expression !== Node_Expression(ast, node)) {
     throw new Error("Local type uses require the exact retained selected call.");
   }
-  if (context.source.semantics.forNode(node).operations.call(node) !== call) {
+  if (context.input.at(node).call(node) !== call) {
     throw new Error("Local type uses require the exact retained call argument and selected parameter association.");
   }
   const arguments_ = ast.arguments(node);
@@ -538,9 +552,9 @@ function assertRetainedCall(context: SourceTypeFlowAnalysisContext, node: Node, 
 function declaredValueComponent(
   context: SourceTypeFlowAnalysisContext,
   expression: Node,
-): SourceTypeComponentEvidence | undefined {
-  const { ast, navigation, semantics } = context.source;
-  const queries = semantics.forNode(expression);
+): SourceHostComponent | undefined {
+  const { ast, navigation } = context.source;
+  const queries = context.input.at(expression);
   let node = expression;
   while (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node)) {
     const inner = Node_Expression(ast, node);
@@ -548,18 +562,18 @@ function declaredValueComponent(
     node = inner;
   }
   let declaration: Node | undefined;
-  let selectedType: Type | undefined;
+  let selectedType: SourceHostType | undefined;
   if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
-    const call = queries.operations.call(node);
+    const call = queries.call(node);
     if (call?.sourceSelectedSignatureKind !== "resolved") return undefined;
-    declaration = queries.declarations.signatureDeclaration(call.selectedSignature);
+    declaration = queries.callSignature(call);
     selectedType = call.sourceResultType;
   } else if (ast.is.IsPropertyAccessExpression(node)) {
-    const access = queries.operations.propertyAccess(node);
+    const access = queries.propertyAccess(node);
     declaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
     selectedType = access?.sourceReadType;
   } else if (ast.is.IsElementAccessExpression(node)) {
-    const access = queries.operations.elementAccess(node);
+    const access = queries.elementAccess(node);
     declaration = access?.selectedDeclaration;
     selectedType = access?.sourceReadType;
   } else if (ast.is.IsIdentifier(node)) {
@@ -578,8 +592,8 @@ function declaredValueComponent(
 function callAssociation(
   context: SourceTypeFlowAnalysisContext,
   occurrence: Node,
-  call: ResolvedSourceCallInfo,
-  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+  call: SourceHostCall,
+  binding: SourceHostArgumentBinding,
 ): SourceTypeFlowAssociation {
   const { ast } = context.source;
   const parameter = call.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
@@ -612,18 +626,18 @@ function numericWidths(type: SourceTypeDescriptor, path = ""): ReadonlyMap<strin
 
 function ambiguousNumericOverload(
   context: SourceTypeFlowAnalysisContext,
-  call: ResolvedSourceCallInfo,
-  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+  call: SourceHostCall,
+  binding: SourceHostArgumentBinding,
 ): boolean {
-  const { ast, semantics } = context.source;
-  const queries = semantics.forNode(call.call);
-  const signatures = queries.types.signatureInfos(call.sourceCallee.type, ast.is.IsNewExpression(call.call) ? "construct" : "call");
+  const { ast } = context.source;
+  const queries = context.input.at(call.call);
+  const signatures = queries.signatures(call.sourceCallee.type, ast.is.IsNewExpression(call.call) ? "construct" : "call");
   if (signatures.length < 2) return false;
   const seen = new Map<string, string>();
   for (const signature of signatures) {
     const parameter = signature.parameters[binding.sourceParameterIndex];
     if (parameter === undefined) continue;
-    const component: SourceTypeComponentEvidence = Object.freeze({ selectedType: parameter.type,
+    const component: SourceHostComponent = Object.freeze({ selectedType: parameter.type,
       ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration,
         ...(ast.typeNode(parameter.declaration) === undefined ? {} : { authoredTypeNode: ast.typeNode(parameter.declaration) }) }) });
     const type = context.describe(call.sourceArguments[binding.sourceArgumentIndex]!.expression, component);

@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 import { sourceStorageProjectComponents } from "../../packages/target-api/dist/target-analysis/source-storage/graph/component-projections.js";
@@ -23,7 +24,7 @@ function fixture() {
     ` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the authored fixture checks without annotations compensating for transport");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   assert.equal(storage.failureReason() === undefined, true);
@@ -97,20 +98,24 @@ test("nested storage projections preserve a proven never prefix without closing 
       declare const unproved: unknown;` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the actual source collection and unknown input check");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const field = namedMember(source.ast, namedDeclaration(source.ast, file, "Box"), "items");
-  const semantics = source.semantics.forNode(field);
-  const empty = semantics.types.expressionType(Node_Initializer(source.ast, field));
-  const target = semantics.declarations.declaredValueType(field);
-  const unproved = semantics.declarations.declaredValueType(namedVariable(source.ast, file, "unproved"));
-  assert.equal(empty !== undefined && target !== undefined && unproved !== undefined, true,
-    "all projection inputs retain exact checked types");
-  assert.equal(semantics.types.isUnknown(unproved), true, "the negative source really is unknown, not bottom");
+  const resolved = node => {
+    const outcome = source.facts.values.type(node);
+    return outcome.kind === "refused" ? undefined : outcome.type;
+  };
+  assert.equal(Node_Initializer(source.ast, field) !== undefined, true, "the field has its empty literal initializer");
+  // The empty literal value as a bottom-element array (the element type of [] is never).
+  const empty = Object.freeze({ kind: "array", readonly: false, element: Object.freeze({ kind: "intrinsic", intrinsic: "never" }) });
+  const target = resolved(field);
+  const unproved = resolved(namedVariable(source.ast, file, "unproved"));
+  assert.equal(target !== undefined && unproved !== undefined, true, "all projection inputs retain exact Host types");
+  assert.equal(unproved.kind === "intrinsic" && unproved.intrinsic === "unknown", true, "the negative source really is unknown, not bottom");
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const project = (from, remaining) => {
     const paths = [];
-    sourceStorageProjectComponents([], from, target, remaining, semantics, source.ast, budget, path => paths.push(path));
+    sourceStorageProjectComponents([], from, target, remaining, source, source.ast, budget, path => paths.push(path));
     return paths;
   };
   const remaining = [{ kind: "array-element" }, { kind: "tuple-element", index: 1 }];
@@ -140,7 +145,7 @@ test("completed empty value frontiers do not close rootless or opaque producer d
       const recursive = recurse({});` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "the original empty, opaque and recursive producers check");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
   const storage = createSourceStorageQuery(source, [file]);
   const variable = name => namedVariable(source.ast, file, name);

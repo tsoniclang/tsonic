@@ -1,6 +1,7 @@
 import { defaultSourceDeclarationOwnershipLimits } from "../../../../../packages/target-api/dist/target-analysis/ownership/contracts.js";
 import assert from "node:assert/strict";
-import { sourceSpan } from "./generic-adoption-fixtures.mjs";
+import { hostCallIsSettled, sourceSpan } from "./generic-adoption-fixtures.mjs";
+import { sourceTypeDescriptorsEqual } from "../../../../../packages/target-api/dist/public/source.js";
 import { analyzeSourceDeclarationGenericAdoption } from "../../../../../packages/target-api/dist/target-analysis/ownership/generic-adoption.js";
 import { createSourceDeclarationOwnershipBudget, sourceDeclarationOwnershipUnresolved } from "../../../../../packages/target-api/dist/target-analysis/ownership/contracts.js";
 function declaredQuery(current, limits = defaultSourceDeclarationOwnershipLimits) {
@@ -8,15 +9,13 @@ function declaredQuery(current, limits = defaultSourceDeclarationOwnershipLimits
     const budget = createSourceDeclarationOwnershipBudget(node, limits);
     return analyzeSourceDeclarationGenericAdoption({ source: current.source, nodes: current.nodes, projectRoot: "/src", budget,
         premises: { completionFor(call, selected) {
-                const semantics = current.source.semantics.forNode(call);
-                const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+                const declaration = selected.signature;
                 if (declaration === undefined)
                     return sourceDeclarationOwnershipUnresolved(call, "The unit native contract requires its real selected declaration.");
-                const awaited = semantics.types.awaitedType(selected.sourceResultType);
-                if (awaited !== undefined && semantics.types.isIdentical(awaited, selected.sourceResultType))
+                if (hostCallIsSettled(current.source, call, selected))
                     return { kind: "not-async" };
                 return { kind: "async", resultPolicy: "must-observe", contract: { kind: "declaration", declaration,
-                        component: { selectedType: selected.sourceResultType, contextualCall: selected } } };
+                        component: { type: selected.result, call } } };
             } } });
 }
 export function checkedOperation(current, expression) {
@@ -25,28 +24,33 @@ export function checkedOperation(current, expression) {
         source.ast.is.IsPropertyAccessExpression(node)) && current.textFor(node) === expression);
     assert.equal(candidates.length, 1, "the original checked operation remains unique");
     const node = candidates[0];
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.expressionType(node);
-    assert.equal(type !== undefined, true, "the original operation retains its exact checked result type");
+    // The Host descriptor of the operation (facts.values), the navigation call witness and the per-use instantiation.
+    const outcome = source.facts.values.type(node);
+    assert.equal(outcome.kind === "refused", false, "the original operation retains its exact Host result type");
+    const type = outcome.kind === "refused" ? undefined : outcome.type;
     const selected = source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)
-        ? semantics.operations.call(node) : undefined;
+        ? source.navigation.call(node) : undefined;
     let declaration;
+    let typeArguments = [];
     if (selected !== undefined) {
-        if (selected.sourceSelectedSignatureKind !== "resolved")
+        if (selected.selection !== "resolved")
             assert.fail("the same checked call must select its signature");
-        declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
+        declaration = selected.signature;
         assert.equal(declaration !== undefined && current.nodes.includes(declaration), true, "the selected declaration belongs to the original checked program");
-        assert.equal(type !== undefined && semantics.types.isIdentical(selected.sourceResultType, type), true, "the selected native result and original expression keep the same checked component");
-        for (const binding of selected.sourceSelectedMethodTypeArguments ?? []) {
-            const symbol = semantics.declarations.typeSymbol(binding.typeParameter);
-            assert.equal(symbol !== undefined && semantics.declarations.symbolDeclarations(symbol)
-                .some(parameter => source.ast.is.IsTypeParameterDeclaration(parameter) && current.nodes.includes(parameter)), true, "each selected generic argument retains its real checked formal");
+        const selection = source.facts.selections.call(node);
+        assert.equal(selection !== undefined && selection.kind !== "refused" && type !== undefined &&
+            sourceTypeDescriptorsEqual(selection.result, type), true, "the selected native result and original expression keep the same Host component");
+        const instantiation = source.facts.instantiations.at(node);
+        typeArguments = instantiation === undefined || instantiation.kind === "refused" ? [] : instantiation.method;
+        for (const binding of typeArguments) {
+            assert.equal(source.ast.is.IsTypeParameterDeclaration(binding.declaration) && current.nodes.includes(binding.declaration),
+                true, "each selected generic argument retains its real checked formal");
         }
     }
     else {
         assert.equal(source.ast.is.IsPropertyAccessExpression(node), true, "only an original member read has no call signature");
     }
-    return { node, type, declaration, typeArgumentCount: selected?.sourceSelectedMethodTypeArguments?.length ?? 0,
+    return { node, type, declaration, typeArgumentCount: typeArguments.length,
         sourceSpan: sourceSpan(source, node) };
 }
 export { declaredQuery };

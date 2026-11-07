@@ -1,20 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fieldFactKey, structFactKey, type ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram, sourceTypeDescriptorStructure } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
+import { sourceTypeDescriptorStructure } from "@tsonic/target-api/source";
 import { checkSource, createCleanSourceCoreSession } from "../extension/source-extension.fixtures.js";
 
 function fixture(text: string) {
   const { session } = createCleanSourceCoreSession(`import { struct, field } from "@tsonic/core/lang.js";
     import type { int32, float32 } from "@tsonic/core/types.js"; ${text}`);
   const checked = checkSource(session);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const declaration = source.navigation.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "Point");
   if (declaration === undefined) throw new Error("The actual Point declaration is required.");
   const call = source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
   const input = call === undefined ? undefined : source.ast.arguments(call)[0];
   if (call === undefined || input === undefined) throw new Error("The actual struct call and input are required.");
-  const outcome = source.effectiveTypes.get(declaration);
+  const outcome = source.facts.values.type(declaration);
   assert.equal(outcome !== undefined && outcome.kind !== "refused", true, "the original declaration is resolved");
   if (outcome === undefined || outcome.kind === "refused") throw new Error("The selected outcome is required.");
   return { checked, source, declaration, call, input, outcome };
@@ -48,7 +49,7 @@ test("unannotated struct origins remain their exact original field properties", 
 
 test("struct call and annotated declaration publications keep their different selected destinations", () => {
   const current = fixture(`export const Point: { value: int32 } = struct({ value: field<int32>() });`);
-  const called = current.source.effectiveTypes.get(current.call);
+  const called = current.source.facts.values.type(current.call);
   const callPair = called === undefined || called.kind === "refused" ? undefined : called.memberCorrespondence?.[0];
   const declarationPair = current.outcome.memberCorrespondence?.[0];
   assert.equal(callPair !== undefined && declarationPair !== undefined && callPair.property === declarationPair.property &&
@@ -83,7 +84,7 @@ for (const missing of ["call", "property", "struct-fields", "partial", "duplicat
       if (missing === "foreign") return { valueType: true, fields: foreignFields } as unknown as typeof fact;
       return fact;
     } };
-    const selected = createTargetSourceProgram({ ...current.checked, sourceFacts }).effectiveTypes.get(current.declaration);
+    const selected = createHostSourceProgramFixture({ ...current.checked, sourceFacts }).facts.values.type(current.declaration);
     assert.equal(selected !== undefined && selected.kind !== "refused" && selected.memberCorrespondence === undefined, true,
       "the same valid checked program cannot reconstruct missing original marker associations");
   });

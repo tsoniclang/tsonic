@@ -1,10 +1,11 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import * as publicAnalysis from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceDeclarationControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
@@ -20,7 +21,7 @@ test("the public flow port exports the identical canonical graph and solver owne
 
 let caseNumber = 0;
 async function fixture(text, name = "run") {
-  const source = createTargetSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }));
+  const source = createHostSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }), { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const selection = createSourceDeclarationControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");

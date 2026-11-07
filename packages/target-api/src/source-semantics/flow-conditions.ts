@@ -1,14 +1,18 @@
-import type { Node, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
-import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
+import type { SourceFlowCondition, SourceFlowConditions, SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import { sourceStatementAlwaysExits } from "./native-control-flow.js";
 
+/**
+ * The flow conditions at a reference: the checker flow-condition witness (host-input) plus every enclosing guard the
+ * Host proves still holds for the binding (sourceGuardPreservesBinding). Undefined when the work budget is exhausted.
+ */
 export function resolveSourceFlowConditions(
   context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts">,
   reference: Node,
-  checked: ResolvedSourceFlowConditionInfo | undefined,
-): ResolvedSourceFlowConditionInfo | undefined {
+  checked: SourceFlowConditions | undefined,
+): SourceFlowConditions | undefined {
   if (checked === undefined || checked.reference !== reference) return undefined;
   const conditions = [...checked.conditions];
   let remaining = 2_048;
@@ -16,7 +20,7 @@ export function resolveSourceFlowConditions(
   const retain = (expression: Node | undefined, assumed: boolean): void => {
     if (expression === undefined || conditions.some(condition => condition.expression === expression && condition.assumed === assumed)) return;
     if (sourceGuardPreservesBinding(context, expression, reference, assumed, enter)) {
-      const condition: ResolvedSourceFlowCondition = Object.freeze({ expression, assumed, assignments: Object.freeze([]) });
+      const condition: SourceFlowCondition = Object.freeze({ expression, assumed, assignments: Object.freeze([]) });
       conditions.push(condition);
     }
   };

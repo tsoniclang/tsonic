@@ -1,8 +1,10 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -13,7 +15,7 @@ export function fixture(body, extraFiles = {}, domain = "complete") {
     files,
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "source checking accepts the unmodified alias program");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFiles = Object.keys(files).map(name => checked.getSourceFile(name));
   const nodes = [];
   const pending = [...sourceFiles];
@@ -46,7 +48,7 @@ export function formalFixture(body, extraFiles = {}, limits = {}) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/project", files,
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/project"));
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFiles = Object.keys(files).map(name => checked.getSourceFile(name));
   const nodes = [];
   const pending = [...sourceFiles];
@@ -64,7 +66,7 @@ export function formalFixture(body, extraFiles = {}, limits = {}) {
     return declaration;
   };
   const parameter = (declaration, name) => {
-    const parameters = sourceCallableValueParameters(source.ast, declaration, source.semantics.forNode(declaration), { kind: "declaration" });
+    const parameters = sourceCallableValueParameters(source.ast, declaration, source.navigation, { kind: "declaration" });
     const selected = parameters?.find(node => source.ast.text(source.ast.name(node)) === name);
     assert.equal(selected !== undefined, true, `${name}: checked runtime value parameter`);
     return selected;
@@ -97,12 +99,13 @@ export function optionalDemand(current, name, expected, input = "owner") {
   assert.equal(subject.kind, "resolved", `${name}.${input}: identical declared input`);
   const before = current.storage.typeFor(subject.subject);
   assert.equal(before.kind, "resolved", `${name}.${input}: original declared carrier`);
-  const types = current.source.semantics.forNode(parameter).types;
-  assert.equal(types.isUnion(before.type) && types.unionOrIntersectionTypes(before.type).some(type => types.isNullish(type)), true,
+  // The declared Host type keeps its absence arm (optional, or a union with an absence arm).
+  const absence = type => type.kind === "intrinsic" && type.intrinsic === "absence";
+  assert.equal(before.type.kind === "optional" || before.type.kind === "union" && before.type.types.some(absence), true,
     `${name}.${input}: declared absence remains present in the raw carrier`);
   const result = current.complete(name, expected, input);
   const after = current.storage.typeFor(subject.subject);
-  assert.equal(after.kind === "resolved" && after.type === before.type, true,
+  assert.equal(after.kind === "resolved" && sourceTypeDescriptorsEqual(after.type, before.type), true,
     `${name}.${input}: present-member selection never replaces the original optional type`);
   return result;
 }

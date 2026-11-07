@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageQuery, createSourceGlobalCallStorageEffects, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { sourceErrorDeclarations, jsSourceNativeConstructorStorage } from "../../packages/js-source-profile/dist/index.js";
 import { errorConstructorFootprintSource } from "../fixtures/error-origin-domains.mjs";
@@ -23,7 +24,7 @@ async function fixture(name, body, files = {}, transform = source => source) {
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
-  const source = transform(createTargetSourceProgram(checked));
+  const source = transform(createHostSourceProgram(checked, { profile: createJsSourceApiFacts }));
   const file = projectSourceFile(source, "src/index.ts");
   const profile = projectSourceFile(source, "globals.d.ts");
   const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
@@ -60,8 +61,7 @@ for (const footprint of ["mutating", "readonly", "deferred", "receiver", "bound"
   test(`implicit source allocation retains ${footprint} inherited initialization with checked native base signatures and no invocation effects`, async () => {
     const current = await fixture(`storage-implicit-error-${footprint}`, errorConstructorFootprintSource(footprint));
     const invocation = current.initializer("created");
-    const selected = current.source.semantics.forNode(invocation).operations.call(invocation);
-    const signature = current.source.semantics.forNode(invocation).declarations.signatureDeclaration(selected.selectedSignature);
+    const signature = current.source.navigation.call(invocation)?.signature;
     assert.equal(signature !== undefined && !current.source.navigation.isProjectDeclaration(signature), true,
       "the effective native signature exists without owning the source class allocation");
     const derived = namedDeclaration(current.source.ast, current.file, "Derived");
@@ -89,8 +89,8 @@ test("source implicit allocation preserves both declared inherited and declarati
     const aliased = new alias("alias");
   `, { "src/classes.ts": `export class Empty {} export class Base extends Error {} export class Derived extends Base {}` });
   const empty = current.initializer("empty");
-  const selected = current.source.semantics.forNode(empty).operations.call(empty);
-  assert.equal(current.source.semantics.forNode(empty).declarations.signatureDeclaration(selected.selectedSignature) === undefined, true,
+  const selected = current.source.navigation.call(empty);
+  assert.equal(selected !== undefined && selected.signature === undefined, true,
     "declaration-free constructor control genuinely exercises the previous owner path");
   for (const name of ["empty", "direct", "aliased"]) {
     const invocation = current.initializer(name);
@@ -138,17 +138,13 @@ test("implicit constructor classification requires exact selected parameter decl
     const file = projectSourceFile(source, "src/index.ts");
     const invocation = source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, "created")).Initializer;
     const parameter = source.ast.parameters(namedDeclaration(source.ast, file, "unrelated"))[0];
-    const selected = source.semantics.forNode(invocation).operations.call(invocation);
-    assert.equal(selected.sourceSelectedSignatureParameters.length === 2 &&
-      selected.sourceSelectedSignatureParameters[0].parameterDeclaration !== parameter, true,
+    const selected = source.navigation.call(invocation);
+    assert.equal(selected.parameters.length === 2 && selected.parameters[0].parameterDeclaration !== parameter, true,
       "same spelling and type do not establish parameter declaration identity");
-    const changed = { ...selected, sourceSelectedSignatureParameters: selected.sourceSelectedSignatureParameters.map(value =>
-      ({ ...value, parameterDeclaration: parameter })) };
-    return { ...source, semantics: { ...source.semantics, forNode(node) {
-      const scope = source.semantics.forNode(node);
-      return node !== invocation ? scope : { ...scope, operations: { ...scope.operations,
-        call(call) { return call === invocation ? changed : scope.operations.call(call); } } };
-    } } };
+    const changed = { ...selected, parameters: selected.parameters.map(value => ({ ...value, parameterDeclaration: parameter })) };
+    // A forged navigation call witness for the one invocation (Node-keyed selection, B3 §0.3).
+    return { ...source, navigation: { ...source.navigation,
+      call(call) { return call === invocation ? changed : source.navigation.call(call); } } };
   });
   const selected = current.selection("created");
   const reason = "Source storage argument transport requires the original checked selected signature parameter identity.";

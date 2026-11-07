@@ -1,7 +1,8 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceStorageKeyEncoder } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -61,20 +62,12 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
     } };
   const owner = { parameters: [...parameters] };
   const file = {};
-  const signature = { parameters: owner.parameters.map(declaration => ({ declaration })) };
-  const semantics = { declarations: {
-    declarationSignature: declaration => declaration === owner ? signature : undefined,
-    signatureParameters: selected => selected.parameters,
-    primarySymbolDeclaration: symbol => symbol.declaration,
-  } };
-  const source = { ast: { parent: node => parameters.has(node) ? owner : undefined,
+  const source = { sourceFiles: [file], ast: { parent: node => parameters.has(node) ? owner : undefined,
     getSourceFile: node => node === owner || parameters.has(node) ? file : undefined,
     is: { IsVariableDeclaration: () => false, IsParameterDeclaration: node => parameters.has(node) },
     as: { AsParameterDeclaration: node => parameters.has(node) ? { Initializer: undefined } : undefined } },
-    semantics: { includes: selected => selected === file, forFile: selected => {
-      assert.equal(selected === file, true, "the key DAG retains its exact checked callable file");
-      return semantics;
-    } } };
+    // The navigation declared-parameter witness of the owner (Node-keyed, B3 §0.3).
+    navigation: { declaredParameters: declaration => declaration === owner ? owner.parameters : undefined } };
   const keys = createSourceStorageScopedKeys(source, current, {
     contextualInputs: () => new Set(),
     bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),
@@ -105,7 +98,7 @@ test("scoped transition encoding preserves shared term DAGs within one finite re
     "/src/index.ts": "export {}; function selected() { return selected; } selected();",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "the key subjects belong to an actual checked source");
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = checked.getSourceFile("/src/index.ts");
   const declaration = source.ast.statements(file).find(source.ast.is.IsFunctionDeclaration);
   const invocation = source.ast.statements(file).find(source.ast.is.IsExpressionStatement);

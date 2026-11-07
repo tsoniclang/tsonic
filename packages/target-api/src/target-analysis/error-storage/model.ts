@@ -1,4 +1,5 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageClosedOriginsSelection } from "../source-storage/model/types.js";
 
@@ -9,7 +10,7 @@ export type SourceErrorStorageDemand =
 
 interface SourceErrorStorageOrigin {
   readonly node: Node;
-  readonly type: Type;
+  readonly type: SourceTypeDescriptor;
 }
 
 export interface SourceErrorStorageDemandQueries {

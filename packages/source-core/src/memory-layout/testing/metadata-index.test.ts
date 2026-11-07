@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { createTsonicMemoryMetadataIndex } from "../metadata-index.js";
 import { cleanMemorySession, memoryCall } from "./fixtures.js";
 
 function inspect(text: string) {
   const checked = cleanMemorySession(text);
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgramFixture(checked);
   const index = createTsonicMemoryMetadataIndex(source);
   function declaration(name: string): Node {
     const pending: Node[] = [checked.getSourceFile("/src/index.ts")!];

@@ -4,6 +4,15 @@ import test from "node:test";
 
 import { fixture, declarations } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+// Test helper: a Host descriptor that is a Promise application (declared reference named Promise).
+function isPromiseDescriptor(ast: { name(node: Node): Node | undefined; text(node: Node): string },
+  type: SourceTypeDescriptor | undefined): boolean {
+  const name = type?.kind === "declared" ? ast.name(type.declaration) : undefined;
+  return name !== undefined && ast.text(name) === "Promise";
+}
+
 
 for (const [name, declaration, invoked] of declarations){
 test(`generic adoption closes ${name} without refusing its ordinary actual`, () => {
@@ -107,25 +116,24 @@ test(`unknown ${name} receiver completion keeps its exact class binding fail-clo
       current.textFor(node) === "value.read()");
     assert.equal(call !== undefined, true, "the original native receiver call remains checked");
     if (call === undefined) return;
-    const semantics = current.source.semantics.forNode(call);
-    const completed = semantics.operations.call(call);
-    const nativeDeclaration = completed === undefined ? undefined :
-      semantics.declarations.signatureDeclaration(completed.selectedSignature);
-    const receiver = completed?.sourceReceiver;
-    const bindings = receiver === undefined ? undefined : semantics.types.typeArgumentBindings(receiver.type);
+    const completed = current.source.navigation.call(call);
+    const nativeDeclaration = completed?.signature;
+    const selection = current.source.facts.selections.call(call);
+    const receiver = selection === undefined || selection.kind === "refused" ? undefined : selection.receiver;
+    const instantiation = current.source.facts.instantiations.at(call);
+    const bindings = instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.receiver;
     assert.equal(nativeDeclaration !== undefined && current.nodes.includes(nativeDeclaration) &&
       current.source.ast.body(nativeDeclaration) === undefined, true, "the selected signature is the original bodyless declaration");
     assert.equal(bindings?.length === 1 && current.nodes.includes(bindings[0]!.declaration), true,
       "the receiver retains its exact checked generic formal");
     if (bindings?.length !== 1 || receiver === undefined) return;
-    const symbol = semantics.declarations.typeSymbol(receiver.type);
+    const receiverType = current.source.facts.values.type(receiver);
     const owner = current.source.ast.parent(bindings[0]!.declaration);
-    assert.equal(symbol !== undefined && owner !== undefined &&
-      semantics.declarations.symbolDeclarations(symbol).includes(owner), true,
+    assert.equal(receiverType.kind !== "refused" && receiverType.type.kind === "declared" && owner !== undefined &&
+      current.source.navigation.mergedDeclarations(receiverType.type.declaration).includes(owner), true,
       "the formal belongs to the actual native receiver declaration");
-    const argument = bindings[0]!.argumentType;
-    const awaited = semantics.types.awaitedType(argument);
-    assert.equal(awaited !== undefined && !semantics.types.isIdentical(awaited, argument), true,
+    const argument = bindings[0]!.type;
+    assert.equal(isPromiseDescriptor(current.source.ast, argument), true,
       "the completed receiver binding keeps its original Promise-valued native payload");
   });
 }

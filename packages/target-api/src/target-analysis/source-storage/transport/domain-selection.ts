@@ -1,5 +1,6 @@
-import type { Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { sourceStorageTypesEqual } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageScope, SourceStorageProjectionView } from "../graph/scoped-model.js";
@@ -11,7 +12,7 @@ import { sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export type SourceStorageOriginViews = ReadonlyMap<SourceStorageSubject, ReadonlySet<readonly SourceStorageProjectionView[]>>;
 
-export function createSourceStorageDomainSelection(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageDomainSelection(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   transport: ReturnType<typeof createSourceStorageTransport>, domains: ReturnType<typeof createSourceStorageDomains>,
   bindingStates: WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>,
   bindingView: (states: Iterable<SourceStorageScope>) => SourceStorageBindings | undefined,
@@ -23,14 +24,14 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       if (!budget.step()) return unresolved(budget.failure()!);
       const sourceFile = transport.sourceFileFor(origin);
       const views = qualified.get(origin);
-      const types = new Set<Type>();
+      const types: SourceTypeDescriptor[] = [];
       for (const view of views === undefined ? [undefined] : views) {
         if (!budget.step()) return unresolved(budget.failure()!);
         const type = sourceStorageProjectionType(source, origin, view, sourceFile);
         if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
-        if (!types.has(type)) {
+        if (!types.some(seen => sourceStorageTypesEqual(seen, type))) {
           origins.push(Object.freeze({ subject: origin, type, sourceFile }));
-          types.add(type);
+          types.push(type);
         }
       }
     }

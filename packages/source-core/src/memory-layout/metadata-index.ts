@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { HostSourceProgram } from "@tsonic/target-api/host";
 import { readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./readers.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
 import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./bindings/facts.js";
@@ -20,7 +20,7 @@ export interface TsonicMemoryMetadataIndex {
   isCompileTimeExpression(node: Node): boolean;
 }
 
-export function createTsonicMemoryMetadataIndex(source: TargetSourceProgram): TsonicMemoryMetadataIndex {
+export function createTsonicMemoryMetadataIndex(source: HostSourceProgram): TsonicMemoryMetadataIndex {
   const { ast, sourceFacts, navigation } = source;
   const cache = new WeakMap<Node, TsonicMemoryMetadata | null>();
   const declarations = new WeakMap<Node, TsonicMemoryMetadataDeclaration | null>();

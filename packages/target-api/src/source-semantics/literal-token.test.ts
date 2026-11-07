@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "../public/source.js";
+import { sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "../public/host.js";
 import { parseSourceNumericLiteral } from "./literal-token.js";
 
 function token(text: string) {

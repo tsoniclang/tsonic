@@ -1,6 +1,6 @@
+import { sourceAnalysisArms, sourceAnalysisConstructSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
 import type { SourceDeclarationFlowExecutionRegion } from "./model.js";
 import { SourceFlowFailure } from "./resources.js";
@@ -21,7 +21,7 @@ export interface SourceFlowInitializer<Region = SourceDeclarationFlowExecutionRe
   readonly execution: Region | undefined;
 }
 
-export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declaration: Node,
+export function sourceDeclarationFlowEntry(source: SourceAnalysisProgram, declaration: Node,
   step: (node?: Node) => void): SourceFlowEntry<SourceDeclarationFlowExecutionRegion> {
   const { ast, navigation } = source;
   const rootExecutions = new Map<Node, SourceDeclarationFlowExecutionRegion>();
@@ -62,16 +62,16 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
       if (!navigation.isProjectDeclaration(owner))
         throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
       if (!ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner)) {
-        const semantics = source.semantics.forNode(owner);
-        const type = semantics.declarations.declaredValueType(owner);
-        const signatures = type === undefined ? [] : semantics.types.constructSignatures(type);
+        // A native base (declared value with construct signatures): the Host type of the declaration carries them.
+        const type = sourceAnalysisValueType(source, owner);
+        const signatures = type === undefined ? [] : sourceAnalysisArms(type).flatMap(sourceAnalysisConstructSignatures);
         if (signatures.length === 0)
           throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
         for (const signature of signatures) {
-          const contract = semantics.declarations.signatureDeclaration(signature);
+          const contract = signature.declaration;
           step(contract);
-          const file = ast.getSourceFile(contract);
-          if (contract === undefined || file === undefined || !source.semantics.includes(file) ||
+          const file = contract === undefined ? undefined : ast.getSourceFile(contract);
+          if (contract === undefined || file === undefined || !sourceAnalysisIncludesFile(source, file) ||
             !ast.is.IsConstructorTypeNode(contract) && !ast.is.IsConstructSignatureDeclaration(contract))
             throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
         }

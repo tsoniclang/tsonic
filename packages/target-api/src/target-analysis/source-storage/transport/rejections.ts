@@ -1,11 +1,12 @@
+import { sourceStorageIsGenerator } from "./host-reads.js";
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
-import { sourceStorageSubjectType } from "../model/components.js";
+import { sourceStorageIsOpenType, sourceStorageSubjectType, sourceStorageTypeHasTypeVariables, sourceStorageTypesEqual } from "../model/components.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
@@ -31,9 +32,9 @@ interface SourceStorageRejectionQueries {
   recordUnresolvedThrow(region: Node, reason: string): void;
 }
 
-export function createSourceStorageRejections(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageRejections(source: SourceAnalysisProgram, budget: SourceStorageBudget,
   queries: SourceStorageRejectionQueries) {
-  const { ast, navigation, semantics } = source;
+  const { ast, navigation } = source;
   const forOperand = (operand: Node): ReadonlySet<SourceStorageSubject | SourceStorageUnresolved> => budget.withRows(rows => {
     const origins = new Set<SourceStorageSubject | SourceStorageUnresolved>();
     let reason: string | undefined;
@@ -63,7 +64,7 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       }
     };
     const executor = (candidate: Node, invocation: Node, parameterIndex: number): void => {
-      const parameters = sourceCallableValueParameters(ast, candidate, semantics.forNode(candidate), { kind: "declaration" });
+      const parameters = sourceCallableValueParameters(ast, candidate, source.navigation, { kind: "declaration" });
       const parameter = parameters?.[parameterIndex];
       if (parameter === undefined) {
         refuse("A rejection channel requires its exact checked executor parameter.");
@@ -90,11 +91,11 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
           refuse("A rejection channel cannot prove a rejection parameter that escapes direct checked invocation.");
           continue;
         }
-        const call = semantics.forNode(parent).operations.call(parent);
-        const bindings = call?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === 0);
+        const call = navigation.call(parent);
+        const bindings = call?.bindings.filter(binding => binding.sourceParameterIndex === 0);
         const binding = bindings?.length === 1 ? bindings[0] : undefined;
         const expression = binding?.sourceForm === "value" && binding.sourceParameterForm === "parameter"
-          ? call?.sourceArguments[binding.sourceArgumentIndex]?.expression : undefined;
+          ? call?.arguments[binding.sourceArgumentIndex] : undefined;
         const rejected = queries.subjectFor(expression);
         if (rejected === undefined) {
           refuse("A rejection channel requires its exact checked scalar rejection argument.");
@@ -106,10 +107,12 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
     };
     const selected = queries.subjectFor(operand);
     const type = selected === undefined ? undefined : sourceStorageSubjectType(source, selected);
-    const types = semantics.forNode(operand).types;
-    const awaited = type === undefined ? undefined : types.awaitedType(type);
-    if (type !== undefined && awaited !== undefined && !types.isAny(type) && !types.isUnknown(type) &&
-      !types.couldContainTypeVariables(type) && types.isIdentical(type, awaited)) return origins;
+    // An operand whose awaited Host type is its own type is no thenable: it has no rejection channel.
+    const awaitExpression = ast.parent(operand);
+    const awaited = type === undefined || awaitExpression === undefined || !ast.is.IsAwaitExpression(awaitExpression)
+      ? undefined : sourceAnalysisValueType(source, awaitExpression);
+    if (type !== undefined && awaited !== undefined && !sourceStorageIsOpenType(type) &&
+      !sourceStorageTypeHasTypeVariables(type, ast) && sourceStorageTypesEqual(type, awaited)) return origins;
     const producers = selected === undefined ? undefined : queries.originsFor(selected);
     if (producers === undefined) refuse("Awaited rejection storage requires a completed checked value origin.");
     let produced = false;
@@ -193,7 +196,7 @@ export function createSourceStorageRejections(source: TargetSourceProgram, budge
       for (const target of targets) {
         if (ast.hasModifierKind(target.candidate, "async")) continue;
         for (const region of target.regions) {
-          if (semantics.forNode(target.candidate).operations.generator(target.candidate) !== undefined && region === ast.body(target.candidate)) continue;
+          if (sourceStorageIsGenerator(source.ast, target.candidate) && region === ast.body(target.candidate)) continue;
           queries.graph.read({ node: region, kind: queries.thrownOrigins });
           const reason = queries.unresolvedThrows.get(region);
           if (reason !== undefined) unresolved(reason);

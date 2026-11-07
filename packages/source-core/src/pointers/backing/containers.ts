@@ -1,13 +1,22 @@
-import type { Node, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { Node } from "@tsonic/tsts";
+import type { HostSourceProgram, SourceNavigationMemberAccess } from "@tsonic/target-api/host";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 import { pointerFlowOperand, pointerFlowParent } from "./source-forms.js";
 
 export type PointerContainerValues =
   | { readonly kind: "values"; readonly values: readonly Node[]; readonly includesUndefined: boolean }
   | { readonly kind: "unproven"; readonly reason: string };
 
-export function createPointerContainerQueries(source: TargetSourceProgram, maximumValues: number) {
-  const { ast, navigation, semantics } = source;
+export function createPointerContainerQueries(source: HostSourceProgram, maximumValues: number) {
+  const { ast, navigation, facts } = source;
+  // The member entity an access selects: its declarations with their merged declarations (navigation witness).
+  const entity = (selected: SourceNavigationMemberAccess): ReadonlySet<Node> => new Set(
+    (selected.declaration === undefined ? selected.declarations : [selected.declaration])
+      .flatMap(declaration => navigation.mergedDeclarations(declaration)));
+  const receiverType = (selected: SourceNavigationMemberAccess) => {
+    const outcome = facts.values.type(selected.receiver);
+    return outcome.kind === "refused" ? undefined : outcome.type;
+  };
   const cached = new WeakMap<Node, PointerContainerValues>();
   return Object.freeze({ resolve });
 
@@ -23,13 +32,14 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
     const selection = selectedAccess(access);
     const reject = (reason: string): PointerContainerValues => Object.freeze({ kind: "unproven", reason });
     if (selection === undefined || selection.accessMode !== "read") return reject("Pointer container access has no exact selected read.");
-    const queue: Node[] = [selection.receiver.expression];
+    const queue: Node[] = [selection.receiver];
+    const selectionEntity = entity(selection);
     const seen = new Set<Node>();
     const literals = new Set<Node>();
     const values = new Set<Node>();
     const assignments: {
       readonly access: Node;
-      readonly selected: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo;
+      readonly selected: SourceNavigationMemberAccess;
       readonly value: Node;
     }[] = [];
     let includesUndefined = selection.optionalChain;
@@ -69,7 +79,7 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
             continue;
           }
           const selected = parent === undefined ? undefined : selectedAccess(parent);
-          if (selected === undefined || selected.receiver.expression !== value) {
+          if (selected === undefined || selected.receiver !== value) {
             return reject("Pointer container escapes or has an unproved mutation through an exact alias.");
           }
           if (ast.is.IsDeleteExpression(pointerFlowParent(ast, parent!).parent)) {
@@ -103,16 +113,15 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
         for (const element of ast.properties(node)) {
           if (++inspected > maximumValues) return reject("Pointer container source-value budget exceeded.");
           if (element === undefined) return reject("Pointer container has an undefined property slot.");
-          const info = semantics.forNode(element).operations.objectLiteralElement(element);
+          const info = facts.selections.objectLiteralElement(element);
           if (info === undefined || info.objectLiteral !== node || info.element !== element ||
             (info.elementKind !== "property" && info.elementKind !== "shorthand")) {
             return reject("Pointer object containers require closed checked data properties.");
           }
-          const sameDeclaration = selection.selectedDeclaration !== undefined &&
-            (selection.selectedDeclaration === element || info.sourceSelectedDeclarations.includes(selection.selectedDeclaration));
-          const sameSymbol = selection.selectedSymbol !== undefined &&
-            (selection.selectedSymbol === info.sourceElementSymbol || selection.selectedSymbol === info.sourceSelectedSymbol);
-          if (!sameDeclaration && !sameSymbol) continue;
+          // The read selects this property: its own declaration or the destination member it fills.
+          const filled = [element, ...(info.destination?.declarations ?? [])]
+            .flatMap(declaration => navigation.mergedDeclarations(declaration));
+          if (!filled.some(declaration => selectionEntity.has(declaration))) continue;
           const initial = info.elementKind === "property" ? ast.as.AsPropertyAssignment(element)?.Initializer : ast.name(element);
           if (initial === undefined) return reject("The selected pointer property has no exact initialized value.");
           matches.push(initial);
@@ -127,30 +136,36 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
       if ((array && ast.is.IsElementAccessExpression(access) && ast.is.IsElementAccessExpression(assignment.access)) ||
         sameSelectedProperty(selection, assignment.selected)) {
         values.add(assignment.value);
-      } else if (selection.receiver.type !== assignment.selected.receiver.type ||
-        (selection.selectedDeclaration === undefined && selection.selectedSymbol === undefined) ||
-        (assignment.selected.selectedDeclaration === undefined && assignment.selected.selectedSymbol === undefined)) {
+      } else if (!sameReceiverType(selection, assignment.selected) || selectionEntity.size === 0 ||
+        entity(assignment.selected).size === 0) {
         return reject("Pointer container mutation has no exact field correspondence with the selected read.");
       }
     }
     return Object.freeze({ kind: "values", values: Object.freeze([...values]), includesUndefined });
   }
 
-  function selectedAccess(node: Node): ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo | undefined {
+  function selectedAccess(node: Node): SourceNavigationMemberAccess | undefined {
     const element = ast.is.IsElementAccessExpression(node) ? ast.as.AsElementAccessExpression(node) : undefined;
     const property = ast.is.IsPropertyAccessExpression(node) ? ast.as.AsPropertyAccessExpression(node) : undefined;
-    const selected = element !== undefined
-      ? semantics.forNode(node).operations.elementAccess(node)
-      : property !== undefined ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
-    return selected?.expression === node && selected.receiver.expression === (element?.Expression ?? property?.Expression) &&
-      !selected.callCallee ? selected : undefined;
+    if (element === undefined && property === undefined) return undefined;
+    const selected = navigation.memberAccess(node);
+    const parent = ast.parent(node);
+    const callCallee = parent !== undefined && ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent)?.Expression === node;
+    return selected?.access === node && selected.receiver === (element?.Expression ?? property?.Expression) && !callCallee
+      ? selected : undefined;
   }
 
-  function sameSelectedProperty(
-    left: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo,
-    right: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo,
-  ): boolean {
-    return (left.selectedDeclaration !== undefined && left.selectedDeclaration === right.selectedDeclaration) ||
-      (left.selectedSymbol !== undefined && left.selectedSymbol === right.selectedSymbol);
+  // Two accesses select the same member: the same selected declaration, or overlapping member entities.
+  function sameSelectedProperty(left: SourceNavigationMemberAccess, right: SourceNavigationMemberAccess): boolean {
+    if (left.declaration !== undefined && left.declaration === right.declaration) return true;
+    const selected = entity(left);
+    return [...entity(right)].some(declaration => selected.has(declaration));
+  }
+
+  // The two receivers have the same Host type (was checker Type identity).
+  function sameReceiverType(left: SourceNavigationMemberAccess, right: SourceNavigationMemberAccess): boolean {
+    const leftType = receiverType(left);
+    const rightType = receiverType(right);
+    return leftType !== undefined && rightType !== undefined && sourceTypeDescriptorsEqual(leftType, rightType);
   }
 }

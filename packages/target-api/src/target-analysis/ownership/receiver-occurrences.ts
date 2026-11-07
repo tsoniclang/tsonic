@@ -48,7 +48,7 @@ export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
       bodies.set(body, { declaration: node, outer: arrow ? scope : undefined });
       occurrences.set(node, []);
       evaluated.add(body);
-      const parameters = sourceCallableValueParameters(ast, node, storage.source.semantics.forNode(node), { kind: "declaration" });
+      const parameters = sourceCallableValueParameters(ast, node, storage.source.navigation, { kind: "declaration" });
       if (parameters === undefined) return unresolved("Receiver scopes require their exact checked value parameters.");
       for (const parameter of parameters) {
         if (!budget.step()) return exhausted();

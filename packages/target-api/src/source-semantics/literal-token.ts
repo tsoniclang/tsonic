@@ -69,6 +69,13 @@ export function sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat(
   token: SourceNumericLiteralToken,
   target: "float32" | "float64",
 ): boolean {
+  return sourceNumericRationalIsExactlyRepresentableAsBinaryFloat(token, target);
+}
+
+function sourceNumericRationalIsExactlyRepresentableAsBinaryFloat(
+  token: Pick<SourceNumericLiteralToken, "coefficient" | "exponent">,
+  target: "float32" | "float64",
+): boolean {
   if (token.coefficient < 0n) return false;
   if (token.coefficient === 0n) return true;
   const precision = target === "float32" ? 24n : 53n;
@@ -93,4 +100,13 @@ export function sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat(
   }
   const bits = BigInt(coefficient.toString(2).length);
   return bits <= precision && exponent >= lowestExponent && exponent + bits - 1n <= highestExponent;
+}
+
+export function sourceIntegerConstantIsExactlyRepresentableAsBinaryFloat(
+  integer: bigint,
+  target: "float32" | "float64",
+): boolean {
+  return sourceNumericRationalIsExactlyRepresentableAsBinaryFloat({
+    coefficient: integer < 0n ? -integer : integer, exponent: 0n,
+  }, target);
 }

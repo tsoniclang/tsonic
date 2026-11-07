@@ -1,5 +1,5 @@
+import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
 import type { SourceControlFlowGraph, SourceDeclarationFlowExecutionRegion, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
 import { createSourceFlowBudget, SourceFlowFailure } from "./resources.js";
@@ -20,7 +20,7 @@ interface OpenPoint {
 }
 
 export interface SourceFlowConstruction {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceAnalysisProgram;
   readonly includes: (node: Node) => boolean;
   readonly initializeSuper: (next: number, context: SourceFlowContext) => number;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
@@ -121,18 +121,19 @@ export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaratio
   next: number, context: SourceFlowContext): SourceFlowCleanupScope {
   if (!build.includes(declaration)) return { next, context };
   build.step(declaration);
-  const checked = build.source.semantics.forNode(declaration).operations.resourceManagement(declaration);
+  const selected = build.source.facts.selections.resource(declaration);
   const declarationKind = build.source.ast.variableDeclarationKind(declaration);
-  if (checked === undefined || checked.declaration !== declaration || checked.declarationKind !== declarationKind) {
-    throw new SourceFlowFailure("Source flow requires exact checked resource acquisition and cleanup evidence.", declaration);
+  if (selected === undefined || selected.declaration !== declaration ||
+    (declarationKind !== "using" && declarationKind !== "await using") || selected.async !== (declarationKind === "await using")) {
+    throw new SourceFlowFailure("Source flow requires the exact Host resource selection of this using declaration.", declaration);
   }
-  const asynchronous = checked.declarationKind === "await using";
+  const asynchronous = selected.async;
   const routes = new Map<number, number>();
   const route = (destination: number): number => {
     const existing = routes.get(destination);
     if (existing !== undefined) return existing;
     const completion = asynchronous
-      ? build.emit(declaration, { kind: "await", awaitKind: "resource-cleanup", resource: checked }, destination, context, true, "resume")
+      ? build.emit(declaration, { kind: "await", awaitKind: "resource-cleanup", declaration }, destination, context, true, "resume")
       : destination;
     const disposal = build.emit(declaration, { kind: "dispose", declaration, asynchronous }, completion, context, true);
     const branch = build.point(declaration, { kind: "branch" });

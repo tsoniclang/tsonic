@@ -1,7 +1,7 @@
 import { type Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../../../packages/target-api/src/source-semantics/types.js";
+import type { HostSourceProgram } from "../../../../../packages/target-api/src/source-semantics/types.js";
 export declare function nativeEntryFixture(text: string, timing?: "synchronous" | "deferred"): {
-    source: TargetSourceProgram;
+    source: HostSourceProgram;
     nodes: Node[];
     query: (maximumSteps?: number, exemptTypeParameter?: (node: Node) => boolean) => import("../../../../../packages/target-api/src/target-analysis/ownership/model.js").SourceDeclarationOwnershipUnresolved | {
         readonly kind: "resolved";
@@ -53,7 +53,7 @@ export declare const nativePayloadContinuationCases: readonly [{
     readonly expression: "this.done(this.value)";
 }];
 export declare function fixture(text: string, projectRoot?: string): {
-    source: TargetSourceProgram;
+    source: HostSourceProgram;
     nodes: Node[];
     query: (maximumSteps?: number, exemptTypeParameter?: (node: Node) => boolean) => import("../../../../../packages/target-api/src/target-analysis/ownership/model.js").SourceDeclarationOwnershipUnresolved | {
         readonly kind: "resolved";
@@ -61,12 +61,12 @@ export declare function fixture(text: string, projectRoot?: string): {
     };
     textFor: (node: Node) => string;
 };
-export declare function sourcePosition(source: TargetSourceProgram, node: Node, finish?: boolean): {
+export declare function sourcePosition(source: HostSourceProgram, node: Node, finish?: boolean): {
     line: number;
     column: number;
 };
 export declare function assertDeclaredAdoption(current: ReturnType<typeof fixture>, expected: 0, call: string): void;
-export declare function sourceSpan(source: TargetSourceProgram, node: Node): {
+export declare function sourceSpan(source: HostSourceProgram, node: Node): {
     line: number;
     column: number;
     fileName: string;
@@ -88,3 +88,5 @@ export declare const declarations: readonly [readonly ["direct return", "async f
   }); }`, "helper"], readonly ["typed returned executor", `type Executor<T> = (resolve: (value: T | PromiseLike<T>) => void) => void;
     function make<T>(value: T): Executor<T> { return resolve => resolve(value); }
     function helper<T>(value: T) { return new Promise<T>(make(value)); }`, "helper"], readonly ["generic callable body unknown", "function unknown<Value>(callback: <T>(value: T) => Promise<T>, value: Value): void {\n    void callback(value);\n  }\nfunction unknownRoot<Value>(value: Value): void { unknown(identity, value); }\nasync function identity<T>(value: T) { return value; }", "unknownRoot"]];
+export declare function hostCallIsSettled(source: HostSourceProgram, call: Node,
+    selected: import("../../../../../packages/target-api/src/public/source/selections.js").SourceCallSelection): boolean;

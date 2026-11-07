@@ -1,11 +1,12 @@
+import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  createSourceProgramNavigation,
-  createTargetSourceProgram,
+  createSourceNavigationInput, createSourceProgramNavigation,
+  createHostSourceProgram,
   sourceBindingWriteAtReference,
-} from "../../packages/target-api/dist/public/source.js";
+} from "../../packages/target-api/dist/public/host.js";
 import {
   checkedSource,
   constructorReference,
@@ -31,7 +32,7 @@ test("shared source navigation resolves exact generic and transitive declared he
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const base = namedDeclaration(source.ast, sourceFile, "Base");
   const named = namedDeclaration(source.ast, sourceFile, "Named");
@@ -44,18 +45,21 @@ test("shared source navigation resolves exact generic and transitive declared he
   );
   const sameShape = namedDeclaration(source.ast, sourceFile, "SameShape");
   const middleHeritage = source.navigation.declaredHeritage(middle);
-  const semantics = source.semantics.forFile(sourceFile);
+  // Selected heritage type arguments are Host descriptors of the object facts (B3 D8, objects.heritage).
+  const typeArgumentText = (argument) => argument.kind === "declared"
+    ? source.ast.text(source.ast.name(argument.declaration)) : sourceTypeKind(argument);
+  const middleEdges = source.facts.objects.heritage(middle);
+  assert.equal(Array.isArray(middleEdges), true);
 
   assert.equal(middleHeritage.kind, "resolved");
   assert.deepEqual(
-    middleHeritage.edges.map((edge) => ({
+    middleHeritage.edges.map((edge, index) => ({
       kind: edge.kind,
       target: source.ast.text(source.ast.name(edge.target.declaration)),
       typeArguments: edge.typeArguments.map((argument) =>
         source.ast.kindName(argument)),
-      selectedTypeArgumentCount: edge.selectedTypeArguments.length,
-      selectedTypeArguments: edge.selectedTypeArguments.map((argument) =>
-        sourceTypeKind(semantics, argument)),
+      selectedTypeArgumentCount: middleEdges[index].typeArguments.length,
+      selectedTypeArguments: middleEdges[index].typeArguments.map(typeArgumentText),
     })),
     [
       {
@@ -78,13 +82,11 @@ test("shared source navigation resolves exact generic and transitive declared he
   assert.equal(defaultHeritage.kind, "resolved");
   assert.equal(defaultHeritage.edges.length, 1);
   assert.deepEqual(defaultHeritage.edges[0].typeArguments, []);
-  assert.equal(defaultHeritage.edges[0].selectedTypeArguments.length, 1);
-  assert.equal(
-    semantics.types.isStringLike(
-      defaultHeritage.edges[0].selectedTypeArguments[0],
-    ),
-    true,
-  );
+  // A defaulted type parameter is applied by the Host heritage fact (T = string).
+  const defaultEdges = source.facts.objects.heritage(defaultDerived);
+  assert.equal(Array.isArray(defaultEdges), true);
+  assert.equal(defaultEdges[0].typeArguments.length, 1);
+  assert.equal(sourceTypeKind(defaultEdges[0].typeArguments[0]), "string");
   assert.deepEqual(
     source.navigation.declaredHeritagePath(derived, base).kind,
     "related",
@@ -113,7 +115,7 @@ test("shared constructors retain checked mandatory arity independently of defaul
       new Derived(undefined, 7); new Optional(1); new TupleRest(1); new EmptyRest();
     `,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const file = projectSourceFile(source, "src/index.ts");
   const expected = new Map([["Derived", [false, false]], ["Optional", [false, true]],
     ["TupleRest", [false]], ["EmptyRest", [true]]]);
@@ -126,9 +128,9 @@ test("shared constructors retain checked mandatory arity independently of defaul
   }
   const visit = node => {
     if (source.ast.is.IsNewExpression(node)) {
-      const call = source.semantics.forNode(node).operations.call(node);
-      const name = source.ast.text(call.sourceCallee.expression);
-      assert.deepEqual(call.sourceSelectedSignatureParameters.map(parameter => parameter.acceptsOmission), expected.get(name), name);
+      const call = source.navigation.call(node);
+      const name = source.ast.text(call.callee);
+      assert.deepEqual(call.parameters.map(parameter => parameter.acceptsOmission), expected.get(name), name);
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
@@ -145,9 +147,8 @@ test("shared source navigation exposes exact effective class constructors", asyn
       "",
     ].join("\n"),
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const semantics = source.semantics.forFile(sourceFile);
   const constructors = (name) => {
     const declaration = namedDeclaration(source.ast, sourceFile, name);
     const result = source.navigation.classConstructors(declaration);
@@ -156,15 +157,18 @@ test("shared source navigation exposes exact effective class constructors", asyn
   };
 
   const derived = constructors("Derived");
+  // Parameter types are Host descriptors of the construction facts (instantiated for the derived class).
+  const construction = source.facts.objects.construction(namedDeclaration(source.ast, sourceFile, "Derived"));
+  assert.equal(construction.kind === "refused", false);
   assert.equal(derived.implicit, true);
   assert.deepEqual(
     derived.signatures.map((signature) => ({
       declarationOwner: source.ast.text(
         source.ast.name(source.ast.parent(signature.declaration)),
       ),
-      parameters: signature.parameters.map((parameter) => ({
+      parameters: signature.parameters.map((parameter, index) => ({
         name: parameter.parameterName,
-        type: sourceTypeKind(semantics, parameter.selectedType),
+        type: sourceTypeKind(construction.signatures[0].parameters[index].type),
         omission: parameter.acceptsOmission,
         rest: parameter.rest,
       })),
@@ -190,27 +194,17 @@ test("shared source navigation exposes exact effective class constructors", asyn
   assert.deepEqual(empty.signatures[0].parameters, []);
 });
 
-function sourceTypeKind(semantics, type) {
-  if (semantics.types.isStringLike(type)) {
-    return "string";
+// A Host descriptor as a short text: string, number, number | undefined (optional or union with absence).
+function sourceTypeKind(type) {
+  if (type.kind === "string") return "string";
+  if (type.kind === "primitive" && type.primitive === "float64") return "number";
+  const arms = type.kind === "optional" ? [type.value, { kind: "intrinsic", intrinsic: "absence" }]
+    : type.kind === "union" ? type.types : [];
+  if (arms.some((arm) => sourceTypeKind(arm) === "number") &&
+    arms.some((arm) => arm.kind === "intrinsic" && arm.intrinsic === "absence")) {
+    return "number | undefined";
   }
-  if (semantics.types.isNumberLike(type)) {
-    return "number";
-  }
-  if (semantics.types.isUnion(type)) {
-    const members = semantics.types.unionOrIntersectionTypes(type);
-    if (
-      members.some((member) => semantics.types.isNumberLike(member)) &&
-      members.some((member) => semantics.types.isNullish(member))
-    ) {
-      return "number | undefined";
-    }
-  }
-  const symbol = semantics.declarations.typeAliasSymbol(type) ??
-    semantics.declarations.typeSymbol(type);
-  return symbol === undefined
-    ? undefined
-    : semantics.declarations.symbolName(symbol);
+  return undefined;
 }
 
 test("source navigation proves references outside an exact excluded subtree", async () => {
@@ -228,27 +222,15 @@ test("source navigation proves references outside an exact excluded subtree", as
   });
   const ast = source.ast;
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const used = namedVariable(ast, sourceFile, "used");
   const unused = namedVariable(ast, sourceFile, "unused");
   const neverUsed = namedVariable(ast, sourceFile, "neverUsed");
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const usedName = ast.name(used);
-  const unusedName = ast.name(unused);
-  const neverUsedName = ast.name(neverUsed);
-  const usedSymbol = checker.getSymbolAtLocation(usedName, { sourceFile });
-  const unusedSymbol = checker.getSymbolAtLocation(unusedName, { sourceFile });
-  const neverUsedSymbol = checker.getSymbolAtLocation(neverUsedName, {
-    sourceFile,
-  });
-
-  assert.notEqual(usedSymbol, undefined);
-  assert.notEqual(unusedSymbol, undefined);
-  assert.notEqual(neverUsedSymbol, undefined);
-  assert.equal(navigation.hasReferenceOutside(usedSymbol, used), true);
-  assert.equal(navigation.hasReferenceOutside(unusedSymbol, unused), true);
-  assert.equal(navigation.hasReferenceOutside(neverUsedSymbol, neverUsed), false);
-  assert.equal(navigation.hasReferenceOutside(usedSymbol, sourceFile), false);
+  // Navigation is keyed by declaration (B3 D1): the entity is the declaration and its merged declarations.
+  assert.equal(navigation.hasReferenceOutside(used, used), true);
+  assert.equal(navigation.hasReferenceOutside(unused, unused), true);
+  assert.equal(navigation.hasReferenceOutside(neverUsed, neverUsed), false);
+  assert.equal(navigation.hasReferenceOutside(used, sourceFile), false);
 });
 
 test("shared source navigation enumerates exact symbol references within a subtree", async () => {
@@ -269,12 +251,8 @@ test("shared source navigation enumerates exact symbol references within a subtr
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const parameter = requiredNode(ast, sourceFile, (node) =>
     ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === "value");
-  const symbol = source.getSourceFileQueries(sourceFile).checker
-    .getSymbolAtLocation(ast.name(parameter), { sourceFile });
-
-  assert.notEqual(symbol, undefined);
-  const navigation = createSourceProgramNavigation(source);
-  const references = navigation.referencesWithin(symbol, sourceFile);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
+  const references = navigation.referencesWithin(parameter, sourceFile);
   assert.equal(references.length, 2);
   assert.equal(new Set(references).size, 2);
   assert.equal(
@@ -314,7 +292,7 @@ test("shared source navigation indexes exact references to one declaration acros
   const ast = source.ast;
   const apiFile = projectSourceFile(source, "src/api.ts");
   const declaration = namedVariable(ast, apiFile, "transform");
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const references = navigation.referencesToDeclaration(declaration);
 
   assert.equal(references.length, 5);
@@ -357,16 +335,8 @@ test("shared source navigation classifies exact binding writes without treating 
   });
   const ast = source.ast;
   const sourceFile = projectSourceFile(source, "src/index.ts");
-  const navigation = createSourceProgramNavigation(source);
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const writesFor = (name) => {
-    const declaration = namedVariable(ast, sourceFile, name);
-    const symbol = checker.getSymbolAtLocation(ast.name(declaration), {
-      sourceFile,
-    });
-    assert.notEqual(symbol, undefined);
-    return navigation.bindingWritesWithin(symbol, sourceFile);
-  };
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
+  const writesFor = (name) => navigation.bindingWritesWithin(namedVariable(ast, sourceFile, name), sourceFile);
 
   assert.deepEqual(writesFor("direct").map((write) => write.kind), ["assignment"]);
   assert.deepEqual(writesFor("compound").map((write) => write.kind), ["assignment"]);
@@ -388,7 +358,7 @@ test("source write occurrences retain original nested defaults and iteration pro
       return value;
     }`,
   });
-  const source = createTargetSourceProgram(checked);
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts });
   const { ast } = source;
   const file = projectSourceFile(source, "src/index.ts");
   const selected = requiredNode(ast, file, node => ast.is.IsBindingElement(node) &&
@@ -397,9 +367,7 @@ test("source write occurrences retain original nested defaults and iteration pro
   assert.equal(initialization?.kind === "initialization", true, "the declaration's exact original write is retained separately");
   assert.deepEqual(initialization.values.map(value => ast.text(value.expression)), ["source", "outer", "inner"]);
   assert.deepEqual(initialization.values.map(value => value.projection.length), [2, 1, 0]);
-  const symbol = checked.getSourceFileQueries(file).checker.getSymbolAtLocation(ast.name(selected), { sourceFile: file });
-  assert.equal(symbol !== undefined, true, "the pattern binding has one actual checked symbol");
-  const writes = source.navigation.bindingWritesWithin(symbol, file);
+  const writes = source.navigation.bindingWritesWithin(selected, file);
   assert.deepEqual(writes.map(write => write.kind), ["assignment", "iteration"]);
   assert.deepEqual(writes[0].values.map(value => ast.text(value.expression)), ["source", "outer", "inner"]);
   assert.deepEqual(writes[0].values.map(value => value.projection.length), [2, 1, 0]);
@@ -438,7 +406,7 @@ test("source navigation resolves shorthand values through the checker-selected v
 
   assert.notEqual(reference, undefined);
   assert.strictEqual(
-    createSourceProgramNavigation(source).referenceFor(reference)?.declaration,
+    createSourceProgramNavigation(createSourceNavigationInput(source)).referenceFor(reference)?.declaration,
     parameter,
   );
 });
@@ -476,7 +444,7 @@ test("source navigation classifies runtime import and export dependencies exactl
   }
   const source = await checkedSource("module-dependencies", files);
   const entry = projectSourceFile(source, "src/index.ts");
-  const dependencies = createSourceProgramNavigation(source)
+  const dependencies = createSourceProgramNavigation(createSourceNavigationInput(source))
     .moduleDependencies(entry)
     .map((dependency) => source.ast.getFileName(dependency.sourceFile))
     .map((fileName) => fileName.slice(fileName.lastIndexOf("/") + 1));
@@ -485,7 +453,7 @@ test("source navigation classifies runtime import and export dependencies exactl
     dependencies,
     cases.filter((entry) => entry.runtime).map((entry) => `${entry.id}.ts`),
   );
-  const references = createSourceProgramNavigation(source)
+  const references = createSourceProgramNavigation(createSourceNavigationInput(source))
     .moduleReferences(entry)
     .map((dependency) => source.ast.getFileName(dependency.sourceFile))
     .map((fileName) => fileName.slice(fileName.lastIndexOf("/") + 1));
@@ -505,7 +473,7 @@ test("shared source navigation resolves exact authored project-module literals",
     ].join("\n"),
     "src/worker.ts": "export const workerValue = 1;\n",
   }, { rootFiles: ["index.ts", "worker.ts"] });
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const entry = projectSourceFile(source, "src/index.ts");
   const worker = projectSourceFile(source, "src/worker.ts");
   const literals = [];
@@ -550,7 +518,7 @@ test("source navigation classifies top-level await without entering function bod
       "",
     ].join("\n"),
   });
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const entry = projectSourceFile(source, "src/entry.ts");
   const index = projectSourceFile(source, "src/index.ts");
 
@@ -574,7 +542,7 @@ test("source navigation classifies top-level await using without entering functi
       "",
     ].join("\n"),
   });
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const entry = projectSourceFile(source, "src/entry.ts");
   const index = projectSourceFile(source, "src/index.ts");
 
@@ -622,7 +590,7 @@ test("source navigation never queries declaration-provider files as project sour
       throw new Error("Provider declaration files are not project query roots.");
     },
   };
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
 
   assert.equal(navigation.referenceFor(providerDeclaration), undefined);
   assert.equal(navigation.declarationFor(providerDeclaration), undefined);
@@ -660,7 +628,7 @@ test("source navigation resolves imported declaration references without treatin
   const initializer = ast.as.AsVariableDeclaration(captured)?.Initializer;
   assert.notEqual(initializer, undefined);
 
-  const navigation = createSourceProgramNavigation(source);
+  const navigation = createSourceProgramNavigation(createSourceNavigationInput(source));
   const reference = navigation.sourceReferenceFor(initializer);
   assert.equal(ast.is.IsClassDeclaration(reference?.declaration), true);
   assert.equal(ast.text(ast.name(reference?.declaration)), "Environment");
