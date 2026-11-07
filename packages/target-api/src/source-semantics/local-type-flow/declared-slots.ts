@@ -1,10 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
-import { sourceNodeHasRole } from "../../source-navigation/callable-boundaries.js";
-import type { SourceHostComponent, SourceHostQueries } from "../../host-input/index.js";
+import { Node_Expression, Node_Initializer } from "../../source-model/ast.js";
+import { sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
+import type { SourceHostComponent, SourceHostQueries } from "../../host-input/queries.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue, sourceTypeDescriptorUnion } from "./terms.js";
+import { sourceTypeDescriptorAwaitedPayload, sourceTypeFlowAuthoredAwaitedArgument } from "./awaited.js";
+import { sourceTypeDescriptorOptional, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue, sourceTypeDescriptorUnion } from "./terms.js";
 import type { SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal } from "./types.js";
 
 export interface SourceTypeFlowDeclaredSlot {
@@ -248,7 +249,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const retained = origin === undefined ? selected : { ...origin,
       ...(selected.contextualCall === undefined ? {} : { contextualCall: selected.contextualCall }) };
     const projected = described === undefined ? undefined : parameterKind === "optional"
-      ? sourceTypeDescriptorUnion(context.unions, [described, { kind: "intrinsic", intrinsic: "absence" }]) : described;
+      ? sourceTypeDescriptorOptional(described) : described;
     return projected === undefined ? Object.freeze({ component: retained, authority: "declared" })
       : Object.freeze({ ...(parameterIndex === undefined ? slot(node, projected, "declared")
         : { type: projected, authority: "declared" as const }), component: retained });
@@ -277,7 +278,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (selected.kind !== "shape") return undefined;
     const element = query.objectLiteralElement(node);
     if (element === undefined || element.element !== node || element.objectLiteral !== literal || element.contextualType === undefined) return undefined;
-    const origin = query.objectLiteralDestinationOrigin(element);
+    const origin = context.input.objectLiteralDestination(literal, node, {});
     if (origin?.kind !== "resolved") return undefined;
     const matches = selected.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
     return matches?.length === 1 ? matches[0]!.type : undefined;
@@ -330,26 +331,20 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     if (ast.is.IsSetAccessorDeclaration(node)) return { kind: "intrinsic", intrinsic: "void" };
     const signature = declaredCallable(node, query);
     if (signature === undefined) return undefined;
-    const selected = ast.hasModifierKind(node, "async") && signature.signature.declaration !== undefined
-      ? awaited(component(signature.signature.declaration, query), query) : undefined;
+    // An async callable returns the awaited payload of its destination signature's Host result (awaited.ts).
     const type = ast.hasModifierKind(node, "async")
-      ? selected === undefined ? undefined : context.describe(node, selected) : signature.signature.result;
+      ? sourceTypeDescriptorAwaitedPayload(ast, context.unions, signature.signature.result) : signature.signature.result;
     const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
     return structure?.kind === "intrinsic" && ["unknown", "object", "any"].includes(structure.intrinsic) ? undefined : type;
   }
 
+  // The authored payload argument of an async callable's return annotation (awaited.ts, the one awaited owner, R3).
   function awaited(selected: SourceHostComponent | undefined, query: SourceHostQueries): SourceHostComponent | undefined {
-    if (selected === undefined) return undefined;
-    const selectedType = query.awaitedType(selected.selectedType);
-    if (selectedType === undefined) return undefined;
-    const original = selected.authoredTypeNode;
-    const argument = original !== undefined && (ast.is.IsTypeReferenceNode(original) || ast.is.IsImportTypeNode(original))
-      ? ast.typeArguments(original).find(node => node !== undefined && (() => {
-        const type = query.authoredType(node);
-        return type !== undefined && query.isIdentical(type, selectedType);
-      })()) : undefined;
-    return { selectedType, ...(selected.declaration === undefined ? {} : { declaration: selected.declaration }),
-      ...(argument === undefined ? {} : { authoredTypeNode: argument }) };
+    const original = selected?.authoredTypeNode;
+    const argument = original === undefined ? undefined : sourceTypeFlowAuthoredAwaitedArgument(ast, context.source.navigation, original);
+    const selectedType = argument === undefined ? undefined : query.authoredType(argument);
+    return selected === undefined || argument === undefined || selectedType === undefined ? undefined
+      : { selectedType, ...(selected.declaration === undefined ? {} : { declaration: selected.declaration }), authoredTypeNode: argument };
   }
 
   function generatorReturnType(node: Node, generator: NonNullable<ReturnType<SourceHostQueries["generator"]>>,
@@ -463,7 +458,7 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       const members = shape.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin.origin));
       const member = members.length === 1 ? members[0] : undefined;
       return member === undefined ? undefined : projected(node,
-        member.optional ? { kind: "optional", value: member.type } : member.type, "declared");
+        member.optional ? sourceTypeDescriptorOptional(member.type) : member.type, "declared");
     }
     if ((ast.is.IsVariableDeclaration(parent) || ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
       Node_Initializer(ast, parent) === occurrence) {

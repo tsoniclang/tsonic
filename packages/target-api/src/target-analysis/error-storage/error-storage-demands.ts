@@ -3,6 +3,7 @@ import { sourceStorageRoleDeclaration } from "../source-storage/model/components
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/model/types.js";
+import { sourceStorageQueriesProgram } from "../source-storage/queries.js";
 import { Node_Expression } from "../../source-navigation/index.js";
 import { createSourceErrorInvalidationQuery } from "./error-invalidation.js";
 import type { SourceErrorStorageProtocol } from "./protocol.js";
@@ -30,7 +31,7 @@ export function createSourceErrorStorageDemandQuery(
   const fieldWrites: Node[] = [];
   let demandRows = 0;
   let steps = 0;
-  let failure = storage.source === source ? storage.failureReason()
+  let failure = sourceStorageQueriesProgram(storage) === source ? storage.failureReason()
     : "Error storage demand requires the exact shared source transport owner.";
   const failureReason = (): string | undefined => failure ?? storage.failureReason();
   const reject = (reason: string): void => { failure ??= reason; };

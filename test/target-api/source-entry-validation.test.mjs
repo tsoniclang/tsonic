@@ -2,7 +2,7 @@ import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/in
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { validateSourceBinaryEntry } from "../../packages/target-api/dist/public/analysis.js";
+import { validateSourceBinaryEntry } from "../../packages/target-api/dist/target-analysis/index.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 for (const [name, text, expected] of [

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeSourceConstructorResults } from "../../packages/target-api/dist/public/analysis.js";
+import { analyzeSourceConstructorResults } from "../../packages/target-api/dist/target-analysis/index.js";
 import { constructorResultFixture } from "./source-storage-construction-fixtures.mjs";
 
 for (const [name, constructor] of [

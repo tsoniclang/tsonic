@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";

@@ -345,7 +345,14 @@ export function Checker_inferTypes(receiver, inferences, originalSource, origina
  * }
  */
 export function Checker_inferFromTypes(receiver, n, source, target) {
-    withSelectedCallInferenceFrame(selectedCallInferenceJournal(receiver, n.inferences), n.inferences, () => inferFromTypes(receiver, n, source, target));
+    const journal = selectedCallInferenceJournal(receiver, n.inferences);
+    // Outside a selected-call transaction, or with no active inference origin, there is no projection frame to keep:
+    // infer directly (no closure on the checker hot path). withSelectedCallInferenceFrame gives the same result there.
+    if (journal === undefined || journal.traces.length === 0) {
+        inferFromTypes(receiver, n, source, target);
+        return;
+    }
+    withSelectedCallInferenceFrame(journal, n.inferences, () => inferFromTypes(receiver, n, source, target));
 }
 function inferFromTypes(receiver, n, source, target) {
     const c = receiver;

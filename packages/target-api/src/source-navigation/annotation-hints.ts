@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
-import { sourceEnclosing } from "./callable-boundaries.js";
+import { sourceTransparentExpressionOperand } from "../source-model/ast.js";
+import { sourceEnclosing } from "../source-model/callable-boundaries.js";
 
 export interface SourceAnnotationHintBindings {
   readonly ast: AstReader;

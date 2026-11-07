@@ -1,8 +1,9 @@
+import { sourceTypeDescriptorArms } from "../source-semantics/descriptor-arms.js";
 import type { SourceAnalysisProgram } from "./analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { createSourceCallableValueQuery, sourceCallableValueExpression } from "../source-navigation/callable-values.js";
-import { isSourceCallableSignatureDeclaration } from "../source-navigation/callable-boundaries.js";
-import { sourceAnalysisArms, sourceAnalysisCallSignatures, sourceAnalysisValueType } from "./analysis-program.js";
+import { isSourceCallableSignatureDeclaration } from "../source-model/callable-boundaries.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisValueType } from "./analysis-program.js";
 
 export interface SourceBinaryEntryIssue {
   readonly code: "TSONIC_UNCALLED_BINARY_ENTRY_MAIN";
@@ -56,7 +57,7 @@ export function validateSourceBinaryEntry(
     if (isSourceCallableSignatureDeclaration(source.ast, declaration)) return true;
     if (!source.ast.is.IsVariableDeclaration(declaration)) return false;
     const type = sourceAnalysisValueType(source, declaration);
-    return type !== undefined && sourceAnalysisArms(type).some(arm => sourceAnalysisCallSignatures(arm).length !== 0);
+    return type !== undefined && sourceTypeDescriptorArms(type).some(arm => sourceAnalysisCallSignatures(arm).length !== 0);
   }
 
   function callableImplementation(declaration: Node): Node {

@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceNavigationQueryContext } from "./query-context.js";
 import type { SourceNavigationMemberAccess } from "./types.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
-import { Node_Expression } from "./ast.js";
+import { Node_Expression } from "../source-model/ast.js";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
 
 export interface SourceCallableValue {

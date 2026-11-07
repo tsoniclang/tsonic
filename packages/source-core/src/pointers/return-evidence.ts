@@ -1,13 +1,12 @@
 import { pointerFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
-import type { HostSourceProgram, SourceNavigationCall } from "@tsonic/target-api/host";
-import type { SourceCompletionSelection, SourceTypeDescriptor } from "@tsonic/target-api/source";
 import {
-  tsonicDescriptorArms, tsonicDescriptorHasTypeVariables, tsonicDescriptorIsAbsent, tsonicPointerValuePointee, tsonicValueType,
-} from "./host-values.js";
+  sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsent, sourceTypeDescriptorIsAbsentArm, sourceAnalysisValueType,
+  sourceTypeDescriptorHasTypeVariables, type HostSourceProgram, type SourceNavigationCall,
+} from "@tsonic/target-api/host";
+import type { SourceCompletionSelection, SourceTypeDescriptor } from "@tsonic/target-api/source";
+import type { TsonicHostRecords } from "../analysis/host-records.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./backing/source-forms.js";
-import { selectTsonicRawLocationOperation } from "./raw-memory/selection.js";
-import { selectTsonicPointerView } from "./views/selection.js";
 
 /** Pointer return evidence over Host facts (I1): pointee and absence arms are Host descriptors. */
 export interface TsonicPointerReturnEvidence {
@@ -33,8 +32,10 @@ interface PointerReturnValue {
   readonly frame: PointerReturnCallFrame | undefined;
 }
 
+/** `records` are the Host records of the same program view (host-records.ts): the view and reinterpret pointees. */
 export function createTsonicPointerReturnQueries(
   source: HostSourceProgram,
+  records: Pick<TsonicHostRecords, "memory" | "pointers">,
   maximumValues = 131_072,
 ): TsonicPointerReturnQueries {
   if (!Number.isSafeInteger(maximumValues) || maximumValues < 1) {
@@ -45,7 +46,7 @@ export function createTsonicPointerReturnQueries(
     resolve(declaration: Node) {
       const previous = results.get(declaration);
       if (previous !== undefined) return previous ?? undefined;
-      const result = selectTsonicPointerReturnEvidence(source, declaration, maximumValues);
+      const result = selectTsonicPointerReturnEvidence(source, records, declaration, maximumValues);
       results.set(declaration, result ?? null);
       return result;
     },
@@ -54,6 +55,7 @@ export function createTsonicPointerReturnQueries(
 
 function selectTsonicPointerReturnEvidence(
   source: HostSourceProgram,
+  records: Pick<TsonicHostRecords, "memory" | "pointers">,
   declaration: Node,
   maximumValues: number,
 ): TsonicPointerReturnEvidence | undefined {
@@ -65,8 +67,8 @@ function selectTsonicPointerReturnEvidence(
   if (completion === undefined) return undefined;
   const result = facts.values.callableReturn(declaration);
   if (result.kind === "refused") return undefined;
-  const nullishTypes = tsonicDescriptorArms(result.type).filter(tsonicDescriptorIsAbsent);
-  const variable = (type: SourceTypeDescriptor): boolean => tsonicDescriptorHasTypeVariables(ast, type);
+  const nullishTypes = sourceTypeDescriptorArms(result.type).filter(sourceTypeDescriptorIsAbsentArm);
+  const variable = (type: SourceTypeDescriptor): boolean => sourceTypeDescriptorHasTypeVariables(ast, type);
   const root: PointerReturnValue = { node: declaration, frame: undefined };
   const queue: PointerReturnValue[] = [root];
   const unscopedValues = new Map<Node, PointerReturnValue>([[declaration, root]]);
@@ -127,24 +129,23 @@ function selectTsonicPointerReturnEvidence(
     if (++visited > maximumValues) return undefined;
     const value = queue[index]!;
     const { node, frame } = value;
-    const view = selectTsonicPointerView(ast, sourceFacts, node);
+    // The pointee of a view or reinterpretation is the Host record's pointee: T of the call instantiation (R1, one owner).
+    const view = ast.is.IsCallExpression(node) ? records.pointers.view(node) : undefined;
     if (view !== undefined) {
-      const pointee = tsonicPointerValuePointee(source, node);
-      if (view.kind !== "resolved" || pointee === undefined || frame !== undefined && variable(pointee)) return undefined;
-      const typeNode = view.operation.explicitPointeeTypeNode;
-      pointees.push(Object.freeze({ subject: node, type: pointee,
+      if (view.kind !== "resolved" || frame !== undefined && variable(view.pointee)) return undefined;
+      const typeNode = view.explicitPointeeTypeNode;
+      pointees.push(Object.freeze({ subject: node, type: view.pointee,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);
       continue;
     }
-    const raw = selectTsonicRawLocationOperation(ast, sourceFacts, node);
+    const raw = ast.is.IsCallExpression(node) ? records.memory.rawLocation(node) : undefined;
     if (raw !== undefined) {
-      if (raw.kind !== "resolved" || raw.operation.operation !== "reinterpret") return undefined;
-      const pointee = tsonicPointerValuePointee(source, node);
-      if (pointee === undefined || frame !== undefined && variable(pointee)) return undefined;
-      const typeNode = raw.operation.explicitPointeeTypeNode ??
+      if (raw.kind !== "resolved" || raw.operation !== "reinterpret") return undefined;
+      if (frame !== undefined && variable(raw.pointee)) return undefined;
+      const typeNode = raw.explicitPointeeTypeNode ??
         (raw.layout.kind === "value" ? raw.layout.explicitTypeNode : undefined);
-      pointees.push(Object.freeze({ subject: node, type: pointee,
+      pointees.push(Object.freeze({ subject: node, type: raw.pointee,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);
       continue;
@@ -189,13 +190,13 @@ function selectTsonicPointerReturnEvidence(
         if (++visited > maximumValues) return undefined;
         const candidate = pending.pop()!;
         const pointer = sourceFacts.getFact(candidate, pointerFactKey);
-        const type = tsonicValueType(source, candidate);
+        const type = sourceAnalysisValueType(source, candidate);
         if (pointer !== undefined) {
-          const pointeeType = tsonicValueType(source, pointer.pointee);
+          const pointeeType = sourceAnalysisValueType(source, pointer.pointee);
           if (pointeeType === undefined) return undefined;
           pointees.push(Object.freeze({ subject: node, type: pointeeType, typeNode: pointer.pointee }));
           terminals.add(value);
-        } else if (type !== undefined && tsonicDescriptorIsAbsent(type)) terminals.add(value);
+        } else if (type !== undefined && sourceTypeDescriptorIsAbsent(type)) terminals.add(value);
         else if (ast.is.IsUnionTypeNode(candidate)) {
           for (const child of ast.children(candidate)) {
             if (child === undefined) return undefined;
@@ -218,8 +219,8 @@ function selectTsonicPointerReturnEvidence(
       edge(value, conditional?.WhenTrue, frame); edge(value, conditional?.WhenFalse, frame);
       continue;
     }
-    const selectedType = tsonicValueType(source, node);
-    if (selectedType !== undefined && tsonicDescriptorIsAbsent(selectedType)) { terminals.add(value); continue; }
+    const selectedType = sourceAnalysisValueType(source, node);
+    if (selectedType !== undefined && sourceTypeDescriptorIsAbsent(selectedType)) { terminals.add(value); continue; }
     if (ast.is.IsIdentifier(node)) { edge(value, navigation.sourceReferenceFor(node)?.declaration, frame); continue; }
     if (ast.is.IsVariableDeclaration(node)) {
       edge(value, ast.as.AsVariableDeclaration(node)?.Initializer, frame);

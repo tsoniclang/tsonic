@@ -1,31 +1,38 @@
 import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
+import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { selectJsSourceCallStorageEffect, jsSourceCallableParameterEffects } from "../../packages/js-source-profile/dist/index.js";
+import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
+import { createSourceProfileStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
+import { jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
+// The JS source profile declares Generator / AsyncGenerator / Error, so the Host composes the resume and
+// callback effects from facts.profile (facts.analyses.storage) instead of a test-local selector.
+const jsProfileFiles = Object.freeze({
+  "/src/.tsonic/source-profiles/js/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+  "/src/.tsonic/source-profiles/js/js-globals.d.ts": jsSurfaceSourceProfileDeclarations,
+});
+
 function fixture(body, override) {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `export {}; ${body}` },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  const files = { ...jsProfileFiles, "/src/index.ts": `export {}; ${body}` };
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files, rootFiles: Object.keys(files),
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", noLib: true },
+    extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
+      createTsonicCoreSourceExtension()] },
+  }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
   const nodes = [];
   const visit = node => { nodes.push(node); source.ast.forEachChild(node, visit); };
   visit(file);
-  const identity = (node, call) => {
-    const declaration = call.signature;
-    const owner = declaration === undefined ? undefined : source.ast.parent(declaration);
-    return owner === undefined ? undefined : { declaration,
-      ownerName: source.ast.text(source.ast.name(owner)), memberName: source.ast.text(source.ast.name(declaration)) };
-  };
-  const storage = createSourceStorageQuery(source, [file], undefined, {
-    call: (node, call) => override === undefined ? selectJsSourceCallStorageEffect(identity(node, call), call)?.effect : override(node, call),
-    callbackEntries: (node, call) => jsSourceCallableParameterEffects(identity(node, call)),
-  });
+  // override: a malformed call effect over the Host composition (internal query), to prove admission rejects it.
+  const storage = override === undefined
+    ? source.facts.analyses.storage({ sourceFiles: [file], premises: {} })
+    : createSourceStorageQuery(source, [file], undefined, { ...createSourceProfileStorageEffects(source, {}), call: override });
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   const subject = node => {
     const selected = storage.subjectFor(node);

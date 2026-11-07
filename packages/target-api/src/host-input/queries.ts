@@ -13,12 +13,10 @@ import type { ResolvedSourceCallInfo } from "./navigation-checker.js";
 import { getSourceCallTypeParameterDeclaration, getSourceMethodTypeArgumentComponent } from "./semantics-type-arguments.js";
 import { sourceArrayElementType } from "./semantics-array-types.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "./semantics-selected-property-declarations.js";
-import { sourceObjectLiteralDestinationMember } from "./semantics-object-literal-correspondence.js";
 import type { SourcePropertyNameSelection } from "../source-semantics/property-names-model.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
-import type { SourceTypeDescriptor } from "../source-semantics/local-type-flow/types.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
-import { sourceTypeDescriptorMemberOrigin, type SourceMemberOriginResult } from "./member-origins.js";
+import { sourceTypeDescriptorMemberKey, sourceTypeDescriptorMemberOrigin, type SourceMemberOriginResult } from "./member-origins.js";
+import type { SourceMemberKey } from "../source-semantics/descriptor-model.js";
 
 declare const sourceHostTypeBrand: unique symbol;
 declare const sourceHostSymbolBrand: unique symbol;
@@ -128,6 +126,47 @@ export interface SourceHostSignatureParameter {
 export interface SourceHostSignatureInfo {
   readonly parameters: readonly SourceHostSignatureParameter[];
   readonly returnType: SourceHostType | undefined;
+  /** The signature's declaration; undefined for a signature with no declaration (an intrinsic or synthesized one). */
+  readonly declaration?: Node;
+}
+
+/** One index signature of a type: its declaration (absent for a mapped index) and its key and value types. */
+export interface SourceHostIndex {
+  readonly declaration?: Node;
+  readonly keyType?: SourceHostType;
+  readonly valueType?: SourceHostType;
+  readonly readonly: boolean;
+}
+
+/** The binding of one type parameter in a type application (declaration, its own parameter type, the argument). */
+export interface SourceHostTypeArgumentBinding {
+  readonly declaration: Node;
+  readonly parameterType: SourceHostType;
+  readonly argumentType: SourceHostType;
+}
+
+/** One step of the checker's conditional-alias instantiation journal (selected branch, its node, its bindings). */
+export interface SourceHostConditionalStep {
+  readonly conditional: Node;
+  readonly branch: "true" | "false" | "deferred";
+  readonly selectedNode?: Node;
+  readonly selectedType?: SourceHostType;
+  readonly bindings: readonly {
+    readonly declarations: readonly Node[];
+    readonly parameter: SourceHostType;
+    readonly argument: SourceHostType;
+    readonly applicationParameter?: SourceHostType;
+  }[];
+}
+
+/** A type alias application: the alias, its body, its parameter bindings and, for a conditional body, its steps. */
+export interface SourceHostAliasApplication {
+  readonly kind: "direct" | "conditional";
+  readonly declaration: Node;
+  readonly typeNode: Node;
+  readonly bindings: readonly { readonly declaration: Node; readonly parameter: SourceHostType; readonly argument: SourceHostType }[];
+  readonly result: SourceHostType;
+  readonly conditionalSteps: readonly SourceHostConditionalStep[];
 }
 
 export interface SourceHostCallable {
@@ -200,8 +239,6 @@ export interface SourceHostQueries {
   objectLiteralProperty(element: SourceHostObjectLiteralElement): SourceHostProperty | undefined;
   /** The accessor or method declaration an authored method/accessor element creates (read declaration first). */
   objectLiteralAccessor(element: SourceHostObjectLiteralElement, property: SourceHostProperty): Node | undefined;
-  /** The canonical origin of the destination member an authored element fills in its contextual type. */
-  objectLiteralDestinationOrigin(element: SourceHostObjectLiteralElement): SourceMemberOriginResult | undefined;
   /** The checker's iteration selection at a for-of/for-in statement or spread: its subject and selected element type. */
   iteration(node: Node): { readonly subjectKind: string; readonly subject: Node; readonly elementType: SourceHostType } | undefined;
   generator(node: Node): SourceHostGenerator | undefined;
@@ -230,14 +267,14 @@ export interface SourceHostQueries {
   primitive(subjects: SourceHostPrimitiveSubjects): SourcePrimitiveKind | undefined;
   /** The authored arms of `annotation` that make up `type` (a narrowed or selected type of the same annotation). */
   authoredSelection(annotation: Node, type: SourceHostType): SourceHostAuthoredSelection;
-  /** An optional-chain call whose selected result can be absent carries absence on its Host result descriptor. */
-  callResultType(unions: SourceTypeDescriptorUnions, call: SourceHostCall, type: SourceTypeDescriptor): SourceTypeDescriptor;
 
   // ---- structure of declared and selected types --------------------------------------------------------------------
   isAny(type: SourceHostType): boolean;
   isUnknown(type: SourceHostType): boolean;
   isNonPrimitive(type: SourceHostType): boolean;
   isNullish(type: SourceHostType): boolean;
+  /** The one absence classifier (sourceHostAbsentConstituent): null, undefined or void as a union constituent (A11). */
+  isAbsentConstituent(type: SourceHostType): boolean;
   isUnion(type: SourceHostType): boolean;
   isIntersection(type: SourceHostType): boolean;
   isTuple(type: SourceHostType): boolean;
@@ -247,25 +284,30 @@ export interface SourceHostQueries {
   isNumberLike(type: SourceHostType): boolean;
   isStringLike(type: SourceHostType): boolean;
   isSymbolLike(type: SourceHostType): boolean;
-  /** Present (non-nullish, no nullish union member). */
-  isPresent(type: SourceHostType | undefined): boolean;
-  /** Absence-admitting: nullish, or a union with a nullish member. */
-  admitsAbsence(type: SourceHostType | undefined): boolean;
+  isNever(type: SourceHostType): boolean;
+  isBigIntLike(type: SourceHostType): boolean;
+  stringLiteralValue(type: SourceHostType): string | undefined;
+  numericLiteralValue(type: SourceHostType): number | bigint | undefined;
+  booleanLiteralValue(type: SourceHostType): boolean | undefined;
+  literalBaseType(type: SourceHostType): SourceHostType | undefined;
+  /** The declaration an authored type reference names (declaration identity only). */
+  authoredTypeDeclaration(node: Node): Node | undefined;
+  /** The member key of an authored property name: a string or finite number literal key, or a unique symbol. */
+  propertyNameKey(name: Node): SourceMemberKey | undefined;
   members(type: SourceHostType): readonly SourceHostType[];
   tupleElements(type: SourceHostType): readonly SourceHostTupleElement[];
   tupleElementTypes(type: SourceHostType): readonly SourceHostType[];
   typeArguments(type: SourceHostType): readonly SourceHostType[];
-  typeArgumentBindings(type: SourceHostType): readonly { readonly declaration: Node; readonly argumentType: SourceHostType }[] | undefined;
-  aliasApplication(type: SourceHostType):
-    { readonly kind: "direct" | "conditional"; readonly declaration: Node;
-      readonly bindings: readonly { readonly declaration: Node; readonly argument: SourceHostType }[] } | undefined;
-  indexes(type: SourceHostType): readonly { readonly readonly: boolean }[];
+  typeArgumentBindings(type: SourceHostType): readonly SourceHostTypeArgumentBinding[] | undefined;
+  aliasApplication(type: SourceHostType): SourceHostAliasApplication | undefined;
+  /** The application of an alias declaration to the given argument types. */
+  instantiateAlias(declaration: Node, arguments_: readonly SourceHostType[]): SourceHostAliasApplication | undefined;
+  indexes(type: SourceHostType): readonly SourceHostIndex[];
   properties(type: SourceHostType): readonly SourceHostProperty[];
   callable(type: SourceHostType): SourceHostCallable | undefined;
   signatures(type: SourceHostType, kind: "call" | "construct"): readonly SourceHostSignatureInfo[];
   couldContainTypeVariables(type: SourceHostType): boolean;
   nonNullableType(type: SourceHostType): SourceHostType | undefined;
-  awaitedType(type: SourceHostType): SourceHostType | undefined;
   arrayElementType(type: SourceHostType): SourceHostType | undefined;
   instantiatedBaseTypes(type: SourceHostType): readonly SourceHostType[] | undefined;
   isIdentical(left: SourceHostType, right: SourceHostType): boolean;
@@ -283,9 +325,30 @@ export const checkerComponent = (component: SourceHostComponent): SourceTypeComp
   component as unknown as SourceTypeComponentEvidence;
 export const hostCall = (call: ResolvedSourceCallInfo): SourceHostCall => call as unknown as SourceHostCall;
 export const checkerCall = (call: SourceHostCall): ResolvedSourceCallInfo => call as unknown as ResolvedSourceCallInfo;
-export const hostQueries = (queries: SourceFileSemantics): SourceHostQueries => queries as unknown as SourceHostQueries;
 
 type PropertyInfo = ReturnType<SourceFileSemantics["types"]["propertyInfos"]>[number];
+
+/**
+ * The checker flow witness at a read: whether the value read there can be null/undefined. A selection witness only (R3):
+ * the Host uses it to keep or drop the absence arm of its own descriptor, never as a type.
+ */
+export type SourceHostPresence = "present" | "possibly-absent" | "absent";
+
+/**
+ * The one absence classifier over checker input (R4: every host-input presence, absence-admission and narrowed-arm
+ * answer reads it). A constituent is absence when it is null, undefined or void: a `void` union arm is absence (WP0
+ * A11), exactly as the Host union builder makes it (terms.ts). A bare `void` is not absence: it is the void intrinsic.
+ */
+export function sourceHostAbsentConstituent(types: SourceFileSemantics["types"], type: Type): boolean {
+  return types.isNullish(type) || types.isVoidLike(type);
+}
+
+/** The presence of a checker type under the one absence classifier. */
+export function sourceHostPresence(types: SourceFileSemantics["types"], type: Type): SourceHostPresence {
+  if (types.isNullish(type)) return "absent";
+  return types.isUnion(type) && types.unionOrIntersectionTypes(type).some(member => sourceHostAbsentConstituent(types, member))
+    ? "possibly-absent" : "present";
+}
 
 /** The per-file query facade. One per checker file view, owned by the program's host-input adapter (I5). */
 export function createSourceHostQueries(ast: AstReader, queries: SourceFileSemantics,
@@ -299,11 +362,13 @@ export function createSourceHostQueries(ast: AstReader, queries: SourceFileSeman
     }
     return undefined;
   };
-  const absent = (type: Type): boolean => types.isNullish(type) ||
-    types.isUnion(type) && types.unionOrIntersectionTypes(type).some(member => types.isNullish(member));
   const signatureInfo = (signature: ReturnType<typeof types.signatureInfos>[number]): SourceHostSignatureInfo => Object.freeze({
     parameters: signature.parameters as unknown as readonly SourceHostSignatureParameter[],
     returnType: signature.returnType === undefined ? undefined : hostType(signature.returnType),
+    ...(() => {
+      const declaration = declarations.signatureDeclaration(signature.signature);
+      return declaration === undefined ? {} : { declaration };
+    })(),
   });
   const facade = {
     call: (node: Node) => {
@@ -340,13 +405,6 @@ export function createSourceHostQueries(ast: AstReader, queries: SourceFileSeman
         [t(element.objectLiteralType)]);
       return selected === undefined ? undefined : selectSourcePropertyDeclaration(ast, selected, "read") ??
         selectSourcePropertyDeclaration(ast, selected, "write");
-    },
-    objectLiteralDestinationOrigin: (element: SourceHostObjectLiteralElement) => {
-      const info = operations.objectLiteralElement(element.element);
-      if (info === undefined || info.contextualType === undefined) return undefined;
-      const destination = sourceObjectLiteralDestinationMember(info, info.contextualType, queries);
-      return destination === undefined ? undefined
-        : sourceTypeDescriptorMemberOrigin({ ast }, queries, destination.property, destination.receiverType);
     },
     iteration: (node: Node) => {
       const iteration = operations.iteration(node);
@@ -402,18 +460,12 @@ export function createSourceHostQueries(ast: AstReader, queries: SourceFileSeman
         ? Object.freeze({ kind: "authored-members", nodes: selected.nodes, nullishCount: selected.selectedNullishTypes.length })
         : Object.freeze({ kind: selected.kind });
     },
-    callResultType: (unions: SourceTypeDescriptorUnions, call: SourceHostCall, type: SourceTypeDescriptor) => {
-      const selected = checkerCall(call);
-      return selected.optionalChain === true && sourceTypeDescriptorStructure(type).kind !== "optional" &&
-        types.isUnion(selected.sourceResultType) && types.unionOrIntersectionTypes(selected.sourceResultType)
-          .some(member => types.isNullish(member))
-        ? sourceTypeDescriptorUnion(unions, [type, { kind: "intrinsic", intrinsic: "absence" }])! : type;
-    },
 
     isAny: (type: SourceHostType) => types.isAny(t(type)),
     isUnknown: (type: SourceHostType) => types.isUnknown(t(type)),
     isNonPrimitive: (type: SourceHostType) => types.isNonPrimitive(t(type)),
     isNullish: (type: SourceHostType) => types.isNullish(t(type)),
+    isAbsentConstituent: (type: SourceHostType) => sourceHostAbsentConstituent(types, t(type)),
     isUnion: (type: SourceHostType) => types.isUnion(t(type)),
     isIntersection: (type: SourceHostType) => types.isIntersection(t(type)),
     isTuple: (type: SourceHostType) => types.isTuple(t(type)),
@@ -423,21 +475,27 @@ export function createSourceHostQueries(ast: AstReader, queries: SourceFileSeman
     isNumberLike: (type: SourceHostType) => types.isNumberLike(t(type)),
     isStringLike: (type: SourceHostType) => types.isStringLike(t(type)),
     isSymbolLike: (type: SourceHostType) => types.isSymbolLike(t(type)),
-    isPresent: (type: SourceHostType | undefined) => type !== undefined && !absent(t(type)),
-    admitsAbsence: (type: SourceHostType | undefined) => type !== undefined && absent(t(type)),
+    isNever: (type: SourceHostType) => types.isNever(t(type)),
+    isBigIntLike: (type: SourceHostType) => types.isBigIntLike(t(type)),
+    stringLiteralValue: (type: SourceHostType) => types.stringLiteralValue(t(type)),
+    numericLiteralValue: (type: SourceHostType) => types.numericLiteralValue(t(type)),
+    booleanLiteralValue: (type: SourceHostType) => types.booleanLiteralValue(t(type)),
+    literalBaseType: (type: SourceHostType) => { const selected = types.literalBaseType(t(type)); return selected === undefined ? undefined : hostType(selected); },
+    authoredTypeDeclaration: (node: Node) => declarations.authoredTypeDeclaration(node),
+    propertyNameKey: (name: Node) => {
+      const selected = operations.propertyName(name);
+      return selected === undefined ? undefined : sourceTypeDescriptorMemberKey(selected.type, queries);
+    },
     members: (type: SourceHostType) => hostTypes(types.unionOrIntersectionTypes(t(type))),
     tupleElements: (type: SourceHostType) => types.tupleElementInfos(t(type)) as unknown as readonly SourceHostTupleElement[],
     tupleElementTypes: (type: SourceHostType) => hostTypes(types.tupleElementTypes(t(type))),
     typeArguments: (type: SourceHostType) => hostTypes(types.typeArguments(t(type))),
     typeArgumentBindings: (type: SourceHostType) => types.typeArgumentBindings(t(type)) as unknown as
-      readonly { readonly declaration: Node; readonly argumentType: SourceHostType }[] | undefined,
-    aliasApplication: (type: SourceHostType) => {
-      const application = types.aliasApplication(t(type));
-      return application === undefined ? undefined : Object.freeze({ kind: application.kind, declaration: application.declaration,
-        bindings: Object.freeze(application.bindings.map(binding =>
-          Object.freeze({ declaration: binding.declaration, argument: hostType(binding.argument) }))) });
-    },
-    indexes: (type: SourceHostType) => types.indexInfos(t(type)).map(index => Object.freeze({ readonly: index.readonly })),
+      readonly SourceHostTypeArgumentBinding[] | undefined,
+    aliasApplication: (type: SourceHostType) => types.aliasApplication(t(type)) as unknown as SourceHostAliasApplication | undefined,
+    instantiateAlias: (declaration: Node, arguments_: readonly SourceHostType[]) =>
+      types.instantiateAlias(declaration, arguments_ as unknown as readonly Type[]) as unknown as SourceHostAliasApplication | undefined,
+    indexes: (type: SourceHostType) => types.indexInfos(t(type)) as unknown as readonly SourceHostIndex[],
     properties: (type: SourceHostType) => types.propertyInfos(t(type)) as unknown as readonly SourceHostProperty[],
     callable: (type: SourceHostType) => {
       const callable = types.callable(t(type));
@@ -448,7 +506,6 @@ export function createSourceHostQueries(ast: AstReader, queries: SourceFileSeman
     signatures: (type: SourceHostType, kind: "call" | "construct") => types.signatureInfos(t(type), kind).map(signatureInfo),
     couldContainTypeVariables: (type: SourceHostType) => types.couldContainTypeVariables(t(type)),
     nonNullableType: (type: SourceHostType) => { const selected = types.nonNullableType(t(type)); return selected === undefined ? undefined : hostType(selected); },
-    awaitedType: (type: SourceHostType) => { const selected = types.awaitedType(t(type)); return selected === undefined ? undefined : hostType(selected); },
     arrayElementType: (type: SourceHostType) => { const selected = sourceArrayElementType(t(type), queries); return selected === undefined ? undefined : hostType(selected); },
     instantiatedBaseTypes: (type: SourceHostType) => {
       const bases = types.instantiatedBaseTypes(t(type));
@@ -476,7 +533,12 @@ export function sourceHostTypeDeclaration(
   const symbols = [...new Set([queries.declarations.typeAliasSymbol(type), queries.declarations.typeSymbol(type)])];
   // A symbol can merge a type parameter with a same-named value (e.g. `function f<T>() { function T() {} }`): a type
   // parameter declaration names this type only when its declared type is this type.
-  return symbols.flatMap(symbol => symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)).find(declaration =>
+  // An enum member literal type (`Value.First`) is named by its enum: the canonical descriptor has no literal types, so an
+  // enum literal is a value of its enum declaration.
+  return symbols.flatMap(symbol => symbol === undefined ? [] : queries.declarations.symbolDeclarations(symbol)).map(declaration => {
+    const owner = ast.is.IsEnumMember(declaration) ? ast.parent(declaration) : undefined;
+    return owner !== undefined && ast.is.IsEnumDeclaration(owner) ? owner : declaration;
+  }).find(declaration =>
     !excludedDeclarations?.has(declaration) && (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsClassDeclaration(declaration) ||
     ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
     ast.is.IsEnumDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||

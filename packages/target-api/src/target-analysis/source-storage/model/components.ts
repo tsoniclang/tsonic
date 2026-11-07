@@ -1,19 +1,16 @@
 // Storage component types over Host descriptors (I1/I3). A storage subject's type is the Host descriptor of its node
 // (facts.values) projected through its components. Members come from facts.objects (per union arm); tuple and array
 // elements from the descriptor structure. No checker Type is read.
+import { sourceTypeDescriptorIsAbsent, sourceTypeDescriptorPresentArms } from "../../../source-semantics/descriptor-arms.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
 import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosing, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
-import { isSourceCallableSignatureDeclaration } from "../../../source-navigation/callable-boundaries.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { isSourceCallableSignatureDeclaration } from "../../../source-model/callable-boundaries.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
-import {
-  sourceAnalysisCallableResult, sourceAnalysisIncludesFile, sourceAnalysisIsAbsent,
-  sourceAnalysisIsScalar, sourceAnalysisPresentArms, sourceAnalysisValueType,
-  type SourceAnalysisProgram,
-} from "../../analysis-program.js";
+import { sourceAnalysisCallableResult, sourceAnalysisIncludesFile, sourceAnalysisIsScalar, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 
 type Descriptor = SourceTypeDescriptor;
 type StorageFacts = Pick<SourceAnalysisProgram, "ast" | "facts">;
@@ -25,12 +22,12 @@ export function sourceStorageIsScalarType(type: Descriptor, ast: AstReader): boo
 
 /** The value is wholly absent (null / undefined / void). */
 export function sourceStorageIsAbsentType(type: Descriptor): boolean {
-  return sourceAnalysisIsAbsent(type);
+  return sourceTypeDescriptorIsAbsent(type);
 }
 
 /** The value has no arm at all (never). */
 export function sourceStorageIsNeverType(type: Descriptor): boolean {
-  return sourcePresentStorageArms(type).length === 0 && !sourceAnalysisIsAbsent(type);
+  return sourcePresentStorageArms(type).length === 0 && !sourceTypeDescriptorIsAbsent(type);
 }
 
 /** Some present arm is any / unknown (its structure is open). */
@@ -40,7 +37,7 @@ export function sourceStorageIsOpenType(ast: Pick<AstReader, "is">, type: Descri
 
 /** The present (non-absent, non-never) arms of a storage type. Empty: never present. */
 export function sourcePresentStorageArms(type: Descriptor): readonly Descriptor[] {
-  return sourceAnalysisPresentArms(type);
+  return sourceTypeDescriptorPresentArms(type);
 }
 
 /** Two storage types are the same Host type. */
@@ -102,115 +99,8 @@ function hostComponent(source: Pick<StorageFacts, "facts">, components: readonly
   return source.facts.sums.join(components as Descriptor[]);
 }
 
-/** One member of a storage type, from facts.objects per arm (a union member exists only when every arm has it). */
-export interface SourceStorageMember {
-  readonly name: string;
-  readonly optional: boolean;
-  /** Read-only in some arm (readonly property or getter-only member). */
-  readonly readonly: boolean;
-  /** The storage type the member was selected from. */
-  readonly receiverType: Descriptor;
-  readonly declarations: readonly Node[];
-  readonly getters: readonly Node[];
-  readonly setters: readonly Node[];
-  readonly read: "property" | "accessor" | "method" | "unavailable";
-  /** The read type; undefined when union arms disagree. */
-  readonly type: Descriptor | undefined;
-}
-
-/**
- * The members of a storage type: the facts.objects members of each present arm, joined by name. undefined when an arm
- * is open (any / unknown) or its members are refused.
- */
-export function sourceStorageMembers(source: StorageFacts, type: Descriptor): readonly SourceStorageMember[] | undefined {
-  const arms = sourcePresentStorageArms(type);
-  if (arms.length === 0 || arms.some(arm => sourceTypeDescriptorOpenness(source.ast, arm) === "top")) return undefined;
-  const perArm: (readonly { readonly name: string; readonly optional: boolean; readonly readonly: boolean;
-    readonly declarations: readonly Node[]; readonly type: Descriptor }[])[] = [];
-  for (const arm of arms) {
-    const members = source.facts.objects.members(arm);
-    if ("kind" in members) return undefined;
-    perArm.push(members);
-  }
-  const { ast } = source;
-  const selected: SourceStorageMember[] = [];
-  for (const member of perArm[0]!) {
-    const matches = perArm.map(members => members.find(candidate => candidate.name === member.name));
-    if (matches.some(match => match === undefined)) continue;
-    const declarations = Object.freeze([...new Set(matches.flatMap(match => match!.declarations))]);
-    const getters = Object.freeze(declarations.filter(node => ast.is.IsGetAccessorDeclaration(node)));
-    const setters = Object.freeze(declarations.filter(node => ast.is.IsSetAccessorDeclaration(node)));
-    selected.push(Object.freeze({
-      name: member.name,
-      optional: matches.some(match => match!.optional),
-      readonly: matches.some(match => match!.readonly),
-      receiverType: type,
-      declarations,
-      getters,
-      setters,
-      read: getters.length > 0 ? "accessor" : setters.length > 0 ? "unavailable"
-        : declarations.some(node => sourceStorageIsMethodMember(node, ast)) ? "method" : "property",
-      type: hostComponent(source, matches.map(match => match!.type)),
-    }));
-  }
-  return Object.freeze(selected);
-}
-
-export type SourceStorageMemberPair =
-  | { readonly kind: "present"; readonly destination: SourceStorageMember; readonly source: SourceStorageMember }
-  | { readonly kind: "absent"; readonly destination: SourceStorageMember };
-
-export type SourceStorageMemberCorrespondence =
-  | { readonly kind: "available"; readonly members: readonly SourceStorageMemberPair[] }
-  | { readonly kind: "unavailable"; readonly reason: "unresolved-shape" | "missing-required-member" | "unreadable-member" | "disjoint-shape" };
-
-/**
- * The structural member correspondence from a source type to a destination type, joined by member name over Host
- * object facts (the Host analogue of the checker structural-member query). A union side has its pairs (for one-member
- * selection) but no whole correspondence ("unresolved-shape"), as before. "read": a present member must be readable.
- */
-export function sourceStorageMemberCorrespondence(source: StorageFacts, from: Descriptor, to: Descriptor,
-  purpose: "correspondence" | "read"): SourceStorageMemberCorrespondence & { readonly pairs: readonly SourceStorageMemberPair[] } {
-  const unavailable = (reason: Extract<SourceStorageMemberCorrespondence, { readonly kind: "unavailable" }>["reason"],
-    pairs: readonly SourceStorageMemberPair[] = []) => Object.freeze({ kind: "unavailable" as const, reason, pairs });
-  if (sourceStorageIsAbsentType(from) !== sourceStorageIsAbsentType(to)) return unavailable("disjoint-shape");
-  const fromMembers = sourceStorageMembers(source, from);
-  const toMembers = sourceStorageMembers(source, to);
-  if (fromMembers === undefined || toMembers === undefined) return unavailable("unresolved-shape");
-  const single = sourcePresentStorageArms(from).length === 1 && sourcePresentStorageArms(to).length === 1;
-  const pairs: SourceStorageMemberPair[] = [];
-  let missing = false;
-  let unreadable = false;
-  for (const destination of toMembers) {
-    const selected = fromMembers.find(member => member.name === destination.name);
-    if (selected === undefined) {
-      if (!destination.optional) missing = true;
-      pairs.push(Object.freeze({ kind: "absent", destination }));
-      continue;
-    }
-    if (selected.read === "unavailable") unreadable = true;
-    pairs.push(Object.freeze({ kind: "present", destination, source: selected }));
-  }
-  const frozen = Object.freeze(pairs);
-  if (!single) return unavailable("unresolved-shape", frozen);
-  if (missing) return unavailable("missing-required-member", frozen);
-  if (purpose === "read" && unreadable) return unavailable("unreadable-member", frozen);
-  return Object.freeze({ kind: "available", members: frozen, pairs: frozen });
-}
-
-/** The pair for one destination member declaration (checker structuralMember); undefined unless exactly one. */
-export function sourceStorageMemberPairFor(source: StorageFacts, from: Descriptor, to: Descriptor,
-  declaration: Node, purpose: "correspondence" | "read"): SourceStorageMemberPair | undefined {
-  let selected: SourceStorageMemberPair | undefined;
-  for (const member of sourceStorageMemberCorrespondence(source, from, to, purpose).pairs) {
-    if (!member.destination.declarations.includes(declaration)) continue;
-    if (member.kind === "present" && member.source.declarations.length === 0) return undefined;
-    if (purpose === "read" && member.kind === "present" && member.source.read === "unavailable") return undefined;
-    if (selected !== undefined) return undefined;
-    selected = member;
-  }
-  return selected;
-}
+// Joined members and member correspondence are object facts: facts.objects.joinedMembers / correspondence /
+// correspondingMember (R2 #23, one builder).
 
 /**
  * The declaration of an accessor pair for an access role: the get accessor for reads, the set accessor for writes
@@ -272,7 +162,7 @@ export function sourceStorageDynamicMemberDeclarations(source: SourceAnalysisPro
   { readonly type: Descriptor; readonly declarations: readonly Node[] } | undefined {
   const type = sourceStorageSubjectType(source, receiver);
   if (type === undefined || sourceStorageIsOpenType(source.ast, type)) return undefined;
-  const members = sourceStorageMembers(source, type);
+  const members = source.facts.objects.joinedMembers(type);
   if (members === undefined) return undefined;
   const originals = new Set<Node>();
   for (const member of members) {
@@ -295,7 +185,7 @@ export function sourceStorageComponentType(source: StorageFacts, type: Descripto
   if (sourceStorageIsMemberProjection(component)) {
     if (component.kind === "method-value" ? !sourceStorageIsMethodMember(component.declaration, ast)
       : !sourceStorageIsDataMember(component.declaration, ast) && !ast.is.IsGetAccessorDeclaration(component.declaration)) return undefined;
-    const members = sourceStorageMembers(source, type)?.filter(member => member.declarations.includes(component.declaration));
+    const members = source.facts.objects.joinedMembers(type)?.filter(member => member.declarations.includes(component.declaration));
     return members?.length === 1 ? members[0]!.type : undefined;
   }
   if (component.kind === "tuple-element") {
@@ -314,7 +204,7 @@ export function sourceStorageOriginalComponents(source: StorageFacts, from: Desc
   component: SourceStorageProjection): Iterable<SourceStorageProjection> {
   if (sourceStorageIsMemberProjection(component)) {
     if (sourceTypeDescriptorsEqual(from, to)) return [component];
-    const member = sourceStorageMemberPairFor(source, from, to, component.declaration, "read");
+    const member = source.facts.objects.correspondingMember(from, to, component.declaration, "read");
     if (member?.kind !== "present" || member.source.read === "unavailable" ||
       (component.kind === "method-value" ? member.destination.read !== "method"
         : member.destination.read !== "property" && member.destination.read !== "accessor")) return [];
@@ -430,19 +320,26 @@ function sourceStorageReceiverType(source: SourceAnalysisProgram, node: Node): D
         ? sourceAnalysisValueType(source, owner) : undefined;
     }
     if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) return sourceStorageInstanceType(source, node);
-    if (ast.is.IsInterfaceDeclaration(node)) return undefined;
+    // An interface's receiver is its declared type (the Host type of the interface declaration), as at baseline.
+    if (ast.is.IsInterfaceDeclaration(node)) return sourceAnalysisValueType(source, node);
     if (owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner))) return ast.hasModifierKind(node, "static")
       ? sourceAnalysisValueType(source, owner) : sourceStorageInstanceType(source, owner);
+    if (owner !== undefined && ast.is.IsInterfaceDeclaration(owner)) return sourceAnalysisValueType(source, owner);
     return undefined;
   }
   return undefined;
 }
 
-/** The instance type of a class: the result of its construct signatures (one instance type for all overloads). */
-export function sourceStorageInstanceType(source: StorageFacts, declaration: Node): Descriptor | undefined {
+/**
+ * The instance type of a class: the one result every construct signature of the class shares (a class has one instance
+ * type for all its overloads; this is not a join of components). undefined when the Host construction is refused, has
+ * no signature, or its signatures disagree.
+ */
+export function sourceStorageInstanceType(source: Pick<StorageFacts, "facts">, declaration: Node): Descriptor | undefined {
   const construction = source.facts.objects.construction(declaration);
   if ("kind" in construction) return undefined;
-  return hostComponent(source, construction.signatures.map(signature => signature.result));
+  const [first, ...rest] = construction.signatures.map(signature => signature.result);
+  return first !== undefined && rest.every(result => sourceTypeDescriptorsEqual(result, first)) ? first : undefined;
 }
 
 /** The projection an element access selects on a storage type (literal tuple position, else the array element). */

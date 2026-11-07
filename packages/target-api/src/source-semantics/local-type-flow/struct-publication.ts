@@ -1,5 +1,5 @@
 import { fieldFactKey, structFactKey, type Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Initializer } from "../../source-model/ast.js";
 import { sourceLiteralMemberCorrespondence } from "./literal-publication.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
 import type { SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceTypeDescriptor,

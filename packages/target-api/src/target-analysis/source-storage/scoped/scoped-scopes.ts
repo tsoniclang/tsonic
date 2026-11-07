@@ -51,7 +51,7 @@ export function createSourceStorageScopes(source: SourceAnalysisProgram, budget:
   identity(empty);
   const variables = new Map<string, SourceStorageVariable>();
   const callbackKey = (callback: SourceStorageCallbackEntry | undefined): string => callback === undefined ? "" :
-    `${identity(callback.argument.actual)}:${identity(callback.argument.formal)}:${callback.argument.binding.sourceArgumentIndex}:${callback.argument.binding.sourceParameterIndex}:${callback.timing}:${(callback.inputs ?? []).map(input => `${input.parameterIndex}/${input.from}/${input.sourceParameterIndex ?? ""}`).join(";")}`;
+    `${identity(callback.argument.actual)}:${identity(callback.argument.formal)}:${callback.argument.binding.argumentIndex}:${callback.argument.binding.parameterIndex}:${callback.timing}:${(callback.inputs ?? []).map(input => `${input.parameterIndex}/${input.from}/${input.sourceParameterIndex ?? ""}`).join(";")}`;
   const variable = (equation: SourceStorageEquation, owner: Node, capture?: Node, callback?: SourceStorageCallbackEntry): SourceStorageVariable | undefined => {
     if (!budget.step()) return undefined;
     const key = `${equation.identity}:${identity(owner)}:${capture === undefined ? "" : identity(capture)}:${callbackKey(callback)}`;

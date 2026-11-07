@@ -141,15 +141,11 @@ test("excluded declaration owners retain the included consumer query context", (
   });
   const native = current.checked.getSourceFile("/src/native.ts")!;
   const declaration = current.source.ast.statements(native).find(node => node !== undefined && current.source.ast.is.IsClassDeclaration(node))!;
-  const checker = current.checked.getSourceFileQueries(current.file).checker;
-  const expected = checker.getSymbolAtLocation(current.source.ast.name(declaration));
-  assert.equal(expected !== undefined, true);
-  const semantics = current.source.semantics.forFile(current.file);
-  assert.equal(semantics.declarations.declaredValueType(declaration) === checker.getTypeOfSymbol(expected), true);
-  assert.equal(semantics.declarations.declaredType(declaration) === checker.getDeclaredTypeOfSymbol(expected), true);
+  // The declaration identity of an excluded owner through the consumer's checker (the dropped declarationSymbol
+  // assertion) is a host-input fact: host-input/navigation-checker.test.ts (R2 #42) covers it. This local-type-flow test
+  // opens no checker (R10, REVIEW-R1 #25) and asserts the Host side only.
   assert.equal(current.source.sourceFiles.length, 1);
   assert.equal(current.source.sourceFiles[0] === current.file, true);
-  assert.equal(current.source.semantics.includes(native), false);
   assert.equal(current.source.navigation.isProjectDeclaration(declaration), false);
   assert.equal(current.graph.roots.includes(native), false);
   assert.equal(current.graph.nodes.every(entry => current.source.ast.getSourceFile(entry.node) === current.file), true);

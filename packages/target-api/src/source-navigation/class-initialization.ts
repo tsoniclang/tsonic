@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceNavigationQueryContext } from "./query-context.js";
-import { Node_Expression, Node_Initializer } from "./ast.js";
+import { Node_Expression, Node_Initializer } from "../source-model/ast.js";
 import { AsExpressionWithTypeArguments } from "./checked-casts.js";
-import { sourceClassFieldIsTypeOnly } from "./class-members.js";
+import { sourceClassFieldIsTypeOnly } from "../source-model/class-members.js";
 
 export function sourceConstructionExpression(invocation: Node, source: Pick<SourceNavigationQueryContext, "ast" | "navigation">,
   step: () => boolean): Node | undefined {

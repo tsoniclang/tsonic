@@ -316,3 +316,67 @@ export const value = { [Key.Value]: 1, "1152921504606846976": 2 };
   const text = index.entries[1]!.selection;
   assert.equal(text.kind === "resolved" ? text.name : undefined, "1152921504606846976", "an exact string key stays available");
 });
+
+// REVIEW-RC1 #1 and #2: keys that compile at baseline resolve from Host declaration and syntax facts (no checked literal).
+const computedNames = (source: HostSourceProgramFixture, fileName = "/src/index.ts"): readonly string[] => {
+  const file = source.sourceFiles.find(candidate => source.ast.getFileName(candidate) === fileName)!;
+  return source.semantics.forFile(file).propertyNames.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node))
+    .map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind);
+};
+
+test("member reads of as-const, literal-typed and readonly literal properties are exact keys", () => {
+  const source = checked(`
+const KEYS = { a: "x", n: { b: "y" } } as const;
+const k = KEYS.a;
+class C { static readonly K = "z"; static L: "l" = "l"; }
+const M = { a: "m" };
+export const one = { [k]: 1 };
+export const two = { [KEYS.n.b]: 2 };
+export const three = { [C.K]: 3 };
+export const four = { [C.L]: 4 };
+export const five = { [M.a]: 5 };
+`);
+  assert.deepEqual(computedNames(source), ["x", "y", "z", "l", "rejected"],
+    "a mutable object member is not a key; as-const, literal-typed and readonly literal members are");
+});
+
+test("calls whose unannotated callee returns one asserted literal are exact keys; a widened return is not", () => {
+  const source = checked(`
+function key() { return "x" as const; }
+const arrow = () => "w" as const;
+function wide() { return "v"; }
+const k = key();
+const a = arrow();
+const w = wide();
+export const one = { [k]: 1 };
+export const two = { [a]: 2 };
+export const three = { [w]: 3 };
+`);
+  assert.deepEqual(computedNames(source), ["x", "w", "rejected"]);
+});
+
+test("a conditional of one constant in both branches is that constant", () => {
+  const source = checked(`
+declare const c: boolean;
+const k = c ? "x" : "x";
+const j = c ? "x" : "y";
+export const one = { [k]: 1 };
+export const two = { [j]: 2 };
+`);
+  assert.deepEqual(computedNames(source), ["x", "rejected"]);
+});
+
+test("type-only keys in declaration files name their declared members", () => {
+  const source = checked('import type { I } from "./external.js"; export function read(value: I): number { return value.x; }', {
+    "/src/external.d.ts": 'declare const k: "x"; declare const n: 7; export interface I { [k]: number; [n]: string; }',
+  });
+  assert.deepEqual(computedNames(source, "/src/external.d.ts"), ["x", "7"]);
+});
+
+test("cross-file const keys resolve independently of program file order, including an import cycle", () => {
+  const source = checked('import { KEY } from "./b.js"; export const LOCAL = "l"; export const forward = { [KEY]: 1 };', {
+    "/src/b.ts": 'import { LOCAL } from "./index.js"; export const KEY = "k"; export const back = { [LOCAL]: 2 };',
+  });
+  assert.deepEqual(computedNames(source), ["k"], "a key declared in a later file resolves");
+  assert.deepEqual(computedNames(source, "/src/b.ts"), ["l"], "a key declared in an earlier file resolves");
+});

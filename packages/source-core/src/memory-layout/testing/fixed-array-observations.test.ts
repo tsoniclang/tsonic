@@ -294,7 +294,7 @@ test("array metadata erasure follows the selected child and immutable aliases wi
   const { checked, source, index, declaration } = metadataFixture();
   for (const name of ["word", "child", "array", "alias"]) {
     const selected = index.declaration(declaration(name));
-    assert.equal(selected?.value.kind, "memory-layout");
+    assert.equal(index.value(declaration(name))?.kind, "memory-layout");
     assert.deepEqual(selected?.issues, []);
     assert.equal(index.declaration(declaration(name)), selected);
   }

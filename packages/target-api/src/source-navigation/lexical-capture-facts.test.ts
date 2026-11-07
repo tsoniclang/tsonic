@@ -1,6 +1,6 @@
 // Host fact test: `facts.analyses.lexicalCaptures(owner)` publishes the full lexical capture selection of an owner
 // (roots [owner]): captured bindings with every reference, self references and captured receivers, keyed by
-// declaration Nodes. `navigation.scopes.captures` stays the narrower body-only question.
+// declaration Nodes. `navigation.scopes.captures` is a projection of the same selection (binding and written flag).
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
@@ -21,8 +21,8 @@ export class Owner {
 }
 `;
 
-function fixture() {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": sourceText },
+function fixture(text: string = sourceText) {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
     compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
   const host = createHostSourceProgramFixture(checked);
@@ -106,4 +106,32 @@ test("the selection is frozen and computed once per owner; a node outside the ow
   assert.equal(Object.isFrozen(selection.captures[0]!.references), true);
   assert.throws(() => facts.analyses.lexicalCaptures(named("KindVariableDeclaration", "total")),
     /Lexical captures are published for a project callable with a body or a project class/u);
+});
+
+// R2 #13: one capture selection. scopes.captures projects facts.analyses.lexicalCaptures (roots [owner]), so a capture
+// in a parameter initializer is listed by both, and an owner outside callable-body ∪ class-scope throws in both.
+const parameterDefaultText = `
+export function run(seed: number): number {
+  let total = seed;
+  const read = (x: number = total) => x;
+  const literal = { m(y: number = total) { return y; } };
+  return read() + literal.m();
+}
+export declare function bodyless(n: number): number;
+`;
+
+test("scopes.captures is the projection of lexicalCaptures: parameter-initializer captures are listed by both", () => {
+  const { facts, ast, named, nodes } = fixture(parameterDefaultText);
+  const total = named("KindVariableDeclaration", "total");
+  const read = ast.as.AsVariableDeclaration(named("KindVariableDeclaration", "read"))?.Initializer;
+  assert.equal(read !== undefined && ast.is.IsArrowFunction(read), true);
+  const method = named("KindMethodDeclaration", "m");
+  for (const owner of [read!, method]) {
+    assert.deepEqual(facts.analyses.lexicalCaptures(owner).captures.map(capture => capture.declaration), [total]);
+    assert.deepEqual(facts.navigation.scopes.captures(owner), [{ declaration: total, written: false }]);
+  }
+  const bodyless = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.body(node) === undefined);
+  assert.equal(bodyless !== undefined, true);
+  assert.throws(() => facts.analyses.lexicalCaptures(bodyless!), /Lexical captures are published for a project callable with a body/u);
+  assert.throws(() => facts.navigation.scopes.captures(bodyless!), /Lexical captures are published for a project callable with a body/u);
 });

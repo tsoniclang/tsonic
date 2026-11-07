@@ -1,5 +1,6 @@
 import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceTypeDescriptor } from "../../source-semantics/descriptor-model.js";
 import { sourceStorageSubjectType } from "./model/components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
@@ -12,9 +13,23 @@ import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { createSourceStorageDomainSelection, type SourceStorageOriginViews } from "./transport/domain-selection.js";
 import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
+import { sourceStorageIsGenerator } from "./model/host-reads.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
+import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-model/class-members.js";
 import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "./model/types.js";
+
+// A storage query carries the program it was built over under this module-private key (an immutable symbol, I5). The
+// published SourceStorageQueries record names no program (R2, R8); Host packages authenticate the program through
+// sourceStorageQueriesProgram, exported only from the Host-internal entry.
+const storageQueriesProgram: unique symbol = Symbol("source-storage-queries-program");
+
+/** Host-internal: the program a storage query was built over; undefined for a record not built by createSourceStorageQuery. */
+export function sourceStorageQueriesProgram(storage: SourceStorageQueries): SourceAnalysisProgram | undefined {
+  return (storage as SourceStorageQueries & { readonly [storageQueriesProgram]?: SourceAnalysisProgram })[storageQueriesProgram];
+}
+
+/** Activation binding chains deeper than this are unresolved (the source storage activation budget, R-FXCR-9). */
+const maximumActivationDepth = 64;
 
 export function createSourceStorageQuery(
   source: SourceAnalysisProgram,
@@ -201,8 +216,7 @@ export function createSourceStorageQuery(
       : Object.freeze({ kind: "open" as const, producers: Object.freeze(producers), boundaries: selected.boundaries,
           includesAbsence: selected.includesAbsence });
   });
-  const query: SourceStorageQueries = Object.freeze({
-    source,
+  const query: SourceStorageQueries = Object.freeze(Object.defineProperty({
     sourceFiles: Object.freeze([...sourceFiles]),
     nodes: Object.freeze([...transport.visitedNodes]),
     subjects: Object.freeze([...transport.identities]),
@@ -500,7 +514,7 @@ export function createSourceStorageQuery(
         const generator = !callable && callback.kind === "value" && callback.projection.length === 0 &&
           source.ast.is.IsCallExpression(callback.node)
           ? [...transport.invocationImplementations(callback.node)].filter(candidate =>
-            source.facts.selections.generator(candidate) !== undefined &&
+            sourceStorageIsGenerator(source, candidate) &&
             transport.substitutions.boundActivation(states[0]!, candidate)?.invocation === callback.node) : [];
         if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
           !callable && generator.length !== 1)
@@ -655,7 +669,40 @@ export function createSourceStorageQuery(
       return construction(invocation, callerBindings);
     },
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
-  } satisfies SourceStorageQueries);
+    boundTypesFor(producer) {
+      const states = activationBindings(producer.subject.node, producer.bindings, 0);
+      if (typeof states === "string") return unresolved(states);
+      const { facts } = source;
+      return Object.freeze({ kind: "resolved", types: Object.freeze(states.map(bindings =>
+        bindings.size === 0 ? producer.type : facts.sums.substitute(producer.type, bindings))) });
+    },
+  } satisfies SourceStorageQueries, storageQueriesProgram, { value: source, enumerable: false }));
   const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
+
+  /** Binder maps of every activation of the storage owner of `node` (receiver and method binders per invocation). */
+  function activationBindings(node: Node, bindings: SourceStorageBindings, depth: number):
+    readonly ReadonlyMap<Node, SourceTypeDescriptor>[] | string {
+    if (depth > maximumActivationDepth) return "The producer's activation chain exceeds the source storage activation budget.";
+    const owner = source.facts.navigation.scopes.enclosing(node, "callable-body");
+    if (owner === undefined) return [new Map()];
+    const selected = query.boundActivationsFor(owner, bindings);
+    if (selected.kind === "unresolved") return selected.reason;
+    const states: ReadonlyMap<Node, SourceTypeDescriptor>[] = [];
+    for (const activation of selected.activations) {
+      if (activation.kind === "declaration") { states.push(new Map()); continue; }
+      const callers = activationBindings(activation.invocation, activation.callerBindings, depth + 1);
+      if (typeof callers === "string") return callers;
+      const instantiation = source.facts.instantiations.at(activation.invocation);
+      if (instantiation?.kind === "refused") return "The activation's instantiation is refused (the refusal is in facts.refusals()).";
+      for (const caller of callers) {
+        const state = new Map<Node, SourceTypeDescriptor>();
+        for (const argument of instantiation === undefined ? [] : [...instantiation.receiver, ...instantiation.method]) {
+          state.set(argument.declaration, caller.size === 0 ? argument.type : source.facts.sums.substitute(argument.type, caller));
+        }
+        states.push(state);
+      }
+    }
+    return states;
+  }
   return query;
 }

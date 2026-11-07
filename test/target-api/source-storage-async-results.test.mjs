@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { checkedSource, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 const globals = `

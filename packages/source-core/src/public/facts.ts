@@ -60,21 +60,19 @@ export type {
   TsonicReinterpretRecord, TsonicRawAddressRecord, TsonicLayoutObservationRecord, TsonicKeepAliveRecord, TsonicMemoryFacts,
   TsonicMemoryFieldBindingRecord, TsonicMemoryRecordBindingRecord, TsonicMemoryBindings, TsonicPointerViewRecord,
   TsonicNativePointerRecord, TsonicPointerFacts, TsonicRawAddressRejection, TsonicNativePointerRejection,
+  TsonicRawPointerIdentityRecord,
 } from "../analysis/host-records.js";
 export type {
   TsonicPointerStorageOperation, TsonicPointerStorageProducer, TsonicPointerStorageIssue,
   TsonicPointerStorageSelection, TsonicPointerStorageRelation,
 } from "../pointers/storage-relation.js";
 export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
-export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { foldTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy, TsonicProviderPointerSelection,
   TsonicProviderPointerShape } from "../pointers/provider-return-evidence.js";
 // Program analyses are published as facts.analyses.extension(tsonicCoreAnalysisKey); their factories are Host-internal.
 export { tsonicCoreAnalysisKey, tsonicClosedArrayStorageValueBudget } from "../analysis/host-analyses.js";
 export type { TsonicCoreSourceAnalyses } from "../analysis/host-analyses.js";
-export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
-export type {
-  TsonicPointerBackingOrigin, TsonicPointerBackingIssue,
-  TsonicPointerBackingResolution, TsonicPointerBackingQueries,
-} from "../pointers/backing/requirements.js";
+export type { TsonicMemoryMetadataDeclaration, TsonicMemoryMetadataUses } from "../memory-layout/metadata-index.js";
+// Pointer return evidence and pointer backing (pointers/return-evidence.ts, pointers/backing/*) have no published
+// producer: no target reads them. Rust-stage debt (C-2510): publish them on TsonicCoreSourceAnalyses when Rust adopts them.

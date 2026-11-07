@@ -1,35 +1,34 @@
+import { sourceTypeDescriptorMayBeAbsent } from "../../../source-semantics/descriptor-arms.js";
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
-import type { SourceNavigationCall, SourceNavigationCallBinding } from "../../../host-input/navigation.js";
-import type { SourceTypeDescriptor, SourceTypeDescriptorSignature } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceNavigationCall, SourceNavigationCallBinding } from "../../../source-model/navigation-records.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorSignature } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
-import {
-  sourcePresentStorageArms, sourceStorageArrayElementType, sourceStorageComponentType, sourceStorageIsAbsentType,
-  sourceStorageIsArrayLikeType, sourceStorageSubjectType, sourceStorageTupleElements,
-} from "../model/components.js";
-import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisMayBeAbsent } from "../../analysis-program.js";
-import { sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
+import { sourcePresentStorageArms, sourceStorageArrayElementType, sourceStorageComponentType, sourceStorageIsAbsentType, sourceStorageIsArrayLikeType, sourceStorageSubjectType, sourceStorageTupleElements } from "../model/components.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures } from "../../analysis-program.js";
+import { sourceTypeDescriptorStructure } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
+import { sourceStorageCallReceiver } from "../model/host-reads.js";
+import type { SourceArgumentCorrespondence } from "../../../public/source/selections.js";
+import { sourceArgumentCorrespondence, sourceArgumentCorrespondencesEqual } from "../../../source-semantics/argument-correspondence.js";
 
-/** The receiver expression of a member call (`o.m()` → `o`), from the callee's member witness. */
-export function sourceStorageCallReceiver(source: Pick<SourceAnalysisProgram, "ast" | "navigation">, selected: SourceNavigationCall): Node | undefined {
-  let callee = selected.callee;
-  while (source.ast.is.IsParenthesizedExpression(callee)) {
-    const inner = source.ast.as.AsParenthesizedExpression(callee)?.Expression;
-    if (inner === undefined) return undefined;
-    callee = inner;
-  }
-  return source.ast.is.IsPropertyAccessExpression(callee) || source.ast.is.IsElementAccessExpression(callee)
-    ? source.navigation.memberAccess(callee)?.receiver : undefined;
+/**
+ * The call witness row of a published argument correspondence of the same call (one row per effective position).
+ * undefined: the correspondence does not belong to this call witness.
+ */
+export function sourceStorageWitnessBinding(selected: SourceNavigationCall, binding: SourceArgumentCorrespondence):
+  SourceNavigationCallBinding | undefined {
+  return selected.bindings.find(candidate => candidate.effectiveArgumentIndex === binding.effectiveIndex &&
+    selected.arguments[candidate.sourceArgumentIndex] === binding.argument);
 }
 
 /**
@@ -122,7 +121,7 @@ export function sourceStorageInvocationArgumentAbsence(
     const element = index === undefined || tuples?.length !== 1 ? undefined : tuples[0]![index];
     if (element?.kind !== "required") return "possible";
   } else if (binding.sourceForm !== "value") return "possible";
-  return sourceAnalysisMayBeAbsent(source.ast, type) || sourcePresentStorageArms(type).length === 0 ? "possible" : "present";
+  return sourceTypeDescriptorMayBeAbsent(source.ast, type) || sourcePresentStorageArms(type).length === 0 ? "possible" : "present";
 }
 
 /** The selected signature declaration of a call or the callable's own declaration (source implementation). */
@@ -361,7 +360,7 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: SourceAnal
       const callbacks = queries.callbackEntriesFor(invocation);
       for (const [index, argument] of selected.arguments.entries()) {
         if (!budget.step()) return false;
-        if (callbacks.some(callback => callback.argument.binding.sourceArgumentIndex === index)) continue;
+        if (callbacks.some(callback => callback.argument.binding.argumentIndex === index)) continue;
         if (!schedule(queries.subjectFor(argument), bindings)) return false;
       }
       const receiver = sourceStorageCallReceiver(source, selected);
@@ -522,13 +521,11 @@ export function createSourceStorageInvocationInputs(
     }
     const selected = source.navigation.call(invocation);
     if (callback !== undefined) {
-      if (selected === undefined || !selected.bindings.some(binding =>
-        binding.sourceArgumentIndex === callback.argument.binding.sourceArgumentIndex &&
-        binding.sourceParameterIndex === callback.argument.binding.sourceParameterIndex &&
-        binding.effectiveArgumentIndex === callback.argument.binding.effectiveArgumentIndex &&
-        binding.sourceForm === callback.argument.binding.sourceForm &&
-        binding.sourceParameterForm === callback.argument.binding.sourceParameterForm &&
-        binding.spreadElementIndex === callback.argument.binding.spreadElementIndex)) {
+      if (selected === undefined || !selected.bindings.some(binding => {
+        const argument = selected.arguments[binding.sourceArgumentIndex];
+        return argument !== undefined &&
+          sourceArgumentCorrespondencesEqual(sourceArgumentCorrespondence(binding, argument), callback.argument.binding);
+      })) {
         subjects.add(formal);
         return { subjects, context: "callee", omitted };
       }
@@ -607,10 +604,10 @@ export function createSourceStorageInvocationInputs(
           throw new Error("Selected source storage invocation actuals were not published before their consumers.");
         for (const argument of arguments_ ?? []) {
           if (!budget.step()) break;
-          const binding = argument.binding;
+          const effectiveIndex = argument.binding.effectiveIndex;
           for (const slot of owned) {
             if (!budget.step()) break;
-            if (binding.effectiveArgumentIndex !== slot.effectiveIndex && !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex) ||
+            if (effectiveIndex !== slot.effectiveIndex && !(slot.repeated && effectiveIndex >= slot.effectiveIndex) ||
               slot.projection === undefined) continue;
             const component = slot.projection[0];
             const wanted = formal.projection[0];

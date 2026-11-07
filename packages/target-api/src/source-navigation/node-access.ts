@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import { isTypeSyntaxNode } from "./syntax.js";
+import { isTypeSyntaxNode } from "../source-model/syntax.js";
 
 export const ModifierFlagsPublic = 1 << 0;
 export const ModifierFlagsPrivate = 1 << 1;

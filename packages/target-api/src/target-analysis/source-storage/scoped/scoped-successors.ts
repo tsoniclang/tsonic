@@ -13,9 +13,8 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageInitializedValue, sourceStorageInputBinding, sourceStorageStoredValue } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey,
-  sourceStorageTypeHasTypeVariables } from "../model/components.js";
-import { sourceStorageCompletionFallsThrough } from "../transport/host-reads.js";
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageTypeHasTypeVariables } from "../model/components.js";
+import { sourceStorageCompletionFallsThrough } from "../model/host-reads.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { createSourceStorageProgramEntries } from "./program-entries.js";
 import { createSourceStorageMemberSuccessors } from "./scoped-member-successors.js";

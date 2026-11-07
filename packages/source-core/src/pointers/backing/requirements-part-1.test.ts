@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 
 import { createTsonicPointerBackingQueries } from "./requirements.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 
 import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixtures.js";
 
@@ -65,10 +66,9 @@ test("void pointer evidence rejects a missing source operand", () => {
   const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
   assert.ok(operation?.operation === "to-raw");
   const source = createHostSourceProgramFixture(checked);
-  const queries = createTsonicPointerBackingQueries({
-    ...source,
-    ast: { ...source.ast, as: { ...source.ast.as, AsVoidExpression: () => undefined } },
-  }, { hasClosedCallers: () => true, maximumValues: 1 });
+  const mutated = { ...source, ast: { ...source.ast, as: { ...source.ast.as, AsVoidExpression: () => undefined } } };
+  const queries = createTsonicPointerBackingQueries(mutated, createTsonicHostRecords(mutated),
+    { hasClosedCallers: () => true, maximumValues: 1 });
   const result = queries.resolve(operation.pointerExpression);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;

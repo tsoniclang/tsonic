@@ -12,8 +12,8 @@ import type {
   SourceSumIdentity,
   SourceTypeDescriptor,
   SourceTypeFlowRefusal,
-} from "../../source-semantics/local-type-flow/types.js";
-import type { SourceProgramDocuments } from "../../source-semantics/types.js";
+} from "../../source-semantics/descriptor-model.js";
+import type { SourceProgramDocuments } from "../../source-semantics/documents-model.js";
 import type { SourceAnalysisFacts, SourceObligation } from "./analyses.js";
 import type { SourceJsApiFacts, SourceObjectFacts } from "./objects.js";
 import type { SourceRoleModel } from "./roles.js";
@@ -39,8 +39,24 @@ export type SourceSlotOutcome =
       readonly type: SourceTypeDescriptor;
       readonly broad: boolean;        // broadness only; not constructibility, binders or physical scalar
       readonly authority: "declared" | "inferred";
+      /**
+       * The openness of `type` (FX-CC #23): `sourceTypeDescriptorOpenness(type)`, the one top / type-parameter
+       * classifier ("top": any or unknown; "type-parameter": a type parameter reference; else "closed").
+       */
+      readonly openness: "top" | "type-parameter" | "closed";
     }
   | SourceTypeFlowRefusal;
+
+/**
+ * The Host destination slot of a value use (Q69, K-2683): the slot node, its published descriptor (the identical object
+ * as `values.contextual(use).type`) and the Host broadness decision. For an admitted use, `slot` is `admission.slot`.
+ */
+export interface SourceDestination {
+  readonly kind: "slot";
+  readonly slot: Node;
+  readonly type: SourceTypeDescriptor;
+  readonly broad: boolean;
+}
 
 /** Operator record: the existing operator decision, published once (E6-2, E6-3, F6, B1). */
 export interface SourceOperatorRecord {
@@ -62,16 +78,20 @@ export interface SourceElementAccessRecord {
   readonly node: Node;
   readonly receiver: Node;
   readonly receiverType: SourceTypeDescriptor;
+  /** The index expression (`r[argument]`), whose Host type is `index` (R3 #23). */
+  readonly argument: Node;
   readonly index: SourceTypeDescriptor;
   readonly selected:
-    | { readonly kind: "element" }                                   // array / typed array element
+    /** `declaration`: the index signature the checker selected (the lib `[n: number]: T`), when it names one. */
+    | { readonly kind: "element"; readonly declaration?: Node }      // array / typed array element
     | { readonly kind: "tuple"; readonly position: number }
     | { readonly kind: "member"; readonly declaration: Node; readonly name: string }
     | { readonly kind: "index-signature"; readonly declaration: Node }
-    | { readonly kind: "string-character" };
+    | { readonly kind: "string-character"; readonly declaration?: Node };
   readonly result: SourceTypeDescriptor;
   readonly readonly: boolean;
-  readonly access: "read" | "write" | "read-write";
+  /** "call": the access is the callee of a call through transparent wrappers (as SourceMemberAccessSelection.access). */
+  readonly access: "read" | "write" | "read-write" | "call";
   /** The access is part of an optional chain (`a?.[i]`), as SourceMemberAccessSelection.optionalChain. */
   readonly optionalChain: boolean;
 }
@@ -91,6 +111,8 @@ export interface SourceNullishAdmission {
   readonly operation: Node;
   readonly operand: Node;
   readonly admission: "none" | "undefined-only" | "null-only" | "both" | "unavailable";
+  /** The typeof category of an absent value (Q20): "undefined" for undefined-only, else "object"; absent only for "none". */
+  readonly absentCategory?: "undefined" | "object";
   /** Scalar operand: the typeof category of the non-nullish part. */
   readonly category?: Exclude<SourceTypeofCategoryName, "undefined">;
   readonly sum: {
@@ -118,6 +140,11 @@ export interface SourceValueFacts {
    * and instantiations, never the checker's contextual type). undefined: the use flows into no Host slot.
    */
   contextual(node: Node): SourceTypeOutcome | undefined;
+  /**
+   * The destination slot of a use (Q69): undefined when the use flows into no Host slot; the refusal of a refused
+   * destination; otherwise the slot node, the contextual descriptor and `broad` (the Host broad-slot decision).
+   */
+  destination(use: Node): SourceDestination | SourceRefusal | undefined;
   callableReturn(declaration: Node): SourceTypeOutcome;
   slot(slot: Node): SourceSlotOutcome;
   /** Semantic permission of a value at a slot (incl. Q14, exact number erasure); not a CLR conversion proof. */
@@ -129,6 +156,11 @@ export interface SourceValueFacts {
   /** Result of `await e` and of awaited callable results (replaces target Type walking). */
   awaited(node: Node): SourceTypeOutcome;
   /**
+   * The awaited-arm relation (FX-HV, R-FXCR-AWAIT) at the same nodes as `awaited`: which arm of the awaited sum each
+   * payload arm of each operand arm resolves to. undefined when the awaited result is not a closed sum.
+   */
+  awaitedArms(node: Node): SourceAwaitedArms | undefined;
+  /**
    * The canonical method value use (WP0 A8, K-2659): a read (or an unannotated, never-written alias of one) that selects a
    * single callable method and is not the callee of a call or `new` (through transparent wrappers). Carries the
    * occurrence, the member read, its receiver, the method declaration, the exact Host type and provenance, and the alias
@@ -138,6 +170,30 @@ export interface SourceValueFacts {
   methodValueUse(occurrence: Node): SourceMethodValueUse | undefined;
   /** Constant value of a literal or constant expression, when it has one. */
   literal(node: Node): SourceLiteralValue | undefined;
+  /**
+   * The literal domain of a value (Q79): the distinct constants it can hold when every value that reaches it is a
+   * constant (conditional and `??` operands, an unannotated unwritten local's initializer). undefined otherwise.
+   */
+  literalDomain(node: Node): readonly SourceLiteralValue[] | undefined;
+}
+
+/**
+ * The Host awaited-arm relation of one `await` (or awaited callable result) whose awaited result is a closed sum.
+ * Derived from Host descriptors and the declaration awaited rule (local-type-flow/awaited.ts), never from a checker
+ * awaited type (R3).
+ */
+export interface SourceAwaitedArms {
+  readonly use: Node;
+  /** The operand's closed sum; undefined when the operand is one arm (not a sum). */
+  readonly operand?: SourceSumIdentity;
+  /** The awaited result's closed sum. */
+  readonly awaited: SourceSumIdentity;
+  /**
+   * One entry per present operand arm (`arm`: its index in the operand sum; 0 for a non-sum operand). `payload`: the
+   * closed sum of that arm's awaited payload, when the payload is a sum; payload arm i resolves to awaited arm
+   * `mapping[i]`. A payload that is one type has no `payload` sum and `mapping` has its one awaited arm.
+   */
+  readonly arms: readonly { readonly arm: number; readonly payload?: SourceSumIdentity; readonly mapping: readonly number[] }[];
 }
 
 export interface SourceSumFacts {
@@ -178,7 +234,9 @@ export type SourceUnionRelation =
   | { readonly kind: "test"; readonly use: Node; readonly operand: Node;
       readonly test: "typeof" | "nullish" | "literal" | "instanceof" | "discriminant";
       readonly outcome: "always-true" | "always-false" | "undecided";
-      readonly sum?: SourceSumIdentity; readonly whenTrue: readonly number[] }
+      readonly sum?: SourceSumIdentity; readonly whenTrue: readonly number[];
+      /** `instanceof` only: the instance the right operand constructs (absent when its construct signatures disagree). */
+      readonly instance?: SourceTypeDescriptor }
   /**
    * A member read, member call or element read applied per arm (at the property access or the element access).
    * `member` is the declaration the arm's member resolves to; absent for an arm whose members are JS API members of a
@@ -215,7 +273,8 @@ export type SourceInstantiation =
       readonly use: Node;
       readonly signature: Node;                                     // selected signature declaration
       readonly receiver: readonly SourceEffectiveTypeArgument[];      // class/interface binders
-      readonly method: readonly SourceEffectiveTypeArgument[];        // signature binders, declaration order
+      /** Signature binders, declaration order; `authored`: the explicit type-argument node, only when written. */
+      readonly method: readonly (SourceEffectiveTypeArgument & { readonly authored?: Node })[];
       readonly parameters: readonly SourceTypeDescriptor[];
       readonly result: SourceTypeDescriptor;
     }

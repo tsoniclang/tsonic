@@ -1,6 +1,6 @@
 // @tsonic/target-api/source next-generation surface (C-2542). Targets read SourceProgramFacts only.
 import type { AstReader, ReadonlySourceFactResolver, SourceFile } from "@tsonic/tsts";
-import type { SourceProgramDocuments } from "../../source-semantics/types.js";
+import type { SourceProgramDocuments } from "../../source-semantics/documents-model.js";
 import type { SourceProgramFacts } from "./facts.js";
 
 export type * from "./facts.js";

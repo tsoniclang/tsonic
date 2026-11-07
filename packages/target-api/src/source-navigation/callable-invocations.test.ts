@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
   createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
-import { sourceEnclosing } from "./callable-boundaries.js";
+import { sourceEnclosing } from "../source-model/callable-boundaries.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {

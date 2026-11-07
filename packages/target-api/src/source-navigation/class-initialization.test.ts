@@ -2,7 +2,7 @@ import { createHostSourceProgramFixture } from "../source-semantics/host-program
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "./ast.js";
+import { Node_Expression, Node_Initializer } from "../source-model/ast.js";
 import { AsExpressionWithTypeArguments } from "./checked-casts.js";
 import { sourceConstructionExpression, sourceInstanceInitializers, sourceSuperConstructor } from "./class-initialization.js";
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { createSourceDeclarationControlFlow, createSourceControlFlowDomain } from "../../packages/target-api/dist/target-analysis/flow/index.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 

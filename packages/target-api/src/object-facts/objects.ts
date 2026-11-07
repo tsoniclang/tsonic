@@ -1,14 +1,17 @@
 // SourceObjectFacts (G8): heritage, members, construction, implementation, required members, own keys and
 // method values, over the existing heritage / member-dispatch / constructor navigation and the value model's
 // descriptors. No checker Type is read here; declarations come from navigation, descriptors from SourceValueFacts.
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceRefusal, SourceValueFacts } from "../public/source/facts.js";
 import type {
-  SourceConstructFacts, SourceHeritageEdge, SourceMemberImplementation, SourceObjectFacts, SourceObjectMember,
+  SourceConstructFacts, SourceHeritageEdge, SourceJoinedMember, SourceMemberCorrespondence, SourceMemberImplementation,
+  SourceMemberPair, SourceObjectFacts, SourceObjectMember,
 } from "../public/source/objects.js";
+import { sourceTypeDescriptorIsAbsent, sourceTypeDescriptorPresentArms } from "../source-semantics/descriptor-arms.js";
+import { sourceTypeDescriptorOpenness } from "../source-semantics/local-type-flow/uses.js";
 import type { SourceSelectionFacts } from "../public/source/selections.js";
-import { isSourceCallableSignatureDeclaration, sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
-import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../source-navigation/class-members.js";
+import { isSourceCallableSignatureDeclaration, sourceNodeHasRole } from "../source-model/callable-boundaries.js";
+import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../source-model/class-members.js";
 import type { SourceDeclaredHeritageEdge, SourceProgramNavigation } from "../source-navigation/types.js";
 import { orderEnumerableOwnStringProperties } from "../source-semantics/enumerable-own-properties.js";
 import { sourceTypeDescriptorsEqual } from "../source-semantics/local-type-flow/terms.js";
@@ -19,11 +22,15 @@ import { sourceRefusalOfOutcome } from "./selections.js";
 
 export interface SourceObjectFactsInput {
   readonly ast: AstReader;
+  /** The program files whose declarations the eager refusal census reads (R5). */
+  readonly sourceFiles: readonly SourceFile[];
   readonly navigation: SourceProgramNavigation;
   readonly values: SourceValueFacts;
   readonly selections: SourceSelectionFacts;
   /** The sole substitution (SourceSumFacts.substitute, I6): heritage defaults over earlier bindings. */
   readonly substitute: (type: SourceTypeDescriptor, bindings: ReadonlyMap<Node, SourceTypeDescriptor>) => SourceTypeDescriptor;
+  /** The one union builder (SourceSumFacts.join, I6): a joined member's read type over the arms. */
+  readonly join: (components: readonly SourceTypeDescriptor[]) => SourceTypeDescriptor | undefined;
 }
 
 type Members = readonly SourceObjectMember[] | SourceRefusal;
@@ -32,12 +39,9 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
   refusals(): readonly SourceRefusal[];
 } {
   const { ast, navigation, values, selections } = input;
-  const raised: SourceRefusal[] = [];
-  const raise = (code: string, site: Node, message: string): SourceRefusal => {
-    const refusal: SourceRefusal = Object.freeze({ kind: "refused", code, message, site });
-    if (!raised.some(entry => entry.code === code && entry.site === site)) raised.push(refusal);
-    return refusal;
-  };
+  // A refusal is an answer of its query; `refusals()` collects the answers of its eager census, never a side log (R5).
+  const raise = (code: string, site: Node, message: string): SourceRefusal =>
+    Object.freeze({ kind: "refused", code, message, site });
   const memberMemo = new WeakMap<SourceTypeDescriptor, Members>();
   /** Definitions seen per declaration, to resolve a "recursion" cut to its definition (same declaration + arguments). */
   const definitions = new Map<Node, { readonly typeArguments: readonly SourceTypeDescriptor[]; readonly definition: SourceTypeDescriptor }[]>();
@@ -46,10 +50,7 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
 
   const descriptor = (node: Node): SourceTypeDescriptor | SourceRefusal => {
     const outcome = values.type(node);
-    if (outcome.kind !== "refused") return outcome.type;
-    const refusal = sourceRefusalOfOutcome(outcome);
-    if (!raised.includes(refusal)) raised.push(refusal);
-    return refusal;
+    return outcome.kind !== "refused" ? outcome.type : sourceRefusalOfOutcome(outcome);
   };
   const refused = (value: unknown): value is SourceRefusal =>
     typeof value === "object" && value !== null && (value as { readonly kind?: string }).kind === "refused";
@@ -130,10 +131,23 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       switch (type.kind) {
         case "shape": return Object.freeze(type.members.map(member => objectMember(member, undefined)));
         case "optional": return members(type.value, site);
-        case "union": return raise("TSONIC_SOURCE_OBJECT_UNION_MEMBERS", siteOf(type, site),
-          "Members of a union value are selected per arm through its union relation, not as one member list.");
+        // A union value has the members every present arm has with the same key, declarations and type (R2 #32: a target
+        // query, never a Source refusal). Per-arm members are selected through the union relation (relations.at).
+        case "union": {
+          const perArm: (readonly SourceObjectMember[])[] = [];
+          for (const arm of sourceTypeDescriptorPresentArms(type)) {
+            const armMembers = members(arm, site);
+            if (refused(armMembers)) return armMembers;
+            perArm.push(armMembers);
+          }
+          const [first, ...rest] = perArm;
+          return Object.freeze((first ?? []).filter(member => rest.every(candidates => candidates.some(candidate =>
+            memberKeysEqual(candidate.key, member.key) && sourceTypeDescriptorsEqual(candidate.type, member.type) &&
+            candidate.declarations.length === member.declarations.length &&
+            candidate.declarations.every((declaration, index) => declaration === member.declarations[index])))));
+        }
         case "declared": {
-          const definition = definitionOf(type, siteOf(type, site));
+          const definition = definitionOf(type, site ?? type.declaration);
           if (definition === undefined) return Object.freeze([]);
           if (refused(definition)) return definition;
           if (definition.kind !== "shape") return members(definition, site);
@@ -144,12 +158,6 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     })();
     memberMemo.set(type, selected);
     return selected;
-  };
-
-  const siteOf = (type: SourceTypeDescriptor, site: Node | undefined): Node => {
-    if (site !== undefined) return site;
-    if (type.kind === "declared") return type.declaration;
-    throw new Error("An object-fact refusal requires a site.");
   };
 
   // Type arguments of a heritage clause, one per target binder (R-B4-3): the authored argument, else the binder's
@@ -176,9 +184,14 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       typeArguments.push(applied);
       bindings.set(binder, applied);
     }
+    // The base reference (FX-CC-H2): the target declaration's Host instance type (values.type of the class / interface
+    // declaration, with its definition) applied to this clause's type arguments by the sole substitution (I6).
+    const target = selfType(edge.target.declaration);
+    if (refused(target)) return target;
+    const type = bindings.size === 0 ? target : input.substitute(target, bindings);
     return Object.freeze({
       kind: edge.kind, declaration: edge.sourceDeclaration, heritage: edge.heritage, target: edge.target.declaration,
-      typeArguments: Object.freeze(typeArguments),
+      typeArguments: Object.freeze(typeArguments), type,
     });
   };
   const heritageEdges = (edges: readonly SourceDeclaredHeritageEdge[]): readonly SourceHeritageEdge[] | SourceRefusal => {
@@ -213,6 +226,20 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       .map(parameter => Object.freeze({ kind: "declared" as const, declaration: parameter, typeArguments: Object.freeze([]) }))),
   });
 
+  /**
+   * The instance type of a class or interface declaration (R3 #17): the value model's descriptor of the declaration
+   * (declared, with its definition; FX-HV publishes class and interface declarations as their instance type). A class
+   * expression is a value (its constructor), so its instance type is the declared reference the construction results
+   * name. Any other node is an invariant failure.
+   */
+  function selfType(declaration: Node): SourceTypeDescriptor | SourceRefusal {
+    if (ast.is.IsClassExpression(declaration)) return instanceType(declaration);
+    if (!ast.is.IsClassDeclaration(declaration) && !ast.is.IsInterfaceDeclaration(declaration)) {
+      throw new Error("objects.selfType requires a class or interface declaration.");
+    }
+    return descriptor(declaration);
+  }
+
   const construction = (declaration: Node): SourceConstructFacts | SourceRefusal => {
     const known = constructionMemo.get(declaration);
     if (known !== undefined) return known;
@@ -238,10 +265,7 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
           typeParameters, parameters: Object.freeze(parameters), result: result_,
         }));
       }
-      return Object.freeze({
-        declaration, implicit: result.implicit, signatures: Object.freeze(signatures),
-        initialization: classInitialization(ast, declaration),
-      });
+      return Object.freeze({ declaration, implicit: result.implicit, signatures: Object.freeze(signatures) });
     })();
     constructionMemo.set(declaration, selected);
     return selected;
@@ -257,6 +281,14 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       overridesBase: dispatch?.overridesBase === true, hasDerivedOverride: dispatch?.hasDerivedOverride === true,
     });
   };
+
+  const contracts = (implementationDeclaration: Node) => {
+    const result = navigation.memberContracts(implementationDeclaration);
+    return result.kind === "unresolved"
+      ? raise("TSONIC_SOURCE_MEMBER_CONTRACTS_UNRESOLVED", result.declaration, result.reason)
+      : result.contracts;
+  };
+  let censusRefusals: readonly SourceRefusal[] | undefined;
 
   const callableImplementation = (contract: Node): Node | "unrelated" | SourceRefusal => {
     const result = navigation.callableImplementation(contract);
@@ -303,6 +335,90 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     return "ambiguous";
   };
 
+  // ---- member correspondence (G8; R2 #23: the one builder, formerly target-analysis source-storage components) -----
+  const joinedMemo = new WeakMap<SourceTypeDescriptor, readonly SourceJoinedMember[] | null>();
+  const joinedMembers = (type: SourceTypeDescriptor): readonly SourceJoinedMember[] | undefined => {
+    const known = joinedMemo.get(type);
+    if (known !== undefined) return known ?? undefined;
+    const arms = sourceTypeDescriptorPresentArms(type);
+    let selected: readonly SourceJoinedMember[] | undefined;
+    if (arms.length !== 0 && !arms.some(arm => sourceTypeDescriptorOpenness(ast, arm) === "top")) {
+      const perArm: (readonly SourceObjectMember[])[] = [];
+      for (const arm of arms) {
+        const armMembers = members(arm);
+        if (refused(armMembers)) { perArm.length = 0; break; }
+        perArm.push(armMembers);
+      }
+      if (perArm.length === arms.length) {
+        const joined: SourceJoinedMember[] = [];
+        for (const member of perArm[0]!) {
+          const matches = perArm.map(candidates => candidates.find(candidate => candidate.name === member.name));
+          if (matches.some(match => match === undefined)) continue;
+          const declarations = Object.freeze([...new Set(matches.flatMap(match => match!.declarations))]);
+          const getters = Object.freeze(declarations.filter(node => ast.is.IsGetAccessorDeclaration(node)));
+          const setters = Object.freeze(declarations.filter(node => ast.is.IsSetAccessorDeclaration(node)));
+          const types = matches.map(match => match!.type);
+          joined.push(Object.freeze({
+            name: member.name,
+            optional: matches.some(match => match!.optional),
+            readonly: matches.some(match => match!.readonly),
+            receiverType: type,
+            declarations,
+            getters,
+            setters,
+            read: getters.length > 0 ? "accessor" as const : setters.length > 0 ? "unavailable" as const
+              : declarations.some(node => ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node))
+                ? "method" as const : "property" as const,
+            type: input.join(types),
+          }));
+        }
+        selected = Object.freeze(joined);
+      }
+    }
+    joinedMemo.set(type, selected ?? null);
+    return selected;
+  };
+  const correspondence = (from: SourceTypeDescriptor, to: SourceTypeDescriptor,
+    purpose: "correspondence" | "read"): SourceMemberCorrespondence => {
+    const unavailable = (reason: Extract<SourceMemberCorrespondence, { readonly kind: "unavailable" }>["reason"],
+      pairs: readonly SourceMemberPair[] = []): SourceMemberCorrespondence => Object.freeze({ kind: "unavailable", reason, pairs });
+    if (sourceTypeDescriptorIsAbsent(from) !== sourceTypeDescriptorIsAbsent(to)) return unavailable("disjoint-shape");
+    const fromMembers = joinedMembers(from);
+    const toMembers = joinedMembers(to);
+    if (fromMembers === undefined || toMembers === undefined) return unavailable("unresolved-shape");
+    const single = sourceTypeDescriptorPresentArms(from).length === 1 && sourceTypeDescriptorPresentArms(to).length === 1;
+    const pairs: SourceMemberPair[] = [];
+    let missing = false;
+    let unreadable = false;
+    for (const destination of toMembers) {
+      const selected = fromMembers.find(member => member.name === destination.name);
+      if (selected === undefined) {
+        if (!destination.optional) missing = true;
+        pairs.push(Object.freeze({ kind: "absent", destination }));
+        continue;
+      }
+      if (selected.read === "unavailable") unreadable = true;
+      pairs.push(Object.freeze({ kind: "present", destination, source: selected }));
+    }
+    const frozen = Object.freeze(pairs);
+    if (!single) return unavailable("unresolved-shape", frozen);
+    if (missing) return unavailable("missing-required-member", frozen);
+    if (purpose === "read" && unreadable) return unavailable("unreadable-member", frozen);
+    return Object.freeze({ kind: "available", members: frozen, pairs: frozen });
+  };
+  const correspondingMember = (from: SourceTypeDescriptor, to: SourceTypeDescriptor, declaration: Node,
+    purpose: "correspondence" | "read"): SourceMemberPair | undefined => {
+    let selected: SourceMemberPair | undefined;
+    for (const member of correspondence(from, to, purpose).pairs) {
+      if (!member.destination.declarations.includes(declaration)) continue;
+      if (member.kind === "present" && member.source.declarations.length === 0) return undefined;
+      if (purpose === "read" && member.kind === "present" && member.source.read === "unavailable") return undefined;
+      if (selected !== undefined) return undefined;
+      selected = member;
+    }
+    return selected;
+  };
+
   const heritageHasBase = (declaration: Node): boolean => {
     const edges = heritage(declaration);
     return refused(edges) || edges.some(edge => edge.kind === "extends");
@@ -322,31 +438,66 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
           })));
     },
     heritage,
-    heritagePath(from: Node, to: Node) {
-      const result = navigation.declaredHeritagePath(from, to);
-      if (result.kind === "unrelated") return "unrelated" as const;
-      if (result.kind === "unresolved") return raise("TSONIC_SOURCE_HERITAGE_UNRESOLVED", result.heritage, result.reason);
-      return heritageEdges(result.edges);
-    },
     construction,
+    selfType,
     implementation,
     callableImplementation,
-    contracts(implementationDeclaration: Node) {
-      const result = navigation.memberContracts(implementationDeclaration);
-      return result.kind === "unresolved"
-        ? raise("TSONIC_SOURCE_MEMBER_CONTRACTS_UNRESOLVED", result.declaration, result.reason)
-        : result.contracts;
-    },
-    requiredMembers(objectLiteral: Node) {
-      const outcome = values.type(objectLiteral);
-      if (outcome.kind === "refused") return Object.freeze([]);
-      const destination = outcome.construction ?? outcome.type;
-      const selected = members(destination, objectLiteral);
-      return refused(selected) ? Object.freeze([]) : Object.freeze(selected.filter(member => !member.optional && !member.static));
-    },
+    contracts,
     ownKeys,
-    refusals: () => Object.freeze([...raised]),
+    joinedMembers,
+    correspondence,
+    correspondingMember,
+    refusals: () => census(),
   });
+
+  /**
+   * Every object refusal of the program, computed once and in source order, independent of target query order (R5,
+   * R2 #30, FX-CC #11). The census asks: the heritage of every class and interface; the construction of every class;
+   * the contracts of every named class member, and the implementation of that class for every contract they name; the
+   * members of every project class and interface instance type (its Host declared type, values.type of the
+   * declaration); and the implementation of every project callable signature. The collection holds the refusal answers
+   * of these queries (deduplicated by code and site), so a target that asks the same query later gets an answer that is
+   * already in `refusals()`, whichever query ran first.
+   */
+  function census(): readonly SourceRefusal[] {
+    if (censusRefusals !== undefined) return censusRefusals;
+    const collected: SourceRefusal[] = [];
+    const collect = (answer: unknown): void => {
+      if (refused(answer) && !collected.some(entry => entry.code === answer.code && entry.site === answer.site)) {
+        collected.push(answer);
+      }
+    };
+    // The instance type of a project class or interface declaration is the declaration's Host type (a value-model fact,
+    // not a target query); a refused declaration type is a value-model refusal, collected by the value model.
+    const instanceMembers = (declaration: Node): void => {
+      if (!navigation.isProjectDeclaration(declaration)) return;
+      const type = descriptor(declaration);
+      if (!refused(type)) collect(members(type));
+    };
+    const visit = (node: Node): void => {
+      if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
+        collect(heritage(node));
+        collect(construction(node));
+        for (const member of ast.members(node)) {
+          if (member === undefined || ast.is.IsConstructorDeclaration(member) || ast.name(member) === undefined) continue;
+          const named = contracts(member);
+          collect(named);
+          if (!refused(named)) for (const contract of named) collect(implementation(node, contract));
+        }
+        if (ast.is.IsClassDeclaration(node)) instanceMembers(node);
+      } else if (ast.is.IsInterfaceDeclaration(node)) {
+        collect(heritage(node));
+        instanceMembers(node);
+      }
+      if (isSourceCallableSignatureDeclaration(ast, node) && navigation.isProjectDeclaration(node)) {
+        collect(callableImplementation(node));
+      }
+      ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    };
+    for (const file of input.sourceFiles) visit(file);
+    censusRefusals = Object.freeze(collected);
+    return censusRefusals;
+  }
 }
 
 export function memberKeysEqual(left: SourceMemberKey, right: SourceMemberKey): boolean {
@@ -363,7 +514,7 @@ function accessorDeclarations(ast: AstReader, declaration: Node): readonly Node[
   if (owner === undefined || name === undefined) return [declaration];
   const text = ast.text(name);
   const static_ = ast.hasModifierKind(declaration, "static");
-  const siblings = [...ast.members(owner), ...ast.properties(owner)].filter((member): member is Node => member !== undefined &&
+  const siblings = (ast.is.IsObjectLiteralExpression(owner) ? ast.properties(owner) : ast.members(owner)).filter((member): member is Node => member !== undefined &&
     (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) &&
     ast.hasModifierKind(member, "static") === static_ && ast.name(member) !== undefined && ast.text(ast.name(member)!) === text);
   return siblings.length === 0 ? [declaration] : [...new Set(siblings)];
@@ -373,7 +524,8 @@ function accessorDeclarations(ast: AstReader, declaration: Node): readonly Node[
  * Instance initialization in execution order under ES2022 class-field semantics: field initializers in declaration
  * order, then parameter-property assignments, then the constructor body.
  */
-function classInitialization(ast: AstReader, declaration: Node): SourceConstructFacts["initialization"] {
+function classInitialization(ast: AstReader, declaration: Node):
+  readonly { readonly member: Node; readonly region: "parameter-property" | "field" | "constructor-body" }[] {
   const regions: { readonly member: Node; readonly region: "parameter-property" | "field" | "constructor-body" }[] = [];
   const members = ast.members(declaration).filter((member): member is Node => member !== undefined);
   for (const member of members) {

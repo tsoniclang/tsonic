@@ -26,3 +26,31 @@ export const sourceTypeFlowUnaryOperators: ReadonlyMap<string, SourceTypeFlowOpe
   ["KindPlusToken", "positive"], ["KindMinusToken", "negate"], ["KindTildeToken", "bit-not"],
   ["KindExclamationToken", "logical-not"], ["KindPlusPlusToken", "identity"], ["KindMinusMinusToken", "identity"],
 ]);
+
+/** The source spelling of every operator token (operator records, R4: one token table). */
+export const sourceTypeFlowOperatorSpellings: ReadonlyMap<string, string> = new Map([
+  ["KindPlusToken", "+"], ["KindMinusToken", "-"], ["KindAsteriskToken", "*"], ["KindSlashToken", "/"], ["KindPercentToken", "%"],
+  ["KindAsteriskAsteriskToken", "**"], ["KindAmpersandToken", "&"], ["KindBarToken", "|"], ["KindCaretToken", "^"],
+  ["KindLessThanLessThanToken", "<<"], ["KindGreaterThanGreaterThanToken", ">>"], ["KindGreaterThanGreaterThanGreaterThanToken", ">>>"],
+  ["KindLessThanToken", "<"], ["KindLessThanEqualsToken", "<="], ["KindGreaterThanToken", ">"], ["KindGreaterThanEqualsToken", ">="],
+  ["KindEqualsEqualsToken", "=="], ["KindEqualsEqualsEqualsToken", "==="], ["KindExclamationEqualsToken", "!="],
+  ["KindExclamationEqualsEqualsToken", "!=="], ["KindAmpersandAmpersandToken", "&&"], ["KindBarBarToken", "||"],
+  ["KindQuestionQuestionToken", "??"], ["KindCommaToken", ","], ["KindEqualsToken", "="], ["KindPlusEqualsToken", "+="],
+  ["KindMinusEqualsToken", "-="], ["KindAsteriskEqualsToken", "*="], ["KindSlashEqualsToken", "/="], ["KindPercentEqualsToken", "%="],
+  ["KindAsteriskAsteriskEqualsToken", "**="], ["KindAmpersandEqualsToken", "&="], ["KindBarEqualsToken", "|="],
+  ["KindCaretEqualsToken", "^="], ["KindLessThanLessThanEqualsToken", "<<="], ["KindGreaterThanGreaterThanEqualsToken", ">>="],
+  ["KindGreaterThanGreaterThanGreaterThanEqualsToken", ">>>="], ["KindAmpersandAmpersandEqualsToken", "&&="],
+  ["KindBarBarEqualsToken", "||="], ["KindQuestionQuestionEqualsToken", "??="], ["KindTildeToken", "~"],
+  ["KindExclamationToken", "!"], ["KindPlusPlusToken", "++"], ["KindMinusMinusToken", "--"],
+  ["KindInKeyword", "in"], ["KindInstanceOfKeyword", "instanceof"],
+]);
+
+/** Assignment tokens: `=` and every compound assignment. */
+export const sourceTypeFlowAssignmentTokens: ReadonlySet<string> = new Set(["KindEqualsToken",
+  ...[...sourceTypeFlowBinaryOperators.keys()].filter(token => token.endsWith("EqualsToken") && sourceTypeFlowOperatorSpellings.get(token)?.endsWith("=") === true &&
+    !["==", "===", "!=", "!==", "<=", ">="].includes(sourceTypeFlowOperatorSpellings.get(token)!))]);
+
+/** Shift tokens, plain and compound. */
+export const sourceTypeFlowShiftTokens: ReadonlySet<string> = new Set([...sourceTypeFlowBinaryOperators]
+  .filter(([, operator]) => operator === "shift-left" || operator === "shift-right" || operator === "shift-right-unsigned")
+  .map(([token]) => token));

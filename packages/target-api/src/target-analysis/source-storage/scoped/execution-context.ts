@@ -1,7 +1,7 @@
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import { sourceStorageInvocationReceiver } from "../transport/host-reads.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { sourceStorageInvocationReceiver } from "../model/host-reads.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
 import { sourceStorageIsDataMember } from "../model/subjects.js";

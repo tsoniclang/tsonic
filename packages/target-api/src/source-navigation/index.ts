@@ -1,7 +1,7 @@
 // Host-internal barrel of navigation algorithms. NOT a target surface: targets read SourceRoleModel (I1, R4).
 export * from "./navigation.js";
-export * from "./ast.js";
-export * from "./class-members.js";
+export * from "../source-model/ast.js";
+export * from "../source-model/class-members.js";
 export * from "./checked-casts.js";
 export * from "./kinds.js";
 export * from "./node-access.js";
@@ -48,7 +48,7 @@ export {
 export { sourceBindingWriteAtReference } from "./references-usage.js";
 export { sourceAnnotationHint } from "./annotation-hints.js";
 export type { SourceAnnotationHintBindings } from "./annotation-hints.js";
-export { referenceQueryNode } from "./syntax.js";
+export { referenceQueryNode } from "../source-model/syntax.js";
 export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";
 export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary } from "./declaration-use-summary.js";
@@ -71,7 +71,7 @@ export { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused,
 export type { SourceSubtreeParticipation, SourceCallableInvocationReference } from "./callable-invocations.js";
 export {
   isSourceCallableBodyBoundary, isSourceCallableSignatureDeclaration, sourceEnclosing, sourceNodeHasRole, sourceNodeRoles,
-} from "./callable-boundaries.js";
+} from "../source-model/callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
@@ -81,8 +81,6 @@ export { createSourceCallableValueQuery, sourceCallableValueExpression } from ".
 export type { SourceCallableValue } from "./callable-values.js";
 export { sourceExpressionCallArgument, sourceCallArgumentCorrespondences } from "./callable-arguments.js";
 export type { SourceClosedCallableArgument, SourceCallArgumentCorrespondence } from "./callable-arguments.js";
-export { createSourceArrayDensityQuery } from "./array-density.js";
-export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
 export { analyzeSourceIntegerRanges } from "./integer-ranges/index.js";
 export { sourceIntegerInduction } from "./integer-ranges/induction.js";
 export { sourceIntegerIsNonnegative } from "./integer-ranges/guards.js";

@@ -2,7 +2,7 @@ import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
-import { sourceStorageInvocationReceiver } from "../transport/host-reads.js";
+import { sourceStorageInvocationReceiver } from "../model/host-reads.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageIncomingQuery } from "../graph/edges.js";

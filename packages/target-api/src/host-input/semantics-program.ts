@@ -9,7 +9,7 @@ import type { SourceFlowConditions } from "../source-semantics/value-flow-model.
 import type { SourcePropertyNameIndex } from "../source-semantics/property-names-model.js";
 import { selectSourceProviderSignature, type SourceProviderSignatureSelection } from "../source-semantics/provider-signature.js";
 import { aliasedSymbol, referenceDeclarationForMeaning, symbolAtReferenceNode } from "./navigation-references.js";
-import { createSourceDeclarationSymbolQuery, type ResolvedSourceCallInfo } from "./navigation-checker.js";
+import { createSourceDeclarationSymbolQuery, sourceDeclaredValueType, type ResolvedSourceCallInfo } from "./navigation-checker.js";
 import { authoredSourceTypeFactDependencies } from "./semantics-authored-type-facts.js";
 import { selectAuthoredSourceType } from "./semantics-authored-type-selection.js";
 import { selectSourceCallResult } from "./semantics-call-result-selection.js";
@@ -18,8 +18,6 @@ import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./semantics-
 import { selectSourceCallableTypeEvidence } from "./semantics-callable-evidence.js";
 import { getSourceTypeArgumentBindings } from "./semantics-type-arguments.js";
 import { selectSourceTypeRefinement } from "./semantics-type-refinement.js";
-import { selectRefinedSourcePropertyAccess } from "./semantics-property-refinement.js";
-import { normalizeSourcePropertyAccessDeclarations } from "./semantics-selected-property-declarations.js";
 import { sourceTypeRelationship } from "./semantics-type-relationship.js";
 import { createSourceStructuralMemberQueries } from "./semantics-structural-members.js";
 import { analyzeSourcePropertyNames } from "./semantics-property-names.js";
@@ -50,7 +48,7 @@ export function createSourceSemanticsInput(
   // identity (shape caches, member correspondence) needs the same Type object for the same node.
   const expressionTypes = new WeakMap<Node, Type>();
   const sourceFileSet = new Set(source.sourceFiles.filter((file): file is SourceFile => file !== undefined));
-  const declarationSymbol = createSourceDeclarationSymbolQuery(source, navigation.referencesToDeclaration);
+  const declarationSymbol = createSourceDeclarationSymbolQuery(source);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
   const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
   const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
@@ -67,14 +65,19 @@ export function createSourceSemanticsInput(
     const operations = Object.freeze({
       call: queries.checker.getResolvedCallInfo,
       propertyName: queries.checker.getEffectivePropertyName,
+      // The checker access record with the declarations of the one member-access witness (host-input/navigation.ts:
+      // role-normalized, refined for a narrowed unselected read), so every host-input reader sees one answer (R2 #2).
       propertyAccess(node: Node) {
         const checked = queries.checker.getResolvedPropertyAccessInfo(node);
-        const selected = checked === undefined ? undefined :
-          normalizeSourcePropertyAccessDeclarations(source.ast, forFile(sourceFile), checked);
-        return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
-          ? selected
-          : selectRefinedSourcePropertyAccess(selected,
-            selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts, source.ast);
+        if (checked === undefined) return undefined;
+        const witness = navigation.memberAccess(node);
+        if (witness === undefined) throw new Error("A checked property access requires its member-access witness.");
+        if (witness.declaration === checked.selectedDeclaration && witness.readDeclaration === checked.selectedReadDeclaration &&
+          witness.writeDeclaration === checked.selectedWriteDeclaration) return checked;
+        return Object.freeze({ ...checked,
+          ...(witness.declaration === undefined ? {} : { selectedDeclaration: witness.declaration }),
+          ...(witness.readDeclaration === undefined ? {} : { selectedReadDeclaration: witness.readDeclaration }),
+          ...(witness.writeDeclaration === undefined ? {} : { selectedWriteDeclaration: witness.writeDeclaration }) });
       },
       elementAccess: queries.checker.getResolvedElementAccessInfo,
       iteration: queries.checker.getResolvedIterationInfo,
@@ -99,14 +102,10 @@ export function createSourceSemanticsInput(
       },
       isDefaultLibraryDeclaration: queries.checker.isDefaultLibraryDeclaration,
       declaredValueType(declaration: Node) {
-        if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
-        return queries.checker.getTypeOfSymbol(declarationSymbol(declaration, sourceFile));
+        return sourceDeclaredValueType(source.ast, queries.checker, selected => declarationSymbol(selected, sourceFile), declaration);
       },
       declaredType(declaration: Node) {
-        const symbol = source.ast.is.IsClassExpression(declaration)
-          ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
-          : declarationSymbol(declaration, sourceFile);
-        return queries.checker.getDeclaredTypeOfSymbol(symbol);
+        return queries.checker.getDeclaredTypeOfSymbol(declarationSymbol(declaration, sourceFile));
       },
       typeSymbol: queries.checker.getTypeSymbol,
       typeAliasSymbol: queries.checker.getTypeAliasSymbol,
@@ -143,7 +142,6 @@ export function createSourceSemanticsInput(
         if (selected !== undefined) expressionTypes.set(node, selected);
         return selected;
       },
-      awaitedType: queries.checker.getAwaitedType,
       authoredType: queries.checker.getTypeFromTypeNode,
       contextualType(node: Node) {
         return selectSourceContextualType(source.ast, queries.checker, forFile(sourceFile), node);

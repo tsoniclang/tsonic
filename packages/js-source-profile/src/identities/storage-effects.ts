@@ -1,74 +1,25 @@
-import type { Node } from "@tsonic/tsts";
-import type { SourceCallSelection } from "@tsonic/target-api/source";
-import { jsSourceSemanticsIdentity } from "./source.js";
-import { jsSourceReceiverResumeEffect } from "./callable-effects.js";
+// Storage rows of the JS API meaning table (api/table.ts): which JS API calls allocate, alias an argument, or resume
+// their receiver, and the global binding each operation belongs to. Row data only; the lookup is the one table.
 
-export interface JsSourceStorageOperationIdentity {
-  readonly ownerName: string;
-  readonly memberName: string;
-  readonly declaration: Node;
-}
+/** The storage facet of one JS API operation. Receiver resumption is the callback facet's `resumeReceiver`. */
+export type JsSourceStorageOperation =
+  /** The call's result is a fresh native allocation (`new Error()`, `Error()`); a construct signature also constructs natively. */
+  | { readonly kind: "allocation"; readonly binding: string; readonly nativeConstructor: boolean }
+  /** The call's result is its single positional value argument at parameter 0 (`Object.freeze(x)`). */
+  | { readonly kind: "argument-alias"; readonly binding: string };
 
-export interface JsSourceCallStorageEffect {
-  readonly resultAlias?: Node;
-  readonly resultAllocation?: Node;
-  readonly resumeReceiver?: true;
-}
-
-const nativeErrorConstructorOwners = new Set([
-  "ErrorConstructor", "RangeErrorConstructor", "TypeErrorConstructor", "URIErrorConstructor",
-]);
-
-const nativeOperationBindings = new Map([
-  ["ObjectConstructor", "Object"],
+const errorBindings: readonly (readonly [owner: string, binding: string])[] = [
   ["ErrorConstructor", "Error"],
   ["RangeErrorConstructor", "RangeError"],
   ["TypeErrorConstructor", "TypeError"],
   ["URIErrorConstructor", "URIError"],
-]);
+];
 
-function operationBinding(identity: JsSourceStorageOperationIdentity) {
-  const name = nativeOperationBindings.get(identity.ownerName);
-  return name === undefined ? undefined : Object.freeze({ name, providerId: jsSourceSemanticsIdentity.providerId });
-}
-
-export function jsSourceNativeConstructorStorage(identity: JsSourceStorageOperationIdentity | undefined) {
-  if (identity === undefined || identity.memberName !== "constructor" || !nativeErrorConstructorOwners.has(identity.ownerName))
-    return undefined;
-  const binding = operationBinding(identity);
-  return binding === undefined ? undefined : Object.freeze({ declaration: identity.declaration, binding });
-}
-
-export function selectJsSourceCallStorageEffect(
-  identity: JsSourceStorageOperationIdentity | undefined,
-  call: SourceCallSelection,
-) {
-  const effect = jsSourceCallStorageEffect(identity, call);
-  if (identity === undefined || effect === undefined) return undefined;
-  if (effect.resumeReceiver === true)
-    return Object.freeze({ declaration: identity.declaration, form: "receiver" as const, effect });
-  const binding = operationBinding(identity);
-  if (binding === undefined) return undefined;
-  const form: "member" | "value" = identity.memberName === "constructor" || identity.memberName === "call"
-    ? "value" : "member";
-  return Object.freeze({ declaration: identity.declaration, form, effect, binding });
-}
-
-export function jsSourceCallStorageEffect(identity: {
-  readonly ownerName: string;
-  readonly memberName: string;
-} | undefined, call: SourceCallSelection): JsSourceCallStorageEffect | undefined {
-  // A published call selection is always a typed (resolved) selection; an untyped callee is a Host refusal.
-  if (jsSourceReceiverResumeEffect(identity) === true && call.receiver !== undefined) {
-    return Object.freeze({ resumeReceiver: true });
-  }
-  if (identity !== undefined && nativeErrorConstructorOwners.has(identity.ownerName) &&
-    (identity.memberName === "constructor" || identity.memberName === "call")) {
-    return Object.freeze({ resultAllocation: call.use });
-  }
-  if (identity?.ownerName !== "ObjectConstructor" || identity.memberName !== "freeze") return undefined;
-  const bindings = call.arguments.filter(binding => binding.parameterIndex === 0);
-  const binding = bindings.length === 1 ? bindings[0] : undefined;
-  if (binding?.form !== "value" || binding.mode !== "positional") return undefined;
-  return Object.freeze({ resultAlias: binding.argument });
-}
+/** Storage rows by declaring name and member name (`constructor` for a construct signature, `call` for a call signature). */
+export const jsSourceStorageRows: Readonly<Record<string, Readonly<Record<string, JsSourceStorageOperation>>>> = Object.freeze({
+  ...Object.fromEntries(errorBindings.map(([owner, binding]) => [owner, Object.freeze({
+    constructor: Object.freeze({ kind: "allocation" as const, binding, nativeConstructor: true }),
+    call: Object.freeze({ kind: "allocation" as const, binding, nativeConstructor: false }),
+  })])),
+  ObjectConstructor: Object.freeze({ freeze: Object.freeze({ kind: "argument-alias" as const, binding: "Object" }) }),
+});

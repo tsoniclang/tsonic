@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/host.js";
-import { isSourceCallableSignatureDeclaration } from "../../packages/target-api/dist/source-navigation/callable-boundaries.js";
+import { isSourceCallableSignatureDeclaration } from "../../packages/target-api/dist/source-model/callable-boundaries.js";
 
 // The Host component of a native scope declaration: its callable result, else its value type (facts.values).
 function declarationComponent(source, declaration) {

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, createSourceGlobalCallStorageEffects, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { sourceErrorDeclarations, jsSourceNativeConstructorStorage } from "../../packages/js-source-profile/dist/index.js";
+import { createSourceStorageQuery, createSourceProfileStorageEffects, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
+import { sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { errorConstructorFootprintSource } from "../fixtures/error-origin-domains.mjs";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -18,7 +18,9 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 
 async function fixture(name, body, files = {}, transform = source => source) {
   const checked = await checkedSource(name, {
-    "globals.d.ts": `${globals}${sourceErrorDeclarations}`,
+    "globals.d.ts": globals,
+    // JS source-profile declarations: the Host composes the Error native-constructor storage from facts.profile.
+    ".tsonic/source-profiles/js/errors.d.ts": sourceErrorDeclarations,
     "src/index.ts": `export {}; ${body}`,
     ...files,
   });
@@ -26,13 +28,9 @@ async function fixture(name, body, files = {}, transform = source => source) {
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
   const source = transform(createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } }));
   const file = projectSourceFile(source, "src/index.ts");
-  const profile = projectSourceFile(source, "globals.d.ts");
-  const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
-  const nativeConstructors = new Set(source.ast.members(owner).filter(source.ast.is.IsConstructSignatureDeclaration));
-  const effects = createSourceGlobalCallStorageEffects(source, () => undefined, declaration =>
-    nativeConstructors.has(declaration)
-      ? jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration })
-      : undefined);
+  // The Host storage composition (what facts.analyses.storage runs), over the possibly forged program view, with no
+  // target premise. No fixture call names an owned global binding, so no JS API call effect applies.
+  const effects = createSourceProfileStorageEffects(source, {});
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, defaultSourceStorageLimits, effects);
   const initializer = name => source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, name)).Initializer;
   const selection = name => {

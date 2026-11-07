@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceGlobalCallStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { createSourceProfileStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
+import { sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
@@ -12,7 +12,13 @@ import { createSourceStoragePhysicalMembers } from "../../packages/target-api/di
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
+// The Error declarations are JS source-profile declarations when admitted, so the Host storage composition
+// (facts.profile.nativeConstructorStorage) registers the ErrorConstructor construct signatures as native constructors.
+// Unadmitted, the same declarations are ordinary ambient declarations outside any source profile: no native proof.
+const errorProfileFile = ".tsonic/source-profiles/js/errors.d.ts";
+
 async function inheritedNativeMemberFixture(name, body, admitted = true) {
+  const errors = admitted ? "" : sourceErrorDeclarations;
   const checked = await checkedSource(name, {
     "globals.d.ts": `
       interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -20,20 +26,20 @@ async function inheritedNativeMemberFixture(name, body, admitted = true) {
       interface Number {} interface String {} interface RegExp {}
       interface Array<T> { [index: number]: T; length: number; }
       interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: number; }
-      ${sourceErrorDeclarations}
+      ${errors}
     `,
+    ...(admitted ? { [errorProfileFile]: sourceErrorDeclarations } : {}),
     "src/index.ts": `export {}; ${body} const created = new Retained(); const observed = created.message;`,
   });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
-  const globals = projectSourceFile(source, "globals.d.ts");
+  const globals = projectSourceFile(source, admitted ? errorProfileFile : "globals.d.ts");
   const error = namedDeclaration(source.ast, globals, "Error");
   const owner = namedDeclaration(source.ast, globals, "ErrorConstructor");
   const constructors = source.ast.members(owner).filter(source.ast.is.IsConstructSignatureDeclaration);
-  const effects = createSourceGlobalCallStorageEffects(source, () => undefined, declaration =>
-    admitted && constructors.includes(declaration)
-      ? jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration }) : undefined);
+  // The Host storage effects (facts.analyses.storage composes the same), with no target premise.
+  const effects = createSourceProfileStorageEffects(source, {});
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget, effects);
   const invocation = Node_Initializer(source.ast, namedVariable(source.ast, file, "created"));

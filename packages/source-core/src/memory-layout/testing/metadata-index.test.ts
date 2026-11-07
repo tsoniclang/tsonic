@@ -29,7 +29,7 @@ test("memory metadata follows immutable aliases and exact query inputs", () => {
   `);
   for (const name of ["uint32Layout", "alias"]) {
     const selected = index.declaration(declaration(name));
-    assert.equal(selected?.value.kind, "memory-layout");
+    assert.equal(index.value(declaration(name))?.kind, "memory-layout");
     assert.deepEqual(selected?.issues, []);
     assert.equal(index.declaration(declaration(name)), selected);
     assert.ok(Object.isFrozen(selected));

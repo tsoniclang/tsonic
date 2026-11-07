@@ -1,8 +1,7 @@
 import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import { ElementAccessExpression_ArgumentExpression } from "../../../source-navigation/index.js";
-import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
-  sourceStorageSubjectType } from "../model/components.js";
+import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";

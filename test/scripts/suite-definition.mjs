@@ -149,6 +149,7 @@ export function createParallelSuiteDefinition(repos) {
       targetSuite("csharp-source-semantics", "test/policy"),
       targetSuite("csharp-source-semantics", "test/analysis"),
       targetSuite("csharp-source-semantics", "test/target-model"),
+      targetSuite("csharp-source-semantics", "test/representation"),
       targetSuite("csharp-backend-toolchain", "test/backend"),
       targetSuite("csharp-backend-toolchain", "test/print"),
       targetSuite("csharp-backend-toolchain", "test/toolchain"),

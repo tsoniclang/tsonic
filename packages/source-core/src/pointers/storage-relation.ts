@@ -7,9 +7,8 @@ import type {
   SourceStorageQueries,
   SourceStorageSubjectSelection,
 } from "@tsonic/target-api/analysis";
-import type { HostSourceProgram } from "@tsonic/target-api/host";
+import { sourceStorageQueriesProgram, sourceTypeDescriptorIsAbsent, type HostSourceProgram } from "@tsonic/target-api/host";
 import type { TsonicPointerBackingOrigin } from "./backing/requirements.js";
-import { tsonicDescriptorIsAbsent } from "./host-values.js";
 import type { TsonicReinterpretRecord, TsonicRejectedRecord } from "../analysis/host-records.js";
 
 /** A pointer storage producer operation: a backing origin, or a Host bind/project pointer record (I1). */
@@ -62,7 +61,7 @@ export function createTsonicPointerStorageRelation(
     subject: SourceStorageSubjectSelection,
     bindings: SourceStorageBindings,
   ): TsonicPointerStorageSelection => {
-    if (storage.source !== source)
+    if (sourceStorageQueriesProgram(storage) !== source)
       return unresolved(node, "Pointer storage requires the same checked source program as its storage relation.");
     if (subject.kind === "unresolved") return unresolved(node, subject.reason);
     const selected = storage.storageProducersFor(subject.subject, bindings);
@@ -74,7 +73,7 @@ export function createTsonicPointerStorageRelation(
     let includesAbsence = selected.includesAbsence;
     for (const producer of selected.producers) {
       const original = producer.subject;
-      if (tsonicDescriptorIsAbsent(producer.type)) {
+      if (sourceTypeDescriptorIsAbsent(producer.type)) {
         includesAbsence = true;
         continue;
       }

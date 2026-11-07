@@ -8,6 +8,7 @@ import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnersh
   createSourceDeclarationParameterUseQuery } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { createSourceControlFlowDomain } from "../flow/graph.js";
+import { sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
 import { createSourceDeclarationOwnershipValues } from "./flow.js";
 import { createSourceDeclarationRetentionQuery } from "./retention.js";
 import { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
@@ -93,7 +94,8 @@ function fixture(kind: "input-duration" | "type-argument",
       const instantiation = nativeResult ? source.facts.instantiations.at(value.node) : undefined;
       const direct = instantiation === undefined || instantiation.kind === "refused" ? undefined : instantiation.method[0];
       const type = value.component.type;
-      const binders = type.kind === "declared" ? source.ast.typeParameters(type.declaration) : [];
+      const binders = type.kind === "declared" && sourceNodeHasRole(source.ast, type.declaration, "type-parameter-owner")
+        ? source.ast.typeParameters(type.declaration) : [];
       const bindings = type.kind === "declared" && binders.length === type.typeArguments.length
         ? type.typeArguments.map((argument, index) => ({ declaration: binders[index]!, type: argument })) : [];
       const binding = direct === undefined ? bindings.find(argument =>

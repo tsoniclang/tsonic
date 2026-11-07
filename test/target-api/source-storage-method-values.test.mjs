@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 
 function fixture() {

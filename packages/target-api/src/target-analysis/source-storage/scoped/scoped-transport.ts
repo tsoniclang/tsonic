@@ -1,4 +1,5 @@
-import { sourceAnalysisIncludesFile, sourceAnalysisMayBeAbsent, type SourceAnalysisProgram } from "../../analysis-program.js";
+import { sourceTypeDescriptorMayBeAbsent } from "../../../source-semantics/descriptor-arms.js";
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourcePresentStorageArms, sourceStorageIsAbsentType } from "../model/components.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -190,7 +191,7 @@ export function sourceStorageInitializedValue(source: SourceAnalysisProgram, bud
   if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
   if (sourceStorageIsAbsentType(type)) return [fallback];
-  if (!sourceAnalysisMayBeAbsent(source.ast, type)) return [value];
+  if (!sourceTypeDescriptorMayBeAbsent(source.ast, type)) return [value];
   // The value read after defaulting is present: a single present arm becomes the input view; several present arms keep
   // the Host type (storage components are always read over present arms).
   const present = sourcePresentStorageArms(type);

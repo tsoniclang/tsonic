@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { assertMemoryDiagnostics, memoryCalls, memorySession, valueMemoryLayout } from "../../memory-layout/testing/fixtures.js";
 import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../../memory-layout/type-contract/facts.js";
 import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingDemands } from "./demands.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 
 const prelude = `
 import { abi } from "test:abi";
@@ -97,13 +99,26 @@ for (const [name, layout, type, value] of cases) {
       const second = valueMemoryLayout(valueMemoryLayout(layouts[1]!).fields[0]!.fieldLayout).fields[0]!;
       assert.equal(first.selectedDeclaration === second.selectedDeclaration, true, `${name}: same selected field declaration`);
       assert.equal(first.call === second.call, false, `${name}: distinct original field sites`);
-      for (const field of [first, second]) {
+      const records = createTsonicHostRecords(source);
+      for (const [index, field] of [first, second].entries()) {
         const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(field.call)!).checker.getResolvedCallInfo(field.call);
         assert.ok(selectedCall?.sourceSelectedMethodTypeArguments?.[1]?.selectedType !== undefined, `${name}: original checked field type`);
+        // TField of memoryfield<T, TField>: the Host field record of this original site, exactly the selected field's type.
+        const outer = records.memory.layout(layouts[index]!.call);
+        assert.ok(outer?.kind === "value");
+        const inner = outer.fields[0]!.layout;
+        assert.ok(inner.kind === "value");
+        const record = inner.fields[0]!;
+        const instantiation = source.facts.instantiations.at(field.call);
+        const declared = source.facts.values.type(field.selectedDeclaration);
+        assert.ok(instantiation !== undefined && instantiation.kind !== "refused" && declared.kind !== "refused");
+        assert.equal(record.call === field.call && record.declaration === field.selectedDeclaration &&
+          sourceTypeDescriptorsEqual(record.type, instantiation.method[1]!.type) &&
+          sourceTypeDescriptorsEqual(record.type, declared.type), true, `${name}: original checked field type ${index}`);
       }
     }
     for (const order of [calls, [...calls].reverse()]) {
-      const demands = createTsonicPointerBackingDemands(source);
+      const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
       for (const call of order) {
         demands.record(call);
         demands.record(call);
@@ -130,7 +145,7 @@ for (const [name, local, remote, type, value] of [
   test(`cross-file backing demands preserve exact ${name} conflicts in either order`, () => {
     const { source, calls } = session(local, remote, type, value);
     for (const order of [calls, [...calls].reverse()]) {
-      const demands = createTsonicPointerBackingDemands(source);
+      const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
       for (const call of order) demands.record(call);
       assert.deepEqual(demands.issues().map(issue => issue.reason), [
         "One pointer origin has incompatible physical layout demands.",
@@ -164,7 +179,8 @@ test("backing reconciliation cannot accept missing, relocated, forged or foreign
         return fact;
       },
     };
-    const demands = createTsonicPointerBackingDemands({ ...source, sourceFacts: facts });
+    const mutated = { ...source, sourceFacts: facts };
+    const demands = createTsonicPointerBackingDemands(mutated, createTsonicHostRecords(mutated));
     for (const call of calls) demands.record(call);
     assert.equal(demands.entries().length, 1, mutation);
     assert.equal(demands.issues().length, 1, mutation);

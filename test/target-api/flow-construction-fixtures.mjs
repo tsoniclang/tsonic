@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 

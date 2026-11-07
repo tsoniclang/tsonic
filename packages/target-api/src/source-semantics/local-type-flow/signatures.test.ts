@@ -3,7 +3,7 @@ import test from "node:test";
 import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
 import { createSourceHostInput } from "../../host-input/index.js";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Initializer } from "../../source-model/ast.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";

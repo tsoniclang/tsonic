@@ -41,7 +41,8 @@ function fixture(body: string) {
   };
   const select = (members: readonly string[] = ["array", "record"], sourceFacts?: ReadonlySourceFactResolver) => reads.map(reference =>
     selectSourceGuardedValueMembers({ ast: source.ast, navigation: source.navigation,
-      sourceFacts: sourceFacts ?? source.sourceFacts, flowConditions: source.flowConditions, values: source.facts.values },
+      sourceFacts: sourceFacts ?? source.sourceFacts, flowConditions: source.flowConditions, values: source.facts.values,
+      effects: source.facts.navigation.expressions.effects },
     reference, members, guard, (member, predicate) => member === "unknown" ? undefined : member === predicate));
   return { source, reads, calls, select, guard };
 }

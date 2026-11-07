@@ -1,4 +1,4 @@
-import { sourceStorageInvocationReceiver, sourceStorageCalleeAccess } from "../transport/host-reads.js";
+import { sourceStorageInvocationReceiver, sourceStorageCalleeAccess } from "../model/host-reads.js";
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";

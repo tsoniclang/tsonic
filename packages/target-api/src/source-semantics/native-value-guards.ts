@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
-import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-navigation/ast.js";
+import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-model/ast.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
-import { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
+import { sourceTypeDescriptorIsAbsent } from "./descriptor-arms.js";
 
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
@@ -65,11 +65,11 @@ export function selectSourceNativeValueGuard(
 
 /**
  * Whether an identifier operand is the absence value: its Host descriptor (R3: never the checked type) is the absence
- * intrinsic (`undefined`, or a binding whose Host type is exactly null/undefined).
+ * value: every arm of its Host descriptor is absence (`undefined`, or a binding whose Host type is exactly null/undefined/void;
+ * the one Host classifier, descriptor-arms.ts).
  */
 function absenceValue(values: SourceValueFlowQueryContext["values"], operand: Node): boolean {
   const outcome = values.type(operand);
   if (outcome.kind === "refused") return false;
-  const structure = sourceTypeDescriptorStructure(outcome.type);
-  return structure.kind === "intrinsic" && structure.intrinsic === "absence";
+  return sourceTypeDescriptorIsAbsent(outcome.type);
 }

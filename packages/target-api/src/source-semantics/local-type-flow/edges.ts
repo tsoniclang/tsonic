@@ -2,22 +2,23 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import {
   BindingElement_IsRest, BindingElement_PropertyName, Node_Expression, Node_Initializer,
   ObjectLiteralProperty_Value, SpreadAssignment_Expression, sourceTransparentExpressionOperand,
-} from "../../source-navigation/ast.js";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
+} from "../../source-model/ast.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
+import { isSourceCallableBodyBoundary } from "../../source-model/callable-boundaries.js";
 import { sourceLiteralToken } from "../literal-token.js";
 import type {
   SourceHostArgumentBinding, SourceHostCall, SourceHostComponent, SourceHostContribution, SourceHostQueries, SourceHostType, SourceHostValue,
-} from "../../host-input/index.js";
-import { sourceTypeDescriptorIndexValue, sourceTypeFlowTypeParameters } from "./defaults.js";
+} from "../../host-input/queries.js";
+import { sourceTypeFlowTypeParameters } from "./defaults.js";
+import { sourceTypeDescriptorArrayLikeElements, sourceTypeDescriptorIndexValue, sourceTypeDescriptorKeyKind } from "./element-selection.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
 import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
+import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators, sourceTypeFlowAssignmentTokens } from "./operators.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace, SourceTypeFlowAssociation,
   SourceTypeFlowBinder, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
@@ -481,7 +482,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const selectedNode = nodes.get(selected);
       if (source === undefined) return fixed(node, referenceComponent(node, selected));
       if (selectedNode?.term?.kind === "fixed") {
-        const nominal = host.nominalReadComponent(node);
+        // A read narrowed to one project class (instanceof): that class's own declared instance (declaration input, R3).
+        const narrowedClass = host.narrowedClass(node);
+        const narrowedInstance = narrowedClass === undefined ? undefined : host.at(node).declaredType(narrowedClass);
+        const nominal = narrowedClass === undefined || narrowedInstance === undefined ? undefined
+          : Object.freeze({ selectedType: narrowedInstance, declaration: narrowedClass });
         const component = nominal ?? referenceComponent(node, selected);
         const type = selectedNode.term.type;
         const structure = sourceTypeDescriptorStructure(type);
@@ -773,10 +778,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const query = host.at(node);
       const property = ast.is.IsPropertyAccessExpression(node) ? query.propertyAccess(node) : undefined;
       const access = ast.is.IsElementAccessExpression(node) ? query.elementAccess(node) : undefined;
-      const argument = access?.argument?.type;
-      const key = ast.is.IsPropertyAccessExpression(node) ? "string" : argument === undefined ? undefined
-        : query.isNumberLike(argument) ? "number" : query.isStringLike(argument) ? "string"
-          : query.isSymbolLike(argument) ? "symbol" : undefined;
+      // The key kind comes from the Host descriptor of the index expression (R3), with the one key rule.
+      const index = access === undefined ? undefined : ast.as.AsElementAccessExpression(node)?.ArgumentExpression;
+      const indexType = index === undefined ? undefined : context.describe(index);
+      const key = ast.is.IsPropertyAccessExpression(node) ? "string" as const
+        : indexType === undefined ? undefined : sourceTypeDescriptorKeyKind(indexType, { ast, literal: node => context.literal(node) });
       const selected = key === undefined || (property ?? access)?.selectedSymbol !== undefined ? undefined
         : sourceTypeDescriptorIndexValue(structure, key);
       if (selected !== undefined) return fixed(node, undefined, selected);
@@ -784,12 +790,20 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     let part: SourceTypeFlowPathPart | undefined;
     const selection = !literalReceiverValues.has(source) || receiver === undefined ? undefined : ast.is.IsPropertyAccessExpression(node)
       ? host.at(node).propertyAccess(node) : host.at(node).elementAccess(node);
-    const receiverType = selection?.receiver.type;
-    const selectedMember = receiverType === undefined || host.at(node).isArrayLike(receiverType) ||
-      host.at(node).isStringLike(receiverType) || selection?.selectedSymbol === undefined ? undefined
-      : host.at(node).properties(receiverType).find(member => member.symbol === selection.selectedSymbol ||
-        member.rootSymbols.includes(selection.selectedSymbol!));
-    if (selectedMember !== undefined) part = { kind: "member", name: selectedMember.name };
+    // The member the checker selected (a selection witness: its declaration) is found by declaration identity among the
+    // members of the receiver's own literal shape term, else of the receiver's Host descriptor shape (R3: no checked
+    // receiver type is read).
+    const selectedDeclaration = selection?.selectedReadDeclaration ?? selection?.selectedDeclaration;
+    const receiverTerm = selectedDeclaration === undefined ? undefined : nodes.get(source.node)?.term;
+    const receiverShape = selectedDeclaration === undefined || receiver === undefined ? undefined : (() => {
+      const described = context.describe(receiver);
+      const structure = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
+      return structure?.kind === "shape" ? structure : undefined;
+    })();
+    const selectedMember = selectedDeclaration === undefined ? undefined
+      : (receiverTerm?.kind === "shape" ? receiverTerm.members.find(member => member.declaration === selectedDeclaration)?.name : undefined) ??
+        receiverShape?.members.find(member => member.origin.kind === "declared" && member.origin.declaration === selectedDeclaration)?.name;
+    if (selectedMember !== undefined) part = { kind: "member", name: selectedMember };
     else if (ast.is.IsPropertyAccessExpression(node)) {
       const name = ast.name(node);
       const term = nodes.get(source.node)?.term;
@@ -891,12 +905,25 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     if (selected === undefined || source === undefined) return;
     const name = ast.name(selected);
     const element = project(source, { kind: "element" });
-    const query = host.at(node);
-    const iteration = query.iteration(node);
     const sourceFile = ast.getSourceFile(selected);
-    const association = iteration?.subject !== node || sourceFile === undefined ? undefined
-      : Object.freeze({ occurrence: selected, sourceFile, component: Object.freeze({ selectedType: iteration.elementType }) });
-    const result = record(selected, "read", undefined, selected, association);
+    // A for-of over a fixed array-like value (array, tuple, string) binds its Host element (element-selection.ts, R3).
+    // Only an iterator-protocol value (Set, Map, generator, custom iterable) or a for-in still reads the checker
+    // iteration element (open R3 item, AGENT-FX-HV-NOTES R1 #1a).
+    // (A for-await binds the awaited element, which this array-like rule does not state.)
+    const iterated = active.has(source.node) || statement?.AwaitModifier !== undefined ? undefined : context.describe(expression);
+    const elements = iterated === undefined ? undefined : sourceTypeDescriptorArrayLikeElements(iterated);
+    const hostElement = elements === undefined ? undefined
+      : elements.length === 1 ? elements[0] : sourceTypeDescriptorUnion(context.unions, elements);
+    let result: SourceTypeFlowVariable | undefined;
+    if (hostElement !== undefined) {
+      result = record(selected, "fixed", Object.freeze({ kind: "fixed", site: selected, type: hostElement }), selected,
+        sourceFile === undefined ? undefined : Object.freeze({ occurrence: selected, sourceFile }));
+    } else {
+      const iteration = host.at(node).iteration(node);
+      const association = iteration?.subject !== node || sourceFile === undefined ? undefined
+        : Object.freeze({ occurrence: selected, sourceFile, component: Object.freeze({ selectedType: iteration.elementType }) });
+      result = record(selected, "read", undefined, selected, association);
+    }
     if (result === undefined) return;
     active.add(selected);
     link(element, result, node);
@@ -1005,7 +1032,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
           else for (const child of ast.elements(argument)) if (child !== undefined && ast.is.IsArrayLiteralExpression(child) && ast.elements(child).length === 2) pairs.add(child);
           break;
         }
-        const children = query.isUnion(selected.type) ? query.members(selected.type).filter(type => !query.isNullish(type))
+        const children = query.isUnion(selected.type) ? query.members(selected.type).filter(type => !query.isAbsentConstituent(type))
           : query.typeArguments(selected.type);
         for (const type of children) pending.push({ type, depth: selected.depth + 1 });
       }
@@ -1104,7 +1131,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       const actual = terms.get(input);
       const absence = actual?.kind === "fixed" && actual.type.kind === "intrinsic" && actual.type.intrinsic === "absence";
       if (absence && (parameter.acceptsOmission || query.isNullish(formal) || query.isUnion(formal) &&
-        query.members(formal).some(type => query.isNullish(type)))) {
+        query.members(formal).some(type => query.isAbsentConstituent(type)))) {
         argumentPlace = undefined;
         contributionArgument = undefined;
         receiverOnly = false;
@@ -1356,7 +1383,7 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
       }
       if (formalQuery.isUnion(formal) || formalQuery.isIntersection(formal)) {
         const members = formalQuery.members(formal);
-        const values = members.filter(member => !formalQuery.isNullish(member));
+        const values = members.filter(member => !formalQuery.isAbsentConstituent(member));
         if (role === "result" && formalQuery.isUnion(formal) && values.length === 1 && values.length < members.length) {
           if (receiver !== undefined && openValues.has(receiver.node) && terms.get(receiver)?.kind !== "declared") {
             refuse("TSONIC_LOCAL_TYPE_UNION", occurrence); return;
@@ -1721,7 +1748,7 @@ export function sourceTypeFlowDeclaredPatternBindings(context: SourceTypeFlowAna
         }
       }
       if (projected?.kind === "optional" && Node_Initializer(ast, element) !== undefined && selected !== undefined &&
-        query.isPresent(selected.selectedType)) projected = projected.value;
+        context.input.componentPresence(selected, element) === "present") projected = projected.value;
       bindings.push({ kind: "resolved", node: element, ...(selected === undefined ? {} : { component: selected }),
         ...(projected === undefined ? {} : { type: projected }) });
       if (ast.is.IsArrayBindingPattern(name) || ast.is.IsObjectBindingPattern(name)) {
@@ -1768,8 +1795,5 @@ export function isWriteTarget(ast: AstReader, node: Node): boolean {
   }
   if (!ast.is.IsBinaryExpression(parent) || ast.as.AsBinaryExpression(parent)?.Left !== node) return false;
   const operator = ast.operatorKindName(parent);
-  return operator !== undefined && ["KindEqualsToken", "KindPlusEqualsToken", "KindMinusEqualsToken", "KindAsteriskEqualsToken",
-    "KindSlashEqualsToken", "KindPercentEqualsToken", "KindAsteriskAsteriskEqualsToken", "KindLessThanLessThanEqualsToken",
-    "KindGreaterThanGreaterThanEqualsToken", "KindGreaterThanGreaterThanGreaterThanEqualsToken", "KindAmpersandEqualsToken",
-    "KindBarEqualsToken", "KindCaretEqualsToken", "KindQuestionQuestionEqualsToken", "KindBarBarEqualsToken", "KindAmpersandAmpersandEqualsToken"].includes(operator);
+  return operator !== undefined && sourceTypeFlowAssignmentTokens.has(operator);
 }

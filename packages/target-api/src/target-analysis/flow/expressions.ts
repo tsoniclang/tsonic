@@ -1,9 +1,9 @@
 import { AsBinaryExpression } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
-import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
+import { sourceTransparentExpressionOperand } from "../../source-model/ast.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
+import { isSourceCallableBodyBoundary } from "../../source-model/callable-boundaries.js";
 import { sourceFlowBinding, sourceFlowReference, sourceFlowWriteValue } from "./bindings.js";
 import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
 import { sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
@@ -71,7 +71,7 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
       return sourceFlowReference(build, operand, write, context, true);
     }
     return build.expression(operand, build.emit(node, { kind: "evaluate" }, next, context,
-      build.source.navigation.expressionEffects(node).mayThrow), context);
+      build.source.facts.navigation.expressions.effects(node).mayThrow), context);
   }
   if (ast.is.IsNewExpression(node)) {
     const expression = ast.as.AsNewExpression(node)?.Expression;
@@ -215,7 +215,7 @@ function binary(build: SourceFlowConstruction, node: Node, next: number, context
     return build.expression(left, branch, context);
   }
   const finish = build.emit(node, { kind: "evaluate" }, next, context,
-    operator !== "KindCommaToken" && build.source.navigation.expressionEffects(node).mayThrow);
+    operator !== "KindCommaToken" && build.source.facts.navigation.expressions.effects(node).mayThrow);
   return build.expression(left, build.expression(right, finish, context), context);
 }
 

@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceHostInput } from "../../host-input/index.js";
-import { Node_Expression } from "../../source-navigation/ast.js";
+import { Node_Expression } from "../../source-model/ast.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowRefusal, SourceTypeFlowSource } from "./types.js";
 
@@ -33,8 +33,9 @@ export function sourceTypeFlowCallableReturns(ast: AstReader, declaration: Node)
   return { returned, absent };
 }
 
-// An unannotated callable whose checked return refers to the callable's own type is refused (TSONIC_LOCAL_TYPE_SIGNATURE).
-// The self-reference is a checker witness (host-input.recursiveReturn); the refusal is the Host's.
+// The recursive-return rule (Host): an unannotated callable with a body, one of whose returned expressions (in body
+// order, sourceTypeFlowCallableReturns) reaches the callable's own type, is refused (TSONIC_LOCAL_TYPE_SIGNATURE) at the
+// first such expression. Only the reachability itself is a checker witness (host-input returnReachesCallable).
 export function sourceTypeFlowRecursiveSignatures(source: SourceTypeFlowSource, input: SourceHostInput,
   nodes: readonly Node[]): ReadonlyMap<Node, SourceTypeFlowRefusal> {
   const { ast } = source;
@@ -43,7 +44,8 @@ export function sourceTypeFlowRecursiveSignatures(source: SourceTypeFlowSource, 
     if (!(ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
       ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration)) ||
       ast.typeNode(declaration) !== undefined || ast.body(declaration) === undefined) continue;
-    const returned = input.recursiveReturn(declaration);
+    const returned = sourceTypeFlowCallableReturns(ast, declaration).returned
+      .find(expression => input.returnReachesCallable(declaration, expression));
     if (returned !== undefined) {
       refusals.set(declaration, Object.freeze({ ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_SIGNATURE", returned, declaration),
         reason: "This unannotated callable return depends on itself. Annotate the return type." }));

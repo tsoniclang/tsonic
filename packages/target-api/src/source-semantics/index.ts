@@ -3,8 +3,15 @@
 // (I1). Nothing here reads the checker (I3): the checker views live in host-input and are never exported.
 export type * from "./local-type-flow/types.js";
 export { sourceTypeDescriptorMemberOriginsEqual } from "./local-type-flow/member-origins.js";
-export { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue,
-  sourceTypeDescriptorSum, substituteSourceTypeDescriptor } from "./local-type-flow/terms.js";
+export { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue }
+  from "./descriptor-model.js";
+// R2 #18: the union builder and the substitution are not exported; Host packages use facts.sums (I6).
+export { sourceTypeDescriptorHasTypeVariables } from "./local-type-flow/terms.js";
+// The one present-arms / absence classifier (R2 #25), for Host packages (source-core, FX-CORE X1).
+export {
+  sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsent, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm,
+  sourceTypeDescriptorMayBeAbsent, sourceTypeDescriptorPresentArms,
+} from "./descriptor-arms.js";
 export {
   sourceTypeSyntaxIsCompositional,
   sourceTypeSyntaxRoot,
@@ -26,7 +33,6 @@ export type {
   HostSourceProgram,
 } from "./types.js";
 export { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
-export { selectSourceEnumIntegerWidth } from "./enum-constants.js";
 export type {
   SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue,
 } from "./enum-model.js";

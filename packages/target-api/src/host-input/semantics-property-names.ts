@@ -2,11 +2,12 @@
 // Key values come from authored syntax and declarations (KeyFact); the checker contributes only selection witnesses:
 // the member name it binds a key to (effective property name), the selected member/enum declaration of an access,
 // the selected well-known symbol, the indexed-access selection, and the declaration of a unique symbol (R3: no checked
-// literal type supplies a key value).
+// literal type supplies a key value). Facts are computed on demand per node (memoized, cycle-guarded), so a key that
+// reads a const declared in another file resolves independently of file order.
 import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
-import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
+import { sourceClassFieldIsTypeOnly } from "../source-model/class-members.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
 import type { SourceFileSemantics } from "./semantics-types.js";
 import type { SourceNumericLiteralToken } from "../source-semantics/literal-values-model.js";
 import type { SourcePropertyNameConstant, SourcePropertyNameIndex, SourcePropertyNameSelection } from "../source-semantics/property-names-model.js";
@@ -25,7 +26,7 @@ export function analyzeSourcePropertyNames(
   files: readonly { readonly sourceFile: SourceFile; readonly semantics: {
     readonly operations: Pick<SourceFileSemantics["operations"], "propertyName" | "objectLiteralElement" | "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
     readonly types: Pick<SourceFileSemantics["types"], "selectIndexedAccess" | "isNumberLike" | "isIntersection" | "unionOrIntersectionTypes">;
-    readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations" | "primarySymbolDeclaration">;
+    readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations" | "primarySymbolDeclaration" | "signatureDeclaration">;
   } }[],
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
   enumConstants: SourceEnumConstantIndex,
@@ -37,25 +38,19 @@ export function analyzeSourcePropertyNames(
   const drafts: KeyFact[] = [];
   const inventory: Node[] = [];
   const inputs = new Map(files.map(file => [file.sourceFile, file.semantics]));
-  const scopes = new Map<Node, Node[]>(files.map(file => [file.sourceFile, []]));
-  const pending = files.map(file => ({ node: file.sourceFile as Node, finish: false, scope: file.sourceFile as Node })).reverse();
+  // On-demand fact computation (RC1 #2): a fact reads the facts of its operands and of referenced declarations through
+  // factOf, so cross-file and forward references resolve whatever the file order. A reference cycle yields no fact.
+  const computed = new WeakSet<Node>();
+  const computing = new Set<Node>();
+  const pending = files.map(file => file.sourceFile as Node).reverse();
   while (pending.length > 0) {
     const current = pending.pop()!;
-    if (current.finish) { scopes.get(current.scope)!.push(current.node); continue; }
-    const scope = isSourceCallableBodyBoundary(ast, current.node) || ast.is.IsClassDeclaration(current.node) ||
-      ast.is.IsClassExpression(current.node) ? current.node : current.scope;
-    if (!scopes.has(scope)) scopes.set(scope, []);
-    inventory.push(current.node);
-    pending.push({ node: current.node, finish: true, scope });
+    inventory.push(current);
     const children: Node[] = [];
-    ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index]!, finish: false, scope });
+    ast.forEachChild(current, child => { if (child !== undefined) children.push(child); });
+    for (let index = children.length - 1; index >= 0; index -= 1) pending.push(children[index]!);
   }
-  for (const file of files) for (const node of scopes.get(file.sourceFile)!) completeFact(node);
-  for (const [scope, nodes] of scopes) {
-    if (ast.is.IsSourceFile(scope)) continue;
-    for (const node of nodes) completeFact(node);
-  }
+  for (const node of inventory) factOf(node);
   const validating = new Set<KeyFact>();
   const validated = new Set<KeyFact>();
   for (const fact of drafts) validateFact(fact);
@@ -198,7 +193,16 @@ export function analyzeSourcePropertyNames(
       const declaration = ast.is.IsIdentifier(expression) ? navigation.sourceReferenceFor(expression)?.declaration
         : ast.is.IsPropertyAccessExpression(expression) ? semantics.operations.propertyAccess(expression)?.selectedDeclaration
           : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression)?.selectedDeclaration : undefined;
-      return declaration !== undefined && ast.is.IsEnumMember(declaration) ? selectedEnum(declaration) : selectedLiteral(expression);
+      if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return selectedEnum(declaration);
+      // RC1 #1d: a type-only key in a declaration file names a declared member only (no runtime key is evaluated) and the
+      // Host reference model covers project files only, so the member name the checker binds the declaration to (the
+      // effective property name, a selection witness) is the key. An authored literal key keeps its own fact.
+      const file = ast.getSourceFile(name);
+      if (file !== undefined && ast.isDeclarationFile(file) && !ast.is.IsStringLiteral(expression) &&
+        !ast.is.IsNoSubstitutionTemplateLiteral(expression) && !ast.is.IsNumericLiteral(expression)) {
+        return declarationMemberName(name);
+      }
+      return selectedLiteral(expression);
     }
     if (ast.is.IsStringLiteral(expression) || ast.is.IsNoSubstitutionTemplateLiteral(expression)) {
       return selectedString(ast.text(expression));
@@ -217,6 +221,13 @@ export function analyzeSourcePropertyNames(
     const access = ast.is.IsPropertyAccessExpression(expression)
       ? semantics.operations.propertyAccess(expression)
       : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression) : undefined;
+    // RC1 #1a: a pure read of a member whose declaration fixes one literal (an `as const` property, a literal-typed or
+    // readonly literal-initialized property) is a key through that declaration's fact.
+    if (access?.selectedDeclaration !== undefined && !ast.is.IsEnumMember(access.selectedDeclaration) &&
+      memberFact(access.selectedDeclaration)?.constant !== undefined) {
+      return pureReference(expression) ? selectedLiteral(expression)
+        : rejected("A computed property key member read cannot contain calls or getter evaluation.");
+    }
     if (access?.selectedDeclaration === undefined || !ast.is.IsEnumMember(access.selectedDeclaration)) return rejected(
       access?.selectedDeclaration !== undefined && ast.is.IsGetAccessorDeclaration(access.selectedDeclaration)
         ? "A computed property key getter must retain its effects and cannot be replaced with a static native field name."
@@ -254,6 +265,14 @@ export function analyzeSourcePropertyNames(
     if (constant?.kind === "numeric") return selectedNumeric(node);
     if (constant?.kind === "string") return selectedString(constant.value);
     return rejected("The computed key has no exact authored literal origin: a string or numeric literal, a const binding of one, or an enum member.");
+  }
+
+  function declarationMemberName(name: Node): SourcePropertyNameSelection {
+    const checked = semanticsFor(name).operations.propertyName(name);
+    if (checked?.kind === "string") return selectedString(checked.name);
+    const numeric = checked?.kind === "numeric" ? numericTokenFromText(checked.name) : undefined;
+    return numeric === undefined ? unavailable
+      : Object.freeze({ kind: "resolved", name: numericName(numeric), constant: Object.freeze({ kind: "numeric", token: numeric }) });
   }
 
   function selectedNumeric(node: Node): SourcePropertyNameSelection {
@@ -403,14 +422,12 @@ export function analyzeSourcePropertyNames(
       if (ast.is.IsTypeQueryNode(node)) {
         const name = ast.as.AsTypeQueryNode(node)?.ExprName;
         const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-        return declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration) : declarations.get(declaration);
+        return declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration) : declarationFact(declaration);
       }
       if (ast.is.IsTypeReferenceNode(node)) {
         const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
         const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
-        const member = declaration !== undefined && ast.is.IsEnumMember(declaration) ? declaration
-          : name !== undefined && ast.is.IsQualifiedName(name) ? checkedEnumMember(node) : undefined;
-        if (member !== undefined) return enumFact(member);
+        if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return enumFact(declaration);
         return declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration)
           ? declaredFact(ast.typeNode(declaration), active) : undefined;
       }
@@ -473,7 +490,7 @@ export function analyzeSourcePropertyNames(
       const property = binding.PropertyName ?? target;
       const selected = ast.is.IsArrayBindingPattern(name) ? input?.elements?.[position]
         : ast.is.IsIdentifier(property) || ast.is.IsStringLiteral(property) ? input?.members?.get(ast.text(property)) : undefined;
-      const value = selected ?? (binding.Initializer === undefined ? undefined : facts.get(binding.Initializer));
+      const value = selected ?? (binding.Initializer === undefined ? undefined : factOf(binding.Initializer));
       bindFact(target, element, value === undefined ? undefined : createFact({ ...value, input: value,
         ...(input === undefined ? {} : { owner: input }) }));
     }
@@ -484,6 +501,7 @@ export function analyzeSourcePropertyNames(
     const call = semantics.operations.call(node);
     const result = call === undefined ? undefined : semantics.operations.callResult(call);
     const authoredType = result?.authoredTypeNode;
+    if (call !== undefined && authoredType === undefined) return returnedFact(semantics.declarations.signatureDeclaration(call.selectedSignature));
     const file = authoredType === undefined ? undefined : ast.getSourceFile(authoredType);
     if (authoredType === undefined || file === undefined || !inputs.has(file)) return undefined;
     const declared = declaredFact(authoredType);
@@ -504,10 +522,107 @@ export function analyzeSourcePropertyNames(
     }).flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
       argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
       call.sourceArguments[argument.sourceArgumentIndex]?.expression));
-    const arguments_ = argumentExpressions.map(input => input === undefined ? undefined : facts.get(input));
+    const arguments_ = argumentExpressions.map(input => input === undefined ? undefined : factOf(input));
     const first = arguments_[0];
     return first?.constant !== undefined && arguments_.every(argument => argument?.constant !== undefined &&
       constantName(argument.constant) === constantName(first.constant!)) ? first : undefined;
+  }
+
+  // The memoized, cycle-guarded fact of a node (RC1 #2). Nodes outside the input files have no fact.
+  function factOf(node: Node): KeyFact | undefined {
+    if (!computed.has(node)) {
+      const file = ast.getSourceFile(node);
+      if (computing.has(node) || file === undefined || !inputs.has(file)) return facts.get(node);
+      computing.add(node);
+      try { completeFact(node); } finally { computing.delete(node); }
+      computed.add(node);
+    }
+    return facts.get(node);
+  }
+
+  // The fact a declaration binds: its enclosing variable or parameter declaration is completed first (a binding
+  // element binds through its pattern root).
+  function declarationFact(declaration: Node): KeyFact | undefined {
+    let root: Node | undefined = declaration;
+    while (root !== undefined && (ast.is.IsBindingElement(root) || ast.is.IsArrayBindingPattern(root) || ast.is.IsObjectBindingPattern(root))) {
+      root = ast.parent(root);
+    }
+    if (root !== undefined && (ast.is.IsVariableDeclaration(root) || ast.is.IsParameterDeclaration(root))) factOf(root);
+    return declarations.get(declaration);
+  }
+
+  // The member declaration a property or element access selected (a checker selection witness).
+  function selectedMemberDeclaration(node: Node): Node | undefined {
+    const semantics = semanticsFor(node);
+    const access = ast.is.IsPropertyAccessExpression(node) ? semantics.operations.propertyAccess(node)
+      : ast.is.IsElementAccessExpression(node) ? semantics.operations.elementAccess(node) : undefined;
+    return access?.selectedDeclaration;
+  }
+
+  /**
+   * RC1 #1a: the key fact of a read of a member whose declaration fixes one literal value: a property of an `as const`
+   * object literal (its authored initializer), a property declared with a literal type annotation (declaration input),
+   * or a readonly class property initialized by a literal (its declared type is that literal). undefined otherwise.
+   */
+  function memberFact(declaration: Node): KeyFact | undefined {
+    if (ast.is.IsPropertyAssignment(declaration) || ast.is.IsShorthandPropertyAssignment(declaration)) {
+      const literal = ast.parent(declaration);
+      if (literal === undefined || !constAssertedLiteral(literal)) return undefined;
+      const value = ast.is.IsPropertyAssignment(declaration) ? ast.as.AsPropertyAssignment(declaration)?.Initializer : ast.name(declaration);
+      return value === undefined ? undefined : factOf(value);
+    }
+    if (!ast.is.IsPropertyDeclaration(declaration) && !ast.is.IsPropertySignatureDeclaration(declaration)) return undefined;
+    const annotation = ast.typeNode(declaration);
+    if (annotation !== undefined) return declaredFact(annotation);
+    const initializer = ast.is.IsPropertyDeclaration(declaration) && ast.hasModifierKind(declaration, "readonly")
+      ? ast.as.AsPropertyDeclaration(declaration)?.Initializer : undefined;
+    return initializer === undefined ? undefined : factOf(initializer);
+  }
+
+  /** An object or array literal that is (an element or member of) the operand of an `as const` assertion. */
+  function constAssertedLiteral(literal: Node): boolean {
+    let current: Node | undefined = literal;
+    while (current !== undefined) {
+      const parent = ast.parent(current);
+      if (parent === undefined) return false;
+      if (ast.is.IsParenthesizedExpression(parent) || ast.is.IsArrayLiteralExpression(parent) || ast.is.IsObjectLiteralExpression(parent) ||
+        ast.is.IsPropertyAssignment(parent)) { current = parent; continue; }
+      if (!ast.is.IsAsExpression(parent)) return false;
+      const type = ast.as.AsAsExpression(parent)?.Type;
+      return type !== undefined && ast.is.IsTypeReferenceNode(type) && ast.text(type) === "const";
+    }
+    return false;
+  }
+
+  /**
+   * RC1 #1b: the key fact of a call whose selected callee has no authored return type: the one constant every returned
+   * expression of its body states with a non-widening assertion (`return "x" as const`, `return "x" as "x"`). A returned
+   * value without such an assertion widens in the inferred return type, so it fixes no key.
+   */
+  function returnedFact(callee: Node | undefined): KeyFact | undefined {
+    const body = callee === undefined ? undefined : ast.body(callee);
+    if (body === undefined) return undefined;
+    const returned: Node[] = [];
+    let open = false;
+    const pending: Node[] = [body];
+    while (pending.length > 0) {
+      const node = pending.pop()!;
+      if (node !== body && isSourceCallableBodyBoundary(ast, node)) continue;
+      if (node === body && !ast.is.IsBlock(node)) returned.push(node);
+      else if (ast.is.IsReturnStatement(node)) {
+        const expression = ast.as.AsReturnStatement(node)?.Expression;
+        if (expression === undefined) open = true; else returned.push(expression);
+      } else ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+    }
+    if (open || returned.length === 0) return undefined;
+    const selected = returned.map(expression => {
+      let current: Node | undefined = expression;
+      while (current !== undefined && ast.is.IsParenthesizedExpression(current)) current = ast.as.AsParenthesizedExpression(current)?.Expression;
+      return current !== undefined && (ast.is.IsAsExpression(current) || ast.is.IsTypeAssertion(current)) ? factOf(current) : undefined;
+    });
+    const first = selected[0];
+    return first?.constant !== undefined && selected.every(fact => fact?.constant !== undefined && fact.valid &&
+      fact.constant.kind === first.constant!.kind && constantName(fact.constant) === constantName(first.constant!)) ? first : undefined;
   }
 
   function completeFact(node: Node): void {
@@ -521,7 +636,7 @@ export function analyzeSourcePropertyNames(
     if (ast.is.IsVariableDeclaration(node)) {
       const name = ast.name(node);
       const initializer = ast.as.AsVariableDeclaration(node)?.Initializer;
-      if (name !== undefined) bindFact(name, node, initializer === undefined ? declaredFact(ast.typeNode(node)) : facts.get(initializer));
+      if (name !== undefined) bindFact(name, node, initializer === undefined ? declaredFact(ast.typeNode(node)) : factOf(initializer));
       return;
     }
     if (ast.is.IsParameterDeclaration(node)) {
@@ -532,14 +647,27 @@ export function analyzeSourcePropertyNames(
     if (ast.is.IsIdentifier(node)) {
       const declaration = navigation.sourceReferenceFor(node)?.declaration;
       const fact = declaration === undefined ? undefined : ast.is.IsEnumMember(declaration) ? enumFact(declaration)
-        : declarations.get(declaration) ?? declaredFact(ast.typeNode(declaration));
+        : declarationFact(declaration) ?? declaredFact(ast.typeNode(declaration));
       if (fact !== undefined) facts.set(node, fact);
       return;
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const member = checkedEnumMember(node);
-      const fact = member === undefined ? undefined : enumFact(member);
+      const declaration = member === undefined ? selectedMemberDeclaration(node) : undefined;
+      const fact = member !== undefined ? enumFact(member) : declaration === undefined ? undefined : memberFact(declaration);
       if (fact !== undefined) facts.set(node, fact);
+      return;
+    }
+    if (ast.is.IsConditionalExpression(node)) {
+      // RC1 #1c: both branches of one constant (`c ? "x" : "x"`) are that constant.
+      const conditional = ast.as.AsConditionalExpression(node);
+      const whenTrue = conditional?.WhenTrue === undefined ? undefined : factOf(conditional.WhenTrue);
+      const whenFalse = conditional?.WhenFalse === undefined ? undefined : factOf(conditional.WhenFalse);
+      if (whenTrue?.constant !== undefined && whenFalse?.constant !== undefined &&
+        constantName(whenTrue.constant) === constantName(whenFalse.constant) &&
+        whenTrue.constant.kind === whenFalse.constant.kind) {
+        facts.set(node, createFact({ constant: whenTrue.constant, input: whenTrue, owner: whenFalse }));
+      }
       return;
     }
     const wrapper = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)
@@ -548,7 +676,7 @@ export function analyzeSourcePropertyNames(
       : ast.is.IsSatisfiesExpression(node) ? ast.as.AsSatisfiesExpression(node)
       : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node) : undefined;
     if (wrapper !== undefined) {
-      const input = wrapper.Expression === undefined ? undefined : facts.get(wrapper.Expression);
+      const input = wrapper.Expression === undefined ? undefined : factOf(wrapper.Expression);
       const annotation = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)?.Type
         : ast.is.IsTypeAssertion(node) ? ast.as.AsTypeAssertion(node)?.Type : undefined;
       facts.set(node, annotation === undefined && input !== undefined ? input : createFact({
@@ -558,7 +686,7 @@ export function analyzeSourcePropertyNames(
     }
     if (ast.is.IsPrefixUnaryExpression(node)) {
       const expression = ast.as.AsPrefixUnaryExpression(node);
-      const input = expression?.Operand === undefined ? undefined : facts.get(expression.Operand);
+      const input = expression?.Operand === undefined ? undefined : factOf(expression.Operand);
       const constant = input?.constant;
       const operator = ast.operatorKindName(node);
       if (constant?.kind === "numeric" && (operator === "KindPlusToken" || operator === "KindMinusToken")) {
@@ -584,10 +712,10 @@ export function analyzeSourcePropertyNames(
         if (element !== undefined && ast.is.IsSpreadElement(element)) {
           const expression = ast.as.AsSpreadElement(element)?.Expression;
           if (expression === undefined || !fixedTupleOperand(expression)) return;
-          const selected = expression === undefined ? undefined : facts.get(expression)?.elements;
+          const selected = expression === undefined ? undefined : factOf(expression)?.elements;
           if (selected === undefined) return;
           elements.push(...selected);
-        } else elements.push(element === undefined ? undefined : facts.get(element));
+        } else elements.push(element === undefined ? undefined : factOf(element));
       }
       facts.set(node, createFact({ elements: Object.freeze(elements) }));
       return;
@@ -600,7 +728,7 @@ export function analyzeSourcePropertyNames(
         if (name === undefined || !ast.is.IsIdentifier(name) && !ast.is.IsStringLiteral(name)) continue;
         const value = ast.is.IsPropertyAssignment(property) ? ast.as.AsPropertyAssignment(property)?.Initializer
           : ast.is.IsShorthandPropertyAssignment(property) ? name : undefined;
-        const fact = value === undefined ? undefined : facts.get(value);
+        const fact = value === undefined ? undefined : factOf(value);
         if (fact !== undefined) members.set(ast.text(name), fact);
       }
       facts.set(node, createFact({ members }));

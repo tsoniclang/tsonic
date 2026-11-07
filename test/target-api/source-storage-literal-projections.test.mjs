@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
 
 // Host value type of a node, or undefined when the Host refused it.

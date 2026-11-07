@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../source-navigation/ast.js";
+import { Node_Initializer } from "../source-model/ast.js";
 import { fixture, propagatedDestinations } from '../../../../test/target-api/fixtures/source-semantics/contextual-type-selection-fixtures.mjs';
 
 for (const [name, sourceText, literalIndex] of propagatedDestinations) {

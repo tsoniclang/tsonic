@@ -9,8 +9,7 @@ const targetApiSourceRoot = resolve(repoRoot, "packages/target-api/src");
 
 const expectedCastCounts = Object.freeze({
   "packages/target-api/src/module-reference.ts": 3,
-  "packages/target-api/src/source-navigation/array-density.ts": 3,
-  "packages/target-api/src/source-navigation/ast.ts": 81,
+  "packages/target-api/src/source-model/ast.ts": 81,
   "packages/target-api/src/source-navigation/callable-aliases.ts": 2,
   "packages/target-api/src/source-navigation/callable-arguments.ts": 3,
   "packages/target-api/src/source-navigation/callable-values.test.ts": 1,
@@ -42,7 +41,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/reference-selection.ts": 3,
   "packages/target-api/src/source-navigation/references-usage.ts": 17,
   "packages/target-api/src/source-navigation/sequence-inputs.ts": 3,
-  "packages/target-api/src/source-navigation/syntax.ts": 9,
+  "packages/target-api/src/source-model/syntax.ts": 9,
   "packages/target-api/src/source-navigation/value-flow.ts": 3,
   "packages/target-api/src/source-semantics/authored-type-facts.ts": 2,
   "packages/target-api/src/source-semantics/authored-type-selection.ts": 1,

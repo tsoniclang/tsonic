@@ -3,7 +3,10 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceCompilerComposition } from "../../../packages/host/dist/target/extensions.js";
 import { createSourceSemanticsVirtualModuleProvider } from "@tsonic/source-core/extension";
-import { tsonicMemoryLayoutFactKey } from "@tsonic/source-core/facts";
+import { tsonicCoreSourceAnalyses } from "@tsonic/source-core";
+import { tsonicCoreAnalysisKey } from "@tsonic/source-core/facts";
+import { createTargetSourceProgram } from "@tsonic/target-api/host";
+import { createJsSourceApiFacts } from "@tsonic/js-source-profile";
 
 function registration(moduleSpecifier, addressWidth = 64) {
   return {
@@ -51,10 +54,16 @@ test("host supplies target, capability and surface ABI registrations to its sing
   }).checkSource();
   assert.equal(checked.extensionDiagnostics.length, 0, checked.extensionDiagnostics.map((entry) => `${entry.extensionCode}: ${entry.message}`).join("\n"));
   assert.equal(checked.diagnostics.length, 0);
+  // Each memorylayout call is read through the published Host analysis (facts.analyses.extension), not the Legacy key.
+  const program = createTargetSourceProgram(checked, { profile: createJsSourceApiFacts,
+    analyses: [tsonicCoreSourceAnalyses], platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
+  const memory = program.facts.analyses.extension(tsonicCoreAnalysisKey).memory;
   const layouts = [];
   const visit = (node) => {
-    const fact = checked.sourceFacts.getFact(node, tsonicMemoryLayoutFactKey);
-    if (fact !== undefined) layouts.push(fact.dataLayout.providerDeclaration.moduleSpecifier);
+    const record = memory.layout(node);
+    if (record !== undefined && record.kind !== "rejected" && record.call === node) {
+      layouts.push(record.dataLayout.providerDeclaration.moduleSpecifier);
+    }
     for (const child of checked.ast.children(node)) if (child !== undefined) visit(child);
   };
   visit(checked.getSourceFile("/src/index.ts"));

@@ -38,6 +38,12 @@ export type {
   TargetSurfaceImplementation,
 } from "../target/composition.js";
 export type {
+  TargetProviderSourceCallSelector, TargetSourceExtensionContribution, TargetSourceProviderCallAnalysis,
+  TargetSourceSafetyApplicationPlacement, TargetSourceSafetyBuilderAnalysis, TargetSourceSafetyBuilderFact,
+  TargetSourceSafetyContract, TargetSourceSafetyMemberKind, TargetSourceSafetyProviderNames,
+  TargetSourceUnsafeContextAnalysis, TargetSourceUnsafeContextFact,
+} from "../target/source-extensions.js";
+export type {
   TargetSourceProfileContributions,
 } from "../source-profile.js";
 export type {

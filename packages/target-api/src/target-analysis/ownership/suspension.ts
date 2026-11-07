@@ -1,7 +1,6 @@
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm } from "../../source-semantics/descriptor-arms.js";
 import { sourceTypeDescriptorOpenness } from "../../source-semantics/local-type-flow/uses.js";
-import {
-  sourceAnalysisArms, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisIsScalar, type SourceAnalysisProgram,
-} from "../analysis-program.js";
+import { sourceAnalysisIncludesNode, sourceAnalysisIsScalar, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../source-navigation/index.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipValues,
@@ -36,9 +35,9 @@ export function createSourceDeclarationSuspensionQuery(input: {
       return sourceDeclarationOwnershipUnresolved(operation, "A native pending operand must belong to this exact checked execution region.");
     if (use === "value") {
       // A value whose every Host arm is never, a scalar or absence cannot be a pending native completion.
-      const arms = sourceAnalysisArms(value.component.type);
+      const arms = sourceTypeDescriptorArms(value.component.type);
       const immediate = arms.length !== 0 && arms.every(arm => budget.step(subject) && sourceTypeDescriptorOpenness(source.ast, arm) !== "top" &&
-        (sourceAnalysisIsNeverArm(arm) || sourceAnalysisIsAbsentArm(arm) ||
+        (sourceTypeDescriptorIsNeverArm(arm) || sourceTypeDescriptorIsAbsentArm(arm) ||
           sourceAnalysisIsScalar(arm, node => source.ast.is.IsEnumDeclaration(node))));
       if (immediate) {
         const rows = budget.createRows(operation);

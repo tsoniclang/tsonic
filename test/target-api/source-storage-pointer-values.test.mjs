@@ -4,16 +4,25 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
 import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { selectJsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
+import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
+import { jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
+// The JS source profile declares Generator, so the Host composes the generator resume effect (`created.next()`)
+// from facts.profile (facts.analyses.storage).
+const jsProfileFiles = Object.freeze({
+  "/src/.tsonic/source-profiles/js/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+  "/src/.tsonic/source-profiles/js/js-globals.d.ts": jsSurfaceSourceProfileDeclarations,
+});
+
 function fixture(body) {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+  const files = { ...jsProfileFiles, "/src/index.ts": `
       import { addressof, allocateptr, bindptr, loadptr, projectptr, storeptr } from "@tsonic/core/lang.js";
       import type { Pointer } from "@tsonic/core/types.js";
       ${body}
-    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+    ` };
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files, rootFiles: Object.keys(files),
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", noLib: true },
     extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
       createTsonicCoreSourceExtension()] },
   }).checkSource();
@@ -21,14 +30,7 @@ function fixture(body) {
   assert.equal(checked.extensionDiagnostics.length === 0, true, "native pointer operations have checked source evidence");
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
-  const storage = createSourceStorageQuery(source, [file], undefined, {
-    call: (node, call) => {
-      const declaration = call.signature;
-      const owner = declaration === undefined ? undefined : source.ast.parent(declaration);
-      return selectJsSourceCallStorageEffect(owner === undefined ? undefined : { declaration,
-        ownerName: source.ast.text(source.ast.name(owner)), memberName: source.ast.text(source.ast.name(declaration)) }, call)?.effect;
-    },
-  });
+  const storage = source.facts.analyses.storage({ sourceFiles: [file], premises: {} });
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   const query = name => {
     const selected = storage.subjectFor(initializer(name));

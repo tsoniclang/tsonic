@@ -1,7 +1,7 @@
 import type { SourceAnalysisProgram } from "./analysis-program.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { sourceBindingWriteAtReference } from "../source-navigation/index.js";
-import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
 import type { SourceBindingWrite, SourceCallableImplementationResult, SourceCountedLoop, SourceDeclarationReference, SourceDeclarationUseSummary, SourceDeclaredHeritageResult, SourceExpressionEffects, SourceProjectMemberContractsResult, SourceProjectMemberDispatch, SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectReference } from "../source-navigation/index.js";
 
 export interface TargetPlanningSourceNavigation {
@@ -106,7 +106,7 @@ export function snapshotTargetPlanningSourceNavigation(
       const counted = source.navigation.countedLoop(node);
       if (counted !== undefined) countedLoops.set(node, counted);
     }
-    effects.set(node, source.navigation.expressionEffects(node));
+    effects.set(node, source.facts.navigation.expressions.effects(node));
     source.ast.forEachChild(node, (child) => {
       if (child !== undefined) visit(child);
     });

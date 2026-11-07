@@ -4,9 +4,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
-import { Node_Expression } from "../../source-navigation/ast.js";
+import { Node_Expression } from "../../source-model/ast.js";
 import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
-import { sourceTypeDescriptorStructure } from "./terms.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
+import { sourceTypeFlowIsBroadSlot } from "./uses.js";
 import type { SourceTypeDescriptor } from "./types.js";
 
 // Host fact tests for the value-model share of SourceProgramFacts (nextgen plan §2, CONTRACT.md). Each test is a real
@@ -166,6 +167,9 @@ test("I3: local-type-flow production files read no checker type, signature, symb
     /\bsemantics\b/u, /\bSourceFileSemantics\b/u, /\bSourceTypeComponentEvidence\b/u, /\bexpressionType\b/u,
     /\b(?:queries|query|caller|formalQuery)\.(?:types|declarations|operations|facts|propertyNames)\b/u, /\bgetSourceFileQueries\b/u, /\.checker\b/u,
     /from "\.\.\/(types|type-arguments|array-types|selected-property-declarations|object-literal-correspondence|call-result-selection)\.js"/u,
+    // R3 provenance (REVIEW-R1 #24): checker-inferred awaited, read and write types and the checker absence/result
+    // helpers never cross into the value model; awaited payloads, access components and absence are Host rules.
+    /\bawaitedType\b/u, /\bsourceReadType\b/u, /\bsourceWriteType\b/u, /\bcallResultType\b/u, /\bisPresent\(/u, /\badmitsAbsence\(/u,
   ];
   const violations: string[] = [];
   for (const file of files) {
@@ -214,6 +218,93 @@ test("values.contextual is the Host slot a value flows into (declared variable, 
   const parameter = facts.values.contextual(argument);
   assert.equal(parameter !== undefined && parameter.kind !== "refused" && parameter.type.kind === "primitive" &&
     parameter.type.primitive === "int64", true);
+});
+
+// ---- one destination domain for contextual and admission (WP0 A3, K-2678, D4) ---------------------------------------
+// Basis: N3′ (PLAN §10), WP0 A3. Every use the Host admits into a broad slot has that slot as its `values.contextual`
+// destination, as the identical descriptor of `admission.destination` and `slot(admission.slot).type`; a use outside
+// the domain has no admission, and asking for one is an invariant failure, never a silent "none".
+
+const erasureUseForms = `declare function take(value: unknown): void;
+  declare function many(...values: unknown[]): void;
+  declare function generic<T>(value: T): void;
+  function run(): unknown {
+    const original = 1152921504606846976;
+    const declared: unknown = original;
+    take(original);
+    many(original, original);
+    generic<unknown>(original);
+    const array: unknown[] = [original];
+    const object: { field: unknown } = { field: original };
+    let assigned: unknown;
+    assigned = original;
+    void declared; void array; void object; void assigned;
+    return original;
+  }`;
+
+test("D4: every admitted use (declared, argument, rest, generic, array element, property, write, return) has its slot as the one destination", () => {
+  const { ast, facts, reads, source } = fixture(erasureUseForms);
+  const uses = reads("original");
+  // declared, take, many ×2, generic, array element, property, assignment, return.
+  assert.equal(uses.length, 9);
+  const forms = uses.map(use => ast.kindName(ast.parent(use)!));
+  for (const [index, use] of uses.entries()) {
+    const form = `${forms[index]} at ${ast.pos(use)}`;
+    const admission = facts.values.admission(use);
+    assert.equal(admission.kind, "admitted", `${form}: the broad use is admitted`);
+    if (admission.kind !== "admitted") continue;
+    assert.equal(admission.use, use, `${form}: the admission belongs to this occurrence`);
+    assert.equal(admission.conversion.kind, "exact-number-erasure", `${form}: an exact Q1 int64 erases at every broad use form`);
+    const contextual = facts.values.contextual(use);
+    const slot = facts.values.slot(admission.slot);
+    assert.equal(contextual !== undefined && contextual.kind !== "refused" && contextual.type === admission.destination, true,
+      `${form}: values.contextual is the admission's destination (the identical descriptor)`);
+    assert.equal(slot.kind === "slot" && slot.slot === admission.slot && slot.broad && slot.type === admission.destination, true,
+      `${form}: the destination is the admission slot's published broad descriptor`);
+    assert.equal(facts.values.contextual(use), contextual, `${form}: the destination is published once`);
+    assert.equal(Object.isFrozen(contextual), true);
+    // A use the declared-slots reader does not name (association component only) is answered from its admission; one
+    // it names carries the same descriptor.
+    const declaredSlot = source.effectiveTypes.contextual(use);
+    assert.equal(declaredSlot === undefined || declaredSlot.kind !== "refused" &&
+      sourceTypeDescriptorsEqual(declaredSlot.type, admission.destination), true, `${form}: the two Host readers agree`);
+  }
+  assert.equal(facts.refusals().length, 0);
+});
+
+test("D4: a use outside the domain has no admission (operand, non-broad destination); asking for one is an invariant", () => {
+  const { ast, facts, nodes } = fixture(`declare function identity<T>(value: T): T;
+  function run(): boolean {
+    const original = 1152921504606846976;
+    return identity(original) === original;
+  }`);
+  const reads = nodes.filter(node => ast.is.IsIdentifier(node) && ast.text(node) === "original" && ast.name(ast.parent(node)!) !== node);
+  assert.equal(reads.length, 2);
+  const [argument, operand] = reads as [Node, Node];
+  // The argument's Host destination is the instantiated binder (int64), not a broad slot.
+  const narrow = facts.values.contextual(argument);
+  assert.equal(narrow === undefined || narrow.kind !== "refused" && !sourceTypeFlowIsBroadSlot(narrow.type), true,
+    "a non-broad Host destination is outside the admission domain");
+  assert.throws(() => facts.values.admission(argument), /no Host slot admission at this use: it flows into no broad Host slot/u);
+  assert.equal(facts.values.contextual(operand), undefined, "an operation operand flows into no Host slot");
+  assert.throws(() => facts.values.admission(operand), /no Host slot admission at this use: it flows into no broad Host slot/u);
+});
+
+test("D4: a refused admission keeps its destination in the domain; the refusal is collected upfront", () => {
+  const { ast, facts, initializer } = fixture(`function run(): void {
+    const original = 9007199254740993;
+    const erased: unknown = original;
+    void erased;
+  }`);
+  const use = initializer("erased");
+  const admission = facts.values.admission(use);
+  assert.equal(admission.kind === "refused" && admission.refusal.code === "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT", true);
+  const contextual = facts.values.contextual(use);
+  const slot = facts.values.slot(admission.slot);
+  assert.equal(contextual !== undefined && contextual.kind !== "refused" && slot.kind === "slot" && slot.broad &&
+    contextual.type === slot.type, true, "the refused use still names its broad Host destination");
+  assert.equal(facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_NUMBER_ERASURE_INEXACT" && issue.site === use), true,
+    `refusals() carries the refusal before any target reads the use (${ast.kindName(use)})`);
 });
 
 // ---- relations -----------------------------------------------------------------------------------------------------
@@ -800,4 +891,110 @@ test("D-4: a literal discriminant that matches no arm is refused by the Host (Ty
     assert.equal(relation.code, "TSONIC_LOCAL_TYPE_UNION");
     assert.match(relation.message, /matches no union arm/);
   }
+});
+
+// ---- F1 first-run Host coverage (nextgen first full run, AGENT-F1-NOTES.md) -----------------------------------------
+
+test("Q69: values.destination names the slot, the contextual descriptor and the Host broadness (broad, non-broad, none)", () => {
+  const { ast, facts, reads, initializer } = fixture(`declare function take(value: unknown): void;
+  declare function narrow(value: string): void;
+  function run(): boolean {
+    const original = "text";
+    take(original);
+    narrow(original);
+    const local: unknown = original;
+    void local;
+    return original === "text";
+  }`);
+  const [broadUse, narrowUse, , operand] = reads("original") as [Node, Node, Node, Node];
+  const broad = facts.values.destination(broadUse);
+  assert.equal(broad !== undefined && broad.kind === "slot" && broad.broad, true, "an argument into `unknown` has a broad destination");
+  if (broad === undefined || broad.kind !== "slot") return;
+  const contextual = facts.values.contextual(broadUse);
+  assert.equal(contextual !== undefined && contextual.kind !== "refused" && contextual.type === broad.type, true,
+    "destination.type is the identical contextual descriptor");
+  const admission = facts.values.admission(broadUse);
+  assert.equal(admission.slot, broad.slot, "an admitted use names its admission slot");
+  assert.equal(facts.values.destination(broadUse), broad, "memoized");
+  assert.equal(Object.isFrozen(broad), true);
+  const nonBroad = facts.values.destination(narrowUse);
+  assert.equal(nonBroad !== undefined && nonBroad.kind === "slot" && !nonBroad.broad && ast.is.IsParameterDeclaration(nonBroad.slot), true,
+    "an argument into `string` has a non-broad destination at the parameter slot");
+  const declared = facts.values.destination(initializer("local"));
+  assert.equal(declared !== undefined && declared.kind === "slot" && declared.broad, true, "a declared `unknown` local is a broad slot");
+  assert.equal(facts.values.destination(operand), undefined, "an operator operand flows into no Host slot");
+});
+
+test("Q55/Q68: a generic parameter instantiated as unknown (`g<unknown>(v)` into `x: T`) is admitted at the use", () => {
+  const { facts, reads } = fixture(`declare function generic<T>(value: T): void;
+  function run(): void {
+    const original = "text";
+    generic<unknown>(original);
+  }`);
+  const [use] = reads("original") as [Node];
+  const admission = facts.values.admission(use);
+  assert.equal(admission.kind, "admitted");
+  const destination = facts.values.destination(use);
+  assert.equal(destination !== undefined && destination.kind === "slot" && destination.broad && destination.slot === admission.slot, true);
+  const slot = facts.values.slot(admission.slot);
+  assert.equal(slot.kind === "slot" && slot.broad, true, "the instantiated slot is broad, not the binder slot T");
+});
+
+test("an arrow and a function expression publish their own one-signature callable inventory (no checked expression type)", () => {
+  const { initializer, resolved } = fixture(`const twice = (value: int32): int32 => value * 2;
+  const halve = function (value: int32): int32 { return value / 2 as int32; };
+  export const results = [twice(1), halve(4)];`);
+  for (const name of ["twice", "halve"]) {
+    const type = sourceTypeDescriptorStructure(resolved(initializer(name)));
+    assert.equal(type.kind === "callable" && type.calls.length === 1 && type.constructs.length === 0, true, `${name}: one call signature`);
+    assert.equal(type.kind === "callable" && type.calls[0]!.declaration === initializer(name), true, `${name}: the signature is its own declaration`);
+  }
+});
+
+test("`this` reads describe the class instance (members), the constructor value (static) and an explicit this parameter", () => {
+  const { ast, nodes, resolved, find } = fixture(`class Counter {
+    count: int32 = 0;
+    next(): int32 { return this.count; }
+    static make(): Counter { return new this(); }
+  }
+  function described(this: Counter): int32 { return this.count; }
+  export const value = new Counter().next();
+  export const unbound = described;`);
+  const counter = find(node => ast.is.IsClassDeclaration(node), "class");
+  const reads = nodes.filter(node => ast.kindName(node) === "KindThisKeyword");
+  assert.equal(reads.length, 3);
+  const [member, staticRead, explicit] = reads as [Node, Node, Node];
+  const instance = resolved(member);
+  assert.equal(instance.kind === "declared" && instance.declaration === counter, true, "a member's this is the class instance type");
+  const constructorValue = sourceTypeDescriptorStructure(resolved(staticRead));
+  assert.equal((constructorValue.kind === "shape" || constructorValue.kind === "callable") && constructorValue.constructs.length > 0, true,
+    "a static member's this is the constructor value (it has the construct signature)");
+  const parameter = resolved(explicit);
+  assert.equal(parameter.kind === "declared" && parameter.declaration === counter, true, "an explicit this parameter's annotation");
+});
+
+test("a member read on an array receiver reads the member declaration under the element binding", () => {
+  const { ast, facts, find } = fixture(`const values: int32[] = [1, 2];
+  export const mapped = values.map(value => value + 1);`);
+  const access = find(node => ast.is.IsPropertyAccessExpression(node) && ast.text(ast.name(node)!) === "map", "values.map");
+  const outcome = facts.values.type(access);
+  assert.equal(outcome.kind, "resolved", "the method read has a Host description");
+});
+
+test("object-literal members and declaration names are in the values.type domain", () => {
+  const { ast, facts, find } = fixture(`const point = { x: 1 as int32, label: "p" };
+  function named(): int32 { return point.x; }
+  export const read = named();`);
+  const property = find(node => ast.is.IsPropertyAssignment(node) && ast.text(ast.name(node)!) === "x", "x member");
+  assert.equal(facts.values.has(property), true);
+  const member = facts.values.type(property);
+  assert.equal(member.kind === "resolved" && member.type.kind === "primitive" && member.type.primitive === "int32", true,
+    "the member value is the literal's own int32 member");
+  const declaration = find(node => ast.is.IsFunctionDeclaration(node), "named");
+  const name = ast.name(declaration)!;
+  assert.equal(facts.values.has(name), true);
+  const outcome = facts.values.type(name);
+  const declared = facts.values.type(declaration);
+  assert.equal(outcome.kind === "resolved" && declared.kind === "resolved" && outcome.type === declared.type, true,
+    "a declaration's name denotes the declaration's value");
 });

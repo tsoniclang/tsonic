@@ -1,11 +1,10 @@
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsentArm } from "../../source-semantics/descriptor-arms.js";
 import type { SourceAnalysisProgram } from "../analysis-program.js";
 import { sourceTypeDescriptorOpenness } from "../../source-semantics/local-type-flow/uses.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceNavigationCall } from "../../host-input/navigation.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
-import {
-  sourceAnalysisArms, sourceAnalysisCallSignatures, sourceAnalysisIncludesNode, sourceAnalysisIsAbsentArm, sourceAnalysisValueType,
-} from "../analysis-program.js";
+import type { SourceNavigationCall } from "../../source-model/navigation-records.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-model/callable-boundaries.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisIncludesNode, sourceAnalysisValueType } from "../analysis-program.js";
 import { Node_Initializer, sourceSuperConstructor } from "../../source-navigation/index.js";
 import { sourceSingleCallValueArgument } from "../../source-navigation/callable-arguments.js";
 import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
@@ -59,9 +58,9 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
     const selected = sourceAnalysisValueType(source, node);
     if (selected === undefined) return "maybe";
     const arms: ("absent" | "present" | "maybe")[] = [];
-    for (const arm of sourceAnalysisArms(selected)) {
+    for (const arm of sourceTypeDescriptorArms(selected)) {
       if (!budget.step(node) || sourceTypeDescriptorOpenness(source.ast, arm) === "top") return "maybe";
-      arms.push(sourceAnalysisIsAbsentArm(arm) ? "absent" : "present");
+      arms.push(sourceTypeDescriptorIsAbsentArm(arm) ? "absent" : "present");
     }
     return arms.every(arm => arm === "absent") ? "absent" : arms.every(arm => arm === "present") ? "present" : "maybe";
   };
@@ -136,7 +135,7 @@ export function createSourceDeclarationContinuationClosureQuery(input: {
         continue;
       }
       const type = sourceAnalysisValueType(source, actual);
-      const parts = type === undefined ? [] : sourceAnalysisArms(type);
+      const parts = type === undefined ? [] : sourceTypeDescriptorArms(type);
       if (parts.length > 1 || actual !== expression) {
         for (const part of parts) {
           if (!budget.step(call)) break;

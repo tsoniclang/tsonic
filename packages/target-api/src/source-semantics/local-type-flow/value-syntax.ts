@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
+import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-model/ast.js";
 import type { SourceTypeFlowSource } from "./types.js";
 
 const effectSelectionOperators: ReadonlySet<string> = new Set([

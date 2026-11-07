@@ -7,7 +7,7 @@ export type { TargetSourceProgramOptions } from "../source-semantics/target-sour
 // The navigation input translator: Host packages and tests build navigation as
 // createSourceProgramNavigation(createSourceNavigationInput(checked)).
 export { createSourceNavigationInput } from "../host-input/navigation.js";
-export type { SourceNavigationInput } from "../host-input/navigation.js";
+export type { SourceNavigationInput } from "../source-model/navigation-records.js";
 export type { HostSourceProgram } from "../source-semantics/types.js";
 export type * from "../source-semantics/index.js";
 export * from "../source-semantics/index.js";
@@ -15,3 +15,7 @@ export * from "../source-navigation/index.js";
 // Host analyses (B2): the analyses-group producer and the extension protocol for Host extension packages (source-core).
 export { createSourceAnalysisFacts, createSourceAnalysisKey, hostSourceProgramOfAnalysisHost }
   from "../target-analysis/source-analyses.js";
+// The program a published storage query was built over (the public record names none, R2/R8); Host packages only.
+export { sourceStorageQueriesProgram } from "../target-analysis/source-storage/queries.js";
+// The Host value descriptor of a value node, or undefined when the Host refused it (FX-CORE X1); Host packages only.
+export { sourceAnalysisValueType } from "../target-analysis/analysis-program.js";

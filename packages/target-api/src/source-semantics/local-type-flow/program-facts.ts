@@ -2,39 +2,38 @@
 // instantiations and the value-model refusals, built once per program view from the Host solver.
 // Every member answers from Host facts only; a missing fact for a supported form throws (I4), it is never undefined
 // and never retried through checker types. The returned object owns every per-program table (I5).
+import type { SourcePointerOperationRecord } from "../../public/source/selections.js";
 import {
   argumentPassingFactKey, pointerOperationFactKey, sourceMarkerFactKey,
   type AstReader, type Node, type SourceFile, type SourcePrimitiveKind,
 } from "@tsonic/tsts";
 import type {
-  SourceElementAccessRecord, SourceInstantiation, SourceInstantiationFacts, SourceNullishAdmission, SourceOperatorRecord,
-  SourceRefusal, SourceRelationFacts, SourceTypeofCategoryName, SourceSlotOutcome, SourceSumFacts, SourceTypeOutcome, SourceUnionRelation, SourceValueFacts,
+  SourceDestination, SourceElementAccessRecord, SourceInstantiation, SourceInstantiationFacts, SourceNullishAdmission, SourceOperatorRecord,
+  SourceAwaitedArms, SourceRefusal, SourceRelationFacts, SourceSlotOutcome, SourceSumFacts, SourceTypeOutcome, SourceUnionRelation, SourceValueFacts,
 } from "../../public/source/facts.js";
-import { Node_Expression, Node_Initializer, Node_Operand } from "../../source-navigation/ast.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
+import { Node_Expression, Node_Operand } from "../../source-model/ast.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-model/callable-boundaries.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
 import type { SourceHostInput } from "../../host-input/index.js";
 import { analyzeSourceEffectiveTypes, type SourceSolvedValueModel } from "./solver.js";
-import { createSourceTypeDescriptorUnions, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorSum, sourceTypeDescriptorTupleValue,
+import { createSourceTypeDescriptorUnions, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorSum, sourceTypeDescriptorTupleValue,
   sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
 import { sourceTypeDescriptorOpenness, sourceTypeFlowIsBroadSlot } from "./uses.js";
-import { sourceTypeDescriptorAwaitedPayload } from "./awaited.js";
+import { sourceTypeDescriptorAwaitedPayload, sourceTypeFlowAwaitedArms } from "./awaited.js";
+import { sourceTypeFlowOperatorSpellings } from "./operators.js";
+import { sourceTypeDescriptorIndexEntry, sourceTypeDescriptorKeyKind } from "./element-selection.js";
+import { createSourceTypeofCategories } from "./typeof-categories.js";
+import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
+import { sourceTypeFlowValueSyntax } from "./value-syntax.js";
+import { sourceTypeFlowTypeParameters } from "./defaults.js";
+import { sourceTypeFlowBinderArguments, sourceTypeFlowInstantiate } from "./instantiation.js";
 import { createSourceRelationQuery } from "./relations.js";
 import type { SourceObligation } from "../../public/source/analyses.js";
 import type { SourceClosedSum, SourceTypeDescriptor, SourceTypeFlowRefusal, SourceTypeFlowSource } from "./types.js";
 
 /** Host record of a native pointer marker operation: the Legacy fact with every checker Type replaced by a descriptor. */
-export interface SourcePointerOperationRecord {
-  readonly call: Node;
-  readonly operation: "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer";
-  readonly pointee: SourceTypeDescriptor;
-  readonly result: SourceTypeDescriptor;
-  /** The operand expressions in marker parameter order (storage, initial value, pointer, value, identity/read/write ...). */
-  readonly operands: readonly Node[];
-  /** address-of / allocate / bind-pointer: the storage location identity. */
-  readonly location?: Node;
-  readonly storageDeclaration?: Node;
-}
+// The pointer operation record is defined by the public selection contract (public/source/selections.ts, I1).
+export type { SourcePointerOperationRecord };
 
 export interface SourceValueModelFacts {
   readonly values: SourceValueFacts;
@@ -48,50 +47,17 @@ export interface SourceValueModelFacts {
   refusals(): readonly SourceRefusal[];
 }
 
-const tokens: ReadonlyMap<string, string> = new Map([
-  ["KindPlusToken", "+"], ["KindMinusToken", "-"], ["KindAsteriskToken", "*"], ["KindSlashToken", "/"], ["KindPercentToken", "%"],
-  ["KindAsteriskAsteriskToken", "**"], ["KindAmpersandToken", "&"], ["KindBarToken", "|"], ["KindCaretToken", "^"],
-  ["KindLessThanLessThanToken", "<<"], ["KindGreaterThanGreaterThanToken", ">>"], ["KindGreaterThanGreaterThanGreaterThanToken", ">>>"],
-  ["KindLessThanToken", "<"], ["KindLessThanEqualsToken", "<="], ["KindGreaterThanToken", ">"], ["KindGreaterThanEqualsToken", ">="],
-  ["KindEqualsEqualsToken", "=="], ["KindEqualsEqualsEqualsToken", "==="], ["KindExclamationEqualsToken", "!="],
-  ["KindExclamationEqualsEqualsToken", "!=="], ["KindAmpersandAmpersandToken", "&&"], ["KindBarBarToken", "||"],
-  ["KindQuestionQuestionToken", "??"], ["KindCommaToken", ","], ["KindEqualsToken", "="], ["KindPlusEqualsToken", "+="],
-  ["KindMinusEqualsToken", "-="], ["KindAsteriskEqualsToken", "*="], ["KindSlashEqualsToken", "/="], ["KindPercentEqualsToken", "%="],
-  ["KindAsteriskAsteriskEqualsToken", "**="], ["KindAmpersandEqualsToken", "&="], ["KindBarEqualsToken", "|="],
-  ["KindCaretEqualsToken", "^="], ["KindLessThanLessThanEqualsToken", "<<="], ["KindGreaterThanGreaterThanEqualsToken", ">>="],
-  ["KindGreaterThanGreaterThanGreaterThanEqualsToken", ">>>="], ["KindAmpersandAmpersandEqualsToken", "&&="],
-  ["KindBarBarEqualsToken", "||="], ["KindQuestionQuestionEqualsToken", "??="], ["KindTildeToken", "~"],
-  ["KindExclamationToken", "!"], ["KindPlusPlusToken", "++"], ["KindMinusMinusToken", "--"],
-  ["KindInKeyword", "in"], ["KindInstanceOfKeyword", "instanceof"],
-]);
 
 const referenceMarkers: ReadonlySet<string> = new Set(["write-only-reference", "read-write-reference", "read-only-reference"]);
 const pointerMarkers: ReadonlySet<string> = new Set([
   "address-of", "allocate", "load", "store", "equal-pointer", "hash-pointer", "bind-pointer", "project-pointer",
 ]);
-const wideIntegers: ReadonlySet<SourcePrimitiveKind> = new Set(["int64", "uint64", "int128", "uint128"]);
 
 function invariant(ast: AstReader, node: Node, message: string): never {
   const file = ast.getSourceFile(node);
   throw new Error(`Source value facts: ${message} (${ast.kindName(node)} at ${file === undefined ? "?" : ast.getFileName(file)}:${ast.pos(node)}).`);
 }
 
-function accessMode(ast: AstReader, node: Node): "read" | "write" | "read-write" {
-  let selected = node;
-  let parent = ast.parent(selected);
-  while (parent !== undefined && ast.is.IsParenthesizedExpression(parent)) { selected = parent; parent = ast.parent(parent); }
-  if (parent === undefined) return "read";
-  if (ast.is.IsBinaryExpression(parent) && ast.as.AsBinaryExpression(parent)?.Left === selected) {
-    const token = ast.operatorKindName(parent);
-    if (token === "KindEqualsToken") return "write";
-    if (token !== undefined && tokens.get(token)?.endsWith("=") === true && !["==", "===", "!=", "!==", "<=", ">="].includes(tokens.get(token)!)) {
-      return "read-write";
-    }
-  }
-  if ((ast.is.IsPrefixUnaryExpression(parent) || ast.is.IsPostfixUnaryExpression(parent)) &&
-    (ast.operatorKindName(parent) === "KindPlusPlusToken" || ast.operatorKindName(parent) === "KindMinusMinusToken")) return "read-write";
-  return "read";
-}
 
 /**
  * Builds the value-model facts of one program view. Called once by the SourceProgramFacts assembly (writer B).
@@ -145,7 +111,67 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
       return Object.freeze({ kind: "resolved", type: described, provenance: Object.freeze({ group: node, occurrence: node,
         sourceFile: sourceFileOf(node), component: Object.freeze({ declaration: node }) }) });
     }
+    // A class, interface or type alias declaration outside the solver's program files (a library or profile declaration
+    // file): its declared type, or the refusal that it has none. One rule for every class declaration: a program class
+    // also publishes its declared (instance) type (solver.ts describeTypeDeclaration); the constructor value is the type
+    // of a value read of the class name, never of the declaration.
+    if (ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node) || ast.is.IsTypeAliasDeclaration(node)) {
+      const described = solved.typeDeclarationValue(node);
+      if (described === undefined) {
+        return Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", site: node,
+          reason: "This type declaration has no Host description." });
+      }
+      return Object.freeze({ kind: "resolved", type: described, provenance: Object.freeze({ group: node, occurrence: node,
+        sourceFile: sourceFileOf(node) }) });
+    }
+    // An ambient value expression of a declaration file (a computed member name such as `[Symbol.iterator]`, an enum
+    // member or export-assignment expression) is outside the solver's program-file domain (defaults.ts skips declaration
+    // files). It is described from declaration input (the referenced declarations through the one descriptor reader), or
+    // refused.
+    if (sourceTypeFlowValueSyntax(ast, node) && ast.isDeclarationFile(sourceFileOf(node))) {
+      const described = solved.declarationValue(node);
+      if (described === undefined) {
+        return Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", site: node,
+          reason: "This ambient declaration-file expression has no Host description." });
+      }
+      return Object.freeze({ kind: "resolved", type: described, provenance: Object.freeze({ group: node, occurrence: node,
+        sourceFile: sourceFileOf(node) }) });
+    }
+    // An object-literal member declaration (`a: e`, `a`): the member the literal's own construction declares (its
+    // published construction shape, else its published shape), else the destination member it fills (literal member
+    // correspondence). A refused literal refuses its members.
+    if (ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) return literalMemberValue(node);
+    // A declaration's own name denotes the declaration's value (`function f`, `class C`, `x` in `let x`).
+    if (declarationName(node)) {
+      const declared = type(ast.parent(node)!);
+      return declared.kind === "refused" ? declared : Object.freeze({ ...declared,
+        provenance: Object.freeze({ ...declared.provenance, occurrence: node }) });
+    }
     return invariant(ast, node, "no Host type for this node; only value nodes, declarations, slots and type nodes have one");
+  }
+  function literalMemberValue(member: Node): SourceTypeOutcome {
+    const literal = ast.parent(member);
+    if (literal === undefined || !ast.is.IsObjectLiteralExpression(literal)) return invariant(ast, member, "an object-literal member requires its literal");
+    const published = solved.get(literal) ?? invariant(ast, literal, "an object literal requires its published Host type");
+    if (published.kind === "refused") return published;
+    const own = (type: SourceTypeDescriptor | undefined) => {
+      const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+      return structure?.kind === "shape" ? structure.members.find(entry =>
+        entry.origin.kind === "declared" && entry.origin.declaration === member) : undefined;
+    };
+    let selected = own(published.construction) ?? own(published.type);
+    const origin = selected === undefined ? published.memberCorrespondence?.find(pair => pair.property === member)?.origin : undefined;
+    if (origin !== undefined) {
+      const structure = sourceTypeDescriptorStructure(published.type);
+      selected = structure.kind === "shape"
+        ? structure.members.find(entry => sourceTypeDescriptorMemberOriginsEqual(entry.origin, origin)) : undefined;
+    }
+    if (selected === undefined) {
+      return Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", site: member,
+        reason: "The value of this object-literal member has no Host description. Annotate the object literal with a supported type form." });
+    }
+    return Object.freeze({ kind: "resolved", type: selected.type, provenance: Object.freeze({ group: literal, occurrence: member,
+      sourceFile: sourceFileOf(member), component: Object.freeze({ declaration: member }) }) });
   }
   const resolvedType = (node: Node): SourceTypeDescriptor | undefined => {
     const outcome = type(node);
@@ -178,12 +204,19 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   const valueNodeSet = new Set(solved.valueNodes);
   function has(node: Node): boolean {
     return valueNodeSet.has(node) || solved.get(node) !== undefined || solved.declaredSlot(node) !== undefined ||
-      isTypeSyntaxNode(ast, node) || declarationValueNode(node);
+      isTypeSyntaxNode(ast, node) || declarationValueNode(node) || ast.is.IsPropertyAssignment(node) ||
+      ast.is.IsShorthandPropertyAssignment(node) || ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node) ||
+      ast.is.IsTypeAliasDeclaration(node) ||
+      sourceTypeFlowValueSyntax(ast, node) && ast.isDeclarationFile(sourceFileOf(node)) || declarationName(node);
+  }
+  function declarationName(node: Node): boolean {
+    const named = ast.parent(node);
+    return named !== undefined && ast.name(named) === node && has(named);
   }
   // Declarations whose value a storage or ownership subject reads (R-B4-5), in program or library files.
   function declarationValueNode(node: Node): boolean {
     return ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsPropertyDeclaration(node) ||
-      ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsBindingElement(node) || ast.is.IsClassDeclaration(node) ||
+      ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsBindingElement(node) ||
       ast.is.IsFunctionDeclaration(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node) ||
       ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node);
   }
@@ -192,18 +225,97 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const declared = solved.declaredSlot(node);
     if (declared !== undefined) {
       return Object.freeze({ kind: "slot", slot: declared.slot, type: declared.type, broad: declared.broad,
+        openness: sourceTypeDescriptorOpenness(ast, declared.type),
         authority: ast.typeNode(declared.slot) !== undefined ? "declared" : "inferred" });
     }
     const outcome = solved.get(node);
     if (outcome?.kind === "refused") return outcome;
     if (outcome !== undefined) {
-      return Object.freeze({ kind: "slot", slot: node, type: outcome.type, broad: sourceTypeFlowIsBroadSlot(outcome.type), authority: "inferred" });
+      return Object.freeze({ kind: "slot", slot: node, type: outcome.type, broad: sourceTypeFlowIsBroadSlot(outcome.type), authority: "inferred",
+        openness: sourceTypeDescriptorOpenness(ast, outcome.type) });
+    }
+    // A declaration outside the solver's program files (a library, profile or provider parameter, property or member):
+    // its slot is its declared value (declaration input), or the refusal that it has none.
+    if (declarationValueNode(node)) {
+      const described = type(node);
+      if (described.kind === "refused") return described;
+      return Object.freeze({ kind: "slot", slot: node, type: described.type, broad: sourceTypeFlowIsBroadSlot(described.type),
+        openness: sourceTypeDescriptorOpenness(ast, described.type),
+        authority: ast.typeNode(node) !== undefined ? "declared" : "inferred" });
     }
     return invariant(ast, node, "no Host slot for this node");
   }
 
+  // One destination domain (WP0 A3, K-2678, D4): every use with a slot admission has its Host destination in
+  // `contextual`, and that destination is the admission's published slot (the identical descriptor object, so
+  // `contextual(use).type === admission(use).destination === slot(admission.slot).type`). The admission producer
+  // reaches uses through their association component (generic, rest, array element and property uses) where the
+  // declared-slots reader has no entry for the use; those uses get the admission's destination here. Where both readers
+  // name a destination, they must agree (I4). A use without an admission keeps the declared-slots destination.
+  const contextualOutcomes = new Map<Node, SourceTypeOutcome | null>();
+  // The destination of a use with its consistency breach, if any (D4-2: the destination invariants are lazy). The
+  // published reads (values.contextual, destination) raise the breach; the eager refusal collection reads the
+  // destination through the relation inputs without raising it, so one bad use fails only where it is read (R1 #16).
+  const contextualBreaches = new Map<Node, string>();
+  function contextualDestination(use: Node): SourceTypeOutcome | undefined {
+    const known = contextualOutcomes.get(use);
+    if (known !== undefined) return known ?? undefined;
+    const declared = solved.contextual(use);
+    const published = solved.slotAdmission(use);
+    let outcome: SourceTypeOutcome | undefined = declared;
+    if (published !== undefined) {
+      const slotFact = solved.declaredSlot(published.slot) ??
+        invariant(ast, use, "a Host slot admission requires its published declared slot");
+      const destination = slotFact.type;
+      const breach = published.kind === "admitted" && published.destination !== destination
+        ? "a Host slot admission must name its slot's published destination"
+        : declared?.kind === "refused" ? "an admitted use has a refused Host destination"
+        : declared !== undefined && !sourceTypeDescriptorsEqual(declared.type, destination)
+          ? "the declared-slot destination and the slot admission destination of this use disagree" : undefined;
+      if (breach !== undefined) contextualBreaches.set(use, breach);
+      const sourceFile = ast.getSourceFile(use) ?? invariant(ast, use, "a Host destination requires its source file");
+      outcome = Object.freeze({ kind: "resolved", type: destination,
+        provenance: (declared?.kind === "refused" ? undefined : declared?.provenance) ??
+          Object.freeze({ group: use, occurrence: use, sourceFile }) });
+    }
+    contextualOutcomes.set(use, outcome ?? null);
+    return outcome;
+  }
+  function contextual(use: Node): SourceTypeOutcome | undefined {
+    const outcome = contextualDestination(use);
+    const breach = contextualBreaches.get(use);
+    return breach === undefined ? outcome : invariant(ast, use, breach);
+  }
+
+  // The destination slot of a use (Q69, K-2683): the contextual descriptor (the identical object), its slot node and the
+  // Host broadness decision. An admitted use names its admission slot; any other use names the declared-slot reader's
+  // slot node (solver contextualSlot, the admission producer's rule). Memoized and frozen.
+  const destinations = new Map<Node, SourceDestination | SourceRefusal | null>();
+  function destination(use: Node): SourceDestination | SourceRefusal | undefined {
+    const known = destinations.get(use);
+    if (known !== undefined) return known ?? undefined;
+    const outcome = contextual(use);
+    let selected: SourceDestination | SourceRefusal | undefined;
+    if (outcome?.kind === "refused") selected = toRefusal(outcome);
+    else if (outcome !== undefined) {
+      const slot = solved.slotAdmission(use)?.slot ?? solved.contextualSlot(use) ??
+        invariant(ast, use, "a Host destination requires its slot node");
+      selected = Object.freeze({ kind: "slot", slot, type: outcome.type, broad: sourceTypeFlowIsBroadSlot(outcome.type) });
+    }
+    destinations.set(use, selected ?? null);
+    return selected;
+  }
+
+  // The admission domain is the broad Host destinations: inside it a missing admission is a Host defect (I4); outside it
+  // (no destination, or a destination that is not a broad slot) no admission exists and asking for one is a caller error.
   function admission(use: Node) {
-    return solved.slotAdmission(use) ?? invariant(ast, use, "no Host slot admission at this use");
+    const published = solved.slotAdmission(use);
+    if (published !== undefined) return published;
+    const destination = contextual(use);
+    if (destination !== undefined && destination.kind !== "refused" && sourceTypeFlowIsBroadSlot(destination.type)) {
+      return invariant(ast, use, "no Host slot admission at this use, although its Host destination is a broad slot");
+    }
+    return invariant(ast, use, "no Host slot admission at this use: it flows into no broad Host slot");
   }
 
   const operatorRecords = new Map<Node, SourceOperatorRecord | SourceRefusal>();
@@ -215,11 +327,11 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     if (ast.is.IsBinaryExpression(node)) {
       const binary = ast.as.AsBinaryExpression(node);
       const token = ast.operatorKindName(node);
-      text = token === undefined ? undefined : tokens.get(token);
+      text = token === undefined ? undefined : sourceTypeFlowOperatorSpellings.get(token);
       operands = [binary?.Left, binary?.Right];
     } else if (ast.is.IsPrefixUnaryExpression(node) || ast.is.IsPostfixUnaryExpression(node)) {
       const token = ast.operatorKindName(node);
-      text = token === undefined ? undefined : tokens.get(token);
+      text = token === undefined ? undefined : sourceTypeFlowOperatorSpellings.get(token);
       operands = [Node_Operand(ast, node)];
     } else if (ast.is.IsTypeOfExpression(node)) {
       text = "typeof";
@@ -282,8 +394,10 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   // Selection on one receiver structure; undefined when the descriptor does not name it.
   function selectOnStructure(structure: SourceTypeDescriptor, index: SourceTypeDescriptor,
     key: { readonly name?: string; readonly position?: bigint }): ElementSelection | undefined {
-    const indexStructure = sourceTypeDescriptorStructure(index);
-    const numericIndex = indexStructure.kind === "primitive" && indexStructure.primitive !== "bool" && indexStructure.primitive !== "char";
+    // The key kind and the index signature come from the one selector (element-selection.ts, R1 #6).
+    const keyKind = key.position !== undefined ? "number" as const
+      : sourceTypeDescriptorKeyKind(index, { ast, literal: node => solved.literal(node) }) ?? (key.name !== undefined ? "string" as const : undefined);
+    const numericIndex = keyKind === "number";
     const namedMember = key.name !== undefined && key.position === undefined;
     switch (structure.kind) {
       case "string": return namedMember ? undefined : { selected: { kind: "string-character" }, readonly: true };
@@ -303,13 +417,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
           const declaration = member.origin.kind === "declared" ? member.origin.declaration : member.origin.owner;
           return { selected: { kind: "member", declaration, name: member.name }, readonly: member.readonly === true };
         }
-        const byKey = (kind: "number" | "string") => structure.indexes.find(entry => {
-          const keyStructure = sourceTypeDescriptorStructure(entry.key);
-          return kind === "string" ? keyStructure.kind === "string"
-            : keyStructure.kind === "primitive" && keyStructure.primitive !== "bool" && keyStructure.primitive !== "char";
-        });
-        const entry = (numericIndex || key.position !== undefined ? byKey("number") : undefined) ??
-          (indexStructure.kind === "string" || numericIndex || key.name !== undefined ? byKey("string") : undefined);
+        const entry = keyKind === undefined ? undefined : sourceTypeDescriptorIndexEntry(structure, keyKind);
         return entry === undefined ? undefined : { selected: { kind: "index-signature", declaration: entry.declaration }, readonly: entry.readonly };
       }
       default: return undefined;
@@ -355,9 +463,15 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
         if (declaration !== undefined && ast.is.IsIndexSignatureDeclaration(declaration)) {
           selected = { selected: { kind: "index-signature", declaration }, readonly: ast.hasModifierKind(declaration, "readonly") };
         } else if (declaration !== undefined) {
+          // A member name is read through the property-name selection (a computed key such as `[Value.First]` has no
+          // text of its own).
           const name = ast.name(declaration);
-          selected = { selected: { kind: "member", declaration, name: name === undefined ? key.name ?? "" : ast.text(name) },
-            readonly: ast.hasModifierKind(declaration, "readonly") };
+          const named = name === undefined ? undefined : input.at(declaration).propertyName(name);
+          const memberName = name === undefined ? key.name ?? "" : named?.kind === "resolved" ? named.name
+            : ast.is.IsComputedPropertyName(name) ? undefined : ast.text(name);
+          selected = memberName === undefined
+            ? elementRefusal(node, "TSONIC_LOCAL_TYPE_UNSUPPORTED", "This element access selects a member whose computed key has no constant name.")
+            : { selected: { kind: "member", declaration, name: memberName }, readonly: ast.hasModifierKind(declaration, "readonly") };
         } else {
           selected = elementRefusal(node, "TSONIC_LOCAL_TYPE_UNSUPPORTED", structure.kind === "intrinsic"
             ? `An element access on a '${structure.intrinsic}' value names no element, member or index signature. Annotate the receiver with a declared type.`
@@ -372,6 +486,21 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
   }
 
   const elementRecords = new Map<Node, SourceElementAccessRecord>();
+  // The access kind is the checker's access selection (the member witness, one owner, as memberAccess): the callee of a
+  // call through transparent wrappers is "call"; `delete a[i]` reads.
+  function elementAccessMode(node: Node): SourceElementAccessRecord["access"] {
+    const witness = input.member(node);
+    if (witness === undefined) return invariant(ast, node, "an element access record requires its checker access selection");
+    if (witness.callCallee) return "call";
+    return witness.accessMode === "delete" ? "read" : witness.accessMode;
+  }
+  // An element or string-character selection names the index signature the checker selected (the member witness), when
+  // it selected one (FX-CC #9: the lib `[n: number]: T` of the receiver).
+  function elementSelected(node: Node, selected: ElementSelection["selected"]): SourceElementAccessRecord["selected"] {
+    if (selected.kind !== "element" && selected.kind !== "string-character") return selected;
+    const declaration = input.member(node)?.declarations.find(candidate => ast.is.IsIndexSignatureDeclaration(candidate));
+    return declaration === undefined ? selected : { ...selected, declaration };
+  }
   function elementAccess(node: Node): SourceElementAccessRecord {
     const existing = elementRecords.get(node);
     if (existing !== undefined) return existing;
@@ -382,155 +511,16 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const receiver = Node_Expression(ast, node)!;
     const indexNode = ast.as.AsElementAccessExpression(node)!.ArgumentExpression!;
     const record: SourceElementAccessRecord = Object.freeze({ node, receiver, receiverType: requireType(receiver, "an element access record"),
-      index: requireType(indexNode, "an element access record"), selected: Object.freeze(selection.selection.selected), result,
-      readonly: selection.selection.readonly, access: accessMode(ast, node),
+      argument: indexNode, index: requireType(indexNode, "an element access record"), selected: Object.freeze(elementSelected(node, selection.selection.selected)), result,
+      readonly: selection.selection.readonly, access: elementAccessMode(node),
       // Part of an optional chain (`a?.[i]`, `a?.b[i]`): the checker's access witness, as for member access.
       optionalChain: input.member(node)?.optionalChain === true });
     elementRecords.set(node, record);
     return record;
   }
 
-  // typeof category of a descriptor's non-nullish part, from its Source (TS) type (N3', contract decision 3).
-  function category(selected: SourceTypeDescriptor, operand: Node | undefined): SourceNullishAdmission["category"] {
-    const structure = sourceTypeDescriptorStructure(selected);
-    switch (structure.kind) {
-      case "string": return "string";
-      case "primitive":
-        if (structure.primitive === "bool") return "boolean";
-        if (structure.primitive === "char") return "string";
-        return wideIntegers.has(structure.primitive) && (operand === undefined || solved.numberOrigin(operand) === undefined) ? "bigint" : "number";
-      case "intrinsic":
-        // `object` holds both objects and functions: no single category is proven.
-        return structure.intrinsic === "bigint" ? "bigint" : structure.intrinsic === "symbol" ? "symbol" : undefined;
-      case "callable": return "function";
-      // A value with a call or construct signature is a JS function: a class constructor with static members is a
-      // construct-only shape and still `typeof === "function"` (K-2669).
-      case "shape": return structure.calls.length > 0 || structure.constructs.length > 0 ? "function" : "object";
-      case "array": case "tuple": return "object";
-      case "declared":
-        if (ast.is.IsEnumDeclaration(structure.declaration)) {
-          const members = ast.members(structure.declaration).filter((member): member is Node => member !== undefined);
-          return members.length > 0 && members.every(member => {
-            const initializer = ast.as.AsEnumMember(member)?.Initializer;
-            const value = initializer === undefined ? undefined : solved.literal(initializer);
-            return value?.form === "string" || value?.form === "template";
-          }) ? "string" : "number";
-        }
-        // A class instance is an object. A type parameter, or an interface/alias reference without a definition (a
-        // recursion cut, an unexpressible declaration-file type), proves no category here.
-        return ast.is.IsClassDeclaration(structure.declaration) || ast.is.IsClassExpression(structure.declaration) ? "object" : undefined;
-      case "union": {
-        const categories = new Set(structure.types.map(member => category(member, operand)));
-        return categories.size === 1 ? [...categories][0] : undefined;
-      }
-      case "optional": return category(structure.value, operand);
-    }
-  }
-  // The nullish admission of an operand whose Host descriptor admits absence (§4.3 E9, N7, K-2676), from the intrinsic
-  // null / undefined constituents of the value read at the operand, taken by host-input before the one-absence erasure
-  // (aliases with their actual type arguments, generic member and call results, narrowing: host-input/nullish-components).
-  // A found intrinsic is proven; a missing one is proven absent only when every constituent was classified. Both found:
-  // "both" (an opaque constituent cannot remove a found intrinsic). An opaque constituent or no read: "unavailable".
-  function nullishAdmission(operand: Node, absent: boolean): SourceNullishAdmission["admission"] {
-    if (!absent) return "none";
-    const found = input.nullishComponents(operand);
-    if (found.null && found.undefined) return "both";
-    if (!found.complete) return "unavailable";
-    // A complete read with neither intrinsic while the descriptor keeps absence: the absence arm is not attributable.
-    return found.null ? "null-only" : found.undefined ? "undefined-only" : "unavailable";
-  }
-  // ---- typeof sites (E23, WP0 A1/A7, K-2657) -------------------------------------------------------------------------
-  // A wide-integer arm (int64/uint64/int128/uint128) is "number" only when its values come from a Q1-defaulted TS
-  // `number` (pre-projection number origin), else "bigint"; every other arm's category follows its descriptor.
-  type CategoryName = SourceTypeofCategoryName;
-  const isWideInteger = (type: SourceTypeDescriptor): boolean => {
-    const structure = sourceTypeDescriptorStructure(type);
-    return structure.kind === "primitive" && wideIntegers.has(structure.primitive);
-  };
-  const isAbsenceArm = (type: SourceTypeDescriptor): boolean =>
-    type.kind === "intrinsic" && (type.intrinsic === "absence" || type.intrinsic === "void");
-  // The origins of the values that land in one wide-integer arm of a sum, per contributing component (never one
-  // operand-wide receipt). An inferred family (a conditional or `??` join) asks each operand that contributes the arm,
-  // recursively through the operands' own sums; an authored family is explicit unless the arm comes from a binder of its
-  // application (then the origin of the binder's value is not on the descriptor: unproven).
-  function wideArmOrigins(sum: SourceClosedSum, arm: SourceTypeDescriptor, depth: number): Set<"number" | "bigint"> | undefined {
-    if (depth > 16) return undefined;
-    const family = sum.identity.family;
-    let operands: readonly (Node | undefined)[] | undefined;
-    if (ast.is.IsConditionalExpression(family)) {
-      const conditional = ast.as.AsConditionalExpression(family);
-      operands = [conditional?.WhenTrue, conditional?.WhenFalse];
-    } else if (ast.is.IsBinaryExpression(family) && ast.operatorKindName(family) === "KindQuestionQuestionToken") {
-      const binary = ast.as.AsBinaryExpression(family);
-      operands = [binary?.Left, binary?.Right];
-    }
-    if (operands === undefined) {
-      const fromBinder = sum.identity.application.some(argument => sourceTypeDescriptorsEqual(argument, arm) ||
-        (argument.kind === "union" || argument.kind === "optional") && sums.sumOf(argument)?.arms.some(selected => sourceTypeDescriptorsEqual(selected.type, arm)));
-      return fromBinder ? undefined : new Set(["bigint"]);
-    }
-    const origins = new Set<"number" | "bigint">();
-    for (const operand of operands) {
-      if (operand === undefined) return undefined;
-      const type = resolvedType(operand);
-      if (type === undefined) return undefined;
-      const inner = type.kind === "union" || type.kind === "optional" ? sums.sumOf(type) : undefined;
-      if (inner !== undefined) {
-        if (!inner.arms.some(selected => sourceTypeDescriptorsEqual(selected.type, arm))) continue;
-        const nested = wideArmOrigins(inner, arm, depth + 1);
-        if (nested === undefined) return undefined;
-        for (const origin of nested) origins.add(origin);
-        continue;
-      }
-      const structure = sourceTypeDescriptorStructure(type);
-      const present = structure.kind === "optional" ? structure.value : type;
-      if (!sourceTypeDescriptorsEqual(present, arm)) continue;
-      const leaf = valueOrigins(operand, depth + 1);
-      if (leaf === undefined) return undefined;
-      for (const origin of leaf) origins.add(origin);
-    }
-    return origins.size === 0 ? undefined : origins;
-  }
-  // The origins of a scalar wide-integer value, per component: the branches of a conditional or `??` join and the
-  // initializer of an unwritten local are followed; any other value has its own pre-Q1 number origin.
-  function valueOrigins(node: Node, depth: number): Set<"number" | "bigint"> | undefined {
-    if (depth > 16) return undefined;
-    let value = node;
-    while (ast.is.IsParenthesizedExpression(value) || ast.is.IsSatisfiesExpression(value) || ast.is.IsNonNullExpression(value)) {
-      const inner = Node_Expression(ast, value);
-      if (inner === undefined) return undefined;
-      value = inner;
-    }
-    const parts = ast.is.IsConditionalExpression(value)
-      ? [ast.as.AsConditionalExpression(value)?.WhenTrue, ast.as.AsConditionalExpression(value)?.WhenFalse]
-      : ast.is.IsBinaryExpression(value) && ast.operatorKindName(value) === "KindQuestionQuestionToken"
-        ? [ast.as.AsBinaryExpression(value)?.Left, ast.as.AsBinaryExpression(value)?.Right] : undefined;
-    if (parts === undefined && ast.is.IsIdentifier(value)) {
-      const declaration = source.navigation.sourceReferenceFor(value)?.declaration;
-      const initializer = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.typeNode(declaration) === undefined &&
-        !source.navigation.declarationUseSummary(declaration).bindingWritten ? Node_Initializer(ast, declaration) : undefined;
-      if (initializer !== undefined) return valueOrigins(initializer, depth + 1);
-    }
-    if (parts === undefined) return new Set([solved.numberOrigin(value) !== undefined ? "number" : "bigint"]);
-    const origins = new Set<"number" | "bigint">();
-    for (const part of parts) {
-      if (part === undefined) return undefined;
-      const type = resolvedType(part);
-      if (type === undefined || !isWideInteger(type)) continue;
-      const nested = valueOrigins(part, depth + 1);
-      if (nested === undefined) return undefined;
-      for (const origin of nested) origins.add(origin);
-    }
-    return origins.size === 0 ? undefined : origins;
-  }
-  function sumArmCategory(sum: SourceClosedSum, index: number, admission: SourceNullishAdmission["admission"]):
-    CategoryName | "unproven" | "conflict" {
-    const arm = sum.arms[index]!.type;
-    if (isAbsenceArm(arm)) return admission === "undefined-only" ? "undefined" : admission === "null-only" ? "object" : "unproven";
-    if (!isWideInteger(arm)) return category(arm, undefined) ?? "unproven";
-    const origins = wideArmOrigins(sum, arm, 0);
-    return origins === undefined ? "unproven" : origins.size === 1 ? [...origins][0]! : "conflict";
-  }
+  const typeofDecision = createSourceTypeofCategories({ ast, input, solved, sums: { sum: identity => sums.sum(identity),
+    sumOf: descriptor => sums.sumOf(descriptor) }, relationAt: node => relationAt(node), resolvedType, requireType, absence });
   const typeofRecords = new Map<string, SourceNullishAdmission | SourceRefusal>();
   const typeofKeys = new Map<Node, number>();
   const nodeKey = (node: Node): number => {
@@ -542,46 +532,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const key = `${nodeKey(operation)}:${nodeKey(operand)}`;
     const existing = typeofRecords.get(key);
     if (existing !== undefined) return existing;
-    const selected = requireType(operand, "a typeof/nullish admission");
-    const admission = nullishAdmission(operand, absence(selected) !== "never");
-    const sum = selected.kind === "union" || selected.kind === "optional" ? sums.sumOf(selected) : undefined;
-    let record: SourceNullishAdmission | SourceRefusal;
-    if (sum !== undefined) {
-      const categories = sum.arms.map((_, index) => sumArmCategory(sum, index, admission));
-      if (categories.includes("conflict")) {
-        record = Object.freeze({ kind: "refused", code: "TSONIC_LOCAL_TYPE_UNION", site: operation, related: operand,
-          message: "Values from a number and from an explicit 64-bit integer share one union arm of this operand, so its " +
-            "typeof category is not proven. Annotate the value as number or as the explicit integer type." });
-      } else {
-        const roles = sum.roles.map(role => {
-          const arms = role.arms.map(arm => Object.freeze({ arm, category: categories[arm] as CategoryName | "unproven" }));
-          const proven = [...new Set(arms.flatMap(arm => arm.category === "unproven" ? [] : [arm.category]))];
-          return Object.freeze({ role: role.role, categories: Object.freeze(proven), arms: Object.freeze(arms) });
-        });
-        record = Object.freeze({ kind: "typeof-site", operation, operand, admission,
-          sum: Object.freeze({ identity: sum.identity, roles: Object.freeze(roles) }) });
-      }
-    } else {
-      // A narrowed read that extracts one arm of a declared sum keeps that arm's category (its own origin).
-      const relation = ast.is.IsIdentifier(operand) ? relationAt(operand) : undefined;
-      let selectedCategory: CategoryName | "unproven" | "conflict" | undefined;
-      const present = sourceTypeDescriptorStructure(selected);
-      const value = present.kind === "optional" ? present.value : selected;
-      if (relation?.kind === "extract-arm") selectedCategory = sumArmCategory(sums.sum(relation.sum), relation.arm, admission);
-      else if (isWideInteger(value)) {
-        const origins = valueOrigins(operand, 0);
-        selectedCategory = origins === undefined ? "unproven" : origins.size === 1 ? [...origins][0]! : "conflict";
-      } else selectedCategory = category(selected, operand);
-      if (selectedCategory === "conflict") {
-        record = Object.freeze({ kind: "refused", code: "TSONIC_LOCAL_TYPE_UNION", site: operation, related: operand,
-          message: "Values from a number and from an explicit 64-bit integer reach this operand, so its typeof category " +
-            "is not proven. Annotate the value as number or as the explicit integer type." });
-      } else {
-        const scalar = selectedCategory === "unproven" || selectedCategory === "undefined" ? undefined : selectedCategory;
-        record = Object.freeze({ kind: "typeof-site", operation, operand, admission, ...(scalar === undefined ? {} : { category: scalar }),
-          sum: undefined });
-      }
-    }
+    const record = typeofDecision(operation, operand);
     typeofRecords.set(key, record);
     return record;
   }
@@ -598,11 +549,27 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     return Object.freeze({ ...outcome, type: payload });
   }
 
+  // The awaited-arm relation (awaited.ts) at the nodes of `awaited`: the operand is the await operand, the callable's
+  // return or the value itself; the awaited result is `awaited(node)`.
+  const awaitedArmRecords = new Map<Node, SourceAwaitedArms | undefined>();
+  function awaitedArms(node: Node): SourceAwaitedArms | undefined {
+    if (awaitedArmRecords.has(node)) return awaitedArmRecords.get(node);
+    const operandNode = ast.is.IsAwaitExpression(node) ? Node_Expression(ast, node) : undefined;
+    const operand = operandNode !== undefined ? type(operandNode)
+      : isSourceCallableSignatureDeclaration(ast, node) ? callableReturn(node) : type(node);
+    const result = awaited(node);
+    const record = operand.kind === "refused" || result.kind === "refused" ? undefined
+      : sourceTypeFlowAwaitedArms(ast, owner, descriptor => sums.sumOf(descriptor), node, operand.type, result.type);
+    awaitedArmRecords.set(node, record);
+    return record;
+  }
+
   const values: SourceValueFacts = Object.freeze({
-    type, has, contextual: (node: Node) => solved.contextual(node), callableReturn, slot, admission, operator, elementAccess,
-    typeofCategory, awaited,
+    type, has, contextual, destination, callableReturn, slot, admission, operator, elementAccess,
+    typeofCategory, awaited, awaitedArms,
     methodValueUse: (occurrence: Node) => solved.methodValueUse(occurrence),
     literal: (node: Node) => solved.literal(node),
+    literalDomain: (node: Node) => solved.literalDomain(node),
   });
 
   // ---- sums -----------------------------------------------------------------------------------------------------
@@ -638,7 +605,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
 
   // ---- relations -------------------------------------------------------------------------------------------------
   const relationQuery = createSourceRelationQuery({
-    source, input, type, contextual: node => solved.contextual(node), sumOf: sums.sumOf,
+    source, input, type, contextual: contextualDestination, sumOf: sums.sumOf,
     declaredSlotType: declaration => solved.declaredSlot(declaration)?.type, literal: node => solved.literal(node),
     typeofCategory, instantiation: use => instantiation(use),
   });
@@ -659,36 +626,40 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const edge = heritage.kind === "resolved" ? heritage.edges.find(selected => selected.kind === "extends") : undefined;
     if (edge === undefined) return refusedSuper("The base class of this super call has no declared heritage the Host can name. Extend a declared class.");
     const base = edge.target.declaration;
-    const binders = (ast.typeParameters(base) ?? []).filter((binder): binder is Node => binder !== undefined);
+    // The base's binders through the one type-parameter-owner role classifier (a heritage target that owns no type
+    // parameter list, e.g. a variable holding a class, has none).
+    const binders = sourceTypeFlowTypeParameters(ast, base);
     if (binders.length === 0) return undefined;
     const bindings = new Map<Node, SourceTypeDescriptor>();
     for (const [index, binder] of binders.entries()) {
       const authored = edge.typeArguments[index] ?? ast.as.AsTypeParameterDeclaration(binder)?.DefaultType;
       const outcome = authored === undefined ? undefined : solved.typeSyntax(authored);
       const described = outcome === undefined || outcome.kind === "refused" ? undefined
-        : index < edge.typeArguments.length ? outcome.type : substituteSourceTypeDescriptor(owner, outcome.type, bindings);
+        : index < edge.typeArguments.length ? outcome.type : sourceTypeFlowInstantiate(owner, bindings, outcome.type);
       if (described === undefined) {
         return refusedSuper("A type argument of the base class has no authored type here. Write every base type argument in the extends clause.");
       }
       bindings.set(binder, described);
     }
     const selected = input.call(use)?.signature;
-    if (selected !== undefined && ast.parent(selected) !== base) {
-      return refusedSuper("This super call reaches a constructor inherited through the generic base's implicit constructor. Declare the base constructor.");
-    }
+    const inherited = selected !== undefined && ast.parent(selected) !== base;
     const signature = selected ?? base;
     const parameters: SourceTypeDescriptor[] = [];
     if (selected !== undefined) for (const parameter of ast.parameters(selected)) {
       if (parameter === undefined) continue;
       const declared = solved.declaredSlot(parameter)?.type;
-      const substituted = declared === undefined ? undefined : substituteSourceTypeDescriptor(owner, declared, bindings);
+      const substituted = declared === undefined ? undefined : sourceTypeFlowInstantiate(owner, bindings, declared);
       if (substituted === undefined) return refusedSuper("A base constructor parameter has no Host type. Annotate the base constructor parameters.");
+      // A constructor inherited from a further base (R1 #19) is exact when its parameters name no binder that the generic
+      // base's bindings leave open (`class B<T> extends A {}`); only an open one is refused.
+      if (inherited && sourceTypeDescriptorHasTypeVariables(ast, substituted)) {
+        return refusedSuper("This super call reaches a constructor inherited through the generic base's implicit constructor. Declare the base constructor.");
+      }
       parameters.push(substituted);
     }
     const result = resolvedType(use) ?? Object.freeze({ kind: "intrinsic", intrinsic: "void" } as const);
     return Object.freeze({ kind: "call", use, signature,
-      receiver: Object.freeze(binders.map(binder => Object.freeze({ declaration: binder, type: bindings.get(binder)! }))),
-      method: Object.freeze([]), parameters: Object.freeze(parameters), result });
+      receiver: sourceTypeFlowBinderArguments(owner, binders, bindings), method: Object.freeze([]), parameters: Object.freeze(parameters), result });
   }
   const instantiationRecords = new Map<Node, SourceInstantiation | undefined>();
   function instantiation(use: Node): SourceInstantiation | undefined {
@@ -705,8 +676,17 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
         record = Object.freeze({ kind: "refused", code: "TSONIC_LOCAL_TYPE_GENERIC", site: use,
           message: "The pinned generic declaration cannot establish one exact source instantiation. Annotate the arguments or provide explicit type arguments." });
       } else {
+        // FX-CC-H3: a method binder given explicitly carries its authored type-argument node (by position among the
+        // selected signature's binders); a defaulted or inferred binder has none.
+        const binders = sourceTypeFlowTypeParameters(ast, signature);
+        const authored = ast.typeArguments(use);
+        const method = Object.freeze(solvedCall.method.map(argument => {
+          const position = binders.indexOf(argument.declaration);
+          const node = position >= 0 ? authored[position] : undefined;
+          return node === undefined ? argument : Object.freeze({ ...argument, authored: node });
+        }));
         record = Object.freeze({ kind: ast.is.IsNewExpression(use) ? "construction" : "call", use, signature,
-          receiver: solvedCall.receiver, method: solvedCall.method,
+          receiver: solvedCall.receiver, method,
           parameters: Object.freeze(parameters as readonly SourceTypeDescriptor[]), result });
       }
     } else if (solvedCall === undefined) {
@@ -793,9 +773,11 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const method = solved.callInstantiation(node)?.method ?? [];
     if (fact === undefined) {
       const refusal: SourceRefusal = method.length !== expected
-        ? Object.freeze({ kind: "refused", code: "TSONIC_POINTER_TYPE_ARGUMENTS", site: node,
+        ? Object.freeze({ kind: "refused", code: "TSTS_SOURCE_SEMANTICS_0003", site: node,
           message: `${name}(...) requires ${expected} exact selected pointer type argument${expected === 1 ? "" : "s"}.` })
-        : Object.freeze({ kind: "refused", code: "TSONIC_ARGUMENT_MARKER_NOT_PLACE", site: arguments_[0] ?? node, related: node,
+        // Q78: the address-of writability refusal keeps its baseline code (Legacy TSTS_SOURCE_SEMANTICS_0002), message and
+        // site; TSONIC_ARGUMENT_MARKER_NOT_PLACE is approved only for out/ref/inref marker targets (N8).
+        : Object.freeze({ kind: "refused", code: "TSTS_SOURCE_SEMANTICS_0002", site: arguments_[0] ?? node, related: node,
           message: `${name}(...) requires writable storage.` });
       markerRefusals.push(refusal);
       pointerRecords.set(node, refusal);
@@ -804,7 +786,7 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     const pointee = method[expected === 2 ? 1 : 0]?.type;
     const result = resolvedType(node);
     if (pointee === undefined || result === undefined) {
-      const refusal: SourceRefusal = Object.freeze({ kind: "refused", code: "TSONIC_POINTER_TYPE_ARGUMENTS", site: node,
+      const refusal: SourceRefusal = Object.freeze({ kind: "refused", code: "TSTS_SOURCE_SEMANTICS_0003", site: node,
         message: `${name}(...) requires ${expected} exact selected pointer type argument${expected === 1 ? "" : "s"}.` });
       markerRefusals.push(refusal);
       pointerRecords.set(node, refusal);
@@ -863,8 +845,16 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     if (relation?.kind === "refused") relationRefusals.push(relation);
   }
   for (const node of solved.nodes) if (isSourceCallableSignatureDeclaration(ast, node)) callableReturn(node);
+  // A call, construction or super call whose instantiation the Host refuses is in the one refusal collection (R1 #18,
+  // R5). A generic function value keeps its use-site refusal (A3-D4): it is refused only where it is instantiated.
+  const instantiationRefusals: SourceRefusal[] = [];
+  for (const node of solved.valueNodes) {
+    if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))) continue;
+    const record = instantiation(node);
+    if (record?.kind === "refused") instantiationRefusals.push(record);
+  }
   const allRefusals = Object.freeze([...new Set([...solved.refusals().map(toRefusal), ...markerRefusals, ...elementRefusals, ...anyRefusals, ...relationRefusals,
-    ...[...callableReturnRefusals.values()].map(toRefusal)])]);
+    ...instantiationRefusals, ...[...callableReturnRefusals.values()].map(toRefusal)])]);
 
   // ---- obligations (checker-free projection of the solver's obligation list) ------------------------------------
   const obligationRecords: readonly SourceObligation[] = Object.freeze(solved.obligations().map(obligation => {

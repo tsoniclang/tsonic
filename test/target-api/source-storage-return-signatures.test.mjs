@@ -3,12 +3,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
 
 // The Host result descriptor of a callable declaration (values.callableReturn), or undefined when refused.
 function callableReturn(source, declaration) {
   const outcome = source.facts.values.callableReturn(declaration);
+  return outcome.kind === "refused" ? undefined : outcome.type;
+}
+
+// The declaration own authored result (its return annotation), as the Host types that type node.
+function authoredReturn(source, declaration) {
+  const annotation = source.ast.typeNode(declaration);
+  assert.equal(annotation !== undefined, true, "the fixture declaration states its own result type");
+  const outcome = source.facts.values.type(annotation);
   return outcome.kind === "refused" ? undefined : outcome.type;
 }
 
@@ -51,7 +59,8 @@ for (const [name, kind] of [["numeric", "KindGetAccessor"], ["generic", "KindGet
     const node = input.nodes.find(value => input.source.ast.kindName(value) === kind &&
       input.source.ast.text(input.source.ast.name(value)) === name);
     const returned = callableReturn(input.source, node);
-    assert.equal(returned !== undefined, true, "the getter declaration has its own Host result");
+    assert.equal(returned !== undefined && sourceTypeDescriptorsEqual(returned, authoredReturn(input.source, node)), true,
+      "the getter result is its own declaration signature result");
     const selected = input.storage.subject(node, "return");
     assert.equal(selected.kind, "resolved");
     const type = input.storage.typeFor(selected.subject);
@@ -89,7 +98,8 @@ test("ordinary and overloaded callable return subjects retain exact declaration 
   assert.equal(declarations.length, 5);
   for (const declaration of declarations) {
     const returned = callableReturn(input.source, declaration);
-    assert.equal(returned !== undefined, true, "each overload and arrow has its own Host result");
+    assert.equal(returned !== undefined && sourceTypeDescriptorsEqual(returned, authoredReturn(input.source, declaration)), true,
+      "each overload and arrow result is its own declaration signature result, not another overload");
     const selected = input.storage.subject(declaration, "return");
     assert.equal(selected.kind, "resolved");
     const type = input.storage.typeFor(selected.subject);

@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageProjectionReceiver, SourceStorageScope } from "./scoped-model.js";

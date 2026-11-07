@@ -4,6 +4,7 @@ import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/i
 import { sourceReceiverBoundary } from "../../source-navigation/receiver-owner.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import type { SourceStorageLimits, SourceStorageQueries, SourceStorageUnresolved } from "../source-storage/model/types.js";
+import { sourceStorageQueriesProgram } from "../source-storage/queries.js";
 
 interface ReceiverScope {
   readonly declaration: Node;
@@ -16,7 +17,9 @@ export type SourceReceiverOccurrencesSelection =
 
 export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
   limits?: Partial<SourceStorageLimits>): SourceReceiverOccurrencesSelection {
-  const { ast } = storage.source;
+  const source = sourceStorageQueriesProgram(storage);
+  if (source === undefined) return Object.freeze({ kind: "unresolved", reason: "Receiver occurrences require a Host storage query." });
+  const { ast } = source;
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const states = new Map<Node, { readonly scope: ReceiverScope | undefined; readonly ambient: boolean }>();
   const bodies = new Map<Node, ReceiverScope>();
@@ -48,7 +51,7 @@ export function analyzeSourceReceiverOccurrences(storage: SourceStorageQueries,
       bodies.set(body, { declaration: node, outer: arrow ? scope : undefined });
       occurrences.set(node, []);
       evaluated.add(body);
-      const parameters = sourceCallableValueParameters(ast, node, storage.source.navigation, { kind: "declaration" });
+      const parameters = sourceCallableValueParameters(ast, node, source.navigation, { kind: "declaration" });
       if (parameters === undefined) return unresolved("Receiver scopes require their exact checked value parameters.");
       for (const parameter of parameters) {
         if (!budget.step()) return exhausted();

@@ -7,13 +7,15 @@
 // A Host refusal of an operand or instantiation makes the record `rejected` with the refusal message (the refusal itself
 // is reported by the Host). A generic marker call without a published instantiation is a missing Host fact for a
 // supported form: an invariant failure, never a retry.
-import type { Node } from "@tsonic/tsts";
+import { rawPointerOperationFactKey, type Node } from "@tsonic/tsts";
 import { failTargetAnalysisInvariant } from "@tsonic/target-api/artifacts";
 import type { HostSourceProgram } from "@tsonic/target-api/host";
 import type { SourceTypeDescriptor } from "@tsonic/target-api/source";
 import type { TsonicAddressIntegerDomain } from "../pointers/raw-memory/facts.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../memory-layout/facts.js";
-import { readTsonicDataLayout, readTsonicKeepAlive, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
+import {
+  readTsonicDataLayout, readTsonicKeepAlive, readTsonicMemoryLayout, readTsonicRawMemoryOperation, resolveTsonicMemoryLayoutObservation,
+} from "../memory-layout/readers.js";
 import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 import { selectTsonicPointerView } from "../pointers/views/selection.js";
 import { tsonicNativePointerOperationFactKey, type TsonicNativePointerOperationFact } from "../pointers/facts.js";
@@ -144,6 +146,8 @@ export interface TsonicKeepAliveRecord {
 export type TsonicRawAddressRejection = TsonicRejectedRecord & { readonly operation: TsonicRawAddressRecord["operation"] };
 
 export interface TsonicMemoryFacts {
+  /** The finalized layout of a memorylayout / memoryarraylayout call; undefined: the call is not a layout call. */
+  layout(call: Node): TsonicMemoryLayoutRecord | TsonicRejectedRecord | undefined;
   rawLocation(call: Node): TsonicRawLocationRecord | TsonicRejectedRecord | undefined;
   rawAddress(call: Node): TsonicRawAddressRecord | TsonicRawAddressRejection | undefined;
   observation(call: Node): TsonicLayoutObservationRecord | TsonicRejectedRecord | undefined;
@@ -227,6 +231,13 @@ export interface TsonicPointerFacts {
   native(call: Node): TsonicNativePointerRecord | TsonicNativePointerRejection | undefined;
 }
 
+/** equalrawptr(left, right) / hashrawptr(pointer): the call, its operation and its role-ordered operands (FX-CC-C1). */
+export interface TsonicRawPointerIdentityRecord {
+  readonly call: Node;
+  readonly operation: "equal-raw-pointer" | "hash-raw-pointer";
+  readonly arguments: readonly TsonicTypedOperand[];
+}
+
 // ---- translation ------------------------------------------------------------------------------------------------------
 
 type Outcome<T> = T | TsonicRejectedRecord;
@@ -240,6 +251,11 @@ export interface TsonicHostRecords {
   readonly pointers: TsonicPointerFacts;
   /** A reinterpretation backing origin of the program (pointer backing and storage relations). */
   reinterpret(call: Node): TsonicReinterpretRecord | TsonicRejectedRecord | undefined;
+  /**
+   * A raw-pointer identity call (equal / hash); undefined for bind-raw-pointer and every other call. A Host-refused
+   * operand gives undefined too: that refusal is reported by the Host (facts.refusals()).
+   */
+  rawPointerIdentity(call: Node): TsonicRawPointerIdentityRecord | undefined;
 }
 
 /** The records of one Host program view. Every table lives in this closure (I5: per program, no module state). */
@@ -545,7 +561,22 @@ export function createTsonicHostRecords(source: HostSourceProgram): TsonicHostRe
       : selected.operation === "reinterpret" ? selected as TsonicReinterpretRecord : undefined;
   }
 
+  function layoutOfCall(call: Node): Outcome<TsonicMemoryLayoutRecord> | undefined {
+    const fact = readTsonicMemoryLayout(sourceFacts, call);
+    return fact === undefined || fact.call !== call ? undefined : layout(fact);
+  }
+
+  function rawPointerIdentity(call: Node): TsonicRawPointerIdentityRecord | undefined {
+    const fact = sourceFacts.getFact(call, rawPointerOperationFactKey);
+    if (fact === undefined || fact.call !== call || fact.operation === "bind-raw-pointer") return undefined;
+    const typed = (fact.operation === "equal-raw-pointer" ? [fact.leftExpression, fact.rightExpression] : [fact.pointerExpression])
+      .map(operand);
+    if (typed.some(isRejected)) return undefined;
+    return Object.freeze({ call, operation: fact.operation, arguments: Object.freeze(typed as TsonicTypedOperand[]) });
+  }
+
   const memory: TsonicMemoryFacts = Object.freeze({
+    layout: layoutOfCall,
     rawLocation,
     rawAddress,
     observation,
@@ -556,6 +587,7 @@ export function createTsonicHostRecords(source: HostSourceProgram): TsonicHostRe
     get memoryBindings() { return memoryBindings(); },
     pointers: Object.freeze({ view, native }),
     reinterpret,
+    rawPointerIdentity,
   });
 }
 

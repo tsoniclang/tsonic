@@ -1,6 +1,6 @@
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";

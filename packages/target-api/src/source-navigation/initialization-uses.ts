@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceBindingScope } from "./lexical-captures.js";
-import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
 
 export function sourceMayReadBeforeInitialization(
   declaration: Node,

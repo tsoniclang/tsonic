@@ -1,8 +1,8 @@
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../types.js";
-import { Node_Expression } from "../ast.js";
+import { Node_Expression } from "../../source-model/ast.js";
 import { sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
-import { sourceNodeHasRole } from "../callable-boundaries.js";
+import { sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
 
 export function sourceIntegerIsNonnegative(input: {
   readonly ast: AstReader;

@@ -28,7 +28,7 @@ function fixture(body: string) {
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    flowConditions: source.flowConditions, values: source.facts.values };
+    flowConditions: source.flowConditions, values: source.facts.values, effects: source.facts.navigation.expressions.effects };
   const result = (expression: Node, members: readonly string[] = ["string", "absence"]) =>
     selectSourceNativeGuardResult(context, expression, () => members, selected => {
       const guard = selectSourceNativeValueGuard(context, selected);

@@ -17,7 +17,7 @@ function fixture(text: string) {
     ${text}
   `);
   const source = createHostSourceProgramFixture(checked);
-  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles, premises: {} });
   const relation = createTsonicPointerStorageRelation(source, storage);
   const selections = memoryCalls(checked, "torawptr").map(call => {
     const operation = source.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
@@ -139,7 +139,7 @@ test("pointer storage retains one checked logical binding through value and retu
 
 test("pointer storage rejects foreign scoped bindings without an unbound retry", () => {
   const current = fixture("torawptr(allocateptr<uint32>(1), uint32Layout);");
-  const other = current.source.facts.analyses.storage({ sourceFiles: current.source.sourceFiles });
+  const other = current.source.facts.analyses.storage({ sourceFiles: current.source.sourceFiles, premises: {} });
   const call = memoryCalls(current.checked, "allocateptr")[0]!;
   assert.equal(current.relation.value(call, other.emptyBindings).kind, "unresolved");
   assert.equal(createTsonicPointerStorageRelation(current.source, other).value(call).kind, "complete");

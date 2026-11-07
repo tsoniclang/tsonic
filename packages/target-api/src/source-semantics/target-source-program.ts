@@ -1,4 +1,4 @@
-import type { CheckedSourceProgram, Node, SourceFile } from "@tsonic/tsts";
+import type { AstReader, CheckedSourceProgram, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceProgramNavigation } from "../source-navigation/index.js";
 import { createSourceRoleModel } from "../source-navigation/roles.js";
 import { createSourceNavigationInput } from "../host-input/navigation.js";
@@ -21,6 +21,8 @@ import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-m
 import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { buildSourceValueModelFacts } from "./local-type-flow/program-facts.js";
 import { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
+import { sourceTypeDescriptorPresentArms } from "./descriptor-arms.js";
+import { sourceTypeDescriptorTypeofCategory } from "./descriptor-categories.js";
 import type { SourceTypeDescriptor } from "./local-type-flow/types.js";
 import type { SourceFlowConditions } from "./value-flow-model.js";
 import type { HostSourceProgram } from "./types.js";
@@ -82,20 +84,21 @@ export function buildHostSourceProgram(
   const { semantics } = checker;
 
   const services = Object.freeze({ ast, sourceFiles, sourceFacts: source.sourceFacts, navigation, semantics,
-    platform: options.platform });
+    platform: options.platform, enumIntegerWidth: (declaration: Node) => enumConstants.integerWidth(declaration) });
   const input = createSourceHostInput(services);
   const valueModel = buildSourceValueModelFacts(services, source.programSourceFiles, input);
   const witnesses = createHostCheckerInput({ ...services, input });
   const selections = createSourceSelectionFacts({
     ast, witnesses, values: valueModel.values, instantiations: valueModel.instantiations,
-    pointerOperation: valueModel.pointerOperation,
+    pointerOperation: valueModel.pointerOperation, sums: valueModel.sums, navigation,
   });
-  const objects = createSourceObjectFacts({ ast, navigation, values: valueModel.values, selections,
-    substitute: valueModel.sums.substitute });
+  const objects = createSourceObjectFacts({ ast, sourceFiles: source.programSourceFiles, navigation, values: valueModel.values, selections,
+    substitute: valueModel.sums.substitute, join: valueModel.sums.join });
   const roles = createSourceRoleModel({
     ast,
     navigation,
     valueTypeDeclaration: node => valueTypeDeclaration(valueModel.values, node),
+    valueIsPrimitive: node => valueIsPrimitive(ast, valueModel.values, node),
     conditionValue(expression: Node) {
       const kind = ast.kindName(expression);
       if (kind === "KindTrueKeyword") return true;
@@ -104,11 +107,13 @@ export function buildHostSourceProgram(
       return literal?.form === "true" ? true : literal?.form === "false" ? false : undefined;
     },
   });
-  const profile = options.profile({ ast, sourceFacts: source.sourceFacts, wellKnownSymbol: selections.wellKnownSymbol });
+  const profile = options.profile({ ast, sourceFacts: source.sourceFacts, wellKnownSymbol: selections.wellKnownSymbol,
+    presentArms: sourceTypeDescriptorPresentArms,
+    typeofCategory: type => sourceTypeDescriptorTypeofCategory(ast, type, valueModel.values.literal) });
   let program: HostSourceProgram | undefined;
   const analyses = createSourceAnalysisFacts(
     () => program ?? (() => { throw new Error("Source analyses run only after the Host program is assembled."); })(),
-    options.analyses ?? [], options.platform);
+    options.analyses ?? [], options.platform, signature => selections.signatureParameters(signature));
   const facts = assembleSourceProgramFacts({
     documents,
     values: valueModel.values,
@@ -125,11 +130,17 @@ export function buildHostSourceProgram(
       valueModel.refusals,
       createSourceSelectionRefusals({ ast, sourceFiles: source.programSourceFiles, selections, profile }),
       objects.refusals,
+      // One collection (CONTRACT, R5; R4 #32): the enum declaration and enum-use issues as Host refusals with their own
+      // code, message and site. Property-name issues stay a per-node query (analyses.propertyNameIssue, Q93).
+      () => owner().enums.issues.map(issue => Object.freeze({ kind: "refused" as const, code: issue.code, message: issue.message,
+        site: issue.sourceNode })),
     ]),
   });
+  const owner = (): HostSourceProgram =>
+    program ?? (() => { throw new Error("Source refusals are read only after the Host program is assembled."); })();
 
   const enums = hostEnumFacts(enumConstants, () => analyzeSourceEnumNumericUses(
-    { ast, sourceFiles: navigation.sourceFiles, navigation, values: valueModel.values }, enumConstants));
+    { ast, sourceFiles: navigation.sourceFiles, navigation, values: valueModel.values, profile }, enumConstants));
   const flowConditions = new WeakMap<Node, SourceFlowConditions | null>();
   program = Object.freeze({
     ast,
@@ -146,7 +157,7 @@ export function buildHostSourceProgram(
     flowConditions(reference: Node) {
       const known = flowConditions.get(reference);
       if (known !== undefined) return known ?? undefined;
-      const selected = resolveSourceFlowConditions({ ast, navigation, sourceFacts: source.sourceFacts },
+      const selected = resolveSourceFlowConditions({ ast, navigation, sourceFacts: source.sourceFacts, effects: roles.expressions.effects },
         reference, checker.flowConditions(reference));
       flowConditions.set(reference, selected ?? null);
       return selected;
@@ -184,14 +195,34 @@ function valueTypeDeclaration(values: Pick<SourceValueFacts, "has" | "type">, no
   if (!values.has(node)) return undefined;
   const outcome = values.type(node);
   if (outcome.kind === "refused") return undefined;
-  const present = (type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] => {
-    if (type.kind === "optional") return present(type.value);
-    if (type.kind === "union") return type.types.flatMap(present);
-    const structure = sourceTypeDescriptorStructure(type);
-    if (structure.kind === "union" || structure.kind === "optional") return present(structure);
-    return structure.kind === "intrinsic" && (structure.intrinsic === "absence" || structure.intrinsic === "void") ? [] : [type];
-  };
-  const arms = present(outcome.type);
+  const arms = sourceTypeDescriptorPresentArms(outcome.type);
   const arm = arms.length === 1 ? arms[0]! : undefined;
   return arm?.kind === "declared" ? arm.declaration : undefined;
+}
+
+/**
+ * Whether the Host value type at `node` is definitely primitive, so coercing it runs no user code (role model input of
+ * the expression effects, R2 #15). Primitive: the number family, bool, char, string, bigint, void, never and absence,
+ * an enum, and a union or optional whose every arm is primitive (baseline typeIsDefinitelyPrimitive over the checked
+ * type, now over the Host descriptor). any, unknown, object, symbol, type variables, shapes and unexpressible references
+ * are not. A node without a value, or a refused value, is not proven primitive (its refusal is in facts.refusals()).
+ */
+function valueIsPrimitive(ast: AstReader, values: Pick<SourceValueFacts, "has" | "type">, node: Node): boolean {
+  if (!values.has(node)) return false;
+  const outcome = values.type(node);
+  if (outcome.kind === "refused") return false;
+  const primitive = (type: SourceTypeDescriptor, depth: number): boolean => {
+    if (depth > 32) return false;
+    const structure = sourceTypeDescriptorStructure(type);
+    switch (structure.kind) {
+      case "primitive": case "string": return true;
+      case "intrinsic": return structure.intrinsic === "void" || structure.intrinsic === "never" ||
+        structure.intrinsic === "absence" || structure.intrinsic === "bigint";
+      case "optional": return primitive(structure.value, depth + 1);
+      case "union": return structure.types.length > 0 && structure.types.every(arm => primitive(arm, depth + 1));
+      case "declared": return ast.is.IsEnumDeclaration(structure.declaration) || ast.is.IsEnumMember(structure.declaration);
+      default: return false;
+    }
+  };
+  return primitive(outcome.type, 0);
 }

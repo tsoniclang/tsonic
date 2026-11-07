@@ -1,33 +1,31 @@
-import { sourceAnalysisArms, sourceAnalysisIncludesFile, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceMemberPair } from "../../../public/source/objects.js";
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm } from "../../../source-semantics/descriptor-arms.js";
+import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import {
-  sourcePresentStorageArms, sourceStorageComponents, sourceStorageIsScalarType, sourceStorageMemberCorrespondence,
-  sourceStorageMemberPairFor, sourceStorageMembers, sourceStorageSubjectType, sourceStorageTypesEqual,
-  type SourceStorageMemberPair,
-} from "../model/components.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { sourcePresentStorageArms, sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType, sourceStorageTypesEqual } from "../model/components.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
-import { sourceStorageCallReceiver } from "./invocation-inputs.js";
+import { sourceMemberOwner } from "../../../source-model/class-members.js";
+import { sourceStorageCallReceiver } from "../model/host-reads.js";
 
 type Descriptor = SourceTypeDescriptor;
 
 interface MemberIndex {
   aggregateReady: boolean;
-  members: readonly SourceStorageMemberPair[] | undefined;
+  members: readonly SourceMemberPair[] | undefined;
   readonly declarations: Map<Node, {
-    readonly member: SourceStorageMemberPair;
+    readonly member: SourceMemberPair;
     readonly originals: readonly Node[];
   } | undefined>;
 }
 
-const noMembers: readonly SourceStorageMemberPair[] = Object.freeze([]);
+const noMembers: readonly SourceMemberPair[] = Object.freeze([]);
 
 /** A member a spread or rest copies: its Host member name, optionality, read type and declarations. */
 export interface SourceStorageSpreadMember {
@@ -70,10 +68,10 @@ export function createSourceStorageMemberFlow(
     const rows = budget.createRows();
     let published = false;
     try {
-      let aggregate: readonly SourceStorageMemberPair[] | undefined;
-      let selectedMember: { readonly member: SourceStorageMemberPair; readonly originals: readonly Node[] } | undefined;
+      let aggregate: readonly SourceMemberPair[] | undefined;
+      let selectedMember: { readonly member: SourceMemberPair; readonly originals: readonly Node[] } | undefined;
       if (selection === "aggregate") {
-        const selected = sourceStorageMemberCorrespondence(source, from, to, "correspondence");
+        const selected = source.facts.objects.correspondence(from, to, "correspondence");
         if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") aggregate = noMembers;
         if (selected.kind === "available") {
           if (!rows.add(1 + selected.members.length)) return undefined;
@@ -81,7 +79,7 @@ export function createSourceStorageMemberFlow(
         }
       } else {
         if (!budget.step()) return undefined;
-        const member = sourceStorageMemberPairFor(source, from, to, selection, "correspondence");
+        const member = source.facts.objects.correspondingMember(from, to, selection, "correspondence");
         if (member !== undefined) {
           if (!rows.add(2)) return undefined;
           if (!member.destination.declarations.includes(selection)) return undefined;
@@ -145,7 +143,7 @@ export function createSourceStorageMemberFlow(
     }
     return entry;
   };
-  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor): SourceStorageMemberPair | undefined =>
+  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor): SourceMemberPair | undefined =>
     selectedMember(owner, declaration, receiverType)?.member;
   const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor): readonly Node[] | undefined => {
     const entry = selectedMember(owner, declaration, receiverType);
@@ -229,9 +227,9 @@ export function createSourceStorageMemberFlow(
   /** The Host members of each arm of a value's type; undefined when an arm is open or its members are refused. */
   const armMembers = (type: Descriptor): readonly (readonly SourceStorageSpreadMember[])[] | undefined => {
     const selected: (readonly SourceStorageSpreadMember[])[] = [];
-    for (const arm of sourceAnalysisArms(type)) {
+    for (const arm of sourceTypeDescriptorArms(type)) {
       if (!budget.step() || sourceTypeDescriptorOpenness(source.ast, arm) === "top") return undefined;
-      if (sourceAnalysisIsAbsentArm(arm) || sourceAnalysisIsNeverArm(arm)) continue;
+      if (sourceTypeDescriptorIsAbsentArm(arm) || sourceTypeDescriptorIsNeverArm(arm)) continue;
       const members = source.facts.objects.members(arm);
       if ("kind" in members) return undefined;
       selected.push(members.map(member => Object.freeze({ name: member.name, optional: member.optional, type: member.type,
@@ -285,7 +283,7 @@ export function createSourceStorageMemberFlow(
     const object = ast.is.IsObjectLiteralExpression(owner.node) ? ast.as.AsObjectLiteralExpression(owner.node) : undefined;
     const rest = sourceStorageObjectRestOwner(owner.node, ast);
     if (file === undefined || object === undefined && rest === undefined || owner.projection.length !== 0) return undefined;
-    const destinationMembers = sourceStorageMembers(source, destinationType);
+    const destinationMembers = source.facts.objects.joinedMembers(destinationType);
     let selected = destinationMembers?.filter(member => member.declarations.includes(declaration)) ?? [];
     if (selected.length === 0) {
       // The declaration belongs to another shape the value is read through (a declared return type, or the spread source
@@ -387,7 +385,7 @@ export function createSourceStorageMemberFlow(
     return Object.freeze(components);
   };
   return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, memberStorageKindFor, spreadMembersFor, componentsFor,
-    membersFor: (owner: SourceStorageSubject, destinationType: Descriptor): readonly SourceStorageMemberPair[] | undefined =>
+    membersFor: (owner: SourceStorageSubject, destinationType: Descriptor): readonly SourceMemberPair[] | undefined =>
       aggregateIndex(owner, destinationType)?.members });
 }
 

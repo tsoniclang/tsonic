@@ -11,7 +11,7 @@ import { createTsonicHostRecords } from "../../analysis/host-records.js";
 function collect(text: string) {
   const checked = cleanMemorySession('import { allocateptr, addressof } from "@tsonic/core/lang.js";\n' + text);
   const source = createHostSourceProgramFixture(checked);
-  const demands = createTsonicPointerBackingDemands(source);
+  const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
   function visit(node: import("@tsonic/tsts").Node): void {
     demands.record(node);
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });

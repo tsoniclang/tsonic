@@ -1,7 +1,7 @@
 import { AsCaseBlock, AsCatchClause, AsSwitchStatement, AsTryStatement, AsVariableDeclarationList } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceControlTransferTarget } from "../../source-navigation/control-targets.js";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
 import { sourceFlowBooleanEdges } from "./conditions.js";
 import { sourceFlowCleanupScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceFlowClosure } from "./expressions.js";

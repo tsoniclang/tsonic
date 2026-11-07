@@ -6,15 +6,16 @@ import type {
   SourceDeclarationTarget, SourceModuleExportTarget, SourceNodeRole, SourceRoleModel,
 } from "../public/source/roles.js";
 import type { SourceProgramNavigation } from "./types.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
-import { isSourceCallableBodyBoundary, sourceEnclosing, sourceNodeRoles } from "./callable-boundaries.js";
+import { sourceTransparentExpressionOperand } from "../source-model/ast.js";
+import { isSourceCallableBodyBoundary, sourceEnclosing, sourceNodeRoles } from "../source-model/callable-boundaries.js";
 import { sourceLexicalFunctionIsUnused } from "./callable-invocations.js";
 import { sourceControlTransferTarget } from "./control-targets.js";
 import { sourceDeclarationHasOnlyTypeUses } from "./declaration-use-summary.js";
 import { sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
+import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceNodeIdentity } from "./identity.js";
 import {
-  sourceBindingIterationScope, sourceBindingScope, sourceDeclarationIsModuleScoped, sourceLexicalCaptures,
+  createSourceLexicalCaptureQuery, sourceBindingIterationScope, sourceBindingScope, sourceDeclarationIsModuleScoped,
 } from "./lexical-captures.js";
 import { sourceReceiverOwner } from "./receiver-owner.js";
 import { sourceCallableUsesLexicalThis, sourceExpressionUsesLexicalThis } from "../source-semantics/lexical-this.js";
@@ -31,6 +32,12 @@ export interface SourceRoleModelInput {
   valueTypeDeclaration(node: Node): Node | undefined;
   /** Constant truth value of a condition expression when the Source fixes it (literal facts), else undefined. */
   conditionValue(expression: Node): boolean | undefined;
+  /**
+   * Whether the Host value type at `node` is definitely primitive (coercing it runs no user code): from
+   * `facts.values.type(node)`, never a checked type or an annotation classifier (R1, R3; R2 #15). The expression
+   * effects (`expressions.effects`) take operand primitiveness only from here.
+   */
+  valueIsPrimitive(node: Node): boolean;
 }
 
 const projectShapeKinds: ReadonlySet<string> = new Set([
@@ -42,6 +49,9 @@ export function createSourceRoleModel(input: SourceRoleModelInput): SourceRoleMo
   const roles = new WeakMap<Node, readonly SourceNodeRole[]>();
   const suspensionsMemo = new WeakMap<Node, readonly Node[]>();
   const capturesMemo = new WeakMap<Node, readonly { readonly declaration: Node; readonly written: boolean }[]>();
+  const effectsMemo = new WeakMap<Node, ReturnType<typeof sourceExpressionEffects>>();
+  // The one expression-effects owner: authored syntax plus Host value primitiveness (the raw navigation has no effects).
+  const effectsInput = Object.freeze({ ast, operandIsPrimitive: (operand: Node) => input.valueIsPrimitive(operand) });
 
   const sourceFileOf = (node: Node): SourceFile => {
     const sourceFile = ast.getSourceFile(node);
@@ -91,11 +101,14 @@ export function createSourceRoleModel(input: SourceRoleModelInput): SourceRoleMo
     return frozen;
   };
 
+  // A projection of the one lexical capture selection (lexical-captures.ts, facts.analyses.lexicalCaptures): the same
+  // owner domain (callable-body ∪ class-scope; any other node throws) and the same roots [owner], so parameter-initializer
+  // captures are included. Only the binding and its written flag are projected.
+  const lexicalCaptures = createSourceLexicalCaptureQuery(ast, navigation);
   const captures = (callable: Node) => {
     const known = capturesMemo.get(callable);
     if (known !== undefined) return known;
-    const body = ast.body(callable);
-    const selection = sourceLexicalCaptures(callable, body === undefined ? [] : [body], ast, navigation, "source");
+    const selection = lexicalCaptures(callable);
     const result = Object.freeze(selection.captures.map(capture => Object.freeze({
       declaration: capture.declaration,
       written: navigation.declarationUseSummary(capture.declaration).bindingWritten,
@@ -125,10 +138,15 @@ export function createSourceRoleModel(input: SourceRoleModelInput): SourceRoleMo
   };
 
   return Object.freeze({
+    // The one node inventory (node-inventory.ts), the same one the storage transport walks (FX-CC-H4).
+    nodesForFiles: (files: readonly SourceFile[]) => navigation.nodesForFiles(files),
     identity: Object.freeze({
       target,
       declarations: (declaration: Node) => navigation.mergedDeclarations(declaration),
       isProjectDeclaration: (node: Node) => navigation.isProjectDeclaration(node),
+      // R2 #44: the project declaration the Host value type at `node` names (`this`, `new C()`, a call result): the
+      // replacement of the removed checked-type fallback of declarationFor / referenceFor, from the value model (R3).
+      valueDeclaration: (node: Node) => projectValueDeclaration(node),
       isProjectShape(node: Node) {
         const declaration = projectValueDeclaration(node);
         return declaration !== undefined && projectShapeKinds.has(ast.kindName(declaration));
@@ -177,7 +195,7 @@ export function createSourceRoleModel(input: SourceRoleModelInput): SourceRoleMo
       hasOnlyTypeUses: (declaration: Node) => sourceDeclarationHasOnlyTypeUses(navigation.declarationUseSummary(declaration)),
     }),
     expressions: Object.freeze({
-      effects: (expression: Node) => navigation.expressionEffects(expression),
+      effects: (expression: Node) => sourceExpressionEffects(effectsInput, expression, effectsMemo),
       valueFlow: (expression: Node) => navigation.expressionValueFlow(expression),
       resultUse: (expression: Node) => navigation.expressionResultUse(expression),
       resultDisposition: (expression: Node) => navigation.expressionResultDisposition(expression),

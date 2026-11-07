@@ -1,16 +1,26 @@
 import type { Node } from "@tsonic/tsts";
 import { AsCaseBlock, AsCaseOrDefaultClause, AsSwitchStatement } from "../../source-navigation/checked-casts.js";
+import { Node_Name } from "../../source-model/ast.js";
 import type { SourceLiteralValue } from "../../source-semantics/literal-values-model.js";
-import { sourceTypeDescriptorStructure } from "../../source-semantics/local-type-flow/terms.js";
+import {
+  sourceTypeDescriptorStructure, type SourceTypeDescriptor, type SourceTypeDescriptorLiteral,
+} from "../../source-semantics/descriptor-model.js";
+import { sourceTypeDescriptorMayBeAbsent, sourceTypeDescriptorPresentArms } from "../../source-semantics/descriptor-arms.js";
 import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 
 /**
  * Answers whether a switch statement without a default clause selects a case for every value its discriminant can
- * hold. The discriminant's units come from the Host (I3): a `boolean` Host type has the units true/false; an enum Host
- * type has one unit per enum member; otherwise the authored annotation of the discriminant's declaration (through type
- * aliases) must be a union of literal types (string, number, bigint or boolean). Each case contributes the unit of its
- * literal value or the enum member it references. Anything else is not proven covered, so the switch keeps its
- * normal fallthrough exit. Flow narrowing of the discriminant is not applied (the declared units are used).
+ * hold (ruling Q79: baseline capability, units from the Host sum and relation of the subject). Units:
+ * - a `boolean` Host type: true / false; an enum Host type: one unit per enum member;
+ * - a member read `o.k`: the literal domain of member `k` in every arm of the receiver. The arms are those the Host
+ *   per-arm relation at the read selects (a narrowed receiver keeps only its narrowed arms), else the present arms of
+ *   the receiver's Host type. Each arm's member must carry its literal domain (descriptor member `literals`);
+ * - any other subject: the Host literal domain of the value (values.literalDomain), else the literal-union annotation of
+ *   its declaration (through non-generic aliases), declaration input. A narrowed discriminant is not covered.
+ * A subject whose Host type may be absent (an optional discriminant, an optional member, an optional chain, a top arm)
+ * also has the absence unit, which no case covers: the Host publishes no null / undefined distinction for a case, so
+ * the switch keeps its fallthrough exit (baseline: an undefined member had no unit key). Each case contributes the unit
+ * of its literal value or the enum member it references. Anything else is not proven covered.
  */
 export function createSourceSwitchCoverage(source: SourceAnalysisProgram): (switchStatement: Node) => boolean {
   const { ast, navigation } = source;
@@ -26,6 +36,7 @@ export function createSourceSwitchCoverage(source: SourceAnalysisProgram): (swit
     }
     return undefined;
   };
+  const absenceUnit = "absence";
   const enumUnits = (declaration: Node): Set<string> => new Set(ast.members(declaration)
     .filter((member): member is Node => member !== undefined).map(member => enumKey(member)));
   const enumKeys = new WeakMap<Node, string>();
@@ -63,13 +74,63 @@ export function createSourceSwitchCoverage(source: SourceAnalysisProgram): (swit
     }
     return undefined;
   };
+  const descriptorLiteralKey = (literal: SourceTypeDescriptorLiteral): string => literal.kind === "number"
+    ? `number:${literal.value === 0 ? 0 : literal.value}` : `${literal.kind}:${String(literal.value)}`;
+  /** The literal units of member `name` over the receiver arms, or undefined when some arm has no literal domain. */
+  const memberUnits = (access: Node): Set<string> | undefined => {
+    const selected = ast.as.AsPropertyAccessExpression(access);
+    const receiver = selected?.Expression;
+    const memberName = Node_Name(ast, access);
+    const name = memberName === undefined ? undefined : ast.text(memberName);
+    if (receiver === undefined || name === undefined) return undefined;
+    const relation = source.facts.relations.at(access);
+    let arms: readonly SourceTypeDescriptor[];
+    if (relation?.kind === "per-arm") {
+      const sum = source.facts.sums.sum(relation.sum);
+      arms = relation.arms.map(entry => sum.arms[entry.arm]?.type).filter((arm): arm is SourceTypeDescriptor => arm !== undefined);
+      if (arms.length !== relation.arms.length) return undefined;
+    } else {
+      const receiverType = sourceAnalysisValueType(source, receiver);
+      if (receiverType === undefined) return undefined;
+      arms = sourceTypeDescriptorPresentArms(receiverType);
+    }
+    if (arms.length === 0) return undefined;
+    const units = new Set<string>();
+    for (const arm of arms) {
+      const shape = sourceTypeDescriptorStructure(arm);
+      if (shape.kind !== "shape") return undefined;
+      const member = shape.members.find(candidate => candidate.name === name);
+      if (member?.literals === undefined || member.literals.length === 0) return undefined;
+      for (const literal of member.literals) units.add(descriptorLiteralKey(literal));
+    }
+    return units;
+  };
   const discriminantUnits = (expression: Node): Set<string> | undefined => {
     const type = sourceAnalysisValueType(source, expression);
-    const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
-    if (structure?.kind === "primitive" && structure.primitive === "bool") return new Set(["boolean:true", "boolean:false"]);
-    if (structure?.kind === "declared" && ast.is.IsEnumDeclaration(structure.declaration)) return enumUnits(structure.declaration);
-    const declaration = navigation.declarationFor(expression);
-    return declaration === undefined ? undefined : authoredUnits(ast.typeNode(declaration), 0);
+    if (type === undefined) return undefined;
+    const arms = sourceTypeDescriptorPresentArms(type).map(sourceTypeDescriptorStructure);
+    if (arms.length === 0) return undefined;
+    let units: Set<string> | undefined;
+    if (arms.every(arm => arm.kind === "primitive" && arm.primitive === "bool")) units = new Set(["boolean:true", "boolean:false"]);
+    else if (arms.every(arm => arm.kind === "declared" && ast.is.IsEnumDeclaration(arm.declaration))) {
+      units = new Set(arms.flatMap(arm => arm.kind === "declared" ? [...enumUnits(arm.declaration)] : []));
+    } else if (ast.is.IsPropertyAccessExpression(expression)) units = memberUnits(expression);
+    else {
+      // A plain subject: the Host literal domain of the value (an inferred discriminant: a constant, a conditional or
+      // `??` of constants, an unannotated unwritten local's initializer), else its declaration's literal-union annotation.
+      const domain = source.facts.values.literalDomain(expression);
+      if (domain !== undefined) {
+        const keys = domain.map(literalKey);
+        units = keys.every((key): key is string => key !== undefined) ? new Set(keys) : undefined;
+      } else {
+        const declaration = navigation.declarationFor(expression);
+        units = declaration === undefined ? undefined : authoredUnits(ast.typeNode(declaration), 0);
+      }
+    }
+    if (units === undefined) return undefined;
+    // An optional discriminant (or optional member, optional chain, top arm) also holds absence, which no case covers.
+    if (sourceTypeDescriptorMayBeAbsent(ast, type)) units.add(absenceUnit);
+    return units;
   };
   const caseKey = (expression: Node): string | undefined => {
     const literal = literalKey(source.facts.values.literal(expression));

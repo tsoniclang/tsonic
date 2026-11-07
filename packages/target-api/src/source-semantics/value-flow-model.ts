@@ -1,5 +1,6 @@
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import type { SourceExpressionEffects } from "../source-navigation/records.js";
 import type { SourceValueFacts } from "../public/source/facts.js";
 
 /** One condition the checker's flow analysis applies at a reference (host-input witness; Node-only). */
@@ -25,6 +26,8 @@ export interface SourceValueFlowQueryContext {
   flowConditions(reference: Node): SourceFlowConditions | undefined;
   /** The Host value facts (guard operands are classified by their Host descriptor, R3). */
   readonly values: Pick<SourceValueFacts, "type">;
+  /** The evaluation effects of an expression: the role model owner (facts.navigation.expressions.effects). */
+  effects(expression: Node): SourceExpressionEffects;
 }
 
 export interface SourceNativeGuard<Predicate> {

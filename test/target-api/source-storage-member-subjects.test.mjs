@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { namedDeclaration, namedMember, namedVariable, requiredNode } from "../fixtures/source-navigation.mjs";
 import { sourceStorageProjectComponents } from "../../packages/target-api/dist/target-analysis/source-storage/graph/component-projections.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -105,12 +105,16 @@ test("nested storage projections preserve a proven never prefix without closing 
     const outcome = source.facts.values.type(node);
     return outcome.kind === "refused" ? undefined : outcome.type;
   };
-  assert.equal(Node_Initializer(source.ast, field) !== undefined, true, "the field has its empty literal initializer");
-  // The empty literal value as a bottom-element array (the element type of [] is never).
-  const empty = Object.freeze({ kind: "array", readonly: false, element: Object.freeze({ kind: "intrinsic", intrinsic: "never" }) });
+  const initializer = Node_Initializer(source.ast, field);
+  assert.equal(initializer !== undefined, true, "the field has its empty literal initializer");
+  // The Host expression type of the authored [] (baseline: checker expressionType), never a hand-built descriptor.
+  const empty = resolved(initializer);
   const target = resolved(field);
   const unproved = resolved(namedVariable(source.ast, file, "unproved"));
-  assert.equal(target !== undefined && unproved !== undefined, true, "all projection inputs retain exact Host types");
+  assert.equal(empty !== undefined && target !== undefined && unproved !== undefined, true,
+    "all projection inputs retain exact Host types");
+  assert.equal(empty.kind === "array" && empty.element.kind === "intrinsic" && empty.element.intrinsic === "never", true,
+    "the authored empty literal is a bottom-element array (the element type of [] is never)");
   assert.equal(unproved.kind === "intrinsic" && unproved.intrinsic === "unknown", true, "the negative source really is unknown, not bottom");
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const project = (from, remaining) => {

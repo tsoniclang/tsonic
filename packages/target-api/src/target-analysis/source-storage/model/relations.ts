@@ -1,4 +1,4 @@
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 
 /** Host descriptors of the two ends of a storage value edge. */
 export interface SourceStorageEdgeTypes {

@@ -1,8 +1,8 @@
 import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import { sourcePresentStorageArms, sourceStorageInstanceType, sourceStorageMembers } from "../model/components.js";
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { sourcePresentStorageArms, sourceStorageInstanceType } from "../model/components.js";
+import { sourceMemberOwner } from "../../../source-model/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageInputFrontier, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -41,7 +41,7 @@ export function createSourceStoragePhysicalMembers(source: SourceAnalysisProgram
       const declaring = (): SourceTypeDescriptor => {
         const arms = sourcePresentStorageArms(receiverType);
         const members = arms.length > 1 ? arms.filter(arm =>
-          sourceStorageMembers(source, arm)?.some(member => member.declarations.includes(target)) === true) : [];
+          source.facts.objects.joinedMembers(arm)?.some(member => member.declarations.includes(target)) === true) : [];
         return members.length === 1 ? members[0]! : receiverType;
       };
       const declared = declaring();

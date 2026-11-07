@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, createSourceErrorStorageDemandQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, createSourceErrorStorageDemandQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "../../packages/target-api/dist/public/source.js";
 
 const typeOf = (source, node) => {
@@ -22,10 +22,11 @@ const sameBinding = (source, invocation, transported, index = 0) => {
   const witness = source.navigation.call(invocation)?.bindings[index];
   const selection = source.facts.selections.call(invocation);
   const parameter = selection === undefined || selection.kind === "refused" ? undefined
-    : selection.parameters[transported.binding.sourceParameterIndex]?.type;
-  return witness !== undefined && witness.sourceArgumentIndex === transported.binding.sourceArgumentIndex &&
-    witness.sourceParameterIndex === transported.binding.sourceParameterIndex &&
-    witness.sourceForm === transported.binding.sourceForm && same(transported.parameterType, parameter);
+    : selection.parameters[transported.binding.parameterIndex]?.type;
+  // The transport binding is the published SourceArgumentCorrespondence (R2 #21), projected from this witness row.
+  return witness !== undefined && witness.sourceArgumentIndex === transported.binding.argumentIndex &&
+    witness.sourceParameterIndex === transported.binding.parameterIndex &&
+    witness.sourceForm === transported.binding.form && same(transported.parameterType, parameter);
 };
 import { checkedSource, namedDeclaration, namedMember, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageStoredValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -240,8 +241,10 @@ const record = { value: 7 };
     assert.equal(binding.kind, "resolved", `${name}: exact binding type`);
     assert.equal(same(binding.type, typeOf(source, variable(name))), true, `${name}: declared storage retained`);
     if (name === "empty") {
-      const ownKeys = source.facts.objects.ownKeys(allocation);
-      assert.equal(ownKeys !== "ambiguous" && ownKeys.length === 0, true, "fresh empty producer has no invented contextual members");
+      // The allocation storage type itself (baseline: propertyInfos(type.type).length === 0), not the literal syntax.
+      const allocationMembers = source.facts.objects.members(type.type);
+      assert.equal(Array.isArray(allocationMembers) && allocationMembers.length === 0, true,
+        "fresh empty producer has no invented contextual members");
       const members = source.facts.objects.members(binding.type);
       assert.equal(Array.isArray(members) && members.length === 1, true, "declared optional member belongs to binding only");
     }

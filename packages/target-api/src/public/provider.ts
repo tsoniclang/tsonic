@@ -33,6 +33,12 @@ export type {
   TsonicTargetCapabilityPlugin,
 } from "../target/composition.js";
 export type {
+  TargetProviderSourceCallSelector, TargetSourceExtensionContribution, TargetSourceProviderCallAnalysis,
+  TargetSourceSafetyApplicationPlacement, TargetSourceSafetyBuilderAnalysis, TargetSourceSafetyBuilderFact,
+  TargetSourceSafetyContract, TargetSourceSafetyMemberKind, TargetSourceSafetyProviderNames,
+  TargetSourceUnsafeContextAnalysis, TargetSourceUnsafeContextFact,
+} from "../target/source-extensions.js";
+export type {
   TargetCompilationSession,
   TargetCompilationSessionContext,
 } from "../target/compilation.js";

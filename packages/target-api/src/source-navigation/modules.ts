@@ -1,9 +1,9 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import { getStaticModuleReference } from "../module-reference.js";
 import { sourceFileIdentity } from "./identity.js";
 import type { SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectModuleSpecifierResolution } from "./types.js";
-import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
 
 /** The module's exports with a declaration in a source (non-declaration) file, sorted by name, file and position. */
 export function sourceProjectModuleExports(

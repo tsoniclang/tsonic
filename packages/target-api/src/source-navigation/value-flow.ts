@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationReference, SourceDeclarationUse, SourceDeclarationUseSummary, SourceExpressionValueFlowSummary } from "./types.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceNodesEqual } from "./identity.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
+import { sourceTransparentExpressionOperand } from "../source-model/ast.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 
 export function sourceExpressionValueFlow(

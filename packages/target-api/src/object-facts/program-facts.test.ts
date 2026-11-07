@@ -103,10 +103,9 @@ void literal; void point;`);
   assert.deepEqual(edges[1]!.typeArguments.map(argument => argument.kind), ["string"],
     "implements Named<string> publishes its type argument as a descriptor");
 
+  // Q101: SourceConstructFacts.initialization is deleted (no target reader); construction still resolves.
   const construction = facts.objects.construction(point);
-  assert.equal("initialization" in construction, true, "Point construction resolves");
-  const regions = "initialization" in construction ? construction.initialization.map(entry => entry.region) : [];
-  assert.deepEqual(regions, ["field", "parameter-property", "constructor-body"], "ES2022 field semantics order");
+  assert.equal("signatures" in construction, true, "Point construction resolves");
 
   const literal = select(node => host.ast.is.IsObjectLiteralExpression(node), "literal");
   assert.deepEqual(facts.objects.ownKeys(literal), [
@@ -173,4 +172,48 @@ test("I1: the target-facing entry and contract import no checker Type, Signature
     assert.equal(/SourceFinalTypeQueries|SourceFileSemantics|SourceProgramNavigation|SourceProgramSemantics/.test(text), false,
       `${file} must not expose the checker services`);
   }
+});
+
+test("heritage and member contracts terminate on a cyclic direct <-> parent heritage pair (R-T6-3)", () => {
+  // A cyclic interface `extends` pair is a checker error (TS2310), so the compiling cycle is an interface that extends
+  // a class implementing it: Direct extends Parent, Parent implements Direct.
+  const { facts, host, named } = fixture(`
+class Parent implements Direct { inherited = 1; contractual = 2; }
+interface Direct extends Parent { contractual: number }
+class Holder implements Direct { contractual = 3; inherited = 4; direct = 5; }`);
+  const parent = named("KindClassDeclaration", "Parent");
+  const direct = named("KindInterfaceDeclaration", "Direct");
+  const holder = named("KindClassDeclaration", "Holder");
+  const edges = (declaration: Node) => {
+    const heritage = facts.objects.heritage(declaration);
+    assert.equal(Array.isArray(heritage), true, "heritage resolves");
+    return heritage as Exclude<typeof heritage, { readonly kind: "refused" }>;
+  };
+  for (const [declaration, kind, target] of [[direct, "extends", parent], [parent, "implements", direct],
+    [holder, "implements", direct]] as const) {
+    const selected = edges(declaration);
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0]!.kind, kind);
+    assert.equal(selected[0]!.target, target, "the edge names its declared target, not a cycle-cut substitute");
+    assert.equal(selected[0]!.type.kind === "declared" && selected[0]!.type.declaration === target, true,
+      "the edge type is the Host descriptor of its target");
+    assert.equal(facts.objects.heritage(declaration), selected, "one memoized answer per declaration");
+  }
+  const memberOf = (owner: Node, name: string): Node => {
+    const selected = host.ast.members(owner).find(member => member !== undefined && host.ast.name(member) !== undefined &&
+      host.ast.text(host.ast.name(member)!) === name);
+    assert.equal(selected !== undefined, true, `${name} of its owner`);
+    return selected!;
+  };
+  const contracts = (member: Node) => {
+    const selected = facts.objects.contracts(member);
+    assert.equal(Array.isArray(selected), true, "member contracts resolve over the cycle");
+    return selected as readonly Node[];
+  };
+  const same = (actual: readonly Node[], expected: readonly Node[]): boolean =>
+    actual.length === expected.length && actual.every((node, index) => node === expected[index]);
+  assert.equal(same(contracts(memberOf(holder, "contractual")), [memberOf(direct, "contractual"), memberOf(parent, "contractual")]), true,
+    "the direct contract, then the contract inherited through the cycle, each once");
+  assert.equal(same(contracts(memberOf(holder, "inherited")), [memberOf(parent, "inherited")]), true, "the parent contract");
+  assert.equal(contracts(memberOf(holder, "direct")).length, 0, "an own member names no contract");
 });

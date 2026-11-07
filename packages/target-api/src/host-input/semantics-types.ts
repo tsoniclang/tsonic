@@ -8,7 +8,7 @@ import type {
   ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, SourceFile, Symbol,
   TypeSignatureParameterInfo, TypeTupleElementInfo, Type,
 } from "@tsonic/tsts";
-import type { SourceProjectReference } from "../source-navigation/types.js";
+import type { SourceNavigationReference } from "../source-model/navigation-records.js";
 import type { SourceNavigationDeclarationQueries, SourceNavigationOperationQueries,
   SourceNavigationTypeQueries } from "./navigation-checker.js";
 import type { SourceAuthoredTypeSelection } from "./semantics-authored-type-selection.js";
@@ -31,7 +31,6 @@ export interface SourceOperationEvidenceQueries extends SourceNavigationOperatio
 }
 
 export interface SourceFinalTypeQueries extends SourceNavigationTypeQueries {
-  awaitedType(type: Type): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): SourceTypeComponentEvidence | undefined;
   typeArgumentBindings(type: Type): readonly import("./semantics-type-arguments.js").SourceTypeArgumentBinding[] | undefined;
@@ -126,12 +125,12 @@ export type SourceValueTypeRefinementSelection =
   | { readonly kind: "not-project-reference" }
   | {
       readonly kind: "unresolved";
-      readonly reference: SourceProjectReference;
+      readonly reference: SourceNavigationReference;
       readonly missing: "declared-type" | "selected-type";
     }
   | {
       readonly kind: "resolved";
-      readonly reference: SourceProjectReference;
+      readonly reference: SourceNavigationReference;
       readonly declaredType: Type;
       readonly selectedType: Type;
       readonly refinement: SourceTypeRefinement;

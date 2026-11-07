@@ -13,6 +13,8 @@ import {
   sourcePrimitiveUnaryOperators, type SourcePrimitiveBinaryOperator, type SourcePrimitiveOperatorOperand,
 } from "./operator-decisions.js";
 import type { SourcePlatformFacts } from "../platform-model.js";
+import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
+import type { SourceTypeDescriptor } from "./types.js";
 
 // E24 (N5) unit controls: neutral premises only; no 32-bit runtime target exists.
 const known64: SourcePlatformFacts = Object.freeze({ kind: "known", nativeIntegerBits: 64, basis: "unit control: 64-bit" });
@@ -302,6 +304,25 @@ test("E24 operator decisions read the premise only where a literal is fitted to 
     // int64 decisions are unchanged.
     const int64 = decideSourcePrimitiveBinaryOperator("add", fixed("int64"), unbound("9223372036854775807"), platform);
     assert.equal(int64.kind === "resolved" && int64.result === "int64" && int64.right === "int64", true, code);
+  }
+});
+
+test("E24 union arm selection refuses only when a width-dependent native arm would win", () => {
+  const union = (...primitives: readonly SourcePrimitiveKind[]): SourceTypeDescriptor =>
+    ({ kind: "union", types: primitives.map(primitive => ({ kind: "primitive", primitive }) as const) });
+  const wide = numericLiteral("2147483648");
+  // native-int outranks float64: at 64 bits it wins, at 32 bits float64 wins, unstated widths refuse.
+  assert.deepEqual(sourceTypeFlowScalarCalculationArm(union("native-int", "float64"), wide, known64), { kind: "resolved", primitive: "native-int" });
+  assert.deepEqual(sourceTypeFlowScalarCalculationArm(union("native-int", "float64"), wide, known32), { kind: "resolved", primitive: "float64" });
+  for (const [platform, code] of [
+    [missing, "TSONIC_NATIVE_INTEGER_WIDTH_MISSING"], [conflicting, "TSONIC_NATIVE_INTEGER_WIDTH_CONFLICTING"],
+  ] as const) {
+    const refused = sourceTypeFlowScalarCalculationArm(union("native-int", "float64"), wide, platform);
+    assert.equal(refused.kind === "width-refused" && refused.refusal.code === code, true, code);
+    // int64 outranks native-int, so the native width never decides; a width-independent literal needs no premise.
+    assert.deepEqual(sourceTypeFlowScalarCalculationArm(union("native-int", "int64"), wide, platform), { kind: "resolved", primitive: "int64" });
+    assert.deepEqual(sourceTypeFlowScalarCalculationArm(union("native-uint", "float64"), numericLiteral("7"), platform),
+      { kind: "resolved", primitive: "native-uint" });
   }
 });
 

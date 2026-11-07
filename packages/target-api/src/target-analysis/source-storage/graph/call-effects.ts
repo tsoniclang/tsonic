@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceNavigationCall } from "../../../host-input/navigation.js";
+import type { SourceNavigationCall } from "../../../source-model/navigation-records.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallEffect, SourceStorageEffects } from "../model/types.js";
 

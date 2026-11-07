@@ -2,10 +2,10 @@ import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../an
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import { sourceStorageHasSignatures, sourceStorageIndexes, sourceStoragePointerOperation, sourceStorageSignatureDeclarations } from "./host-reads.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { sourceStorageHasSignatures, sourceStorageIndexes, sourceStoragePointerOperation, sourceStorageSignatureDeclarations } from "../model/host-reads.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
-import { sourcePresentStorageArms, sourceStorageMembers, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
+import { sourcePresentStorageArms, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -169,7 +169,7 @@ export function createSourceStorageDomainInitialization(input: {
         const file = transport.sourceFileFor(owner);
         const type = sourceStorageProjectionType(source, owner, selectedOwner.views, file);
         if (type === undefined || file === undefined) continue;
-        const emptyView = (sourceStorageMembers(source, present)?.length ?? 0) === 0 &&
+        const emptyView = (source.facts.objects.joinedMembers(present)?.length ?? 0) === 0 &&
           sourceStorageIndexes(source, present).length === 0 && !sourceStorageHasSignatures(present);
         const physicalContents = transport.contextLocation(owner) === "allocation" || owner.kind === "receiver" &&
           owner.projection.length === 0 && (ast.is.IsClassDeclaration(owner.node) || ast.is.IsClassExpression(owner.node));

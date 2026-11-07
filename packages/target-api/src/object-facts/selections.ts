@@ -1,15 +1,20 @@
 // SourceSelectionFacts: per-use operation selections. Declarations come from the host-input witnesses (objects.ts);
 // every descriptor comes from the value model (SourceValueFacts / SourceInstantiationFacts). No checker type here.
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceInstantiationFacts, SourceRefusal, SourceTypeOutcome, SourceValueFacts } from "../public/source/facts.js";
+import type {
+  SourceInstantiationFacts, SourceRefusal, SourceSumFacts, SourceTypeOutcome, SourceValueFacts,
+} from "../public/source/facts.js";
 import type {
   SourceCallSelection, SourceCompletionSelection, SourceGeneratorSelection, SourceIterationSelection,
   SourceMemberAccessSelection, SourceObjectLiteralElementSelection, SourceResourceSelection, SourceSelectionFacts,
-  SourceCallParameter, SourceResourceAlternative, SourceStorageSelection, SourceYieldSelection,
+  SourceCallParameter, SourceCallSignatureParameter, SourceResourceAlternative, SourceStorageSelection, SourceTupleLiteralSelection, SourceUnresolvedIterationSelection, SourceYieldSelection,
 } from "../public/source/selections.js";
-import type { SourceTypeDescriptor } from "../source-semantics/local-type-flow/types.js";
-import { sourceTypeDescriptorStructure } from "../source-semantics/local-type-flow/terms.js";
-import type { HostCheckerInput, HostWitnessRefusal } from "../host-input/objects.js";
+import type { SourceTypeDescriptor } from "../source-semantics/descriptor-model.js";
+import { sourceTypeDescriptorStructure } from "../source-semantics/descriptor-model.js";
+import type { HostCheckerInput, HostParameterWitness, HostWitnessRefusal } from "../host-input/objects.js";
+import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import { sourceTypeDescriptorPresentArms } from "../source-semantics/descriptor-arms.js";
+import { isSourceCallableSignatureDeclaration } from "../source-model/callable-boundaries.js";
 
 export interface SourceSelectionInput {
   readonly ast: AstReader;
@@ -18,9 +23,12 @@ export interface SourceSelectionInput {
   readonly instantiations: SourceInstantiationFacts;
   /** The native pointer operation records of the value model (writer A2, program-facts.ts). */
   readonly pointerOperation: SourceSelectionFacts["pointerOperation"];
+  /** The one union builder and the sole substitution of the value model (I6). */
+  readonly sums: Pick<SourceSumFacts, "join" | "substitute">;
+  readonly navigation: Pick<SourceProgramNavigation, "isProjectDeclaration" | "mergedDeclarations">;
 }
 
-const anyDescriptor: SourceTypeDescriptor = Object.freeze({ kind: "intrinsic", intrinsic: "any" });
+const stringDescriptor: SourceTypeDescriptor = Object.freeze({ kind: "string" });
 
 /** A refused value outcome as a Source refusal (code, message, site unchanged). */
 export function sourceRefusalOfOutcome(outcome: Extract<SourceTypeOutcome, { readonly kind: "refused" }>): SourceRefusal {
@@ -37,8 +45,20 @@ function sourceRefusalOfWitness(refusal: HostWitnessRefusal): SourceRefusal {
 export function createSourceSelectionFacts(input: SourceSelectionInput): SourceSelectionFacts & {
   /** Every selection refusal raised so far, in first-request order (B's share of SourceProgramFacts.refusals()). */
   refusals(): readonly SourceRefusal[];
+  /**
+   * The Source refusal of the iteration protocol at a for-of statement or spread element (the checker witness: untyped
+   * or per-arm-mixed iteration), raised into refusals(); undefined when the protocol is admitted. Asks no value fact,
+   * so the eager census never queries a node outside the value domain (a SpreadElement is not a value node).
+   */
+  iterationProtocolRefusal(site: Node): SourceRefusal | undefined;
+  /**
+   * The value-parameter slots of a signature declaration (analyses.signatureParameters, FX-CC #13): the same slots, by
+   * the same translation, as SourceCallSelection.signatureParameters of every call selecting it; undefined for a node
+   * that is not a signature declaration.
+   */
+  signatureParameters(signature: Node): readonly SourceCallSignatureParameter[] | undefined;
 } {
-  const { ast, witnesses, values, instantiations } = input;
+  const { ast, witnesses, values, instantiations, sums, navigation } = input;
   const raised: SourceRefusal[] = [];
   const raisedSites = new Set<string>();
   const raise = (refusal: SourceRefusal): SourceRefusal => {
@@ -48,7 +68,8 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
   };
   const calls = new WeakMap<Node, SourceCallSelection | SourceRefusal | null>();
   const members = new WeakMap<Node, SourceMemberAccessSelection | null>();
-  const iterations = new WeakMap<Node, SourceIterationSelection | SourceRefusal | null>();
+  const iterations = new WeakMap<Node, SourceIterationSelection | SourceUnresolvedIterationSelection | SourceRefusal | null>();
+  const signatures = new WeakMap<Node, readonly SourceCallSignatureParameter[] | null>();
 
   /** Descriptor of a value outcome, or the refusal that withholds it. */
   const typeOf = (node: Node): SourceTypeDescriptor | SourceRefusal => {
@@ -67,12 +88,16 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     const instantiation = instantiations.at(use);
     if (instantiation?.kind === "refused") { const refused = raise(instantiation); calls.set(use, refused); return refused; }
     const parameters: SourceCallParameter[] = [];
+    if (instantiation !== undefined && instantiation.parameters.length < witness.parameters.length) {
+      throw new Error(`The instantiation of '${ast.text(use)}' has ${instantiation.parameters.length} parameter types for ` +
+        `${witness.parameters.length} selected parameters (I4).`);
+    }
     for (const [index, parameter] of witness.parameters.entries()) {
-      const selected = instantiation?.parameters[index] ?? typeOf(parameter.declaration);
+      const selected = instantiation === undefined ? typeOf(parameter.declaration) : instantiation.parameters[index]!;
       if (isRefusal(selected)) { const refused = raise(selected); calls.set(use, refused); return refused; }
       parameters.push(Object.freeze({ declaration: parameter.declaration, kind: parameter.kind, name: parameter.name, type: selected }));
     }
-    const result = instantiation?.result ?? typeOf(use);
+    const result = instantiation === undefined ? typeOf(use) : instantiation.result;
     if (isRefusal(result)) { const refused = raise(result); calls.set(use, refused); return refused; }
     const selection: SourceCallSelection = Object.freeze({
       use,
@@ -83,8 +108,7 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
       overloadIndex: witness.overloadIndex,
       ...(witness.receiver === undefined ? {} : { receiver: witness.receiver }),
       arguments: witness.arguments,
-      signatureParameters: Object.freeze(witness.parameters.map(parameter =>
-        Object.freeze({ declaration: parameter.declaration, kind: parameter.kind }))),
+      signatureParameters: signatureSlots(witness.parameters),
       parameters: Object.freeze(parameters),
       result,
       optionalChain: witness.optionalChain,
@@ -108,9 +132,66 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
       use, receiver: witness.receiver, receiverType,
       ...(witness.receiverValue === undefined ? {} : { receiverValue: witness.receiverValue }),
       name: witness.name, selected: witness.selected, result, access: witness.access, optionalChain: witness.optionalChain,
+      // FX-CC #7: the access is not writable (readonly modifier, getter-only member, readonly index signature, mapped
+      // readonly modifier, const / enum / import binding, readonly array or tuple), for every receiver kind.
+      readonly: accessIsReadonly(witness, receiverType),
     });
     members.set(use, selection);
     return selection;
+  };
+
+  /**
+   * Whether a member access is read-only at its use (baseline: `!writable` of the checker property-access record), from
+   * the selected declarations and the receiver's Host descriptor: a `readonly` property or index signature, a getter
+   * with no setter, a const variable, an enum member or an import binding, a readonly-flagged member of a receiver arm
+   * (mapped `readonly` modifier), or an element of a readonly array or tuple arm.
+   */
+  const accessIsReadonly = (witness: NonNullable<ReturnType<HostCheckerInput["memberAccess"]>>,
+    receiverType: SourceTypeDescriptor): boolean => {
+    if (witness.selected.kind === "index-signature") return ast.hasModifierKind(witness.selected.declaration, "readonly");
+    const declarations = witness.selected.declarations;
+    if (declarations.some(declaration => declarationIsReadonly(declaration))) return true;
+    return sourceTypeDescriptorPresentArms(receiverType).some(arm => {
+      const structure = sourceTypeDescriptorStructure(arm);
+      if (structure.kind === "array" || structure.kind === "tuple") return structure.readonly && ast.is.IsElementAccessExpression(witness.use);
+      return structure.kind === "shape" && structure.members.some(member => member.name === witness.name && member.readonly === true);
+    });
+  };
+  const declarationIsReadonly = (declaration: Node): boolean => {
+    if (ast.is.IsEnumMember(declaration) || ast.is.IsImportSpecifier(declaration) || ast.is.IsNamespaceImport(declaration) ||
+      ast.is.IsImportClause(declaration)) return true;
+    if (ast.is.IsVariableDeclaration(declaration)) return ast.variableDeclarationKind(declaration) === "const";
+    if (ast.is.IsGetAccessorDeclaration(declaration)) {
+      const owner = ast.parent(declaration);
+      const name = ast.name(declaration);
+      if (owner === undefined || name === undefined) return false;
+      const text = ast.text(name);
+      const statics = ast.hasModifierKind(declaration, "static");
+      const siblings = ast.is.IsObjectLiteralExpression(owner) ? ast.properties(owner) : ast.members(owner);
+      return !siblings.some(member => member !== undefined && ast.is.IsSetAccessorDeclaration(member) &&
+        ast.hasModifierKind(member, "static") === statics && ast.name(member) !== undefined && ast.text(ast.name(member)!) === text);
+    }
+    return (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsPropertySignatureDeclaration(declaration) ||
+      ast.is.IsParameterDeclaration(declaration)) && ast.hasModifierKind(declaration, "readonly");
+  };
+
+  /**
+   * The value parameters of a callable or signature declaration from its declaration syntax (declaration input, R3):
+   * declaration order, a leading `this` parameter excluded; "rest" for `...p`, "optional" for `p?` or a default,
+   * else "required". undefined for a node that is no callable signature declaration.
+   */
+  const declaredParameterWitnesses = (signature: Node): readonly HostParameterWitness[] | undefined => {
+    if (!isSourceCallableSignatureDeclaration(ast, signature)) return undefined;
+    return Object.freeze(ast.parameters(signature).flatMap((parameter): HostParameterWitness[] => {
+      if (parameter === undefined) return [];
+      const name = ast.name(parameter);
+      const text = name === undefined ? "" : ast.text(name);
+      if (text === "this") return [];
+      const value = ast.as.AsParameterDeclaration(parameter);
+      const kind = value?.DotDotDotToken !== undefined ? "rest" as const
+        : value?.QuestionToken !== undefined || value?.Initializer !== undefined ? "optional" as const : "required" as const;
+      return [Object.freeze({ declaration: parameter, name: text, kind })];
+    }));
   };
 
   const objectLiteralElement = (element: Node): SourceObjectLiteralElementSelection | undefined => {
@@ -119,7 +200,8 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     const value = typeOf(witness.value);
     if (isRefusal(value)) return undefined;
     const destinationDeclaration = witness.destinations[0];
-    const destinationType = destinationDeclaration === undefined ? undefined : typeOf(destinationDeclaration);
+    const destinationType = destinationDeclaration === undefined ? undefined
+      : literalDestinationMember(witness.objectLiteral, destinationDeclaration) ?? typeOf(destinationDeclaration);
     if (destinationType !== undefined && isRefusal(destinationType)) return undefined;
     return Object.freeze({
       objectLiteral: witness.objectLiteral, element, elementKind: witness.elementKind,
@@ -128,14 +210,26 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     });
   };
 
-  const iteration = (statement: Node): SourceIterationSelection | SourceRefusal | undefined => {
+  const iteration = (statement: Node): SourceIterationSelection | SourceUnresolvedIterationSelection | SourceRefusal | undefined => {
     const known = iterations.get(statement);
     if (known !== undefined) return known ?? undefined;
     const witness = witnesses.iteration(statement);
     if (witness === undefined) { iterations.set(statement, null); return undefined; }
     if (witness.kind === "refused") { const refused = raise(sourceRefusalOfWitness(witness)); iterations.set(statement, refused); return refused; }
     const iterable = typeOf(witness.iterable);
-    const element = typeOf(iterationElementSite(ast, statement));
+    if (witness.kind === "for-await-unresolved") {
+      if (isRefusal(iterable)) { const refused = raise(iterable); iterations.set(statement, refused); return refused; }
+      const unresolved: SourceUnresolvedIterationSelection = Object.freeze({
+        kind: "unresolved-protocol", statement, iterable, reason: witness.reason,
+        alternatives: Object.freeze(witness.alternatives.map(alternative => Object.freeze({ protocol: alternative.protocol,
+          ...(alternative.iteratorMethod === undefined ? {} : { iteratorMethod: alternative.iteratorMethod }) }))),
+      });
+      iterations.set(statement, unresolved);
+      return unresolved;
+    }
+    const declared = iterationDeclaration(ast, statement);
+    const element = declared !== undefined ? typeOf(declared)
+      : isRefusal(iterable) ? iterable : iterationElement(statement, iterable, witness.protocol, witness.iteratorMethod);
     if (isRefusal(iterable) || isRefusal(element)) {
       const refused = raise(isRefusal(iterable) ? iterable : element as SourceRefusal);
       iterations.set(statement, refused);
@@ -154,13 +248,114 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     if (witness === undefined) return undefined;
     const returned = values.callableReturn(callable);
     if (returned.kind === "refused") return undefined;
-    const arguments_ = returned.type.kind === "declared" ? returned.type.typeArguments : [];
-    return Object.freeze({
-      callable, kind: witness.async ? "async-generator" : "generator",
-      yieldType: arguments_[0] ?? anyDescriptor,
-      returnType: arguments_[1] ?? anyDescriptor,
-      nextType: arguments_[2] ?? anyDescriptor,
-    });
+    const protocol = protocolArguments(returned.type);
+    if (protocol === undefined || !Array.isArray(protocol)) return undefined;
+    const [yieldType, returnType, nextType] = protocol;
+    if (yieldType === undefined || returnType === undefined || nextType === undefined) {
+      throw new Error(`The generator '${ast.text(callable)}' returns a library iteration protocol with fewer than three binders (I4).`);
+    }
+    return Object.freeze({ callable, kind: witness.async ? "async-generator" : "generator", yieldType, returnType, nextType });
+  };
+
+  /**
+   * The type arguments of the library iteration-protocol interface a descriptor names (Generator, AsyncGenerator,
+   * Iterator, IterableIterator, Iterable, SetIterator ...), followed through alias definitions (which the value model
+   * publishes already applied): one per binder of that interface, in the interface's own binder order (yield, return,
+   * next for every library protocol interface), the applied argument else the binder's authored default with the earlier
+   * bindings substituted (the sole substitution, I6). undefined when the descriptor names no library interface.
+   */
+  const protocolArguments = (type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] | SourceRefusal | undefined => {
+    let current: SourceTypeDescriptor | undefined = type;
+    const seen = new Set<SourceTypeDescriptor>();
+    while (current?.kind === "declared" && !seen.has(current)) {
+      seen.add(current);
+      const declaration = current.declaration;
+      if (ast.is.IsInterfaceDeclaration(declaration) && !navigation.isProjectDeclaration(declaration)) {
+        const binders = ast.typeParameters(declaration).filter((binder): binder is Node => binder !== undefined);
+        const bindings = new Map<Node, SourceTypeDescriptor>();
+        const applied: SourceTypeDescriptor[] = [];
+        for (const [index, binder] of binders.entries()) {
+          let argument = current.typeArguments[index];
+          if (argument === undefined) {
+            const authored = ast.as.AsTypeParameterDeclaration(binder)?.DefaultType;
+            if (authored === undefined) return undefined;
+            const selected = typeOf(authored);
+            if (isRefusal(selected)) return selected;
+            argument = sums.substitute(selected, bindings);
+          }
+          bindings.set(binder, argument);
+          applied.push(argument);
+        }
+        return Object.freeze(applied);
+      }
+      current = current.definition;
+    }
+    return undefined;
+  };
+
+  /**
+   * The element an iteration yields from its iterable's Host descriptor: an array's element, a tuple's elements joined
+   * by the one union builder, a string's character (string), or the yield binder of the library iterator protocol the
+   * selected [Symbol.iterator] / [Symbol.asyncIterator] method returns, with the iterable's own binders substituted.
+   * A supported iteration whose element no rule names is an invariant failure (I4).
+   */
+  const iterationElement = (site: Node, iterable: SourceTypeDescriptor, protocol: SourceIterationSelection["protocol"],
+    iteratorMethod: Node | undefined): SourceTypeDescriptor | SourceRefusal => {
+    const structure = sourceTypeDescriptorStructure(iterable);
+    if (structure.kind === "array") return structure.element;
+    if (structure.kind === "tuple") {
+      const joined = sums.join(structure.elements.map(element => element.type));
+      if (joined !== undefined) return joined;
+    }
+    if (structure.kind === "string" || protocol === "string") return stringDescriptor;
+    if (iteratorMethod !== undefined) {
+      const returned = values.callableReturn(iteratorMethod);
+      if (returned.kind === "refused") return sourceRefusalOfOutcome(returned);
+      const owner = ast.parent(iteratorMethod);
+      const bindings = new Map<Node, SourceTypeDescriptor>();
+      for (let current: SourceTypeDescriptor | undefined = iterable; current?.kind === "declared"; current = current.definition) {
+        const declaration = current.declaration;
+        if (owner !== undefined && (declaration === owner || navigation.mergedDeclarations(declaration).includes(owner))) {
+          const binders = ast.typeParameters(owner).filter((binder): binder is Node => binder !== undefined);
+          for (const [index, binder] of binders.entries()) {
+            const argument = current.typeArguments[index];
+            if (argument !== undefined) bindings.set(binder, argument);
+          }
+          break;
+        }
+      }
+      const iterator = protocolArguments(bindings.size === 0 ? returned.type : sums.substitute(returned.type, bindings));
+      if (iterator !== undefined && !Array.isArray(iterator)) return iterator as SourceRefusal;
+      const element = (iterator as readonly SourceTypeDescriptor[] | undefined)?.[0];
+      if (element !== undefined) return element;
+    }
+    throw new Error(`The iteration at '${ast.text(site)}' has no Host element type for its iterable (I4).`);
+  };
+
+  /** The member type the literal's Host destination gives the destination declaration (instantiated, e.g. Box<number>). */
+  const literalDestinationMember = (objectLiteral: Node, declaration: Node): SourceTypeDescriptor | undefined => {
+    const destination = values.contextual(objectLiteral);
+    if (destination === undefined || destination.kind === "refused") return undefined;
+    const structure = sourceTypeDescriptorStructure(destination.type);
+    return structure.kind === "shape" ? structure.members.find(member =>
+      member.origin.kind === "declared" && member.origin.declaration === declaration)?.type : undefined;
+  };
+
+  const tupleUnavailable: SourceTupleLiteralSelection = Object.freeze({ kind: "unavailable" });
+  const tupleLiteral = (literal: Node): SourceTupleLiteralSelection => {
+    if (!ast.is.IsArrayLiteralExpression(literal)) throw new Error("A tuple-literal selection requires an array literal.");
+    const present = ast.elements(literal);
+    if (present.some(element => element !== undefined && ast.is.IsSpreadElement(element))) return tupleUnavailable;
+    const destination = values.contextual(literal);
+    if (destination === undefined || destination.kind === "refused") return tupleUnavailable;
+    const structure = sourceTypeDescriptorStructure(destination.type);
+    const tuple = structure.kind === "optional" ? sourceTypeDescriptorStructure(structure.value) : structure;
+    if (tuple.kind !== "tuple" || present.length > tuple.elements.length ||
+      tuple.elements.some(element => element.kind === "rest")) return tupleUnavailable;
+    const omitted = tuple.elements.flatMap((element, index) => index >= present.length && element.kind === "optional" ? [index] : []);
+    if (omitted.length !== tuple.elements.length - present.length) return tupleUnavailable;
+    return Object.freeze({ kind: "selected", literal, type: tuple, elements: tuple.elements,
+      omittedOptionalElementIndexes: Object.freeze(omitted) });
   };
 
   const completion = (callable: Node): SourceCompletionSelection | undefined => {
@@ -192,7 +387,7 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
     if (witness.kind === "refused") { const refused = raise(sourceRefusalOfWitness(witness)); resources.set(declaration, refused); return refused; }
     const declared = typeOf(declaration);
     if (isRefusal(declared)) { const refused = raise(declared); resources.set(declaration, refused); return refused; }
-    const arms = presentArms(declared);
+    const arms = sourceTypeDescriptorPresentArms(declared);
     const alternatives: SourceResourceAlternative[] = arms.map(arm => {
       const candidates = witness.alternatives.length === 1 && arms.length === 1 ? witness.alternatives
         : witness.alternatives.filter(alternative => armDeclaresMember(arm, alternative.dispose));
@@ -243,20 +438,29 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
   };
 
   return Object.freeze({
-    call, memberAccess, objectLiteralElement, iteration, generator, completion, resource, storage, yield: yieldSelection,
+    call, memberAccess, objectLiteralElement, iteration, generator, tupleLiteral, completion, resource, storage, yield: yieldSelection,
     wellKnownSymbol: (node: Node) => witnesses.wellKnownSymbol(node),
     pointerOperation: input.pointerOperation,
     refusals: () => Object.freeze([...raised]),
+    signatureParameters(signature: Node): readonly SourceCallSignatureParameter[] | undefined {
+      const known = signatures.get(signature);
+      if (known !== undefined) return known ?? undefined;
+      const witness = declaredParameterWitnesses(signature);
+      const selected = witness === undefined ? undefined : signatureSlots(witness);
+      signatures.set(signature, selected ?? null);
+      return selected;
+    },
+    iterationProtocolRefusal(site: Node): SourceRefusal | undefined {
+      const witness = witnesses.iteration(site);
+      return witness?.kind === "refused" ? raise(sourceRefusalOfWitness(witness)) : undefined;
+    },
   });
 }
 
-/** The present (non-absent, non-never) arms of a descriptor, in Host arm order. */
-function presentArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
-  const structure = sourceTypeDescriptorStructure(type);
-  if (structure.kind === "optional") return presentArms(structure.value);
-  if (structure.kind === "union") return structure.types.flatMap(presentArms);
-  return structure.kind === "intrinsic" && (structure.intrinsic === "absence" || structure.intrinsic === "void" ||
-    structure.intrinsic === "never") ? [] : [type];
+
+/** The one translation of signature parameter witnesses into published slots (call selections and signatures alike). */
+function signatureSlots(parameters: readonly HostParameterWitness[]): readonly SourceCallSignatureParameter[] {
+  return Object.freeze(parameters.map(parameter => Object.freeze({ declaration: parameter.declaration, kind: parameter.kind })));
 }
 
 /** Whether a member of the arm's structure (own or inherited, as published on the descriptor) is `declaration`. */
@@ -266,19 +470,18 @@ function armDeclaresMember(arm: SourceTypeDescriptor, declaration: Node): boolea
     member.origin.kind === "declared" && member.origin.declaration === declaration);
 }
 
-/** The node whose value type is the element: the for-of binding, the spread element itself, or the yield* operand. */
-function iterationElementSite(ast: AstReader, statement: Node): Node {
-  if (ast.is.IsForOfStatement(statement) || ast.is.IsForInStatement(statement)) {
-    const initializer = ast.as.AsForInOrOfStatement(statement)?.Initializer;
-    if (initializer === undefined) throw new Error("A for-of statement requires its initializer.");
-    if (ast.is.IsVariableDeclarationList(initializer)) {
-      const declaration = ast.as.AsVariableDeclarationList(initializer)?.Declarations?.Nodes?.[0];
-      if (declaration === undefined) throw new Error("A for-of declaration list requires one declaration.");
-      return declaration;
-    }
-    return initializer;
-  }
-  return statement;
+/**
+ * The declaration a for-of / for-in statement binds each element to (the value model types it with the element), or
+ * undefined for a spread element and a for-of over an existing binding, whose element comes from the iterable.
+ */
+function iterationDeclaration(ast: AstReader, statement: Node): Node | undefined {
+  if (!ast.is.IsForOfStatement(statement) && !ast.is.IsForInStatement(statement)) return undefined;
+  const initializer = ast.as.AsForInOrOfStatement(statement)?.Initializer;
+  if (initializer === undefined) throw new Error("A for-of statement requires its initializer.");
+  if (!ast.is.IsVariableDeclarationList(initializer)) return undefined;
+  const declaration = ast.as.AsVariableDeclarationList(initializer)?.Declarations?.Nodes?.[0];
+  if (declaration === undefined) throw new Error("A for-of declaration list requires one declaration.");
+  return declaration;
 }
 
 function callableIsGenerator(ast: AstReader, callable: Node): boolean {

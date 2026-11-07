@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+// The JS surface contributes data (K-2682); the Host builds its compiler extension.
+import { createTargetContributedCompilerExtension } from "../../packages/host/dist/target/extensions.js";
 
 import {
   createTsonicCoreSourceExtension,
@@ -11,7 +13,7 @@ import {
   getBundledLibraryClosure,
 } from "@tsonic/tsts";
 import {
-  createJsSourceSemanticsExtension,
+  jsSourceExtensionContribution,
   jsRegExpSourceProfileDeclarations,
   jsRegExpSourceProfileIdentity,
   jsSourceSemanticsModules,
@@ -107,7 +109,7 @@ test("canonical JS RegExp profile type-checks the complete declaration contract"
     extensions: [
       createSourceSemanticsExtension({ modules: [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()] }),
       createTsonicCoreSourceExtension(),
-      createJsSourceSemanticsExtension(),
+      createTargetContributedCompilerExtension(jsSourceExtensionContribution()),
     ],
   });
   assert.deepEqual(diagnostics, []);

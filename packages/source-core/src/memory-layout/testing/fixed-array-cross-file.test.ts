@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
+import { sourceTypeDescriptorsEqual } from "@tsonic/target-api/source";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../readers.js";
 import { readTsonicMemoryType } from "../type-contract/facts.js";
@@ -106,6 +107,8 @@ for (const [name, declarations, type, size] of [
     assert.equal(operation.explicitPointeeTypeNode, undefined);
     const record = createTsonicHostRecords(source).memory.rawLocation(conversion);
     assert.ok(record?.kind === "resolved" && record.operation === "reinterpret" && record.layout.call === layouts[1]!.call);
+    // reinterpretrawptr<T>(raw, layout: MemoryLayout<T>): the pointee is exactly the laid-out type of the selected layout.
+    assert.equal(sourceTypeDescriptorsEqual(record.pointee, record.layout.type), true, `${name}: exact pointee of the selected layout`);
     const selected = selectTsonicRawLocationOperation(source.ast, source.sourceFacts, conversion);
     assert.ok(selected?.kind === "resolved");
     assert.equal(selected.layout.call, layouts[1]!.call);
@@ -116,7 +119,10 @@ for (const [name, declarations, type, size] of [
       const selectedCall = checked.getSourceFileQueries(checked.ast.getSourceFile(conversion)!).checker.getResolvedCallInfo(conversion);
       const selectedLayout = readTsonicMemoryLayout(source.sourceFacts, operation.layoutExpression);
       assert.equal(operation.call === conversion, true, `${name}: original checked conversion`);
-      assert.equal(selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType !== undefined, true,
+      const instantiation = source.facts.instantiations.at(conversion);
+      assert.ok(selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType !== undefined);
+      assert.ok(instantiation !== undefined && instantiation.kind !== "refused");
+      assert.equal(sourceTypeDescriptorsEqual(record.pointee, instantiation.method[0]!.type), true,
         `${name}: original checked pointee type`);
       assert.equal(operation.layoutExpression === source.ast.arguments(conversion)[1], true,
         `${name}: original selected layout argument`);
@@ -129,7 +135,7 @@ for (const [name, declarations, type, size] of [
     }
     assert.equal(operation.layoutExpression, source.ast.arguments(conversion)[1]);
     for (const order of [calls, [...calls].reverse()]) {
-      const demands = createTsonicPointerBackingDemands(source);
+      const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
       for (const call of order) { demands.record(call); demands.record(call); }
       assert.deepEqual(demands.issues(), []);
       assert.equal(demands.entries().length, 1);
@@ -153,7 +159,7 @@ for (const [name, local, remote, type] of [
     assert.equal(layouts[0]!.byteAlignment, layouts[1]!.byteAlignment);
     assert.equal(layouts[0]!.stride, layouts[1]!.stride);
     for (const order of [calls, [...calls].reverse()]) {
-      const demands = createTsonicPointerBackingDemands(source);
+      const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
       for (const call of order) demands.record(call);
       assert.equal(demands.entries().length, 1);
       assert.deepEqual(demands.issues().map(issue => issue.reason), ["One pointer origin has incompatible physical layout demands."]);

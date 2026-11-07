@@ -6,29 +6,22 @@
 // (queries.ts) that only host-input can open.
 // Internal: nothing here is exported from a public entry point.
 import type { AstReader, Node, ReadonlySourceFactResolver, SourceFile, Type } from "@tsonic/tsts";
-import { sourceTypeFlowCallableReturns } from "../source-semantics/local-type-flow/callable-returns.js";
-import type { SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowInheritedBinding } from "../source-semantics/local-type-flow/types.js";
-import type { SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
-import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
+import { sourceTypeDescriptorMemberOrigin, type SourceMemberOriginResult } from "./member-origins.js";
+import { sourceObjectLiteralDestinationMember } from "./semantics-object-literal-correspondence.js";
 import type { SourceFileSemantics, SourceProgramSemantics } from "./semantics-types.js";
 import { createSourceHostNullishComponents, type SourceHostNullishComponents } from "./nullish-components.js";
 import {
-  checkerComponent, checkerType, createSourceHostQueries, hostComponent, sourceHostTypeDeclaration,
-  type SourceHostComponent, type SourceHostQueries, type SourceHostType,
+  checkerType, createSourceHostQueries, hostComponent, sourceHostAbsentConstituent, sourceHostPresence,
+  sourceHostTypeDeclaration, type SourceHostComponent, type SourceHostPresence, type SourceHostQueries, type SourceHostType,
 } from "./queries.js";
 import type { SourcePlatformFacts } from "../source-semantics/platform-model.js";
-
-export type * from "./queries.js";
+import type { SourceEnumIntegerWidthSelection } from "../source-semantics/enum-model.js";
 
 /**
- * The checker flow witness at a read: whether the value read there can be null/undefined. A selection witness only (R3):
- * the Host uses it to keep or drop the absence arm of its own descriptor, never as a type.
+ * The checker's selection at a call, `new`, tagged template or `super(...)` use, as declarations only: a projection of
+ * the one call witness (SourceNavigationCall, host-input/navigation.ts).
  */
-export type SourceHostPresence = "present" | "possibly-absent" | "absent";
-
-/** The checker's selection at a call, `new`, tagged template or `super(...)` use, as declarations only. */
 export interface SourceHostCallWitness {
   readonly use: Node;
   /** The selected signature declaration; undefined for a signature with no declaration (an intrinsic). */
@@ -38,7 +31,10 @@ export interface SourceHostCallWitness {
   readonly optionalChain: boolean;
 }
 
-/** The checker's selection at a property or element access, as declarations only. */
+/**
+ * The checker's selection at a property or element access, as declarations only: a projection of the one member-access
+ * witness (SourceNavigationMemberAccess, host-input/navigation.ts).
+ */
 export interface SourceHostMemberWitness {
   readonly use: Node;
   readonly receiver: Node;
@@ -49,7 +45,10 @@ export interface SourceHostMemberWitness {
   readonly declarations: readonly Node[];
   /** The declaration a write through this access targets (the set accessor of an accessor pair); undefined for none. */
   readonly writeDeclaration: Node | undefined;
+  readonly accessMode: "read" | "write" | "read-write" | "delete";
   readonly optionalChain: boolean;
+  /** The access is the callee of a call through transparent wrappers (checker access witness). */
+  readonly callCallee: boolean;
 }
 
 /** Authored narrowing witness: the authored arms of a declaration's annotation that remain at a read. */
@@ -65,16 +64,6 @@ export interface SourceHostNarrowedMembers {
   readonly absent: boolean;
 }
 
-type DescriptorBindings = ReadonlyMap<Node, SourceTypeDescriptor>;
-
-/** The declaration-input descriptor reader (descriptors.ts) over host handles. */
-export interface SourceHostDescriptorReader {
-  syntax(node: Node, queries: SourceHostQueries, depth?: number, bindings?: DescriptorBindings): SourceTypeDescriptorReadResult;
-  type(component: SourceHostComponent, queries: SourceHostQueries, depth?: number, bindings?: DescriptorBindings): SourceTypeDescriptorReadResult;
-  inheritedBindings(type: SourceHostType, queries: SourceHostQueries, bindings: DescriptorBindings,
-    authoredBindings?: DescriptorBindings): ReadonlyMap<Node, SourceTypeFlowInheritedBinding>;
-}
-
 export interface SourceHostInput {
   /** The checker query facade of the file that contains `node` (program or library file). */
   at(node: Node): SourceHostQueries;
@@ -84,9 +73,6 @@ export interface SourceHostInput {
   program(): SourceHostQueries | undefined;
   /** Whether a node lies in a program file the checker views. */
   includes(node: Node): boolean;
-  descriptors(unions: SourceTypeDescriptorUnions, parametersFor: (declaration: Node) => readonly Node[],
-    declaredValue: (declaration: Node, queries: SourceHostQueries, bindings: DescriptorBindings) => SourceTypeDescriptor | undefined,
-    refusedSignature: (declaration: Node) => boolean): SourceHostDescriptorReader;
 
   call(use: Node): SourceHostCallWitness | undefined;
   member(use: Node): SourceHostMemberWitness | undefined;
@@ -98,10 +84,11 @@ export interface SourceHostInput {
    * one-absence erasure (E9). The Host admission rule (program-facts.ts) decides from it. */
   nullishComponents(node: Node): SourceHostNullishComponents;
   /**
-   * The returned expression whose checked type refers back to the unannotated callable's own checked type
-   * (a self-recursive inferred return), or undefined.
+   * Self-reference witness (an identity answer, never a type): whether the checked type of the returned expression
+   * `returned` reaches the checked type of the callable `declaration` itself. The recursive-return rule (which callables,
+   * which returned expressions, the refusal) is the Host's (local-type-flow/callable-returns.ts).
    */
-  recursiveReturn(declaration: Node): Node | undefined;
+  returnReachesCallable(declaration: Node, returned: Node): boolean;
   /**
    * G4 contribution path witness: whether the value at `node` is the union member a recorded inference contribution
    * flowed through ("selected"), another single member ("other"), or an unselected union ("ambiguous"). undefined: no
@@ -111,12 +98,19 @@ export interface SourceHostInput {
   /** Whether the value at an argument occurrence already has exactly the formal parameter type (no binder input). */
   argumentHasFormalType(occurrence: Node, formal: SourceHostType): boolean;
   /**
-   * The destination member (canonical origin) an object-literal property fills: the checker's structural member
-   * correspondence between the literal's construction and its destination: the given component, else the checked type
-   * at `destinationAt`, else the property's contextual type. A member-selection witness (R3). undefined: no destination.
+   * The one destination-member selector (R1 #13): the member (canonical origin) an object-literal property fills, by the
+   * checker's structural member correspondence (sourceObjectLiteralDestinationMember) between the literal's construction
+   * and its destination: the given component, else the checked type at `destinationAt`, else the property's contextual
+   * type. A member-selection witness (R3). undefined: no single destination member; a "refused" origin: a mapped member
+   * with no single key. The reader decides what an unresolved origin means.
    */
   objectLiteralDestination(literal: Node, property: Node,
-    destination: { readonly component?: SourceHostComponent; readonly destinationAt?: Node }): SourceTypeDescriptorMember["origin"] | undefined;
+    destination: { readonly component?: SourceHostComponent; readonly destinationAt?: Node }): SourceMemberOriginResult | undefined;
+  /**
+   * Declaration witness of a regular expression literal: the library declaration it constructs (the global `RegExp`
+   * interface) with that declaration's declared type. An identity answer (R3): the literal's value is that declaration.
+   */
+  regularExpressionComponent(node: Node): SourceHostComponent | undefined;
   /**
    * Narrowing witness at a project reference: whether control flow narrowed the read below its declared type. The Host
    * keeps its own descriptor; this only says whether narrowing applies.
@@ -140,10 +134,11 @@ export interface SourceHostInput {
    */
   narrowedMembers(node: Node): SourceHostNarrowedMembers | undefined;
   /**
-   * The nominal class component of an identifier read that control flow narrowed to one project class (an
-   * `instanceof` narrowing): the class declaration's declared type. undefined otherwise.
+   * Narrowing witness (a declaration identity, never a type, R3): the project class whose instances control flow
+   * narrowed this identifier read to (an `instanceof` guard). The Host describes the read from that class's own declared
+   * instance type, the same instance its `instanceof` test relation publishes. undefined otherwise.
    */
-  nominalReadComponent(node: Node): SourceHostComponent | undefined;
+  narrowedClass(node: Node): Node | undefined;
   /**
    * Declaration input: the member declarations named `name` on the declared type of a class, interface, alias, enum or
    * type parameter declaration (a type parameter and an enum answer through their apparent members: the constraint, the
@@ -162,36 +157,28 @@ export interface SourceHostInputServices {
   readonly sourceFiles: readonly SourceFile[];
   /** The active target's native integer premise (E24); carried into the type-flow source the descriptor reader reads. */
   readonly platform: SourcePlatformFacts;
+  /** The integer width of a numeric enum (enum-constants.ts); carried into the type-flow source. */
+  enumIntegerWidth(declaration: Node): SourceEnumIntegerWidthSelection | undefined;
 }
 
-function presenceOf(queries: SourceFileSemantics, type: Type): SourceHostPresence {
-  if (queries.types.isNullish(type)) return "absent";
-  return queries.types.isUnion(type) && queries.types.unionOrIntersectionTypes(type).some(member => queries.types.isNullish(member))
-    ? "possibly-absent" : "present";
-}
+const presenceOf = (queries: SourceFileSemantics, type: Type): SourceHostPresence => sourceHostPresence(queries.types, type);
 
 /** One adapter per program view; lifetime is the program's (I5). */
 export function createSourceHostInput(services: SourceHostInputServices): SourceHostInput {
   const { ast, semantics, sourceFacts, navigation, sourceFiles, platform } = services;
-  const reader = Object.freeze({ ast, navigation, sourceFacts, sourceFiles, platform });
+  const reader = Object.freeze({ ast, navigation, sourceFacts, sourceFiles, platform,
+    enumIntegerWidth: (declaration: Node) => services.enumIntegerWidth(declaration) });
   const calls = new Map<Node, SourceHostCallWitness | undefined>();
   const members = new Map<Node, SourceHostMemberWitness | undefined>();
   const presences = new Map<Node, SourceHostPresence | undefined>();
   const declaredMembers = new Map<Node, Map<string, readonly Node[] | undefined>>();
   const facades = new Map<SourceFileSemantics, SourceHostQueries>();
-  const opened = new WeakMap<SourceHostQueries, SourceFileSemantics>();
   const facade = (queries: SourceFileSemantics): SourceHostQueries => {
     let selected = facades.get(queries);
     if (selected === undefined) {
       selected = createSourceHostQueries(ast, queries, sourceFacts, reader);
       facades.set(queries, selected);
-      opened.set(selected, queries);
     }
-    return selected;
-  };
-  const open = (queries: SourceHostQueries): SourceFileSemantics => {
-    const selected = opened.get(queries);
-    if (selected === undefined) throw new Error("A host query facade belongs to exactly one program adapter.");
     return selected;
   };
   const includes = (node: Node): boolean => {
@@ -208,59 +195,42 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
     },
     program: () => sourceFiles[0] === undefined ? undefined : facade(semantics.forFile(sourceFiles[0])),
     includes,
-    descriptors(...[unions, parametersFor, declaredValue, refusedSignature]: Parameters<SourceHostInput["descriptors"]>): SourceHostDescriptorReader {
-      const descriptor = createSourceTypeDescriptorReader(reader, unions,
-        (type, queries, authoredTypeNode, excluded) => sourceHostTypeDeclaration(ast, queries, type, authoredTypeNode, excluded),
-        parametersFor, (declaration, queries, bindings) => declaredValue(declaration, facade(queries), bindings), refusedSignature);
-      return Object.freeze({
-        syntax: (node: Node, queries: SourceHostQueries, depth = 0, bindings?: DescriptorBindings) =>
-          descriptor.syntax(node, open(queries), depth, bindings),
-        type: (component: SourceHostComponent, queries: SourceHostQueries, depth = 0, bindings?: DescriptorBindings) =>
-          descriptor.type(checkerType(component.selectedType), open(queries), checkerComponent(component), depth, bindings),
-        inheritedBindings: (type: SourceHostType, queries: SourceHostQueries, bindings: DescriptorBindings, authoredBindings?: DescriptorBindings) =>
-          descriptor.inheritedBindings(checkerType(type), open(queries), bindings, authoredBindings),
-      });
-    },
-    recursiveReturn(declaration: Node): Node | undefined {
+    returnReachesCallable(declaration: Node, returned: Node): boolean {
       const queries = semantics.forNode(declaration);
       const selected = ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration)
         ? queries.types.expressionType(declaration) : queries.declarations.declaredValueType(declaration);
-      if (selected === undefined || queries.types.callSignatures(selected).length === 0) return undefined;
-      for (const returned of sourceTypeFlowCallableReturns(ast, declaration).returned) {
-        const type = queries.types.expressionType(returned);
-        if (type === undefined) continue;
-        const pending: Type[] = [type];
-        const seen = new Set<Type>();
-        let recursive = false;
-        while (pending.length > 0) {
-          const current = pending.pop()!;
-          if (current === selected) { recursive = true; break; }
-          if (seen.has(current)) continue;
-          seen.add(current);
-          if (queries.types.isUnion(current) || queries.types.isIntersection(current)) {
-            pending.push(...queries.types.unionOrIntersectionTypes(current));
-            continue;
-          }
-          const symbol = queries.declarations.typeAliasSymbol(current) ?? queries.declarations.typeSymbol(current);
-          const nominal = symbol !== undefined && queries.declarations.symbolDeclarations(symbol).some(node =>
-            ast.is.IsTypeAliasDeclaration(node) || ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node));
-          if (nominal || queries.types.isArrayLike(current) || queries.types.isTuple(current)) {
-            pending.push(...queries.types.typeArguments(current));
-            continue;
-          }
-          for (const signature of [...queries.types.signatureInfos(current, "call"), ...queries.types.signatureInfos(current, "construct")]) {
-            if (signature.returnType !== undefined) pending.push(signature.returnType);
-            pending.push(...signature.parameters.map(parameter => parameter.type));
-          }
-          if (!queries.types.isAny(current) && !queries.types.isUnknown(current) && !queries.types.isNumberLike(current) &&
-            !queries.types.isStringLike(current) && !queries.types.isBooleanLike(current) && !queries.types.isBigIntLike(current) &&
-            !queries.types.isSymbolLike(current) && !queries.types.isNullish(current) && !queries.types.isVoidLike(current)) {
-            pending.push(...queries.types.propertyInfos(current).map(property => property.type));
-          }
+      if (selected === undefined || queries.types.callSignatures(selected).length === 0) return false;
+      const type = queries.types.expressionType(returned);
+      if (type === undefined) return false;
+      const pending: Type[] = [type];
+      const seen = new Set<Type>();
+      while (pending.length > 0) {
+        const current = pending.pop()!;
+        if (current === selected) return true;
+        if (seen.has(current)) continue;
+        seen.add(current);
+        if (queries.types.isUnion(current) || queries.types.isIntersection(current)) {
+          pending.push(...queries.types.unionOrIntersectionTypes(current));
+          continue;
         }
-        if (recursive) return returned;
+        const symbol = queries.declarations.typeAliasSymbol(current) ?? queries.declarations.typeSymbol(current);
+        const nominal = symbol !== undefined && queries.declarations.symbolDeclarations(symbol).some(node =>
+          ast.is.IsTypeAliasDeclaration(node) || ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node));
+        if (nominal || queries.types.isArrayLike(current) || queries.types.isTuple(current)) {
+          pending.push(...queries.types.typeArguments(current));
+          continue;
+        }
+        for (const signature of [...queries.types.signatureInfos(current, "call"), ...queries.types.signatureInfos(current, "construct")]) {
+          if (signature.returnType !== undefined) pending.push(signature.returnType);
+          pending.push(...signature.parameters.map(parameter => parameter.type));
+        }
+        if (!queries.types.isAny(current) && !queries.types.isUnknown(current) && !queries.types.isNumberLike(current) &&
+          !queries.types.isStringLike(current) && !queries.types.isBooleanLike(current) && !queries.types.isBigIntLike(current) &&
+          !queries.types.isSymbolLike(current) && !queries.types.isNullish(current) && !queries.types.isVoidLike(current)) {
+          pending.push(...queries.types.propertyInfos(current).map(property => property.type));
+        }
       }
-      return undefined;
+      return false;
     },
     unionMemberWitness(node: Node, member: SourceHostType): "selected" | "other" | "ambiguous" | undefined {
       const queries = semantics.forNode(node);
@@ -279,25 +249,14 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
     objectLiteralDestination(literal: Node, property: Node,
       destination: { readonly component?: SourceHostComponent; readonly destinationAt?: Node }) {
       const queries = semantics.forNode(literal);
-      const construction = queries.types.expressionType(literal);
-      if (construction === undefined) throw new Error("A Source literal correspondence requires its actual checked construction type.");
       const element = queries.operations.objectLiteralElement(property);
+      if (element === undefined || element.objectLiteral !== literal || element.element !== property) return undefined;
       const selected = (destination.component === undefined ? undefined : checkerType(destination.component.selectedType)) ??
         (destination.destinationAt === undefined ? undefined : queries.types.expressionType(destination.destinationAt)) ??
-        (element?.objectLiteral === literal && element.element === property ? element.contextualType : undefined);
+        element.contextualType;
       const present = selected === undefined ? undefined : queries.types.nonNullableType(selected);
-      if (present === undefined) return undefined;
-      const correspondence = queries.types.structuralMembers(construction, present, "correspondence");
-      if (correspondence.kind !== "available") return undefined;
-      const pairs = correspondence.members.filter(pair => pair.kind === "present" &&
-        (pair.source.declarations.includes(property) || element?.sourceElementSymbol !== undefined &&
-          pair.source.property.symbol === element.sourceElementSymbol));
-      if (pairs.length === 0) return undefined;
-      if (pairs.length !== 1) throw new Error("An authored Source member requires exactly one checked destination pair.");
-      const member = pairs[0]!.destination;
-      const origin = sourceTypeDescriptorMemberOrigin({ ast }, queries, member.property, member.receiverType);
-      if (origin?.kind !== "resolved") throw new Error("A published Source destination requires its complete canonical member origin.");
-      return origin.origin;
+      const member = present === undefined ? undefined : sourceObjectLiteralDestinationMember(element, present, queries);
+      return member === undefined ? undefined : sourceTypeDescriptorMemberOrigin({ ast }, queries, member.property, member.receiverType);
     },
     presence(node: Node): SourceHostPresence | undefined {
       if (presences.has(node)) return presences.get(node);
@@ -310,6 +269,16 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
     componentPresence(component: SourceHostComponent, at: Node): SourceHostPresence {
       return presenceOf(semantics.forNode(at), checkerType(component.selectedType));
     },
+    regularExpressionComponent(node: Node): SourceHostComponent | undefined {
+      if (ast.kindName(node) !== "KindRegularExpressionLiteral") return undefined;
+      const queries = semantics.forNode(node);
+      const type = queries.types.expressionType(node);
+      const symbol = type === undefined ? undefined : queries.declarations.typeSymbol(type);
+      const declaration = symbol === undefined ? undefined : queries.declarations.primarySymbolDeclaration(symbol);
+      const declared = declaration === undefined ? undefined : queries.declarations.declaredType(declaration);
+      return declaration === undefined || declared === undefined ? undefined
+        : hostComponent(Object.freeze({ selectedType: declared, declaration }));
+    },
     narrowed(node: Node): boolean {
       const refinement = semantics.selectValueTypeRefinement(node);
       return refinement.kind === "resolved" &&
@@ -320,8 +289,7 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
       const refinement = semantics.selectValueTypeRefinement(occurrence);
       const declared = refinement.kind === "resolved" ? refinement.declaredType
         : declaration === undefined ? undefined : queries.declarations.declaredType(declaration);
-      return declared !== undefined && queries.types.isUnion(declared) &&
-        queries.types.unionOrIntersectionTypes(declared).some(member => queries.types.isNullish(member));
+      return declared !== undefined && presenceOf(queries, declared) === "possibly-absent";
     },
     authoredNarrowing(node: Node, declaration: Node, annotation: Node): SourceHostAuthoredNarrowing | undefined {
       if (!ast.is.IsIdentifier(node)) return undefined;
@@ -340,12 +308,12 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
       const constituents = types.isUnion(refinement.selectedType) ? types.unionOrIntersectionTypes(refinement.selectedType)
         : [refinement.selectedType];
       return Object.freeze({
-        members: Object.freeze(constituents.filter(member => !types.isNullish(member))
+        members: Object.freeze(constituents.filter(member => !sourceHostAbsentConstituent(types, member))
           .map(member => hostComponent(Object.freeze({ selectedType: member })))),
-        absent: constituents.some(member => types.isNullish(member)),
+        absent: constituents.some(member => sourceHostAbsentConstituent(types, member)),
       });
     },
-    nominalReadComponent(node: Node): SourceHostComponent | undefined {
+    narrowedClass(node: Node): Node | undefined {
       if (!ast.is.IsIdentifier(node)) return undefined;
       const selected = semantics.selectValueTypeRefinement(node);
       if (selected.kind !== "resolved") return undefined;
@@ -355,8 +323,7 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
       const declaration = sourceHostTypeDeclaration(ast, queries, selected.selectedType);
       if (declaration === undefined || !(ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))) return undefined;
       const declared = queries.declarations.declaredType(declaration);
-      return declared !== undefined && queries.types.isIdentical(declared, selected.selectedType)
-        ? hostComponent(Object.freeze({ selectedType: declared, declaration })) : undefined;
+      return declared !== undefined && queries.types.isIdentical(declared, selected.selectedType) ? declaration : undefined;
     },
     declaredMembers(declaration: Node, name: string): readonly Node[] | undefined {
       let byName = declaredMembers.get(declaration);
@@ -370,32 +337,29 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
       byName.set(name, result);
       return result;
     },
+    // A projection of the one call witness (host-input/navigation.ts, R2 #1).
     call(use: Node): SourceHostCallWitness | undefined {
       if (calls.has(use)) return calls.get(use);
-      const queries = semantics.forNode(use);
-      const selected = queries.operations.call(use);
+      const selected = navigation.call(use);
       const witness = selected === undefined ? undefined : Object.freeze({
         use,
-        signature: queries.declarations.signatureDeclaration(selected.selectedSignature),
-        receiver: (selected.sourceReceiver ?? selected.sourceCallee)?.expression,
-        optionalChain: selected.optionalChain === true,
+        signature: selected.signature,
+        receiver: selected.receiver ?? selected.callee,
+        optionalChain: selected.optionalChain,
       });
       calls.set(use, witness);
       return witness;
     },
     member(use: Node): SourceHostMemberWitness | undefined {
       if (members.has(use)) return members.get(use);
-      const queries = semantics.forNode(use);
-      const selected = ast.is.IsPropertyAccessExpression(use) ? queries.operations.propertyAccess(use)
-        : ast.is.IsElementAccessExpression(use) ? queries.operations.elementAccess(use) : undefined;
-      const accessors = selected as { readonly selectedReadDeclaration?: Node; readonly selectedWriteDeclaration?: Node } | undefined;
-      const read = accessors?.selectedReadDeclaration;
-      const write = accessors?.selectedWriteDeclaration;
-      const declarations = selected === undefined ? [] : [...new Set([read, selected.selectedDeclaration, write]
-        .filter((declaration): declaration is Node => declaration !== undefined))];
+      // A projection of the one member-access witness (host-input/navigation.ts, R2 #2): only the declarations the
+      // checker selected (read, selected, write), never the root-member list of an unselected access.
+      const selected = navigation.memberAccess(use);
+      const declarations = selected === undefined ? [] : [...new Set([selected.readDeclaration, selected.declaration,
+        selected.writeDeclaration].filter((declaration): declaration is Node => declaration !== undefined))];
       const witness = selected === undefined ? undefined : Object.freeze({
-        use, receiver: selected.receiver.expression, declarations: Object.freeze(declarations), writeDeclaration: write,
-        optionalChain: selected.optionalChain === true,
+        use, receiver: selected.receiver, declarations: Object.freeze(declarations), writeDeclaration: selected.writeDeclaration,
+        accessMode: selected.accessMode, optionalChain: selected.optionalChain, callCallee: selected.callCallee,
       });
       members.set(use, witness);
       return witness;

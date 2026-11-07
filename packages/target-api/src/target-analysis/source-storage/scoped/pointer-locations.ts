@@ -1,6 +1,6 @@
 import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import { sourceStoragePointerOperation, type SourceStoragePointerOperation } from "../transport/host-reads.js";
+import { sourceStoragePointerOperation, type SourceStoragePointerOperation } from "../model/host-reads.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceIndexedStorageProjection, sourceStorageRoleDeclaration } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";

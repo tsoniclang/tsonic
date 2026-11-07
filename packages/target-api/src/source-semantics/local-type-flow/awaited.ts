@@ -1,6 +1,8 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
-import type { SourceTypeDescriptor } from "./types.js";
+import type { SourceAwaitedArms } from "../../public/source/facts.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
+import type { SourceProgramNavigation } from "../../source-navigation/types.js";
+import type { SourceClosedSum, SourceSumIdentity, SourceTypeDescriptor } from "./types.js";
 
 // Awaited payloads from declarations only (R3): no checker awaited type is read. A thenable declaration names its
 // payload binder in its own `then` member: `then(onfulfilled?: ((value: T) => ...) | null)` makes `T` the payload.
@@ -31,11 +33,47 @@ export function sourceThenablePayloadBinder(ast: AstReader, declaration: Node): 
       if (valueType === undefined || !ast.is.IsTypeReferenceNode(valueType) || ast.typeArguments(valueType).length !== 0) continue;
       const reference = ast.children(valueType)[0];
       const text = reference === undefined ? undefined : ast.text(reference);
+      // Lexical binder resolution (R6): a type parameter of the callback arm or of the `then` member with this name
+      // shadows the declaration's binder, so the reference then names no declaration binder.
+      const shadowed = [arm, member].some(owner => ast.typeParameters(owner).some(parameter =>
+        parameter !== undefined && ast.text(ast.name(parameter)) === text));
+      if (shadowed) continue;
       const index = binders.findIndex(binder => ast.text(ast.name(binder)) === text);
       if (index >= 0) return index;
     }
   }
   return undefined;
+}
+
+/**
+ * The authored payload type argument of an async callable's return annotation (`Promise<T>` -> `T`, through
+ * parentheses, parameterless aliases and nested thenables, as `await` unwraps): the type-argument node at the
+ * thenable declaration's payload binder (sourceThenablePayloadBinder). Declaration and authored-syntax input only (R3).
+ * undefined: the annotation is not a thenable reference (e.g. a union), or the reference names no declaration.
+ */
+export function sourceTypeFlowAuthoredAwaitedArgument(ast: AstReader, navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  annotation: Node): Node | undefined {
+  const visited = new Set<Node>();
+  let payload: Node | undefined;
+  let node: Node | undefined = annotation;
+  while (node !== undefined && !visited.has(node)) {
+    visited.add(node);
+    if (ast.is.IsParenthesizedTypeNode(node)) { node = ast.as.AsParenthesizedTypeNode(node)?.Type; continue; }
+    if (!ast.is.IsTypeReferenceNode(node)) return payload;
+    const declaration = navigation.sourceReferenceFor(ast.as.AsTypeReferenceNode(node)?.TypeName)?.declaration;
+    if (declaration === undefined) return payload;
+    const index = sourceThenablePayloadBinder(ast, declaration);
+    if (index !== undefined) {
+      const argument = ast.typeArguments(node)[index];
+      if (argument === undefined) return undefined;
+      payload = argument;
+      node = argument;
+      continue;
+    }
+    if (!ast.is.IsTypeAliasDeclaration(declaration) || ast.typeParameters(declaration).length !== 0) return payload;
+    node = ast.typeNode(declaration);
+  }
+  return payload;
 }
 
 /**
@@ -76,4 +114,39 @@ export function sourceTypeDescriptorAwaitedPayload(ast: AstReader, unions: Sourc
   if (absent) payloads.push({ kind: "intrinsic", intrinsic: "absence" });
   if (payloads.length === 1 && !absent) return payloads[0];
   return sourceTypeDescriptorUnion(unions, payloads);
+}
+
+/**
+ * The awaited-arm relation (public SourceAwaitedArms) of an awaited value whose operand Host descriptor is `operand` and
+ * whose awaited Host result is `awaited`: for each present operand arm, its awaited payload (the declaration rule above)
+ * and the awaited-sum arm each payload arm resolves to, by descriptor identity (absence resolves to the absence arm).
+ * undefined when the awaited result is not a closed sum, or a payload has no declaration rule (a structural thenable,
+ * which `values.awaited` refuses).
+ */
+export function sourceTypeFlowAwaitedArms(ast: AstReader, unions: SourceTypeDescriptorUnions,
+  sumOf: (type: SourceTypeDescriptor) => SourceClosedSum | undefined, use: Node, operand: SourceTypeDescriptor,
+  awaited: SourceTypeDescriptor): SourceAwaitedArms | undefined {
+  const awaitedSum = sumOf(awaited);
+  if (awaitedSum === undefined) return undefined;
+  const absence = (type: SourceTypeDescriptor): boolean => type.kind === "intrinsic" && type.intrinsic === "absence";
+  const awaitedArm = (type: SourceTypeDescriptor): number => {
+    const index = absence(type) ? awaitedSum.arms.findIndex(arm => absence(arm.type))
+      : awaitedSum.arms.findIndex(arm => sourceTypeDescriptorsEqual(arm.type, type));
+    if (index < 0) throw new Error("An awaited payload arm must be an arm of the awaited Source sum.");
+    return index;
+  };
+  const operandSum = sumOf(operand);
+  const operandArms = operandSum === undefined ? [{ type: operand }] : operandSum.arms;
+  const arms: { readonly arm: number; readonly payload?: SourceSumIdentity; readonly mapping: readonly number[] }[] = [];
+  for (const [index, arm] of operandArms.entries()) {
+    if (absence(arm.type)) continue;
+    const payload = sourceTypeDescriptorAwaitedPayload(ast, unions, arm.type);
+    if (payload === undefined) return undefined;
+    const payloadSum = sumOf(payload);
+    const mapping = payloadSum === undefined ? [awaitedArm(payload)] : payloadSum.arms.map(selected => awaitedArm(selected.type));
+    arms.push(Object.freeze({ arm: index, ...(payloadSum === undefined ? {} : { payload: payloadSum.identity }),
+      mapping: Object.freeze(mapping) }));
+  }
+  return Object.freeze({ use, ...(operandSum === undefined ? {} : { operand: operandSum.identity }), awaited: awaitedSum.identity,
+    arms: Object.freeze(arms) });
 }

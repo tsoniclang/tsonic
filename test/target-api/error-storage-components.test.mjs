@@ -4,7 +4,7 @@ import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageUnresolvedQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/unresolved.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";

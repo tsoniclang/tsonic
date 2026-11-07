@@ -1,5 +1,5 @@
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
-import { sourceStoragePointerOperation } from "./host-reads.js";
+import { sourceStoragePointerOperation } from "../model/host-reads.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";

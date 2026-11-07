@@ -4,20 +4,31 @@ import { readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayo
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
 import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./bindings/facts.js";
 
+/** The Legacy witness behind a metadata expression. source-core internal: targets read layouts as Host records (R4). */
 export type TsonicMemoryMetadata =
   | { readonly kind: "data-layout"; readonly fact: TsonicDataLayoutFact }
   | { readonly kind: "memory-layout"; readonly fact: TsonicMemoryLayoutFact }
   | { readonly kind: "memory-field"; readonly fact: TsonicMemoryFieldLayoutFact };
 
+/** The runtime-value issues of a const declaration that holds compile-time memory metadata. */
 export interface TsonicMemoryMetadataDeclaration {
-  readonly value: TsonicMemoryMetadata;
   readonly issues: readonly { readonly node: Node; readonly reason: string }[];
 }
 
-export interface TsonicMemoryMetadataIndex {
-  value(node: Node | undefined): TsonicMemoryMetadata | undefined;
+/**
+ * The published memory-metadata uses (facts.analyses, I1): which expressions are erased compile-time metadata and
+ * which metadata declarations escape as runtime values. The layouts themselves are published once, as Host records
+ * (`TsonicCoreSourceAnalyses.memory.layout`); the Legacy witnesses are not published (R4).
+ */
+export interface TsonicMemoryMetadataUses {
+  /** undefined: the node is not a const declaration of memory metadata. */
   declaration(node: Node): TsonicMemoryMetadataDeclaration | undefined;
   isCompileTimeExpression(node: Node): boolean;
+}
+
+/** source-core internal index: the published uses plus the Legacy witness of a metadata expression. */
+export interface TsonicMemoryMetadataIndex extends TsonicMemoryMetadataUses {
+  value(node: Node | undefined): TsonicMemoryMetadata | undefined;
 }
 
 export function createTsonicMemoryMetadataIndex(source: HostSourceProgram): TsonicMemoryMetadataIndex {
@@ -52,7 +63,7 @@ export function createTsonicMemoryMetadataIndex(source: HostSourceProgram): Tson
       if (!accepted) issues.push(Object.freeze({ node: use.reference,
         reason: "A finalized memory-layout descriptor is used as a runtime value rather than selected compile-time metadata." }));
     }
-    const result = Object.freeze({ value: metadata, issues: Object.freeze(issues) });
+    const result = Object.freeze({ issues: Object.freeze(issues) });
     declarations.set(node, result);
     return result;
   }

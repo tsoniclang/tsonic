@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceNavigationInput, SourceNavigationSignatureParameter } from "../host-input/navigation.js";
+import type { SourceNavigationInput, SourceNavigationSignatureParameter } from "../source-model/navigation-records.js";
 import type { SourceClassConstructorParameter, SourceClassConstructorResult } from "./types.js";
 
 export function sourceConstructorParametersMatch(

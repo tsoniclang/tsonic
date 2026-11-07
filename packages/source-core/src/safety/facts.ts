@@ -1,55 +1,26 @@
 import {
   defineExtensionFactKey,
 } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type {
-  ExtensionFactSubject,
-  Node,
-} from "@tsonic/tsts";
+  TargetSourceSafetyApplicationPlacement,
+  TargetSourceSafetyBuilderFact,
+  TargetSourceSafetyContract,
+  TargetSourceSafetyMemberKind,
+  TargetSourceUnsafeContextFact,
+} from "@tsonic/target-api/provider";
 import {
   tsonicCoreSourceExtensionId,
 } from "../identity.js";
 
-export type TsonicUnsafeContextFact =
-  | {
-      readonly kind: "expression";
-      readonly expression: Node;
-    }
-  | {
-      readonly kind: "remaining-block";
-    };
-
-export type TsonicSafetyContract = "requires-unsafe" | "safe";
-export type TsonicSafetyMemberKind = "indexer" | "method" | "property";
-export type TsonicSafetyApplicationPlacement =
-  | "declaration"
-  | "constructor"
-  | "getter"
-  | "setter";
-
-export interface TsonicSafetyBuilderStateFact {
-  readonly kind: "builder-state";
-  readonly applicationTarget: ExtensionFactSubject;
-  readonly selectedMember?: ExtensionFactSubject;
-  readonly selectedMemberDeclaration?: Node;
-  readonly selectedMemberDeclarations?: readonly Node[];
-  readonly applicationMemberKind?: TsonicSafetyMemberKind;
-  readonly applicationPlacement: TsonicSafetyApplicationPlacement;
-}
-
-export interface TsonicSafetyApplicationFact {
-  readonly kind: "application";
-  readonly contract: TsonicSafetyContract;
-  readonly applicationTarget: ExtensionFactSubject;
-  readonly selectedMember?: ExtensionFactSubject;
-  readonly selectedMemberDeclaration?: Node;
-  readonly selectedMemberDeclarations?: readonly Node[];
-  readonly applicationMemberKind?: TsonicSafetyMemberKind;
-  readonly applicationPlacement: TsonicSafetyApplicationPlacement;
-}
-
-export type TsonicSafetyBuilderFact =
-  | TsonicSafetyBuilderStateFact
-  | TsonicSafetyApplicationFact;
+// The safety fact types are owned by target-api (target/source-extensions.ts); these are aliases, not copies (R4).
+export type TsonicUnsafeContextFact = TargetSourceUnsafeContextFact;
+export type TsonicSafetyContract = TargetSourceSafetyContract;
+export type TsonicSafetyMemberKind = TargetSourceSafetyMemberKind;
+export type TsonicSafetyApplicationPlacement = TargetSourceSafetyApplicationPlacement;
+export type TsonicSafetyBuilderFact = TargetSourceSafetyBuilderFact;
+export type TsonicSafetyBuilderStateFact = Extract<TargetSourceSafetyBuilderFact, { readonly kind: "builder-state" }>;
+export type TsonicSafetyApplicationFact = Extract<TargetSourceSafetyBuilderFact, { readonly kind: "application" }>;
 
 export const tsonicUnsafeContextFactKey = defineExtensionFactKey<TsonicUnsafeContextFact>({
   extensionId: tsonicCoreSourceExtensionId,

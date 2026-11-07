@@ -1,9 +1,15 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { AstReader, Node, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "./semantics-types.js";
 import { sourceHostTypeDeclaration } from "./queries.js";
-import type { SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
+import type { SourceProgramNavigation } from "../source-navigation/types.js";
 
-export function sourceTypeFlowHomomorphicInput(source: SourceTypeFlowSource, queries: SourceFileSemantics, type: Type,
+/** The syntax services the homomorphic-input translation reads (authored references through the reference index). */
+export interface SourceHomomorphicInputSource {
+  readonly ast: AstReader;
+  readonly navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">;
+}
+
+export function sourceTypeFlowHomomorphicInput(source: SourceHomomorphicInputSource, queries: SourceFileSemantics, type: Type,
   authoredTypeNode?: Node): Type | undefined {
   const { ast } = source;
   type Bindings = ReadonlyMap<Node, Type>;

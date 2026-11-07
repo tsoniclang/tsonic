@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 import type { SourceFlowCondition, SourceFlowConditions, SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import { sourceStatementAlwaysExits } from "./native-control-flow.js";
@@ -9,7 +9,7 @@ import { sourceStatementAlwaysExits } from "./native-control-flow.js";
  * Host proves still holds for the binding (sourceGuardPreservesBinding). Undefined when the work budget is exhausted.
  */
 export function resolveSourceFlowConditions(
-  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts">,
+  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts" | "effects">,
   reference: Node,
   checked: SourceFlowConditions | undefined,
 ): SourceFlowConditions | undefined {

@@ -1,12 +1,8 @@
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
-import {
-  sourceIndexedStorageProjection, sourcePresentStorageArms, sourceStorageArrayLiteralType, sourceStorageComponents,
-  sourceStorageDynamicMemberKey, sourceStorageIsArrayLikeType, sourceStorageMemberCorrespondence, sourceStorageMembers,
-  sourceStorageSubjectType, sourceStorageTupleElements,
-} from "./components.js";
+import { sourceIndexedStorageProjection, sourcePresentStorageArms, sourceStorageArrayLiteralType, sourceStorageComponents, sourceStorageDynamicMemberKey, sourceStorageIsArrayLikeType, sourceStorageSubjectType, sourceStorageTupleElements } from "./components.js";
 
 const isTuple = (type: SourceTypeDescriptor): boolean => sourceStorageTupleElements(type) !== undefined;
 /** The present arm of a type read through a pattern (T | undefined reads T); the whole type when several arms are present. */
@@ -68,7 +64,7 @@ export function createSourceStorageProjectionFlow(
       const value = subject(reference);
       const resultType = value === undefined ? undefined : sourceStorageSubjectType(source, value, sourceFileFor(value));
       const members = ownerType === undefined || resultType === undefined ? undefined
-        : sourceStorageMemberCorrespondence(source, ownerType, resultType, "read");
+        : source.facts.objects.correspondence(ownerType, resultType, "read");
       if (value === undefined || members?.kind !== "available") return undefined;
       const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
       for (const member of members.members) {
@@ -92,7 +88,7 @@ export function createSourceStorageProjectionFlow(
     if (ast.is.IsObjectBindingPattern(pattern) || ast.is.IsObjectLiteralExpression(pattern)) {
       const name = binding?.PropertyName ?? ast.name(reference);
       const selected = name === undefined ? undefined : source.facts.analyses.propertyName(name);
-      const properties = ownerType === undefined || selected?.kind !== "resolved" ? undefined : sourceStorageMembers(source, ownerType)
+      const properties = ownerType === undefined || selected?.kind !== "resolved" ? undefined : source.facts.objects.joinedMembers(ownerType)
         ?.filter(property => property.name === selected.name);
       const declarations = properties?.flatMap(property => [...new Set(property.declarations)]).filter(declaration =>
         sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration));

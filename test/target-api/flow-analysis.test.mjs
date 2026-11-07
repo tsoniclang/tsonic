@@ -11,12 +11,26 @@ import { createSourceDeclarationControlFlow, solveSourceFlow, analyzeSourceLiven
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
-test("the public flow port exports the identical canonical graph and solver owners", () => {
-  for (const [name, owner] of Object.entries({ createSourceDeclarationControlFlow, solveSourceFlow, analyzeSourceLiveness,
-    analyzeSourceDefiniteAssignment, analyzeSourceWrites })) {
-    assert.equal(publicAnalysis[name] === owner, true, name);
+test("the public analysis entry exports the program-free solver owner; the graph is the facts.analyses member", async () => {
+  // The curated target entry carries the identical program-free solver. The declaration graph reads the Source program,
+  // so a target reaches it only as facts.analyses.controlFlow (B2), never as a program-taking export.
+  assert.equal(publicAnalysis.solveSourceFlow === solveSourceFlow, true, "solveSourceFlow");
+  // Liveness, definite assignment and writes are Host-internal flow instances: no target reads them (baseline and now),
+  // so the curated entry (B2) does not carry them and facts.analyses has no member for them.
+  for (const name of ["createSourceDeclarationControlFlow", "createSourceControlFlow", "analyzeSourceLiveness",
+    "analyzeSourceDefiniteAssignment", "analyzeSourceWrites"]) {
+    assert.equal(Object.hasOwn(publicAnalysis, name), false, `${name} is not a public analysis export`);
   }
-  assert.equal(Object.hasOwn(publicAnalysis, "createSourceControlFlow"), false, "the replaced history API is not exported");
+  const checked = await checkedSource("flow-analysis-published", { "src/index.ts": "function run(value: number) { return value + value; }" });
+  const host = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
+  for (const name of ["liveness", "definiteAssignment", "writes"]) {
+    assert.equal(name in host.facts.analyses, false, `facts.analyses has no ${name} member`);
+  }
+  const declaration = namedDeclaration(host.ast, projectSourceFile(host, "src/index.ts"), "run");
+  const published = resolved(host.facts.analyses.controlFlow(declaration, { domain: { kind: "source" } }));
+  const owner = resolved(createSourceDeclarationControlFlow(host, declaration, { domain: { kind: "source" } }));
+  assert.deepEqual(published.graph.points.map(point => [point.operation.kind, point.source]),
+    owner.graph.points.map(point => [point.operation.kind, point.source]), "the published member is the canonical graph owner");
 });
 
 let caseNumber = 0;

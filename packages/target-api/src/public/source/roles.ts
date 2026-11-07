@@ -13,7 +13,7 @@ import type {
   SourceParameterUseSummary,
   SourceProjectModuleDependency,
   SourceProjectModuleSpecifierResolution,
-} from "../../source-navigation/types.js";
+} from "../../source-navigation/records.js";
 
 /** A resolved reference target. `project` is true for a declaration in a project source file. */
 export interface SourceDeclarationTarget {
@@ -35,6 +35,11 @@ export interface SourceIdentityRoles {
   isProjectDeclaration(node: Node): boolean;
   isProjectShape(node: Node): boolean;
   isProjectConstructibleObject(node: Node): boolean;
+  /**
+   * The project declaration the Host value type at `node` names (`this`, `new C()`, a call result): a declared
+   * descriptor, or a union whose only present arm is declared. From the value model, never a checked type (R3).
+   */
+  valueDeclaration(node: Node): Node | undefined;
   /** Stable identity text for naming (sourceNodeIdentity). Naming only; never selects Source meaning. */
   identity(node: Node): string;
 }
@@ -124,6 +129,11 @@ export interface SourceScopeRoles {
    */
   thisBinder(node: Node): Node | undefined;
   usesLexicalThis(callableOrExpression: Node): boolean;
+  /**
+   * The captured outer bindings of a callable or class, with their written flag: a projection of the one lexical capture
+   * selection (analyses.lexicalCaptures, roots `[owner]`, parameter initializers included). Same owner domain; any
+   * other node is an invariant failure (throws).
+   */
   captures(callable: Node): readonly { readonly declaration: Node; readonly written: boolean }[];
   /** The callable suspends (await/yield) and where. */
   suspensions(callable: Node): readonly Node[];
@@ -138,6 +148,12 @@ export interface SourceScopeRoles {
 }
 
 export interface SourceRoleModel {
+  /**
+   * The Host node inventory of the given checked source files: the inventory the Host storage transport walks
+   * (source-navigation/node-inventory.ts). Order: files last-first, preorder within each file. Every file must be a
+   * distinct file of the checked program (otherwise an invariant failure).
+   */
+  nodesForFiles(files: readonly SourceFile[]): readonly Node[];
   readonly identity: SourceIdentityRoles;
   readonly modules: SourceModuleRoles;
   readonly uses: SourceUseRoles;

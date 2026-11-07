@@ -4,7 +4,7 @@ import { createSourceHostInput } from "../../host-input/index.js";
 import { createSourceTypeFlowTestProgram } from "./type-flow-test-program.js";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, pointerOperationFactKey,
   type CompilerExtension, type Node } from "@tsonic/tsts";
-import type { SourceHostComponent } from "../../host-input/index.js";
+import type { SourceHostComponent } from "../../host-input/queries.js";
 import { collectSourceTypeFlowUses, sourceTypeFlowIsBroadSlot } from "./uses.js";
 import { createSourceTypeDescriptorUnions } from "./terms.js";
 import type {

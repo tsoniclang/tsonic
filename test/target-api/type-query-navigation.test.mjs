@@ -7,7 +7,7 @@ import {
 import {
   isTypeSyntaxNode,
   referenceQueryNode,
-} from "../../packages/target-api/dist/source-navigation/syntax.js";
+} from "../../packages/target-api/dist/source-model/syntax.js";
 import { semanticTypeForNode } from "../../packages/target-api/dist/host-input/navigation-references.js";
 import {
   checkedSource,

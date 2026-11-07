@@ -115,13 +115,14 @@ test("I1: no checker type is reachable from the target-facing target-api entries
 });
 
 // ---- I3: only target-api/src/host-input reads the checker inside the Host value model and role model -----------------
-// Scanned: source-semantics/local-type-flow/** and source-navigation/** (production files; the test-program helper
+// Scanned: source-semantics/local-type-flow/**, source-navigation/** and source-model/** (the checker-free syntax layer) (production files; the test-program helper
 // type-flow-test-program.ts is test support). The patterns are those of local-type-flow/program-facts.test.ts (A3).
 // A scanned file may import host-input only as types (the adapter interfaces and opaque handles); a value import would
 // call a checker reader directly. Every module a scanned file value-imports outside host-input is scanned for checker
 // imports and checker query APIs as well, transitively, so a checker read cannot hide one import away.
 const hostSource = path.join(tsonicRoot, "packages", "target-api", "src");
-const i3Roots = [path.join(hostSource, "source-semantics", "local-type-flow"), path.join(hostSource, "source-navigation")];
+const i3Roots = [path.join(hostSource, "source-semantics", "local-type-flow"), path.join(hostSource, "source-navigation"),
+  path.join(hostSource, "source-model")];
 const i3CheckerNames = /^(Type|Signature|Symbol|TypeCheckerQueries|TypeShapeQueries|SourceFileQueries|Resolved\w+|Type\w*Info)$/u;
 const i3ScannedLine = [
   /(?<![-\w])semantics\b/u, /\bSourceFileSemantics\b/u, /\bSourceProgramSemantics\b/u, /\bSourceTypeComponentEvidence\b/u,

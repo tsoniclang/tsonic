@@ -7,6 +7,7 @@ import type {
   SourceLexicalCaptureSelection, SourcePropertyName, SourcePropertyNameIssue,
 } from "../public/source/analyses.js";
 import type { SourceHeritageEdge } from "../public/source/objects.js";
+import type { SourceCallSignatureParameter } from "../public/source/selections.js";
 import type { HostSourceProgram } from "../source-semantics/types.js";
 import type { SourcePropertyNameSelection } from "../source-semantics/property-names-model.js";
 import { analyzeSourceIntegerRanges, type SourceIntegerRangeQueries } from "../source-navigation/integer-ranges/analysis.js";
@@ -27,10 +28,11 @@ import { createSourceDeclarationControlFlow } from "./flow/graph.js";
 import { createSourceSwitchCoverage } from "./flow/switch-coverage.js";
 import { createSourceStorageQuery } from "./source-storage/queries.js";
 import { defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
-import { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
+import { createSourceProfileStorageEffects } from "./source-storage/model/global-call-effects.js";
 import { createSourceDeclarationOwnershipQuery } from "./ownership/query.js";
 import { analyzeSourceDeclarationGenericAdoption } from "./ownership/generic-adoption.js";
 import type { SourcePlatformFacts } from "../source-semantics/platform-model.js";
+import { sourcePrimitiveLiteralFit } from "../source-semantics/local-type-flow/operator-decisions.js";
 
 /** Host-internal: open the opaque handle an extension factory receives. Exported only from `@tsonic/target-api/host`. */
 export function hostSourceProgramOfAnalysisHost(host: SourceAnalysisHost): HostSourceProgram {
@@ -50,6 +52,8 @@ export function createSourceAnalysisFacts(
   owner: () => HostSourceProgram,
   extensions: readonly SourceAnalysisExtension<unknown>[],
   platform: SourcePlatformFacts,
+  /** The selection owner's signature slots (object-facts/selections.ts): one translation with the call selections. */
+  signatureParameters: (signature: Node) => readonly SourceCallSignatureParameter[] | undefined,
 ): SourceAnalysisFacts {
   const registered = new Map<string, SourceAnalysisExtension<unknown>>();
   for (const extension of extensions) {
@@ -61,7 +65,9 @@ export function createSourceAnalysisFacts(
   let aliases: ((declaration: Node) => ReturnType<ReturnType<typeof createSourceCallOnlyAliasQuery>>) | undefined;
   let switches: ((switchStatement: Node) => boolean) | undefined;
   let lexicalCaptures: ((owner: Node) => SourceLexicalCaptureSelection) | undefined;
-  let names: { readonly get: WeakMap<Node, SourcePropertyName>; readonly issues: readonly SourcePropertyNameIssue[] } | undefined;
+  let names: {
+    readonly get: WeakMap<Node, SourcePropertyName>; readonly issues: WeakMap<Node, SourcePropertyNameIssue>;
+  } | undefined;
   const aliasRecords = new WeakMap<Node, SourceCallOnlyAliasRecord | null>();
   const bases = new WeakMap<Node, SourceHeritageEdge | null>();
   const entryIssues = new WeakMap<SourceFile, ReturnType<typeof validateSourceBinaryEntry>>();
@@ -83,24 +89,33 @@ export function createSourceAnalysisFacts(
     if (names !== undefined) return names;
     const host = owner();
     const get = new WeakMap<Node, SourcePropertyName>();
-    const issues: SourcePropertyNameIssue[] = [];
+    const issues = new WeakMap<Node, SourcePropertyNameIssue>();
     for (const sourceFile of host.sourceFiles) {
       const index = host.propertyNames(sourceFile);
       for (const entry of index.entries) get.set(entry.node, publishPropertyName(entry.selection));
+      // Issues are Source refusals of project files only (R2 #34): a declaration file's unproven key is not a program form.
+      // Each is published per name node (Q93): a target forwards it only where it needs a static named field.
+      if (!host.navigation.isProjectDeclaration(sourceFile)) continue;
       for (const issue of index.issues) {
-        issues.push(Object.freeze({
+        issues.set(issue.node, Object.freeze({
           code: issue.failure === "resource" ? "TSONIC_COMPILER_RESOURCE_LIMIT" as const : "TSONIC_COMPUTED_PROPERTY_NAME_NOT_PROVEN" as const,
           node: issue.node, reason: issue.reason, failure: issue.failure,
         }));
       }
     }
-    names = Object.freeze({ get, issues: Object.freeze(issues) });
+    names = Object.freeze({ get, issues });
     return names;
   };
 
   const facts: SourceAnalysisFacts = {
-    // E24 (N5): the composition root's premise, published unchanged (the same object).
-    platform,
+    // E24 (N5): the composition root's premise, published with its fields unchanged, and the one native fit rule (Q90 b).
+    platform: Object.freeze({
+      ...platform,
+      nativeIntegerFit(value: bigint, primitive: "native-int" | "native-uint") {
+        const fit = sourcePrimitiveLiteralFit(Object.freeze({ form: "bigint", integerConstant: value }), primitive, platform);
+        return fit === "fits" ? "fits" as const : fit === "outside" ? "does-not-fit" as const : "refused" as const;
+      },
+    }),
     integerRange: (expression: Node) => integerQueries().range(expression),
     exactInt32Remainders: () => integerQueries().exactInt32Remainders,
     integerIsNonnegative(expression: Node): boolean {
@@ -148,6 +163,7 @@ export function createSourceAnalysisFacts(
       }
       return lexicalCaptures(captureOwner);
     },
+    signatureParameters,
     callArgument(expression: Node) {
       const host = owner();
       const selected = sourceExpressionCallArgument(expression, { ast: host.ast, navigation: host.navigation });
@@ -187,9 +203,8 @@ export function createSourceAnalysisFacts(
 
     enumConstant: (member: Node) => owner().enums.get(member),
     enumIntegerWidth: (declaration: Node) => owner().enums.integerWidth(declaration),
-    enumIssues: () => owner().enums.issues,
     propertyName: (name: Node) => propertyNames().get.get(name),
-    propertyNameIssues: () => propertyNames().issues,
+    propertyNameIssue: (name: Node) => propertyNames().issues.get(name),
 
     artifactFiles(constructions) {
       const host = owner();
@@ -209,10 +224,9 @@ export function createSourceAnalysisFacts(
       switches ??= createSourceSwitchCoverage(owner());
       return switches(switchStatement);
     },
+    // The Host composes the JS API storage and callback effects from facts.profile; the target adds only its ABI premises.
     storage: input => createSourceStorageQuery(owner(), input.sourceFiles, input.limits ?? defaultSourceStorageLimits,
-      input.effects ?? {}),
-    globalCallStorageEffects: (select, selectConstructor) =>
-      createSourceGlobalCallStorageEffects(owner(), select, selectConstructor),
+      createSourceProfileStorageEffects(owner(), input.premises)),
     declarationOwnership: input => createSourceDeclarationOwnershipQuery({ source: owner(), ...input }),
     genericAdoption: input => analyzeSourceDeclarationGenericAdoption({ source: owner(), ...input }),
 

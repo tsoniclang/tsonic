@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import { sourceNodeIdentity } from "./identity.js";
-import { sourceMemberOwner } from "./class-members.js";
+import { sourceMemberOwner } from "../source-model/class-members.js";
 import { selectCallableImplementationDeclaration } from "./callable-implementation.js";
 import type { SourceHeritagePathResult, SourceProjectMemberImplementationResult, SourceProjectReference } from "./types.js";
 

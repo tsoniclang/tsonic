@@ -1,6 +1,6 @@
 // Test support for local-type-flow Host tests (no production caller). Builds the Host program owner once and exposes
 // the services the type-flow stages read, the solved value model and the published value facts of the same program.
-import type { CheckedSourceProgram } from "@tsonic/tsts";
+import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 import { buildHostSourceProgram } from "../target-source-program.js";
 import type { SourceJsApiFacts } from "../../public/source/objects.js";
 import type { SourceHostInput } from "../../host-input/index.js";
@@ -28,7 +28,8 @@ export function createSourceTypeFlowTestProgram(checked: CheckedSourceProgram): 
     platform: hostProgramFixturePlatform });
   const host = built.program;
   const services: SourceTypeFlowSource = Object.freeze({ ast: host.ast, sourceFiles: host.sourceFiles,
-    sourceFacts: host.sourceFacts, navigation: host.navigation, platform: hostProgramFixturePlatform });
+    sourceFacts: host.sourceFacts, navigation: host.navigation, platform: hostProgramFixturePlatform,
+    enumIntegerWidth: (declaration: Node) => host.enums.integerWidth(declaration) });
   const { input, semantics } = built;
   const effectiveTypes = analyzeSourceEffectiveTypes(services, createSourceTypeDescriptorUnions(host.ast, checked.programSourceFiles), input);
   return Object.freeze({ ...services, semantics, input, effectiveTypes,

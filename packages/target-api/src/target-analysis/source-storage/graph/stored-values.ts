@@ -1,18 +1,17 @@
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import { Node_Expression, Node_Initializer } from "../../../source-navigation/ast.js";
-import { sourceNodeHasRole } from "../../../source-navigation/callable-boundaries.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { Node_Expression, Node_Initializer } from "../../../source-model/ast.js";
+import { sourceNodeHasRole } from "../../../source-model/callable-boundaries.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
-import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-model/class-members.js";
 import { createSourceStorageBudget, type SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import { sourcePresentStorageArms, sourceStorageAccessDeclarations, sourceStorageIsAbsentType, sourceStorageIsScalarType,
-  sourceStorageMemberPairFor, sourceStorageSubjectType } from "../model/components.js";
+import { sourcePresentStorageArms, sourceStorageAccessDeclarations, sourceStorageIsAbsentType, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { SourceStorageFixedPointQueries } from "../model/relations.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
@@ -222,7 +221,7 @@ export function createSourceStorageFormalMemberWrites(
     const selected = formals.get(formal);
     if (selected === undefined || !budget.step()) return undefined;
     if (sourcePresentStorageArms(selected.type).length === 0 || sourcePresentStorageArms(from).length === 0) return undefined;
-    const relation = sourceStorageMemberPairFor(source, selected.type, from, member, "correspondence");
+    const relation = source.facts.objects.correspondingMember(selected.type, from, member, "correspondence");
     return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
   };
   const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {

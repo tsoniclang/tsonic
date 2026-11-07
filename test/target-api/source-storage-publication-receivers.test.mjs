@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { checkedSource, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -57,9 +57,13 @@ for (const publication of ["opaque", "exported"]) {
         "the same physical declaration never publishes another allocation's writer");
       const allocation = Node_Initializer(source.ast, variable("options"));
       assert.equal(allocation !== undefined, true, "the actual literal is retained");
-      const ownKeys = source.facts.objects.ownKeys(allocation);
-      assert.equal(ownKeys !== "ambiguous" && ownKeys.some(key => key.kind === "string" && key.value === "env"),
-      initialization === "present", "the literal own keys never acquire invented contextual fields");
+      // The raw expression type of the literal (baseline: checker expressionType), now its Host value descriptor.
+      const raw = source.facts.values.type(allocation);
+      assert.equal(raw.kind === "refused", false, "the actual literal has a Host expression type");
+      const rawMembers = source.facts.objects.members(raw.type);
+      assert.equal(Array.isArray(rawMembers), true, "the literal expression type has exact Host members");
+      assert.equal(rawMembers.some(member => member.name === "env"), initialization === "present",
+        "the raw expression type never acquires invented contextual fields");
       assert.equal(storage.failureReason(), undefined, "all exact correspondence completes under the unchanged budget");
     });
   }

@@ -85,6 +85,9 @@ test("call correspondence does not authorize an optional callback consumer", () 
 test("call correspondence never reads a call of another checked program", () => {
   const current = selected("consume((value: unknown): void => {});");
   const foreign = selected("consume((value: unknown): void => {});");
+  // R2 #49: the invariant text is matched (navigation input or the checked program's source-file query), so an
+  // unrelated crash does not pass this negative.
   assert.throws(() => sourceCallArgumentCorrespondences(current.context, foreign.call),
+    /(?:Navigation input requires a node of the checked program|Source-file queries require an exact source file from the checked program)/u,
     "a call node of another checked program has no witness in this program's input");
 });

@@ -5,7 +5,7 @@ import test from "node:test";
 import { fixture, declarations } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-fixtures.mjs";
 import { checkedOperation } from "../../../../../test/target-api/fixtures/target-analysis/ownership/generic-adoption-part-3-fixtures.mjs";
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../source-semantics/descriptor-model.js";
 // Test helper: a Host descriptor that is a Promise application (declared reference named Promise).
 function isPromiseDescriptor(ast: { name(node: Node): Node | undefined; text(node: Node): string },
   type: SourceTypeDescriptor | undefined): boolean {

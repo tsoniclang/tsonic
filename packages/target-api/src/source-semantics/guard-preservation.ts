@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
-import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 import type { SourceValueFlowQueryContext } from "./value-flow-model.js";
 
 export function sourceGuardPreservesBinding(
-  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts">,
+  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts" | "effects">,
   condition: Node,
   reference: Node,
   assumed: boolean,
@@ -19,7 +19,7 @@ export function sourceGuardPreservesBinding(
   const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   const stable = (node: Node): boolean => {
     if (!enter(node)) return false;
-    const effects = context.navigation.expressionEffects(node);
+    const effects = context.effects(node);
     return !(capturedWrites && (effects.invokes || effects.suspends)) &&
       (!effects.mutates || context.navigation.bindingWritesWithin(binding.declaration, node).length === 0);
   };

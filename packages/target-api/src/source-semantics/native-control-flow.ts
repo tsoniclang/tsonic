@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceNodeHasRole } from "../source-navigation/callable-boundaries.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 
 export function sourceStatementAlwaysExits(
   ast: AstReader,

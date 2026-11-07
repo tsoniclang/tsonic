@@ -13,20 +13,13 @@ export {
   jsTypesModule,
 } from "./identities/source.js";
 export { jsSourceSemanticsModules } from "./extension/source-modules.js";
-export { createJsSourceSemanticsExtension } from "./extension/source-extension.js";
+export { jsSourceExtensionContribution } from "./extension/source-extension.js";
 export { createJsSourceVirtualModulesProvider } from "./extension/source-virtual-modules.js";
 export { jsRegExpTypeLibraryContract } from "./type-library-contract.js";
-export { jsArrayMemberEffect } from "./identities/array-effects.js";
 export { sourceErrorDeclarations } from "./declarations/errors.js";
 export { sourcePrimitiveProfileDeclarations } from "./declarations/primitives.js";
 export { jsSurfaceSourceProfileDeclarations } from "./declarations/globals.js";
 export { jsTypedArrayElementKinds } from "./declarations/typed-arrays.js";
-export { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage } from "./identities/storage-effects.js";
-export type { JsSourceStorageOperationIdentity } from "./identities/storage-effects.js";
-export { jsSourceInvocationOnlyCallableParameters, jsSourceCallableParameterEffects, jsSourceNativeStorageOperation,
-  jsSourceCallableRefusal } from "./identities/callable-effects.js";
+// The JS API facts (D18): every JS API meaning, identity and effect reaches a target and the Host through
+// facts.profile only (createJsSourceApiFacts is the composition root's profile factory).
 export { createJsSourceApiFacts } from "./api/facts.js";
-export { jsSourceApiIdentity } from "./api/identity.js";
-export type { JsSourceApiIdentity, JsSourceApiIdentityInput } from "./api/identity.js";
-export { jsSourceApiConstructionMeaning, jsSourceApiMemberMeaning } from "./api/members.js";
-export type { JsSourceApiMemberMeaning } from "./api/members.js";

@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import type { SourceCallableRole } from "../public/source/roles.js";
 import { isSourceCallableBodyBoundary, sourceNodeRoles } from "./callable-boundaries.js";
-import { sourceReceiverBoundary } from "./receiver-owner.js";
+import { sourceReceiverBoundary } from "../source-navigation/receiver-owner.js";
 
 const sourceText = `
 function declared(): number { return 1; }

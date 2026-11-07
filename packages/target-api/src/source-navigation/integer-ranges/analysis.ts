@@ -1,7 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../types.js";
-import { Node_Expression, Node_Initializer } from "../ast.js";
-import { sourceNodeHasRole } from "../callable-boundaries.js";
+import { Node_Expression, Node_Initializer } from "../../source-model/ast.js";
+import { sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
 import { binaryIntegerRange, integerRange, joinIntegerRanges } from "./domain.js";
 import type { SourceIntegerRange } from "./domain.js";
 

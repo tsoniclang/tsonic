@@ -1,5 +1,5 @@
 import { dirname, extname, posix } from "node:path";
-import { sourceTransparentExpressionOperand } from "../../../packages/target-api/dist/source-navigation/ast.js";
+import { sourceTransparentExpressionOperand } from "../../../packages/target-api/dist/source-model/ast.js";
 import { getStaticModuleReference } from "../../../packages/target-api/dist/public/provider.js";
 import { readArchitectureTypeScript } from "./typescript-source.mjs";
 

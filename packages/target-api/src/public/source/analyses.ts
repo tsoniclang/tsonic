@@ -4,11 +4,12 @@
 // Node and SourceFile are site keys only. A target never reaches the Host program (`@tsonic/target-api/host`).
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceNumericLiteralToken } from "../../source-semantics/literal-values-model.js";
-import type { SourceTypeDescriptor, SourceTypeFlowPathPart } from "../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor, SourceTypeFlowPathPart } from "../../source-semantics/descriptor-model.js";
 import type {
   SourceEnumAdmissionIssue, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection,
 } from "../../source-semantics/enum-model.js";
 import type { SourceNativeValueGuard } from "../../source-semantics/native-value-guards.js";
+import type { SourceCallSignatureParameter } from "./selections.js";
 import type { SourceIntegerRange } from "../../source-navigation/integer-ranges/domain.js";
 import type { SourceClosedCallableArgument } from "../../source-navigation/callable-arguments.js";
 import type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "../../source-navigation/lexical-captures.js";
@@ -22,11 +23,8 @@ import type {
 } from "../../target-analysis/ownership/model.js";
 import type { SourceDeclarationOwnershipQueries } from "../../target-analysis/ownership/query.js";
 import type { SourceGenericAdoptionIssue } from "../../target-analysis/ownership/generic-adoption.js";
-import type { SourceStorageEffects, SourceStorageLimits, SourceStorageQueries } from "../../target-analysis/source-storage/model/types.js";
-import type { SourceGlobalCallStorageEffect, SourceGlobalStorageBinding }
-  from "../../target-analysis/source-storage/model/global-call-effects.js";
+import type { SourceStorageLimits, SourceStorageQueries } from "../../target-analysis/source-storage/model/types.js";
 import type { SourceHeritageEdge } from "./objects.js";
-import type { SourceCallSelection } from "./selections.js";
 import type {
   SourceNativeIntegerBits, SourceNativeIntegerPremise, SourceNativeIntegerWidthRefusalCode, SourcePlatformFacts,
 } from "../../source-semantics/platform-model.js";
@@ -34,14 +32,25 @@ import type {
 export type {
   SourceNativeIntegerBits, SourceNativeIntegerPremise, SourceNativeIntegerWidthRefusalCode, SourcePlatformFacts,
 };
+
+/**
+ * The published platform facts: the composition root's premise (its kind, width and basis, unchanged) and the one Host
+ * native-integer fit rule over it (Q90 (b); local-type-flow/operator-decisions.ts sourcePrimitiveLiteralFit).
+ */
+export type SourcePublishedPlatformFacts = SourcePlatformFacts & {
+  /**
+   * Whether an integer value fits a native-int / native-uint: under a known width, its bounds; under a missing or
+   * conflicting premise, the answer both widths share, else "refused" (the TSONIC_NATIVE_INTEGER_WIDTH_* cell, N5/E24).
+   */
+  nativeIntegerFit(value: bigint, primitive: "native-int" | "native-uint"): "fits" | "does-not-fit" | "refused";
+};
 export type {
   SourceArtifactFile, SourceArtifactIssue, SourceBinaryEntryIssue, SourceClosedCallableArgument,
   SourceControlFlowSelection, SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipQueries,
   SourceDeclarationOwnershipUnresolved, SourceEnumAdmissionIssue, SourceEnumConstantSelection,
-  SourceEnumIntegerWidthSelection, SourceFlowLimits, SourceGenericAdoptionIssue, SourceGlobalCallStorageEffect,
-  SourceGlobalStorageBinding, SourceIntegerRange, SourceLexicalCapture, SourceLexicalCaptureSelection,
-  SourceNativeValueGuard, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries,
+  SourceEnumIntegerWidthSelection, SourceFlowLimits, SourceGenericAdoptionIssue, SourceIntegerRange, SourceLexicalCapture, SourceLexicalCaptureSelection,
+  SourceNativeValueGuard, SourceStorageLimits, SourceStorageQueries,
 };
 
 /** One type-flow obligation the Host recorded (interface, read-only, constraint, literal admission, write fit). */
@@ -122,7 +131,23 @@ export interface SourceAnalysisExtension<T> {
 export interface SourceStorageAnalysisInput {
   readonly sourceFiles: readonly SourceFile[];
   readonly limits?: SourceStorageLimits;
-  readonly effects?: SourceStorageEffects;
+  /**
+   * The target ABI premises the analysis needs (required, no default; Q100). The JS API call and callback effects are
+   * always Host facts (facts.profile). A caller with no target premise passes `{}`.
+   */
+  readonly premises: SourceStorageTargetPremises;
+}
+
+/**
+ * The target premises of the storage analysis. These are target ABI facts, not Source meaning: the Host composes every
+ * JS API storage and callback effect itself from facts.profile (D18).
+ */
+export interface SourceStorageTargetPremises {
+  /**
+   * The constructors of an ambient provider class (a non-project class declaration) that the target binds to a plain
+   * native constructor; undefined when the target binds none of them so.
+   */
+  readonly nativeClassConstructors?: (binding: Node) => readonly Node[] | undefined;
 }
 
 export interface SourceDeclarationOwnershipInput {
@@ -152,7 +177,7 @@ export interface SourceAnalysisFacts {
    * passed it (TargetSourceProgramOptions.platform). Every Host native-int / native-uint width decision used it; a target
    * representation that needs the width reads this fact, never a constant of its own.
    */
-  readonly platform: SourcePlatformFacts;
+  readonly platform: SourcePublishedPlatformFacts;
 
   // ---- integers -------------------------------------------------------------------------------------------------
   /** Proven integer interval of a number-typed expression (number = Host descriptor primitive "number"). */
@@ -172,10 +197,17 @@ export interface SourceAnalysisFacts {
   /** Parameter declarations of a callable value (function, arrow, method), declaration order. */
   callableValueParameters(declaration: Node): readonly Node[] | undefined;
   /**
+   * The value-parameter slots (a leading `this` parameter excluded) of a function, method, constructor, accessor, arrow
+   * or function expression declaration, or of a call, construct or method signature, in declaration order (FX-CC #13).
+   * Kind: `rest` for `...p`, `optional` when the parameter accepts omission, else `required`. Equal to
+   * `SourceCallSelection.signatureParameters` of every call that selects the signature. undefined for any other node.
+   */
+  signatureParameters(signature: Node): readonly SourceCallSignatureParameter[] | undefined;
+  /**
    * The full lexical capture selection of an owner, computed over the whole owner (roots `[owner]`): every captured
    * outer binding (declaration Node, authored first-reference order) with all its references, the owner's self
    * references, and the captured outer receivers (`this` / `super` owners) with their references.
-   * `navigation.scopes.captures` is the narrower body-only question (binding and written flag). Owners: a project
+   * `navigation.scopes.captures` projects the same selection to (binding, written flag). Owners: a project
    * function declaration, function expression, arrow, method, constructor or accessor with a body, or a project class
    * declaration or expression; any other node is an invariant failure (throws).
    */
@@ -192,17 +224,22 @@ export interface SourceAnalysisFacts {
   // ---- enums and property names ---------------------------------------------------------------------------------
   enumConstant(member: Node): SourceEnumConstantSelection | undefined;
   enumIntegerWidth(declaration: Node): SourceEnumIntegerWidthSelection | undefined;
-  enumIssues(): readonly SourceEnumAdmissionIssue[];
   propertyName(name: Node): SourcePropertyName | undefined;
-  propertyNameIssues(): readonly SourcePropertyNameIssue[];
+  /**
+   * The Host refusal of a property name node in a project file whose static name the Host could not prove (its
+   * `propertyName` is "rejected"); undefined for every other node. A per-node query, not part of facts.refusals() (Q93):
+   * a target forwards it unchanged (code, message = reason, site = node) only where it needs a static named field.
+   */
+  propertyNameIssue(name: Node): SourcePropertyNameIssue | undefined;
 
   // ---- program analyses -----------------------------------------------------------------------------------------
   artifactFiles(constructions: readonly { readonly sourceFile: SourceFile; readonly targetSourceFile: SourceFile }[]):
     { readonly files: readonly SourceArtifactFile[]; readonly issues: readonly SourceArtifactIssue[] };
   /**
    * Host refusals TSONIC_UNCALLED_BINARY_ENTRY_MAIN of an executable's entry file (code, message, site Host-originated).
-   * A target that builds an executable (a target output setting) forwards them unchanged before its analysis, as it
-   * forwards enumIssues(); it never originates the code.
+   * A target that builds an executable (a target output setting) forwards them unchanged before its analysis; it never
+   * originates the code. Every other Source refusal (enum issues included) is in facts.refusals(), except the per-node
+   * property-name issues (`propertyNameIssue`, Q93).
    */
   binaryEntryIssues(entry: SourceFile): readonly SourceBinaryEntryIssue[];
   controlFlow(declaration: Node, options: SourceDeclarationControlFlowOptions):
@@ -210,12 +247,6 @@ export interface SourceAnalysisFacts {
   /** The switch statement's case labels cover every arm of its discriminant. */
   switchCoverage(switchStatement: Node): boolean;
   storage(input: SourceStorageAnalysisInput): SourceStorageQueries;
-  /** Storage effects of provider globals; the target selects the effect per call / construct-signature declaration. */
-  globalCallStorageEffects(
-    select: (node: Node, call: SourceCallSelection) => SourceGlobalCallStorageEffect | undefined,
-    selectConstructor: (declaration: Node) =>
-      { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding } | undefined,
-  ): SourceStorageEffects;
   declarationOwnership(input: SourceDeclarationOwnershipInput): SourceDeclarationOwnershipQueries;
   genericAdoption(input: SourceGenericAdoptionInput): SourceGenericAdoptionSelection;
 

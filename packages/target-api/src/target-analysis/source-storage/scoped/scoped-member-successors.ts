@@ -10,7 +10,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageStoredValue } from "./scoped-transport.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
+import { sourceMemberOwner } from "../../../source-model/class-members.js";
 import { sourceStorageAccessDeclarations, sourceStorageComponentType, sourceStorageIsAbsentType, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import type { sourceStorageClassLineages, SourceStorageClassValue } from "../model/construction.js";

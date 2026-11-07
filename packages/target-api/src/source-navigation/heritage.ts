@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import { sourceNodeIdentity } from "./identity.js";
 import type { SourceDeclarationReference, SourceDeclaredHeritageEdge, SourceDeclaredHeritageResult, SourceHeritagePathResult } from "./types.js";
 

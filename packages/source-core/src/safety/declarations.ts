@@ -4,17 +4,13 @@ import type {
   ProviderParameterDeclaration,
   ProviderTypeExpression,
 } from "@tsonic/tsts";
+import type { TargetSourceSafetyProviderNames } from "@tsonic/target-api/provider";
 import {
   tsonicCoreLangModule,
 } from "../identity.js";
 
-export interface SourceSafetyProviderNames {
-  readonly moduleSpecifier: string;
-  readonly unsafeContextExport: string;
-  readonly safetyExport: string;
-  readonly safetyBuilderExport: string;
-  readonly safetyMemberBuilderExport: string;
-}
+/** Owned by target-api (target/source-extensions.ts); an alias, not a copy (R4). */
+export type SourceSafetyProviderNames = TargetSourceSafetyProviderNames;
 
 export const sourceSafetySignatureIds = Object.freeze({
   unsafeContextBlock: "unsafecontext()",

@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import type { SourceProgramNavigation } from "./types.js";
 
 export function createSourceSyntaxDomain(ast: Pick<AstReader, "getSourceFile">, owner: Node): (node: Node) => boolean {

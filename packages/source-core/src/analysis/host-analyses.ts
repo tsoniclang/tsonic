@@ -6,18 +6,20 @@ import type { Node } from "@tsonic/tsts";
 import { createSourceAnalysisKey, hostSourceProgramOfAnalysisHost } from "@tsonic/target-api/host";
 import type { SourceStorageQueries } from "@tsonic/target-api/analysis";
 import type { SourceAnalysisExtension, SourceAnalysisHost, SourceAnalysisKey } from "@tsonic/target-api/source";
-import { createTsonicMemoryMetadataIndex, type TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+import { createTsonicMemoryMetadataIndex, type TsonicMemoryMetadataUses } from "../memory-layout/metadata-index.js";
 import { createTsonicClosedArrayStorageQueries, type TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
 import { selectTsonicProviderPointerShape, type TsonicProviderPointerSelection } from "../pointers/provider-return-evidence.js";
 import { createTsonicPointerStorageRelation, type TsonicPointerStorageRelation } from "../pointers/storage-relation.js";
-import { createTsonicHostRecords, type TsonicMemoryBindings, type TsonicMemoryFacts, type TsonicPointerFacts } from "./host-records.js";
+import {
+  createTsonicHostRecords, type TsonicMemoryBindings, type TsonicMemoryFacts, type TsonicPointerFacts, type TsonicRawPointerIdentityRecord,
+} from "./host-records.js";
 
 /** Source-value budget of one closed native array proof (the value C# used, now owned by the Host). */
 export const tsonicClosedArrayStorageValueBudget = 131_072;
 
 export interface TsonicCoreSourceAnalyses {
-  /** Compile-time memory metadata (data layouts, memory layouts, memory fields) and their use issues. */
-  readonly memoryMetadata: TsonicMemoryMetadataIndex;
+  /** Compile-time memory metadata uses (data layouts, memory layouts, memory fields) and their use issues. */
+  readonly memoryMetadata: TsonicMemoryMetadataUses;
   /** Raw locations (torawptr / reinterpretrawptr with their layouts), raw address arithmetic, layout observations, keepalive. */
   readonly memory: TsonicMemoryFacts;
   /** Field and record memory bindings, their issues and the bound field declarations. */
@@ -28,6 +30,8 @@ export interface TsonicCoreSourceAnalyses {
   pointerStorage(storage: SourceStorageQueries): TsonicPointerStorageRelation;
   /** Closed native array storage behind an element access, or why it is unproven. */
   closedArrayStorage(access: Node): TsonicClosedArrayStorage;
+  /** equalrawptr / hashrawptr: the call, its operation and its operands with Host descriptors; undefined otherwise. */
+  rawPointerIdentity(call: Node): TsonicRawPointerIdentityRecord | undefined;
   /** Pointer result shape of a provider call; fold it with foldTsonicProviderPointerResult. Undefined: no pointer result. */
   providerPointerResult(call: Node): TsonicProviderPointerSelection | undefined;
 }
@@ -42,8 +46,9 @@ export const tsonicCoreSourceAnalyses: SourceAnalysisExtension<TsonicCoreSourceA
     const arrays = createTsonicClosedArrayStorageQueries(host, tsonicClosedArrayStorageValueBudget);
     const records = createTsonicHostRecords(host);
     const relations = new Map<SourceStorageQueries, TsonicPointerStorageRelation>();
+    const metadata = createTsonicMemoryMetadataIndex(host);
     return Object.freeze({
-      memoryMetadata: createTsonicMemoryMetadataIndex(host),
+      memoryMetadata: Object.freeze({ declaration: metadata.declaration, isCompileTimeExpression: metadata.isCompileTimeExpression }),
       memory: records.memory,
       get memoryBindings() { return records.memoryBindings; },
       pointers: records.pointers,
@@ -55,6 +60,7 @@ export const tsonicCoreSourceAnalyses: SourceAnalysisExtension<TsonicCoreSourceA
         return relation;
       },
       closedArrayStorage: (access: Node) => arrays.resolve(access),
+      rawPointerIdentity: (call: Node) => records.rawPointerIdentity(call),
       providerPointerResult: (call: Node) => selectTsonicProviderPointerShape(host, call),
     });
   },

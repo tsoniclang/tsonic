@@ -1,15 +1,15 @@
-import { sourceMarkerFactKey, sourcePrimitiveFactKey, type ExtensionFactSubject, type Node, type Type, type TypeAliasApplicationInfo } from "@tsonic/tsts";
-import { sourceArrayElementType } from "./semantics-array-types.js";
-import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
-import { createSourceTypeDescriptorNormalizer, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorLiteralKey, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
-import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
+// The Host descriptor reader (R1 #12a): the one rule set that turns declaration input (authored type syntax and the
+// declared/selected checker types of declarations, read only through the opaque SourceHostQueries facade, I3) into Host
+// descriptors. Union families (authored order), member literal domains (D-2), the FixedArray extent, pointer-marker
+// identity, alias identity (C-2263) and the C29 floor are decided here, never in host-input.
+import { sourceMarkerFactKey, type Node } from "@tsonic/tsts";
+import { createSourceTypeDescriptorNormalizer, sourceTypeDescriptorOptional, sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorLiteralKey, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
 import { sourceTypeDescriptorConditionalDefinition } from "./conditional-descriptors.js";
-import { hostComponent } from "./queries.js";
-import { failTargetCompilerResourceLimit } from "../artifacts.js";
-import { sourceTypeExpansionBudget } from "../source-semantics/type-expansion-budget.js";
-import { sourceIntegerLiteralValue } from "../source-semantics/integer-literal.js";
-import type { SourceFileSemantics, SourceTypeComponentEvidence } from "./semantics-types.js";
-import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorLiteral, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
+import { failTargetCompilerResourceLimit } from "../../artifacts.js";
+import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
+import { sourceIntegerLiteralValue } from "../integer-literal.js";
+import type { SourceHostAliasApplication, SourceHostComponent, SourceHostQueries, SourceHostType } from "../../host-input/queries.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorLiteral, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement, SourceTypeFlowInheritedBinding, SourceTypeFlowSource } from "./types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
@@ -24,23 +24,30 @@ export type SourceTypeDescriptorReadResult =
   | { readonly kind: "resolved"; readonly type: SourceTypeDescriptor | undefined }
   | SourceTypeDescriptorReadFailure;
 
+/** The descriptor reader of one value-model run (its lifetime, I5). */
+export interface SourceTypeDescriptorReader {
+  syntax(node: Node, queries: SourceHostQueries, depth?: number, bindings?: Bindings): SourceTypeDescriptorReadResult;
+  type(component: SourceHostComponent, queries: SourceHostQueries, depth?: number, bindings?: Bindings): SourceTypeDescriptorReadResult;
+  inheritedBindings(type: SourceHostType, queries: SourceHostQueries, bindings: Bindings,
+    authoredBindings?: Bindings): ReadonlyMap<Node, SourceTypeFlowInheritedBinding>;
+}
+
 export function createSourceTypeDescriptorReader(
   source: SourceTypeFlowSource,
   unions: SourceTypeDescriptorUnions,
-  declarationFor: (type: Type, queries: SourceFileSemantics, authoredTypeNode?: Node, excludedDeclarations?: ReadonlySet<Node>) => Node | undefined,
   parametersFor: (declaration: Node) => readonly Node[],
-  declaredValue: (declaration: Node, queries: SourceFileSemantics, bindings: Bindings) => SourceTypeDescriptor | undefined,
+  declaredValue: (declaration: Node, queries: SourceHostQueries, bindings: Bindings) => SourceTypeDescriptor | undefined,
   refusedSignature: (declaration: Node) => boolean,
 ) {
   const { ast } = source;
   const active: { readonly declaration: Node; readonly arguments: readonly SourceTypeDescriptor[] }[] = [];
-  const activeCallables = new Map<Type, Set<number>>();
+  const activeCallables = new Map<SourceHostType, Set<number>>();
   const empty: Bindings = new Map();
-  const expansions = new Set<Type>();
+  const expansions = new Set<SourceHostType>();
   let expansionDepth = 0;
   let expansionSite: Node | undefined;
   const reads: { failure?: SourceTypeDescriptorReadFailure }[] = [];
-  let conditionalBindings: ReadonlyMap<Node, Type> = new Map();
+  let conditionalBindings: ReadonlyMap<Node, SourceHostType> = new Map();
 
   function capture(read: () => SourceTypeDescriptor | undefined): SourceTypeDescriptorReadResult {
     const frame: { failure?: SourceTypeDescriptorReadFailure } = {};
@@ -52,7 +59,7 @@ export function createSourceTypeDescriptorReader(
     } finally { reads.pop(); }
   }
 
-  function expand<Value>(selectedType: Type | undefined, site: Node | undefined, depth: number, read: () => Value): Value {
+  function expand<Value>(selectedType: SourceHostType | undefined, site: Node | undefined, depth: number, read: () => Value): Value {
     if (expansionDepth === 0) {
       expansions.clear();
       expansionSite = site;
@@ -78,29 +85,27 @@ export function createSourceTypeDescriptorReader(
       ? active.some(selected => selected.declaration === declaration) : expanding(declaration, arguments_);
   }
 
-  function primitive(subjects: readonly ExtensionFactSubject[]): SourceTypeDescriptor | undefined {
-    for (const subject of subjects) {
-      const fact = source.sourceFacts.getFact(subject, sourcePrimitiveFactKey);
-      if (fact !== undefined) return { kind: "primitive", primitive: fact.kind };
-    }
-    return undefined;
+  // The first primitive fact over the given subjects (the facade orders them: value node, declaration, type, annotation).
+  function primitive(queries: SourceHostQueries, subjects: Parameters<SourceHostQueries["primitive"]>[0]): SourceTypeDescriptor | undefined {
+    const kind = queries.primitive(subjects);
+    return kind === undefined ? undefined : { kind: "primitive", primitive: kind };
   }
 
-  function syntax(node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty): SourceTypeDescriptor | undefined {
+  function syntax(node: Node, queries: SourceHostQueries, depth = 0, bindings: Bindings = empty): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
     if (ast.is.IsUnionTypeNode(node) && bindings.size > 0) {
       const original = syntax(node, queries, depth, empty);
       return original === undefined ? undefined : createSourceTypeDescriptorNormalizer(unions, bindings)(original);
     }
-    return expand(queries.types.authoredType(node), node, depth, () => readSyntax(node, queries, depth, bindings));
+    return expand(queries.authoredType(node), node, depth, () => readSyntax(node, queries, depth, bindings));
   }
 
-  function readSyntax(node: Node, queries: SourceFileSemantics, depth: number, bindings: Bindings): SourceTypeDescriptor | undefined {
-    const direct = ast.is.IsUnionTypeNode(node) ? undefined : primitive([node]);
+  function readSyntax(node: Node, queries: SourceHostQueries, depth: number, bindings: Bindings): SourceTypeDescriptor | undefined {
+    const direct = ast.is.IsUnionTypeNode(node) ? undefined : primitive(queries, { node });
     if (direct !== undefined) return direct;
-    const selectedType = queries.types.authoredType(node);
+    const selectedType = queries.authoredType(node);
     if (selectedType === undefined) return undefined;
-    const declaration = declarationFor(selectedType, queries, node);
+    const declaration = queries.typeDeclaration(selectedType, node);
     const substituted = declaration === undefined ? undefined : bindings.get(declaration);
     if (substituted !== undefined) return substituted;
     if (ast.is.IsParenthesizedTypeNode(node)) {
@@ -140,11 +145,11 @@ export function createSourceTypeDescriptorReader(
       return structure(selectedType, queries, depth, bindings);
     }
     if (ast.is.IsImportTypeNode(node) && ast.typeArguments(node).length === 0) {
-      const imported = primitive(queries.facts.authoredTypeSubjects(node));
+      const imported = primitive(queries, { annotation: node });
       if (imported !== undefined) return imported;
     }
     if (declaration !== undefined) {
-      const declaredPrimitive = primitive([declaration, ...queries.facts.selectedSubjects(undefined, declaration)]);
+      const declaredPrimitive = primitive(queries, { node: declaration, declaration });
       if (declaredPrimitive !== undefined) return declaredPrimitive;
       if (ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node)) {
         const argumentNodes = ast.typeArguments(node);
@@ -160,22 +165,22 @@ export function createSourceTypeDescriptorReader(
           const argument = arguments_[index];
           if (argument !== undefined) instantiated.set(parameter, argument);
         });
-        let declaredBindings: readonly { readonly declaration: Node; readonly argumentType: Type }[] | undefined;
-        let application: TypeAliasApplicationInfo | undefined;
+        let declaredBindings: readonly { readonly declaration: Node; readonly argumentType: SourceHostType }[] | undefined;
+        let application: SourceHostAliasApplication | undefined;
         if (ast.is.IsTypeAliasDeclaration(declaration)) {
-          const checkedArguments: Type[] = [];
+          const checkedArguments: SourceHostType[] = [];
           for (const argument of argumentNodes) {
-            const authored = argument === undefined ? undefined : queries.types.authoredType(argument);
-            const parameter = authored === undefined ? undefined : declarationFor(authored, queries, argument);
+            const authored = argument === undefined ? undefined : queries.authoredType(argument);
+            const parameter = authored === undefined ? undefined : queries.typeDeclaration(authored, argument);
             const checked = parameter !== undefined && conditionalBindings.has(parameter)
               ? conditionalBindings.get(parameter) : authored;
             if (checked === undefined) return undefined;
             checkedArguments.push(checked);
           }
-          application = queries.types.instantiateAlias(declaration, checkedArguments);
+          application = queries.instantiateAlias(declaration, checkedArguments);
           if (application === undefined || application.declaration !== declaration) return undefined;
           declaredBindings = application.bindings.map(binding => ({ declaration: binding.declaration, argumentType: binding.argument }));
-        } else declaredBindings = queries.types.typeArgumentBindings(selectedType);
+        } else declaredBindings = queries.typeArgumentBindings(selectedType);
         if (declaredBindings !== undefined) {
           const ordered: SourceTypeDescriptor[] = [];
           for (const binding of declaredBindings) {
@@ -204,8 +209,8 @@ export function createSourceTypeDescriptorReader(
             if (value !== undefined) return value;
           }
         }
-        if (queries.types.isArrayLike(selectedType) && arguments_.length === 1) {
-          return { kind: "array", readonly: queries.types.indexInfos(selectedType).some(index => index.readonly), element: arguments_[0]! };
+        if (queries.isArrayLike(selectedType) && arguments_.length === 1) {
+          return { kind: "array", readonly: queries.indexes(selectedType).some(index => index.readonly), element: arguments_[0]! };
         }
         if (arguments_.length > 0 || expanding(declaration, arguments_)) {
           return nominal(selectedType, declaration, arguments_, queries, {
@@ -217,13 +222,13 @@ export function createSourceTypeDescriptorReader(
     return type(selectedType, queries, { selectedType, authoredTypeNode: node }, depth, bindings);
   }
 
-  function members(selectedType: Type, queries: SourceFileSemantics, depth: number,
+  function members(selectedType: SourceHostType, queries: SourceHostQueries, depth: number,
     bindings: Bindings): readonly SourceTypeDescriptorMember[] | undefined {
     const inherited = new Map([...inheritedBindings(selectedType, queries, depth, bindings)]
       .map(([declaration, binding]) => [declaration, binding.value]));
     const result: SourceTypeDescriptorMember[] = [];
-    for (const property of queries.types.propertyInfos(selectedType)) {
-      const selectedOrigin = sourceTypeDescriptorMemberOrigin(source, queries, property, selectedType);
+    for (const property of queries.properties(selectedType)) {
+      const selectedOrigin = queries.memberOrigin(property, selectedType);
       if (selectedOrigin?.kind === "refused") {
         const failure: SourceTypeDescriptorReadFailure = Object.freeze({ ...selectedOrigin, code: "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE" });
         for (const read of reads) read.failure ??= failure;
@@ -233,7 +238,7 @@ export function createSourceTypeDescriptorReader(
         // A synthetic member of several distinct root symbols has no single declared identity, so this structure
         // is not describable (the value is refused by totality, R1). Any other missing origin is an invariant failure.
         if (property.rootSymbols.length > 1) return undefined;
-        throw new Error(`Source member '${property.name}' has no approved checked origin (flags ${property.symbol.Flags}).`);
+        throw new Error(`Source member '${property.name}' has no approved checked origin.`);
       }
       const origin = selectedOrigin.origin;
       const literals = memberLiterals(property.type, property.optional, queries);
@@ -256,7 +261,7 @@ export function createSourceTypeDescriptorReader(
         : annotation === undefined ? type(property.type, queries, { selectedType: property.type, declaration }, depth + 1, inherited)
         : syntax(annotation, queries, depth + 1, inherited);
       if (value === undefined) return undefined;
-      if (property.optional && value.kind !== "optional") value = { kind: "optional", value };
+      if (property.optional) value = sourceTypeDescriptorOptional(value);
       result.push({ name: property.name, optional: property.optional, readonly: property.readonly,
         origin, type: value, ...literal });
     }
@@ -268,15 +273,15 @@ export function createSourceTypeDescriptorReader(
   // in the selected arm type, after that arm's own application, never an expression type (R3). A type parameter that is
   // still unbound is not literal (D-10). The full boolean domain is not a literal set; absence of an optional member is
   // not a value. The set is sorted by value key, so equal sets have one spelling.
-  function memberLiterals(selectedType: Type, optional: boolean,
-    queries: SourceFileSemantics): readonly SourceTypeDescriptorLiteral[] | undefined {
-    const parts = queries.types.isUnion(selectedType) ? queries.types.unionOrIntersectionTypes(selectedType) : [selectedType];
+  function memberLiterals(selectedType: SourceHostType, optional: boolean,
+    queries: SourceHostQueries): readonly SourceTypeDescriptorLiteral[] | undefined {
+    const parts = queries.isUnion(selectedType) ? queries.members(selectedType) : [selectedType];
     const result = new Map<string, SourceTypeDescriptorLiteral>();
     for (const part of parts) {
-      if (optional && queries.types.isNullish(part)) continue;
-      const string = queries.types.stringLiteralValue(part);
-      const number = string === undefined ? queries.types.numericLiteralValue(part) : undefined;
-      const boolean = string === undefined && number === undefined ? queries.types.booleanLiteralValue(part) : undefined;
+      if (optional && queries.isNullish(part)) continue;
+      const string = queries.stringLiteralValue(part);
+      const number = string === undefined ? queries.numericLiteralValue(part) : undefined;
+      const boolean = string === undefined && number === undefined ? queries.booleanLiteralValue(part) : undefined;
       const literal: SourceTypeDescriptorLiteral | undefined = string !== undefined ? { kind: "string", value: string }
         : typeof number === "bigint" ? { kind: "bigint", value: number }
         : typeof number === "number" && Number.isFinite(number) ? { kind: "number", value: number }
@@ -288,32 +293,32 @@ export function createSourceTypeDescriptorReader(
     return Object.freeze([...result].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, literal]) => literal));
   }
 
-  function inheritedBindings(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
+  function inheritedBindings(selectedType: SourceHostType, queries: SourceHostQueries, depth: number, bindings: Bindings,
     authoredBindings: Bindings = empty): ReadonlyMap<Node, SourceTypeFlowInheritedBinding> {
     const result = new Map(bindings);
     const authored = new Map(authoredBindings);
-    const components = new Map<Node, SourceTypeComponentEvidence>();
-    const application = queries.types.aliasApplication(selectedType);
+    const components = new Map<Node, SourceHostComponent>();
+    const application = queries.aliasApplication(selectedType);
     if (application?.kind === "direct" && application.bindings.length === 1 &&
-      sourceTypeFlowHomomorphicInput(source, queries, selectedType) !== undefined) {
+      queries.homomorphicInput(selectedType) !== undefined) {
       const input = bindings.get(application.bindings[0]!.declaration);
-      const declared = input?.kind === "declared" ? queries.declarations.declaredType(input.declaration) : undefined;
+      const declared = input?.kind === "declared" ? queries.declaredType(input.declaration) : undefined;
       const parameters = declared === undefined ? undefined
-        : queries.types.typeArgumentBindings(declared)?.map(binding => binding.declaration);
+        : queries.typeArgumentBindings(declared)?.map(binding => binding.declaration);
       if (input?.kind === "declared") (parameters ?? parametersFor(input.declaration)).forEach((parameter, index) => {
         const argument = input.typeArguments[index];
         if (argument !== undefined) result.set(parameter, argument);
       });
     }
-    const declaration = declarationFor(selectedType, queries);
-    const declaredType = declaration === undefined ? undefined : queries.declarations.declaredType(declaration);
+    const declaration = queries.typeDeclaration(selectedType);
+    const declaredType = declaration === undefined ? undefined : queries.declaredType(declaration);
     const pending = [{ type: declaredType ?? selectedType, depth: 0 }];
-    const seen = new Set<Type>();
+    const seen = new Set<SourceHostType>();
     while (pending.length > 0) {
       const current = pending.shift()!;
       if (seen.has(current.type)) continue;
       seen.add(current.type);
-      const owner = declarationFor(current.type, queries);
+      const owner = queries.typeDeclaration(current.type);
       const heritage = owner === undefined ? undefined : source.navigation.declaredHeritage(owner);
       if (heritage?.kind === "resolved") for (const edge of heritage.edges) {
         parametersFor(edge.target.declaration).forEach((parameter, index) => {
@@ -323,35 +328,35 @@ export function createSourceTypeDescriptorReader(
           const proven = declared !== undefined && !sourceTypeDescriptorHasTypeVariables(ast, declared);
           const argument = proven ? declared : node === undefined ? undefined : syntax(node, queries, depth + 1, result);
           if (argument !== undefined) result.set(parameter, argument);
-          const selectedType = proven && node !== undefined ? queries.types.authoredType(node) : undefined;
+          const selectedType = proven && node !== undefined ? queries.authoredType(node) : undefined;
           if (proven && selectedType !== undefined) {
             authored.set(parameter, declared);
             components.set(parameter, Object.freeze({ selectedType, authoredTypeNode: node! }));
           }
         });
       }
-      for (const binding of queries.types.typeArgumentBindings(current.type) ?? []) {
+      for (const binding of queries.typeArgumentBindings(current.type) ?? []) {
         if (result.has(binding.declaration)) continue;
         const argument = type(binding.argumentType, queries, { selectedType: binding.argumentType }, depth + 1, result);
         if (argument !== undefined) result.set(binding.declaration, argument);
       }
-      for (const base of queries.types.instantiatedBaseTypes(current.type) ?? []) pending.push({ type: base, depth: current.depth + 1 });
+      for (const base of queries.instantiatedBaseTypes(current.type) ?? []) pending.push({ type: base, depth: current.depth + 1 });
     }
     return new Map([...result].map(([declaration, value]) => [declaration, Object.freeze({ value,
-      ...(components.has(declaration) ? { authoredComponent: hostComponent(components.get(declaration)!) } : {}) })]));
+      ...(components.has(declaration) ? { authoredComponent: components.get(declaration)! } : {}) })]));
   }
 
-  function indexes(selectedType: Type, queries: SourceFileSemantics, depth: number,
+  function indexes(selectedType: SourceHostType, queries: SourceHostQueries, depth: number,
     bindings: Bindings, mappedOrigin?: Node): readonly SourceTypeDescriptorIndex[] | undefined {
     const result: SourceTypeDescriptorIndex[] = [];
-    for (const index of queries.types.indexInfos(selectedType)) {
+    for (const index of queries.indexes(selectedType)) {
       const declaration = index.declaration ?? mappedOrigin;
       if (declaration === undefined || !(ast.is.IsIndexSignatureDeclaration(declaration) || ast.is.IsMappedTypeNode(declaration)) ||
         index.keyType === undefined || index.valueType === undefined) return undefined;
-      const keyBase = queries.types.literalBaseType(index.keyType);
-      if (keyBase === undefined || !queries.types.isIdentical(keyBase, index.keyType) ||
-        !(queries.types.isStringLike(index.keyType) || queries.types.isNumberLike(index.keyType) ||
-          queries.types.isSymbolLike(index.keyType))) return undefined;
+      const keyBase = queries.literalBaseType(index.keyType);
+      if (keyBase === undefined || !queries.isIdentical(keyBase, index.keyType) ||
+        !(queries.isStringLike(index.keyType) || queries.isNumberLike(index.keyType) ||
+          queries.isSymbolLike(index.keyType))) return undefined;
       const parameter = ast.is.IsIndexSignatureDeclaration(declaration) ? ast.parameters(declaration)[0] : undefined;
       const keyNode = parameter === undefined ? undefined : ast.typeNode(parameter);
       const valueNode = ast.is.IsMappedTypeNode(declaration) ? ast.as.AsMappedTypeNode(declaration)?.Type : ast.typeNode(declaration);
@@ -370,9 +375,9 @@ export function createSourceTypeDescriptorReader(
     return result;
   }
 
-  function nominal(selectedType: Type, declaration: Node, arguments_: readonly SourceTypeDescriptor[], queries: SourceFileSemantics,
-    component: SourceTypeComponentEvidence, depth: number, bindings: Bindings,
-    application?: TypeAliasApplicationInfo): SourceTypeDescriptor | undefined {
+  function nominal(selectedType: SourceHostType, declaration: Node, arguments_: readonly SourceTypeDescriptor[], queries: SourceHostQueries,
+    component: SourceHostComponent, depth: number, bindings: Bindings,
+    application?: SourceHostAliasApplication): SourceTypeDescriptor | undefined {
     const fixedArray = fixedArrayDeclaration(declaration);
     const extent = fixedArray ? fixedArrayExtent(component.authoredTypeNode, declaration, queries) : undefined;
     // A FixedArray reference whose extent no authored type argument states is not describable (the value is refused by
@@ -424,12 +429,12 @@ export function createSourceTypeDescriptorReader(
   }
   // The extent N of an authored FixedArray<T, N> reference: a non-negative integer literal type (number or bigint),
   // directly or through type aliases. Authored syntax input only.
-  function fixedArrayExtent(authored: Node | undefined, declaration: Node, queries: SourceFileSemantics):
+  function fixedArrayExtent(authored: Node | undefined, declaration: Node, queries: SourceHostQueries):
     { readonly length: bigint; readonly lengthRuntimeBase: "number" | "bigint" } | undefined {
     let reference = authored;
     while (reference !== undefined && ast.is.IsParenthesizedTypeNode(reference)) reference = ast.as.AsParenthesizedTypeNode(reference)?.Type;
     if (reference === undefined || !ast.is.IsTypeReferenceNode(reference) ||
-      queries.declarations.authoredTypeDeclaration(reference) !== declaration) return undefined;
+      queries.authoredTypeDeclaration(reference) !== declaration) return undefined;
     const seen = new Set<Node>();
     let current: Node | undefined = ast.typeArguments(reference)[1];
     while (current !== undefined && !seen.has(current)) {
@@ -442,16 +447,16 @@ export function createSourceTypeDescriptorReader(
         return Object.freeze({ length, lengthRuntimeBase: ast.is.IsBigIntLiteral(literal) ? "bigint" : "number" });
       }
       if (!ast.is.IsTypeReferenceNode(current)) return undefined;
-      const alias = queries.declarations.authoredTypeDeclaration(current);
+      const alias = queries.authoredTypeDeclaration(current);
       current = alias !== undefined && ast.is.IsTypeAliasDeclaration(alias) ? ast.typeNode(alias) : undefined;
     }
     return undefined;
   }
 
-  function structure(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
+  function structure(selectedType: SourceHostType, queries: SourceHostQueries, depth: number, bindings: Bindings,
     mappedOrigin?: Node): SourceTypeDescriptor | undefined {
-    for (const signature of [...queries.types.signatureInfos(selectedType, "call"), ...queries.types.signatureInfos(selectedType, "construct")]) {
-      const declaration = queries.declarations.signatureDeclaration(signature.signature);
+    for (const signature of [...queries.signatures(selectedType, "call"), ...queries.signatures(selectedType, "construct")]) {
+      const declaration = signature.declaration;
       if (declaration !== undefined && refusedSignature(declaration)) return undefined;
     }
     let scopes = activeCallables.get(selectedType);
@@ -474,11 +479,11 @@ export function createSourceTypeDescriptorReader(
     }
   }
 
-  function tuple(selectedType: Type, queries: SourceFileSemantics, depth: number, bindings: Bindings,
+  function tuple(selectedType: SourceHostType, queries: SourceHostQueries, depth: number, bindings: Bindings,
     authored?: Node): SourceTypeDescriptor | undefined {
     const elements: SourceTypeDescriptorTupleElement[] = [];
     const authoredElements = authored === undefined ? [] : ast.elements(authored);
-    for (const [index, element] of queries.types.tupleElementInfos(selectedType).entries()) {
+    for (const [index, element] of queries.tupleElements(selectedType).entries()) {
       const member = authoredElements[index] ?? element.declaration;
       let annotation = member === undefined ? undefined : ast.is.IsNamedTupleMember(member)
         ? ast.as.AsNamedTupleMember(member)?.Type
@@ -489,23 +494,22 @@ export function createSourceTypeDescriptorReader(
         : syntax(annotation, queries, depth + 1, bindings);
       if (value === undefined) return undefined;
       const kind = element.elementKind === "variadic" ? "rest" : element.elementKind;
-      if (kind === "rest" && value.kind === "array" && !queries.types.isArrayLike(element.type)) value = value.element;
-      if (value.kind !== "optional" && queries.types.isUnion(element.type) &&
-        queries.types.unionOrIntersectionTypes(element.type).some(selected => queries.types.isNullish(selected))) {
-        value = { kind: "optional", value };
+      if (kind === "rest" && value.kind === "array" && !queries.isArrayLike(element.type)) value = value.element;
+      if (queries.isUnion(element.type) && queries.members(element.type).some(selected => queries.isAbsentConstituent(selected))) {
+        value = sourceTypeDescriptorOptional(value);
       }
       const declaration = element.declaration ?? (member !== undefined && ast.is.IsNamedTupleMember(member) ? member : undefined);
       elements.push({ kind, type: value, ...(declaration === undefined ? {} : { declaration }) });
     }
-    return { kind: "tuple", readonly: queries.types.indexInfos(selectedType).some(index => index.readonly), elements };
+    return { kind: "tuple", readonly: queries.indexes(selectedType).some(index => index.readonly), elements };
   }
 
-  function signatures(selectedType: Type, queries: SourceFileSemantics, kind: "call" | "construct", depth: number,
+  function signatures(selectedType: SourceHostType, queries: SourceHostQueries, kind: "call" | "construct", depth: number,
     bindings: Bindings): readonly SourceTypeDescriptorSignature[] | undefined {
     const result: SourceTypeDescriptorSignature[] = [];
-    for (const signature of queries.types.signatureInfos(selectedType, kind)) {
+    for (const signature of queries.signatures(selectedType, kind)) {
       if (signature.returnType === undefined) return undefined;
-      const declaration = queries.declarations.signatureDeclaration(signature.signature);
+      const declaration = signature.declaration;
       const parameters: SourceTypeDescriptorSignature["parameters"][number][] = [];
       for (const parameter of signature.parameters) {
         const annotation = parameter.declaration === undefined ? undefined : ast.typeNode(parameter.declaration);
@@ -526,28 +530,28 @@ export function createSourceTypeDescriptorReader(
     return result;
   }
 
-  function type(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
+  function type(selectedType: SourceHostType, queries: SourceHostQueries, component: SourceHostComponent,
     depth = 0, bindings: Bindings = empty, aliasBodies?: ReadonlySet<Node>): SourceTypeDescriptor | undefined {
     if (reads.some(read => read.failure !== undefined)) return undefined;
     return expand(selectedType, component.authoredTypeNode ?? component.declaration, depth,
       () => readType(selectedType, queries, component, depth, bindings, aliasBodies));
   }
 
-  function readType(selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
+  function readType(selectedType: SourceHostType, queries: SourceHostQueries, component: SourceHostComponent,
     depth: number, bindings: Bindings, aliasBodies: ReadonlySet<Node> | undefined): SourceTypeDescriptor | undefined {
-    const declaration = declarationFor(selectedType, queries, undefined, aliasBodies);
+    const declaration = queries.typeDeclaration(selectedType, undefined, aliasBodies);
     const substituted = declaration === undefined ? undefined : bindings.get(declaration);
     if (substituted !== undefined) return substituted;
-    const direct = primitive(queries.facts.typeSubjects(selectedType));
+    const direct = primitive(queries, { type: selectedType });
     if (direct !== undefined) return direct;
     // A named declared type (class, interface, alias, ...) with its described type arguments.
     function declared(declaration: Node): SourceTypeDescriptor | undefined {
       const arguments_: SourceTypeDescriptor[] = [];
       // An alias instantiation carries its arguments on the checked alias application.
-      const application = ast.is.IsTypeAliasDeclaration(declaration) ? queries.types.aliasApplication(selectedType) : undefined;
+      const application = ast.is.IsTypeAliasDeclaration(declaration) ? queries.aliasApplication(selectedType) : undefined;
       const declaredBindings = application !== undefined && application.declaration === declaration
         ? application.bindings.map(binding => ({ declaration: binding.declaration, argumentType: binding.argument }))
-        : queries.types.typeArgumentBindings(selectedType);
+        : queries.typeArgumentBindings(selectedType);
       const instantiated = new Map(bindings);
       for (const binding of declaredBindings ?? []) {
         const selected = bindings.get(binding.declaration) ?? type(binding.argumentType, queries, {
@@ -557,19 +561,19 @@ export function createSourceTypeDescriptorReader(
         arguments_.push(selected);
         instantiated.set(binding.declaration, selected);
       }
-      if (declaredBindings === undefined) for (const argument of queries.types.typeArguments(selectedType)) {
+      if (declaredBindings === undefined) for (const argument of queries.typeArguments(selectedType)) {
         const selected = type(argument, queries, { selectedType: argument }, depth + 1, bindings);
         if (selected === undefined) return undefined;
         arguments_.push(selected);
       }
       if (declaredBindings === undefined && arguments_.length === 0 && (ast.is.IsClassDeclaration(declaration) ||
         ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration))) {
-        const owner = queries.declarations.declaredType(declaration);
-        const parameters = owner === undefined ? undefined : queries.types.typeArgumentBindings(owner);
+        const owner = queries.declaredType(declaration);
+        const parameters = owner === undefined ? undefined : queries.typeArgumentBindings(owner);
         if (parameters === undefined) return undefined;
         for (const parameter of parameters) {
           if (parameter.argumentType !== parameter.parameterType ||
-            queries.declarations.declaredType(parameter.declaration) !== parameter.parameterType) return undefined;
+            queries.declaredType(parameter.declaration) !== parameter.parameterType) return undefined;
           const selected = type(parameter.argumentType, queries, { selectedType: parameter.argumentType }, depth + 1, bindings);
           if (selected === undefined) return undefined;
           arguments_.push(selected);
@@ -581,54 +585,54 @@ export function createSourceTypeDescriptorReader(
     if (declaration !== undefined && ast.is.IsEnumDeclaration(declaration)) {
       return nominal(selectedType, declaration, [], queries, component, depth, bindings);
     }
-    if (queries.types.isAny(selectedType)) return { kind: "intrinsic", intrinsic: "any" };
-    if (queries.types.isUnknown(selectedType)) return { kind: "intrinsic", intrinsic: "unknown" };
-    if (queries.types.isNonPrimitive(selectedType)) return { kind: "intrinsic", intrinsic: "object" };
-    if (queries.types.isNever(selectedType)) return { kind: "intrinsic", intrinsic: "never" };
-    if (queries.types.isNullish(selectedType)) return { kind: "intrinsic", intrinsic: "absence" };
-    if (queries.types.isVoidLike(selectedType)) return { kind: "intrinsic", intrinsic: "void" };
-    if (queries.types.isBooleanLike(selectedType)) return { kind: "primitive", primitive: "bool" };
-    if (queries.types.isNumberLike(selectedType)) return { kind: "primitive", primitive: "float64" };
-    if (queries.types.isStringLike(selectedType)) return { kind: "string" };
-    if (queries.types.isBigIntLike(selectedType)) return { kind: "intrinsic", intrinsic: "bigint" };
-    if (queries.types.isSymbolLike(selectedType)) return { kind: "intrinsic", intrinsic: "symbol" };
+    if (queries.isAny(selectedType)) return { kind: "intrinsic", intrinsic: "any" };
+    if (queries.isUnknown(selectedType)) return { kind: "intrinsic", intrinsic: "unknown" };
+    if (queries.isNonPrimitive(selectedType)) return { kind: "intrinsic", intrinsic: "object" };
+    if (queries.isNever(selectedType)) return { kind: "intrinsic", intrinsic: "never" };
+    if (queries.isNullish(selectedType)) return { kind: "intrinsic", intrinsic: "absence" };
+    if (queries.isVoidLike(selectedType)) return { kind: "intrinsic", intrinsic: "void" };
+    if (queries.isBooleanLike(selectedType)) return { kind: "primitive", primitive: "bool" };
+    if (queries.isNumberLike(selectedType)) return { kind: "primitive", primitive: "float64" };
+    if (queries.isStringLike(selectedType)) return { kind: "string" };
+    if (queries.isBigIntLike(selectedType)) return { kind: "intrinsic", intrinsic: "bigint" };
+    if (queries.isSymbolLike(selectedType)) return { kind: "intrinsic", intrinsic: "symbol" };
     if (declaration !== undefined && (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)) &&
-      queries.types.constructSignatures(selectedType).length > 0) return structure(selectedType, queries, depth, bindings);
+      queries.signatures(selectedType, "construct").length > 0) return structure(selectedType, queries, depth, bindings);
     // A union named by a type alias is published as that alias (declared + definition, C-2263), exactly as an
     // authored alias reference is through syntax(); the declared branch below supplies its arguments and the
     // nominal recursion cut. Only an anonymous union, or an alias's own body, expands its members here.
     const unionAlias = declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration);
-    if (queries.types.isUnion(selectedType) && unionAlias) return declared(declaration);
-    if (queries.types.isUnion(selectedType)) {
+    if (queries.isUnion(selectedType) && unionAlias) return declared(declaration);
+    if (queries.isUnion(selectedType)) {
       const types: SourceTypeDescriptor[] = [];
-      for (const member of queries.types.unionOrIntersectionTypes(selectedType)) {
+      for (const member of queries.members(selectedType)) {
         const selected = type(member, queries, { selectedType: member }, depth + 1, bindings, aliasBodies);
         if (selected === undefined) return undefined;
         types.push(selected);
       }
       return sourceTypeDescriptorUnion(unions, types);
     }
-    if (queries.types.isIntersection(selectedType)) {
+    if (queries.isIntersection(selectedType)) {
       if (declaration !== undefined) return nominal(selectedType, declaration, [], queries, component, depth, bindings);
       // An anonymous intersection of object types is the checker's merged structure: its members and signatures.
       // A marker such as ThisType<T> contributes none. An intersection with a primitive part has no descriptor.
-      const parts = queries.types.unionOrIntersectionTypes(selectedType);
-      return parts.some(part => queries.types.isStringLike(part) || queries.types.isNumberLike(part) ||
-        queries.types.isBooleanLike(part) || queries.types.isBigIntLike(part) || queries.types.isSymbolLike(part) ||
-        queries.types.isNullish(part) || queries.types.isVoidLike(part) || queries.types.isNever(part) ||
-        queries.types.isAny(part) || queries.types.isUnknown(part))
+      const parts = queries.members(selectedType);
+      return parts.some(part => queries.isStringLike(part) || queries.isNumberLike(part) ||
+        queries.isBooleanLike(part) || queries.isBigIntLike(part) || queries.isSymbolLike(part) ||
+        queries.isNullish(part) || queries.isVoidLike(part) || queries.isNever(part) ||
+        queries.isAny(part) || queries.isUnknown(part))
         ? undefined : structure(selectedType, queries, depth, bindings);
     }
-    if (queries.types.isTuple(selectedType)) {
+    if (queries.isTuple(selectedType)) {
       return tuple(selectedType, queries, depth, bindings);
     }
-    const elementType = sourceArrayElementType(selectedType, queries);
+    const elementType = queries.arrayElementType(selectedType);
     if (elementType !== undefined) {
       const element = type(elementType, queries, { selectedType: elementType }, depth + 1, bindings);
-      return element === undefined ? undefined : { kind: "array", readonly: queries.types.indexInfos(selectedType).some(index => index.readonly), element };
+      return element === undefined ? undefined : { kind: "array", readonly: queries.indexes(selectedType).some(index => index.readonly), element };
     }
     if (declaration !== undefined && !ast.is.IsTypeLiteralNode(declaration)) return declared(declaration);
-    if (queries.types.callSignatures(selectedType).length > 0 || queries.types.constructSignatures(selectedType).length > 0) {
+    if (queries.signatures(selectedType, "call").length > 0 || queries.signatures(selectedType, "construct").length > 0) {
       return structure(selectedType, queries, depth, bindings);
     }
     const body = aliasBodies === undefined ? undefined : [...aliasBodies].map(declaration => ast.typeNode(declaration))
@@ -636,13 +640,13 @@ export function createSourceTypeDescriptorReader(
     return structure(selectedType, queries, depth, bindings, body !== undefined && ast.is.IsMappedTypeNode(body) ? body : undefined);
   }
 
-  return Object.freeze({
-    inheritedBindings: (selectedType: Type, queries: SourceFileSemantics, bindings: Bindings, authoredBindings: Bindings = empty) =>
+  const reader: SourceTypeDescriptorReader = Object.freeze({
+    inheritedBindings: (selectedType: SourceHostType, queries: SourceHostQueries, bindings: Bindings, authoredBindings: Bindings = empty) =>
       inheritedBindings(selectedType, queries, 0, bindings, authoredBindings),
-    syntax: (node: Node, queries: SourceFileSemantics, depth = 0, bindings: Bindings = empty) =>
+    syntax: (node: Node, queries: SourceHostQueries, depth = 0, bindings: Bindings = empty) =>
       capture(() => syntax(node, queries, depth, bindings)),
-    type: (selectedType: Type, queries: SourceFileSemantics, component: SourceTypeComponentEvidence,
-      depth = 0, bindings: Bindings = empty) =>
-      capture(() => type(selectedType, queries, component, depth, bindings)),
+    type: (component: SourceHostComponent, queries: SourceHostQueries, depth = 0, bindings: Bindings = empty) =>
+      capture(() => type(component.selectedType, queries, component, depth, bindings)),
   });
+  return reader;
 }

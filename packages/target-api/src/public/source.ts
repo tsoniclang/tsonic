@@ -10,7 +10,7 @@ export type { SourceJsApiFactsFactory, SourceJsApiFactsInput } from "./source/as
 export type {
   SourceAuthoredOccurrence, SourceDocument, SourceOccurrence, SourceOccurrenceLookup, SourceProgramDocuments,
   SourceSyntheticOccurrence,
-} from "../source-semantics/types.js";
+} from "../source-semantics/documents-model.js";
 
 // Descriptor vocabulary and pure descriptor helpers (no program state).
 export type {
@@ -18,10 +18,10 @@ export type {
   SourceLiteralMemberCorrespondence, SourceMemberKey, SourceMethodValueUse, SourceSlotAdmission, SourceSumIdentity, SourceTypeDescriptor,
   SourceTypeDescriptorIndex, SourceTypeDescriptorMember, SourceTypeDescriptorSignature, SourceTypeDescriptorTupleElement,
   SourceTypeFlowFixedRule, SourceTypeFlowRefusal, SourceTypeFlowRefusalCode,
-} from "../source-semantics/local-type-flow/types.js";
+} from "../source-semantics/descriptor-model.js";
 export { sourceTypeDescriptorMemberOriginsEqual } from "../source-semantics/local-type-flow/member-origins.js";
 export { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue }
-  from "../source-semantics/local-type-flow/terms.js";
+  from "../source-semantics/descriptor-model.js";
 
 // Literal vocabulary and pure literal / integer rules.
 export type { SourceArrayLiteralValue, SourceLiteralForm, SourceLiteralValue, SourceNumericLiteralEvidence,
@@ -32,7 +32,6 @@ export { compareSourceNumericLiteralMagnitude, sourceNumericLiteralIsExactlyRepr
 export { parseBigIntLiteral, parseFiniteNumberLiteral } from "../source-semantics/literal-text.js";
 export { sourceIntegerTruncationFits } from "../source-semantics/integer-truncation.js";
 export { sourceIntegerLiteralValue } from "../source-semantics/integer-literal.js";
-export { createSourceIntegerConstantReader, sourceIntegerConstantValue } from "../source-semantics/integer-constant.js";
 export { orderEnumerableOwnStringProperties } from "../source-semantics/enumerable-own-properties.js";
 
 // Provider declaration selections (declaration facts, no checker types).
@@ -40,21 +39,18 @@ export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelec
   from "../source-semantics/provider-signature.js";
 
 // Authored-syntax readers (structure, names, text). Never used to answer a Source type question.
-export { asSourceNode, Node_Name, Node_Expression, ClassStaticBlock_Body, ExportAssignment_IsExportEquals, SpreadAssignment_Expression, ConditionalExpression_Condition, ConditionalExpression_WhenTrue, ConditionalExpression_WhenFalse, TemplateExpression_Head, TemplateExpression_TemplateSpans, TemplateSpan_Expression, TemplateSpan_Literal, Node_Type, TypeOperatorNode_Type, Node_Initializer, ObjectLiteralProperty_Value, ObjectLiteralProperty_SourceName, BindingElement_PropertyName, BindingElement_IsRest, VariableDeclarationList_Declarations, VariableStatement_DeclarationList, BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, PrefixUnaryExpression_Operand, IfStatement_ThenStatement, DoStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement, SwitchStatement_Expression, SwitchStatement_CaseBlock, CaseBlock_Clauses, CaseOrDefaultClause_Expression, CaseOrDefaultClause_Statements, IfStatement_ElseStatement, ForStatement_Initializer, ForStatement_Condition, ForStatement_Incrementor, ElementAccessExpression_ArgumentExpression, ArrayTypeNode_ElementType, ForInOrOfStatement_Initializer, ForInOrOfStatement_Statement, IterationStatement_Statement, TypeReferenceNode_TypeName, Node_Operand, TryStatement_TryBlock, TryStatement_CatchClause, TryStatement_FinallyBlock, CatchClause_VariableDeclaration, CatchClause_Block, BreakOrContinueStatement_Label } from "../source-navigation/ast.js";
-export type { ObjectLiteralPropertySourceNameResult } from "../source-navigation/ast.js";
+export { asSourceNode, Node_Name, Node_Expression, ClassStaticBlock_Body, ExportAssignment_IsExportEquals, SpreadAssignment_Expression, ConditionalExpression_Condition, ConditionalExpression_WhenTrue, ConditionalExpression_WhenFalse, TemplateExpression_Head, TemplateExpression_TemplateSpans, TemplateSpan_Expression, TemplateSpan_Literal, Node_Type, TypeOperatorNode_Type, Node_Initializer, ObjectLiteralProperty_Value, ObjectLiteralProperty_SourceName, BindingElement_PropertyName, BindingElement_IsRest, VariableDeclarationList_Declarations, VariableStatement_DeclarationList, BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, PrefixUnaryExpression_Operand, IfStatement_ThenStatement, DoStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement, SwitchStatement_Expression, SwitchStatement_CaseBlock, CaseBlock_Clauses, CaseOrDefaultClause_Expression, CaseOrDefaultClause_Statements, IfStatement_ElseStatement, ForStatement_Initializer, ForStatement_Condition, ForStatement_Incrementor, ElementAccessExpression_ArgumentExpression, ArrayTypeNode_ElementType, ForInOrOfStatement_Initializer, ForInOrOfStatement_Statement, IterationStatement_Statement, TypeReferenceNode_TypeName, Node_Operand, TryStatement_TryBlock, TryStatement_CatchClause, TryStatement_FinallyBlock, CatchClause_VariableDeclaration, CatchClause_Block, BreakOrContinueStatement_Label } from "../source-model/ast.js";
+export type { ObjectLiteralPropertySourceNameResult } from "../source-model/ast.js";
 export * from "../source-navigation/kinds.js";
 export * from "../source-navigation/node-access.js";
 export * from "../source-navigation/checked-casts.js";
-export * from "../source-navigation/class-members.js";
+export * from "../source-model/class-members.js";
 export { projectSourceNodeIdentity, sourceFileIdentity, sourceNodesEqual } from "../source-navigation/identity.js";
 export { sourceBindingWriteAtReference } from "../source-navigation/references-usage.js";
-export type { SourceBindingWrite, SourceBindingWriteValue } from "../source-navigation/types.js";
-export { referenceQueryNode } from "../source-navigation/syntax.js";
+export type { SourceBindingWrite, SourceBindingWriteValue } from "../source-navigation/records.js";
+export { referenceQueryNode } from "../source-model/syntax.js";
 export { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
-export { sourceReceiverBoundary } from "../source-navigation/receiver-owner.js";
-export type { SourceReceiverBoundary } from "../source-navigation/receiver-owner.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "../source-navigation/generic-bindings.js";
-export { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 export { sourceNodesOutsideErasedSubtrees } from "../source-navigation/callable-invocations.js";
 export type { SourceSubtreeParticipation } from "../source-navigation/callable-invocations.js";
 export { sourceCallableValueExpression } from "../source-navigation/callable-values.js";
@@ -68,11 +64,10 @@ export { sourceExpressionSequence } from "../source-semantics/expression-sequenc
 export { sourceBooleanShortCircuitBranch } from "../source-semantics/boolean-short-circuit.js";
 export type { SourceBooleanShortCircuitBranch } from "../source-semantics/boolean-short-circuit.js";
 export { createSourceDiagnosticSpanReader } from "../source-semantics/diagnostic-spans.js";
-export { sourceNodeIsNativeUnreachable } from "../source-semantics/native-control-flow.js";
 
 // Navigation records named by SourceRoleModel (declaration-keyed; no Symbol).
 export type {
   SourceDeclarationUse, SourceDeclarationUseSummary, SourceExpressionEffects, SourceExpressionValueFlowSummary,
   SourceParameterUseSummary, SourceProjectModuleDependency, SourceProjectModuleSpecifierResolution, SourceValueEscapeKind,
-} from "../source-navigation/types.js";
+} from "../source-navigation/records.js";
 export type { SourceExpressionResultDisposition } from "../source-navigation/expression-use-model.js";

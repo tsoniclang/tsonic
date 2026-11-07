@@ -55,7 +55,8 @@ export function isTypeSyntaxNode(ast: AstReader, node: Node): boolean {
     ast.is.IsFunctionTypeNode(node) ||
     ast.is.IsConstructorTypeNode(node) ||
     ast.is.IsTemplateLiteralTypeNode(node) ||
-    ast.is.IsImportTypeNode(node);
+    ast.is.IsImportTypeNode(node) ||
+    ast.is.IsTypeOperatorNode(node);
 }
 
 export function referenceQueryNode(ast: AstReader, node: Node): Node | undefined {

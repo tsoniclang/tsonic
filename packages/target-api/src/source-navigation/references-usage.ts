@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { Node_Expression } from "./ast.js";
+import { Node_Expression } from "../source-model/ast.js";
 import type { SourceBindingWrite, SourceBindingWriteValue } from "./types.js";
 
 const assignmentOperatorKinds = new Set([

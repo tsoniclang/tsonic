@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { sourceStorageSubjectType } from "../../packages/target-api/dist/target-analysis/source-storage/model/components.js";
 import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
 

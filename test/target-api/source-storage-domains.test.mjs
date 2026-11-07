@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
+import { sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -17,15 +17,23 @@ declare const Symbol: { readonly iterator: unique symbol };
 interface Iterator<T> { next(): { value: T; done?: boolean }; }
 `;
 
+// options.jsProfile: declarations of the JS source profile; the storage analysis is then the Host's own
+// (facts.analyses.storage), which composes the JS API call and native-constructor effects from facts.profile.
+const jsProfileFile = ".tsonic/source-profiles/js/profile.d.ts";
+
 async function fixture(name, body, options = {}) {
-  const checked = await checkedSource(name, { "globals.d.ts": `${globals}${options.profile ?? ""}`, "src/index.ts": `export {}; ${body}` },
-    { sourceCore: options.sourceCore === true });
+  const checked = await checkedSource(name, { "globals.d.ts": `${globals}${options.profile ?? ""}`,
+    ...(options.jsProfile === undefined ? {} : { [jsProfileFile]: options.jsProfile }), "src/index.ts": `export {}; ${body}` },
+  { sourceCore: options.sourceCore === true });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = projectSourceFile(source, "src/index.ts");
-  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, options.limits ?? defaultSourceStorageLimits,
-    options.effectsFactory === undefined ? options.effects : options.effectsFactory(source, file));
+  const limits = options.limits ?? defaultSourceStorageLimits;
+  const storage = options.jsProfile !== undefined
+    ? source.facts.analyses.storage({ sourceFiles: source.navigation.sourceFiles, limits, premises: {} })
+    : createSourceStorageQuery(source, source.navigation.sourceFiles, limits,
+      options.effectsFactory === undefined ? options.effects : options.effectsFactory(source, file));
   const subject = node => {
     const selected = storage.subjectFor(node);
     assert.equal(selected.kind === "resolved", true, "exact graph-owned subject");
@@ -102,20 +110,17 @@ test("closed checked source body is the preservation control, not an opaque sign
 });
 
 test("recognized source builtin identity does not certify native member preservation", async () => {
-  const profile = "interface ObjectConstructor { isFrozen(value: {}): boolean; } declare var Object: ObjectConstructor;";
+  const jsProfile = "interface ObjectConstructor { isFrozen(value: {}): boolean; } declare var Object: ObjectConstructor;";
   const current = await fixture("storage-member-writes-source-builtin", `
     const owner = { read() { return 1; } };
     Object.isFrozen(owner);
-  `, { profile, effectsFactory(source) {
-    const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
-    const declarations = new Set(source.ast.members(owner));
-    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = selected.signature;
-      return declarations.has(declaration)
-        ? selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "isFrozen", declaration }, selected)
-        : undefined;
-    }, () => undefined);
-  } });
+  `, { jsProfile });
+  const { source } = current;
+  const owner = namedDeclaration(source.ast, projectSourceFile(source, jsProfileFile), "ObjectConstructor");
+  const isFrozen = source.ast.members(owner).find(member => source.ast.text(source.ast.name(member)) === "isFrozen");
+  const identity = isFrozen === undefined ? undefined : source.facts.profile.identity(isFrozen);
+  assert.equal(identity?.kind === "member" && identity.declaringName === "ObjectConstructor" && identity.name === "isFrozen", true,
+    "the selected member is the recognized JS source builtin");
   const selected = memberWriteSelection(current);
   assert.equal(selected.kind === "open" && selected.boundaries.some(value => value.kind === "opaque-write"), true,
     "selected source identity and a provider effect are not native signature or qualifier evidence");
@@ -656,17 +661,7 @@ test("owned native Error call and constructor allocations do not certify externa
     const unknown = new external("unknown");
     export function fromType(factory: typeof Error): Error { return new factory("external"); }
     export function fromInterface(factory: ErrorConstructor): Error { return factory("external-call"); }
-  `, { profile: sourceErrorDeclarations, effectsFactory(source) {
-    const profile = projectSourceFile(source, "globals.d.ts");
-    const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
-    const signatures = new Set(source.ast.members(owner));
-    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = selected.signature;
-      if (!signatures.has(declaration)) return undefined;
-      return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
-    }, declaration => !signatures.has(declaration) || !source.ast.is.IsConstructSignatureDeclaration(declaration)
-      ? undefined : jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration }));
-  } });
+  `, { jsProfile: sourceErrorDeclarations });
   for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
   open(current.selection("unknown"), "external-input", "an ambient external value is not the owned native constructor");
   for (const name of ["fromType", "fromInterface"]) {
@@ -693,19 +688,10 @@ test("call result aliases and native writer completeness remain independent sema
 });
 
 test("owned native global members require their actual immutable receiver and selected declaration", async () => {
-  const profile = `
+  const jsProfile = `
     interface ObjectConstructor { freeze<T>(value: T): T; isFrozen(value: {}): boolean; }
     declare var Object: ObjectConstructor;
   `;
-  const selectEffects = source => {
-    const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
-    const members = new Set(source.ast.members(owner));
-    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = selected.signature;
-      return !members.has(declaration) ? undefined : selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor",
-        memberName: source.ast.text(source.ast.name(declaration)), declaration }, selected);
-    }, () => undefined);
-  };
   const current = await fixture("storage-domain-global-members", `
     declare const external: ObjectConstructor;
     const owner = Object;
@@ -716,7 +702,7 @@ test("owned native global members require their actual immutable receiver and se
     const method = freeze(token);
     const indexed = Object["freeze"](token);
     const unknown = external.freeze({});
-  `, { profile, effectsFactory: selectEffects });
+  `, { jsProfile });
   for (const name of ["direct", "aliased", "method", "indexed"])
     complete(current.selection(name), `exact global member identity: ${name}`);
   open(current.selection("unknown"), "opaque-result", "matching member signature does not prove the global receiver");
@@ -725,7 +711,7 @@ test("owned native global members require their actual immutable receiver and se
     const owner = Object;
     owner.freeze = external.freeze;
     const selected = Object.freeze({});
-  `, { profile, effectsFactory: selectEffects });
+  `, { jsProfile });
   open(changed.selection("selected"), "opaque-result", "mutated receiver is not a native-operation guarantee");
 });
 

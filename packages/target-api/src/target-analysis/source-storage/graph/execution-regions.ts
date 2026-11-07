@@ -1,5 +1,6 @@
-import { sourceAnalysisIncludesFile, sourceAnalysisMayBeAbsent, type SourceAnalysisProgram } from "../../analysis-program.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import { sourceTypeDescriptorMayBeAbsent } from "../../../source-semantics/descriptor-arms.js";
+import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
@@ -21,7 +22,7 @@ export function createSourceStorageExecutionRegions(source: SourceAnalysisProgra
   const invocations = new Map<Node, Set<Node>>();
   const invocationRows = budget.createRows();
   let sealed = false;
-  const typeMayBeAbsent = (type: SourceTypeDescriptor): boolean => !step() || sourceAnalysisMayBeAbsent(source.ast, type);
+  const typeMayBeAbsent = (type: SourceTypeDescriptor): boolean => !step() || sourceTypeDescriptorMayBeAbsent(source.ast, type);
   const callable = (declaration: Node, invocation: Node | undefined,
     argumentTypes?: (expression: Node) => readonly SourceTypeDescriptor[] | undefined, callback?: SourceStorageCallbackEntry,
     actualTypes?: readonly (readonly SourceTypeDescriptor[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {

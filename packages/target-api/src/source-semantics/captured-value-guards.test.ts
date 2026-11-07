@@ -33,7 +33,7 @@ function fixture(body: string) {
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    flowConditions: source.flowConditions, values: source.facts.values };
+    flowConditions: source.flowConditions, values: source.facts.values, effects: source.facts.navigation.expressions.effects };
   return reads.map(reference => selectSourceGuardedValueMembers(context, reference, ["string", "object", "absence"], expression => {
     const guard = selectSourceNativeValueGuard(context, expression);
     return guard?.kind === "literal" ? { sourceOperand: guard.sourceOperand, predicate: guard } : undefined;

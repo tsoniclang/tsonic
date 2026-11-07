@@ -1,4 +1,4 @@
-import { sourceStorageIsGenerator } from "./host-reads.js";
+import { sourceStorageIsGenerator } from "../model/host-reads.js";
 import { sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
@@ -196,7 +196,7 @@ export function createSourceStorageRejections(source: SourceAnalysisProgram, bud
       for (const target of targets) {
         if (ast.hasModifierKind(target.candidate, "async")) continue;
         for (const region of target.regions) {
-          if (sourceStorageIsGenerator(source.ast, target.candidate) && region === ast.body(target.candidate)) continue;
+          if (sourceStorageIsGenerator(source, target.candidate) && region === ast.body(target.candidate)) continue;
           queries.graph.read({ node: region, kind: queries.thrownOrigins });
           const reason = queries.unresolvedThrows.get(region);
           if (reason !== undefined) unresolved(reason);

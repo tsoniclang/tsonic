@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUseSummary, SourceProgramNavigation } from "./types.js";
-import { sourceEnclosing, sourceNodeHasRole } from "./callable-boundaries.js";
-import { Node_Initializer } from "./ast.js";
+import { sourceEnclosing, sourceNodeHasRole } from "../source-model/callable-boundaries.js";
+import { Node_Initializer } from "../source-model/ast.js";
 
 const repeatedKinds: ReadonlySet<string> = new Set([
   "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindWhileStatement", "KindDoStatement",

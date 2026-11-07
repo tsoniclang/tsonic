@@ -2,34 +2,47 @@ import {
   sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType,
   type SourceAnalysisProgram,
 } from "../../analysis-program.js";
-import { sourcePresentStorageArms, sourceStorageMembers } from "./components.js";
-import { sourceStorageCallReceiver } from "../graph/invocation-inputs.js";
+import { sourcePresentStorageArms } from "./components.js";
+import { sourceStorageCallReceiver } from "./host-reads.js";
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 import { createSourceCallableValueQuery } from "../../../source-navigation/callable-values.js";
 import type { SourceCallSelection } from "../../../public/source/selections.js";
-import type { SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
+import type { SourceJsCallStorage, SourceJsNativeConstructorStorage } from "../../../public/source/objects.js";
+import type { SourceStorageTargetPremises } from "../../../public/source/analyses.js";
+import type { SourceStorageEffects } from "./types.js";
 
-export interface SourceGlobalStorageBinding {
-  readonly name: string;
-  readonly providerId: string;
+/**
+ * The storage effects the Host storage analysis runs with (R2 #8): the JS API call and callback effects the Host
+ * publishes in facts.profile, composed here by the Host, never supplied by a target. The one target input is the
+ * premise of which ambient provider classes the target binds to plain native constructors (a target ABI fact).
+ */
+export function createSourceProfileStorageEffects(source: SourceAnalysisProgram, premises: SourceStorageTargetPremises):
+  SourceStorageEffects {
+  const { profile } = source.facts;
+  const global = createSourceGlobalCallStorageEffects(source, (_node, call) => profile.callStorage(call),
+    declaration => profile.nativeConstructorStorage(declaration));
+  return Object.freeze({
+    ...global,
+    nativeConstructorsFor: (binding: Node) => source.ast.is.IsClassDeclaration(binding)
+      ? premises.nativeClassConstructors?.(binding) : global.nativeConstructorsFor?.(binding),
+    callbackEntries: (_node: Node, call: SourceCallSelection) => profile.callbackEffects(call),
+  } satisfies SourceStorageEffects);
 }
 
-export type SourceGlobalCallStorageEffect = {
-  readonly declaration: Node;
-  readonly effect: SourceStorageCallEffect;
-} & ({ readonly form: "member" | "value"; readonly binding: SourceGlobalStorageBinding }
-  | { readonly form: "receiver" });
-
+/**
+ * The global-binding storage effects for one operation selection: a call effect counts only when the call names the
+ * operation through its own global binding (or receiver), and a provider global constructs natively only through its
+ * declared construct signatures. `select` / `selectConstructor` are the profile answers (createSourceProfileStorageEffects).
+ */
 export function createSourceGlobalCallStorageEffects(
   source: SourceAnalysisProgram,
-  select: (node: Node, call: SourceCallSelection) => SourceGlobalCallStorageEffect | undefined,
-  selectConstructor: (declaration: Node) =>
-    { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding } | undefined,
+  select: (node: Node, call: SourceCallSelection) => SourceJsCallStorage | undefined,
+  selectConstructor: (declaration: Node) => SourceJsNativeConstructorStorage | undefined,
 ): SourceStorageEffects {
   const selectValue = createSourceCallableValueQuery(source);
   const matchesBinding = (binding: Node | undefined,
-    operation: { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding }): boolean => {
+    operation: SourceJsNativeConstructorStorage): boolean => {
     const file = binding === undefined ? undefined : source.ast.getSourceFile(binding);
     if (binding === undefined || file === undefined || !source.ast.is.IsVariableDeclaration(binding) ||
       source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
@@ -45,7 +58,7 @@ export function createSourceGlobalCallStorageEffects(
       const arms = sourcePresentStorageArms(type);
       if (arms.flatMap(arm => [...sourceAnalysisCallSignatures(arm), ...sourceAnalysisConstructSignatures(arm)])
         .some(signature => signature.declaration === operation.declaration)) return true;
-      return sourceStorageMembers(source, type)?.some(member => member.declarations.includes(operation.declaration)) === true;
+      return source.facts.objects.joinedMembers(type)?.some(member => member.declarations.includes(operation.declaration)) === true;
     }
     const global = source.sourceFacts.getFact(binding, providerVirtualDeclarationFactKey);
     return global?.providerId === operation.binding.providerId && global.providerId === declaration.providerId &&

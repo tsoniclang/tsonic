@@ -62,7 +62,7 @@ export type { SourceStorageBudget } from "../target-analysis/source-storage/mode
 export type { SourceStorageProjection, SourceStorageSubject } from "../target-analysis/source-storage/model/subjects.js";
 export type {
   SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion, SourceStorageBoundActivation,
-  SourceStorageActivationsSelection, SourceStorageValueFrontier, SourceStorageValueFrontierSelection,
+  SourceStorageActivationsSelection, SourceStorageBoundTypesSelection, SourceStorageValueFrontier, SourceStorageValueFrontierSelection,
   SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection,
   SourceStorageImplementationsSelection, SourceStorageOriginsSelection, SourceStorageQueries,
   SourceStorageSubjectSelection, SourceStorageConstructionClass, SourceStorageConstructionSelection,
@@ -72,8 +72,6 @@ export type {
   SourceStorageArgumentsSelection, SourceStorageBoundary, SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary,
   SourceStorageProducersSelection, SourceStorageCallEffect, SourceStorageEffects,
 } from "../target-analysis/source-storage/model/types.js";
-export type { SourceGlobalCallStorageEffect, SourceGlobalStorageBinding }
-  from "../target-analysis/source-storage/model/global-call-effects.js";
 export type { SourceArtifactFile, SourceArtifactIssue } from "../target-analysis/artifacts/source-files.js";
 export type { SourceBinaryEntryIssue } from "../target-analysis/entry-validation.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "../target-analysis/error-storage/protocol.js";

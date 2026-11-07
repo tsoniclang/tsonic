@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceConstructorParametersMatch } from "../../packages/target-api/dist/public/source.js";
+import { sourceConstructorParametersMatch } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 test("constructor correspondence requires exact ordered declarations, omissions and rest evidence", async () => {

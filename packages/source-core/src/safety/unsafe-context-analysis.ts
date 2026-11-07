@@ -1,5 +1,5 @@
+import type { TargetSourceUnsafeContextAnalysis } from "@tsonic/target-api/provider";
 import type {
-  ExtensionFactKey,
   Node,
   SourceAnalysisContext,
 } from "@tsonic/tsts";
@@ -10,22 +10,13 @@ import type {
   TsonicSourceFileAnalysisContext,
 } from "../analysis/context.js";
 import {
-  type ProviderSourceCallSelector,
   type SelectedProviderSourceCall,
   forEachSelectedProviderSourceCall,
   selectedProviderCallMatches,
 } from "../analysis/source-call.js";
 
-export interface UnsafeContextAnalysisContract {
-  readonly blockSelector: ProviderSourceCallSelector;
-  readonly expressionSelector: ProviderSourceCallSelector;
-  readonly factKey: ExtensionFactKey<TsonicUnsafeContextFact>;
-  readonly extensionId: string;
-  readonly invalidPositionCode: string;
-  readonly invalidPositionNumber: number;
-  readonly factWriteCode: string;
-  readonly factWriteNumber: number;
-}
+/** The target-api analysis request (target/source-extensions.ts) plus the extension id the facts are written under. */
+export type UnsafeContextAnalysisContract = Omit<TargetSourceUnsafeContextAnalysis, "kind"> & { readonly extensionId: string };
 
 export function analyzeUnsafeContextCalls(
   context: SourceAnalysisContext,

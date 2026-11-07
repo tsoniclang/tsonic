@@ -1,31 +1,31 @@
 import { createJsSourceApiFacts } from "../../packages/js-source-profile/dist/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
+import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
 import { createHostSourceProgram, Node_Expression, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { jsSourceCallableParameterEffects } from "../../packages/js-source-profile/dist/index.js";
+import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
+import { jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
+// The JS source profile declares Promise / PromiseConstructor / PromiseLike, so the Host composes their callback
+// effects (executor, then / catch reactions) from facts.profile (facts.analyses.storage).
+const jsProfileFiles = Object.freeze({
+  "/src/.tsonic/source-profiles/js/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+  "/src/.tsonic/source-profiles/js/js-globals.d.ts": jsSurfaceSourceProfileDeclarations,
+});
+
 function fixture(body) {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
-    files: { "/src/index.ts": `export {}; ${body}` },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  const files = { ...jsProfileFiles, "/src/index.ts": `export {}; ${body}` };
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files, rootFiles: Object.keys(files),
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", noLib: true },
+    extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
+      createTsonicCoreSourceExtension()] },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
   const file = checked.getSourceFile("/src/index.ts");
-  const storage = createSourceStorageQuery(source, [file], undefined, {
-    callbackEntries(node, selected) {
-      const declaration = selected.signature;
-      const owner = declaration === undefined ? undefined : source.ast.parent(declaration);
-      const ownerName = owner === undefined ? undefined : source.ast.text(source.ast.name(owner));
-      if (ownerName !== "PromiseConstructor" && ownerName !== "Promise" && ownerName !== "PromiseLike") return undefined;
-      const memberName = source.ast.is.IsConstructSignatureDeclaration(declaration) ? "constructor"
-        : source.ast.text(source.ast.name(declaration));
-      return jsSourceCallableParameterEffects({ ownerName, memberName });
-    },
-  });
+  const storage = source.facts.analyses.storage({ sourceFiles: [file], premises: {} });
   const initializer = name => Node_Initializer(source.ast, namedVariable(source.ast, file, name));
   const query = name => {
     const selected = storage.subjectFor(initializer(name));

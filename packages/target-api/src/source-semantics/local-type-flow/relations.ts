@@ -11,7 +11,7 @@
 //
 // One relation per node, in the priority order above.
 import type { AstReader, Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer } from "../../source-model/ast.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import type {
   SourceInstantiation, SourceNullishAdmission, SourceRefusal, SourceTypeOutcome, SourceUnionRelation,
@@ -20,6 +20,9 @@ import { sourceTypeDescriptorLiteralKey, sourceTypeDescriptorsEqual, sourceTypeD
 import type { SourceClosedSum, SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
 import type { SourceHostInput } from "../../host-input/index.js";
 import { sourceTypeDescriptorOpenness } from "./uses.js";
+import {
+  sourceTypeDescriptorArrayLikeElements, sourceTypeDescriptorIndexEntry, sourceTypeDescriptorKeyKind, type SourceTypeDescriptorKeyKind,
+} from "./element-selection.js";
 
 export interface SourceRelationInputs {
   readonly source: SourceTypeFlowSource;
@@ -94,6 +97,17 @@ export interface SourceRelationQuery {
   write(use: Node): SourceUnionRelation | undefined;
 }
 
+/**
+ * The instance a constructor value constructs (the `instanceof` relation's `instance`): the one result of its construct
+ * signatures. undefined when the value has no construct signature or its construct signatures disagree.
+ */
+export function sourceTypeDescriptorConstructedInstance(constructor: SourceTypeDescriptor): SourceTypeDescriptor | undefined {
+  const structure = sourceTypeDescriptorStructure(constructor);
+  const constructs = structure.kind === "shape" || structure.kind === "callable" ? structure.constructs : [];
+  const first = constructs[0]?.result;
+  return first !== undefined && constructs.every(signature => sourceTypeDescriptorsEqual(signature.result, first)) ? first : undefined;
+}
+
 export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceRelationQuery {
   const { source, input } = inputs;
   const { ast, navigation } = source;
@@ -156,7 +170,8 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
   const family = (selected: SourceTypeDescriptor): string => {
     const structure = sourceTypeDescriptorStructure(selected);
     return selected.kind === "declared" && selected.definition === undefined ? `declared:${String(ast.pos(selected.declaration))}`
-      : structure.kind === "primitive" ? structure.primitive === "bool" ? "bool" : "numeric"
+      // char is a string value (JS has no char): it takes the string arm, as the typeof category and the index-key rule do.
+      : structure.kind === "primitive" ? structure.primitive === "bool" ? "bool" : structure.primitive === "char" ? "string" : "numeric"
         : structure.kind === "intrinsic" ? `intrinsic:${structure.intrinsic}` : structure.kind;
   };
 
@@ -290,7 +305,7 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
   const open = (arm: SourceTypeDescriptor): boolean => sourceTypeDescriptorOpenness(ast, arm) !== "closed";
 
   const testRelation = (use: Node, operand: Node, test: TestKind, negated: boolean,
-    predicate: (arm: SourceTypeDescriptor, index: number) => Match): SourceUnionRelation | undefined => {
+    predicate: (arm: SourceTypeDescriptor, index: number) => Match, instance?: SourceTypeDescriptor): SourceUnionRelation | undefined => {
     const selected = testArms(operand);
     if (selected === undefined) return undefined;
     const results: Match[] = selected.arms.map((arm, index) => !isAbsence(arm) && open(arm) ? "unknown" : predicate(arm, index));
@@ -299,7 +314,8 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
       : holds.every(result => result === false) ? "always-false" as const : "undecided" as const;
     const whenTrue = selected.sum === undefined ? [] : holds.flatMap((result, index) => result === false ? [] : [index]);
     return Object.freeze({ kind: "test", use, operand, test, outcome,
-      ...(selected.sum === undefined ? {} : { sum: selected.sum.identity }), whenTrue: Object.freeze(whenTrue) });
+      ...(selected.sum === undefined ? {} : { sum: selected.sum.identity }), whenTrue: Object.freeze(whenTrue),
+      ...(instance === undefined ? {} : { instance }) });
   };
 
   // The class declaration an `instanceof` right operand names; undefined for anything else (a library constructor value).
@@ -359,7 +375,9 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
     if (left === undefined || right === undefined) return undefined;
     if (token === "KindInstanceOfKeyword") {
       const target = instanceTarget(right);
-      return testRelation(use, left, "instanceof", false, arm => instanceMatch(arm, target));
+      const constructor = resolved(right);
+      const instance = constructor === undefined ? undefined : sourceTypeDescriptorConstructedInstance(constructor);
+      return testRelation(use, left, "instanceof", false, arm => instanceMatch(arm, target), instance);
     }
     const equality = token === undefined ? undefined : equalities.get(token);
     if (equality === undefined) return undefined;
@@ -461,10 +479,7 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
       if (member?.origin.kind === "declared") return member.origin.declaration;
       if (member?.origin.kind === "class-prototype") return input.declaredMembers(member.origin.owner, name)?.[0];
       if (member !== undefined) return undefined;
-      const numeric = /^\d+$/u.test(name);
-      const index = (numeric ? structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "primitive") : undefined) ??
-        structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "string");
-      return index?.declaration;
+      return sourceTypeDescriptorIndexEntry(structure, /^\d+$/u.test(name) ? "number" : "string")?.declaration;
     }
     // A declared reference without a definition (recursion cut, unexpressible declaration-file type, enum, type
     // parameter): the member of its declared type (declaration input; a type parameter through its constraint).
@@ -472,18 +487,18 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
     return undefined;
   };
   // The component an arm's read yields (supervisor ruling on B4 D3): a shape member's type (else its index value), an
-  // array element, a tuple position, a string character. `name` undefined: an element read with a computed key.
-  const armComponent = (arm: SourceTypeDescriptor, name: string | undefined): SourceTypeDescriptor | undefined => {
+  // array element, a tuple position, a string character. `name` undefined: an element read with a computed key, whose
+  // key kind (`computedKey`) comes from the Host descriptor of the index expression.
+  const armComponent = (arm: SourceTypeDescriptor, name: string | undefined,
+    computedKey: SourceTypeDescriptorKeyKind | undefined): SourceTypeDescriptor | undefined => {
     const structure = sourceTypeDescriptorStructure(arm);
     const position = name !== undefined && /^\d+$/u.test(name) ? Number(name) : undefined;
     switch (structure.kind) {
       case "shape": {
         const member = name === undefined ? undefined : structure.members.find(selected => selected.name === name);
         if (member !== undefined) return member.type;
-        const index = (name === undefined || position !== undefined
-          ? structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "primitive") : undefined) ??
-          structure.indexes.find(entry => sourceTypeDescriptorStructure(entry.key).kind === "string");
-        return index?.value;
+        const key = name === undefined ? computedKey ?? "number" : position !== undefined ? "number" : "string";
+        return sourceTypeDescriptorIndexEntry(structure, key)?.value;
       }
       case "array": return name === undefined || position !== undefined ? structure.element : undefined;
       case "tuple": return position === undefined ? undefined : sourceTypeDescriptorTupleValue(structure, position);
@@ -498,10 +513,16 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
     const name = memberName(use);
     const computed = name === undefined && ast.is.IsElementAccessExpression(use);
     if (sum === undefined || name === undefined && !computed) return undefined;
+    const argument = computed ? ast.as.AsElementAccessExpression(use)?.ArgumentExpression : undefined;
+    const argumentType = argument === undefined ? undefined : resolved(argument);
+    const computedKey = argumentType === undefined ? undefined : sourceTypeDescriptorKeyKind(argumentType, { ast, literal: node => inputs.literal(node) });
     const arms = sum.arms.flatMap((arm, index) => {
       if (isAbsence(arm.type)) return [];
-      const member = name === undefined ? undefined : armMember(arm.type, name);
-      const type = armComponent(arm.type, name);
+      // A computed element read selects the arm's index signature for the key kind (FX-CC #9, element-selection.ts).
+      const armShape = sourceTypeDescriptorStructure(arm.type);
+      const member = name !== undefined ? armMember(arm.type, name)
+        : armShape.kind === "shape" && computedKey !== undefined ? sourceTypeDescriptorIndexEntry(armShape, computedKey)?.declaration : undefined;
+      const type = armComponent(arm.type, name, computedKey);
       return [Object.freeze({ arm: index, ...(member === undefined ? {} : { member }), ...(type === undefined ? {} : { type }) })];
     });
     return Object.freeze({ kind: "per-arm", use, sum: sum.identity, arms: Object.freeze(arms) });
@@ -511,12 +532,7 @@ export function createSourceRelationQuery(inputs: SourceRelationInputs): SourceR
   // The element types a spread operand yields; undefined when its descriptor states none (a non-array iterable).
   const spreadElements = (operand: Node): readonly SourceTypeDescriptor[] | undefined => {
     const type = resolved(operand);
-    const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
-    if (structure === undefined) return undefined;
-    if (structure.kind === "array") return [structure.element];
-    if (structure.kind === "tuple") return structure.elements.map(element => element.type);
-    if (structure.kind === "string") return [structure];
-    return undefined;
+    return type === undefined ? undefined : sourceTypeDescriptorArrayLikeElements(type);
   };
   // The destinations of a spread argument: the rest parameter's element, or the fixed parameters it fills.
   const spreadDestinations = (spread: Node, owner: Node):

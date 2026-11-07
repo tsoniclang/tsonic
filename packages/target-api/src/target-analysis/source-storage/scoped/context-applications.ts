@@ -1,4 +1,4 @@
-import { sourceStorageIsGenerator } from "../transport/host-reads.js";
+import { sourceStorageIsGenerator } from "../model/host-reads.js";
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
@@ -113,7 +113,7 @@ export function createSourceStorageContextApplications(source: SourceAnalysisPro
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
     const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async") ||
-      sourceStorageIsGenerator(source.ast, candidate));
+      sourceStorageIsGenerator(source, candidate));
     if (deferred && !emit(current)) return false;
     if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node) || deferred) {
       for (const expression of queries.argumentsFor(current.node)) {
@@ -129,7 +129,7 @@ export function createSourceStorageContextApplications(source: SourceAnalysisPro
     for (const candidate of candidates) {
       if (!budget.step()) return false;
       if (source.ast.hasModifierKind(candidate, "async") ||
-        sourceStorageIsGenerator(source.ast, candidate)) continue;
+        sourceStorageIsGenerator(source, candidate)) continue;
       const result = queries.subject(candidate, "return", current.projection);
       const projection = projectionFor(current, candidate, current.node);
       if (result === undefined || projection === undefined) {

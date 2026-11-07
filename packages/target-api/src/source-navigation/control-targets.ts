@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { BreakOrContinueStatement_Label, IterationStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement } from "./ast.js";
-import { sourceNodeHasRole } from "./callable-boundaries.js";
+import { BreakOrContinueStatement_Label, IterationStatement_Statement, LabeledStatement_Label, LabeledStatement_Statement } from "../source-model/ast.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 
 export function sourceControlTransferTarget(ast: AstReader, node: Node): Node | undefined {
   const kind = ast.kindName(node);

@@ -1,7 +1,8 @@
 import { providerVirtualDeclarationFactKey, sourceMarkerFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ProviderTypeExpression, SourcePrimitiveKind } from "@tsonic/tsts";
-import { selectSourceProviderSignature, type HostSourceProgram } from "@tsonic/target-api/host";
-import { tsonicDescriptorArms, tsonicValueType } from "./host-values.js";
+import {
+  selectSourceProviderSignature, sourceTypeDescriptorArms, sourceTypeDescriptorStructure, sourceAnalysisValueType, type HostSourceProgram,
+} from "@tsonic/target-api/host";
 import type { SourceProviderTypeParameterSelection, SourceTypeDescriptor } from "@tsonic/target-api/source";
 import { tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
@@ -132,9 +133,10 @@ export function selectTsonicProviderPointerShape(host: HostSourceProgram, call: 
     return marker === "pointer" || marker === "raw-pointer" ||
       (ast.is.IsUnionTypeNode(node) && ast.children(node).some(child => child !== undefined && isPointer(child)));
   };
-  // The Host result of the call: an arm whose declared descriptor names a pointer marker declaration.
-  const result = tsonicValueType(host, call);
-  const selectedPointer = result !== undefined && tsonicDescriptorArms(result).some(type => {
+  // The Host result of the call: an arm whose declared structure names a pointer marker declaration.
+  const result = sourceAnalysisValueType(host, call);
+  const selectedPointer = result !== undefined && sourceTypeDescriptorArms(result).some(arm => {
+    const type = sourceTypeDescriptorStructure(arm);
     if (type.kind !== "declared") return false;
     const marker = markerForSubjects(declarationSubjects(type.declaration));
     return marker === "pointer" || marker === "raw-pointer";

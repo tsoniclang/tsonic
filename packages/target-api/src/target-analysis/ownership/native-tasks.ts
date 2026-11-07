@@ -5,8 +5,8 @@ import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContra
   SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipValues } from "./model.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
 import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
-import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-model/callable-boundaries.js";
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/descriptor-model.js";
 import { sourceStorageRoleDeclaration } from "../source-storage/model/components.js";
 
 export interface SourceNativeTaskSpawn {

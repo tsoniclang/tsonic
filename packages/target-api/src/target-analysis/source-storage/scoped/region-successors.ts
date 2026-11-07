@@ -1,4 +1,4 @@
-import { sourceStorageInvocationReceiver } from "../transport/host-reads.js";
+import { sourceStorageInvocationReceiver } from "../model/host-reads.js";
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";

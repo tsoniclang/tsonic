@@ -9,7 +9,7 @@ function hostProgramFixture(checked) {
 }
 
 import { sourceExpressionCallArgument } from "../../../../packages/target-api/dist/source-navigation/callable-arguments.js";
-import { Node_Expression } from "../../../../packages/target-api/dist/source-navigation/ast.js";
+import { Node_Expression } from "../../../../packages/target-api/dist/source-model/ast.js";
 function fixture(body, inline = false) {
     const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
             "/src/index.ts": `export {};

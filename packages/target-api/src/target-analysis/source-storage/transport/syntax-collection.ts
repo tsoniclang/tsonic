@@ -2,23 +2,26 @@ import {
   sourceAnalysisCallSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram,
 } from "../../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceNavigationCallBinding } from "../../../source-model/navigation-records.js";
+import { sourceArgumentCorrespondence } from "../../../source-semantics/argument-correspondence.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import { sourcePresentStorageArms, sourceStorageIsAbsentType } from "../model/components.js";
-import { sourceStoragePointerOperation } from "./host-reads.js";
+import { sourceStoragePointerOperation } from "../model/host-reads.js";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
-import { isSourceCallableBodyBoundary } from "../../../source-navigation/callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../../../source-model/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
 import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import {
-  sourceStorageBindingArgumentType, sourceStorageBindingParameterType, sourceStorageCallReceiver, sourceStorageInvocationActual,
+  sourceStorageBindingArgumentType, sourceStorageBindingParameterType, sourceStorageInvocationActual,
   sourceStorageInvocationArgumentAbsence,
 } from "../graph/invocation-inputs.js";
+import { sourceStorageCallReceiver } from "../model/host-reads.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
-import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceParameterIsProperty } from "../../../source-model/class-members.js";
 import type { createSourceStorageStoredValues } from "../graph/stored-values.js";
 import type { SourceStorageWrite } from "../model/stores.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
@@ -257,6 +260,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
         const base = sourceSuperConstructor(node, source, step);
         if (base !== undefined) connect(subjectFor(base.callee), target);
         const arguments_: SourceStorageArgumentTransport[] = [];
+        const witnessBindings: SourceNavigationCallBinding[] = [];
         const input = context.inputSlotsFor(node);
         const selectedSlots = input?.selected.kind === "resolved" ? input.selected.slots : undefined;
         // Parameter identity: each selected parameter is the declared parameter of the selected signature declaration.
@@ -302,7 +306,9 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
             continue;
           }
           arguments_.push(Object.freeze({ actual: actual.subject, formal: destination, selectedParameterDeclaration: formal,
-            binding, argument, parameterType: sourceStorageBindingParameterType(source, selected, binding) }));
+            binding: sourceArgumentCorrespondence(binding, argument), argument,
+            parameterType: sourceStorageBindingParameterType(source, selected, binding) }));
+          witnessBindings.push(binding);
           if (Node_Initializer(ast, formal) === undefined || sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
             connect(actual.subject, destination, actual.sourceType === undefined || actual.targetType === undefined ? undefined
               : { from: actual.sourceType, to: actual.targetType });
@@ -313,11 +319,11 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
           : effects.callbackEntries?.(node, published);
         const callbacks = supplied === undefined ? undefined : snapshotSourceStorageCallbackEffects(supplied, selected, budget);
         const nativeEntries: SourceStorageCallbackEntry[] = [];
-        for (const argument of arguments_) {
+        for (const [position, argument] of arguments_.entries()) {
           if (!step()) break;
-          const argumentType = sourceStorageBindingArgumentType(source, selected, argument.binding);
+          const argumentType = sourceStorageBindingArgumentType(source, selected, witnessBindings[position]!);
           if (argumentType !== undefined && sourceStorageIsAbsentType(argumentType)) continue;
-          const known = callbacks?.find(callback => callback.parameterIndex === argument.binding.sourceParameterIndex);
+          const known = callbacks?.find(callback => callback.parameterIndex === argument.binding.parameterIndex);
           if (callbacks !== undefined && known === undefined) continue;
           if (known === undefined && !callable(argument.parameterType) && !callable(argumentType)) continue;
           if (!budget.row()) break;

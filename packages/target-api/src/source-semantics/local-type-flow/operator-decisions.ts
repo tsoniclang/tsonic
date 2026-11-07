@@ -1,4 +1,4 @@
-import type { SourcePrimitiveKind } from "@tsonic/tsts";
+import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import { compareSourceNumericLiteralMagnitude } from "../literal-token.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import {
@@ -294,4 +294,22 @@ function expectedOperandsFit(left: SourcePrimitiveOperatorOperand, right: Source
 
 function refusal(reason: string): SourcePrimitiveOperatorRefusal {
   return { kind: "refused", code: "TSONIC_LOCAL_TYPE_UNSUPPORTED", reason };
+}
+
+/**
+ * Enum operands (native enums, E-enum rows): a numeric enum value is an operand of its enum's integer primitive (int32,
+ * or int64 for a 64-bit enum: enum-constants.ts selects the width), except where the operator keeps the enum domain:
+ * `~e` on one enum and `|`, `&`, `^` on two operands of the same enum produce that enum (the native enum operators).
+ */
+export function sourceEnumOperandPrimitive(width: { readonly kind: "resolved"; readonly integerWidth: 32 | 64 } | { readonly kind: "rejected" } | undefined):
+  "int32" | "int64" | undefined {
+  return width?.kind !== "resolved" ? undefined : width.integerWidth === 64 ? "int64" : "int32";
+}
+
+/** Whether an operator over enum operands keeps the enum domain (see sourceEnumOperandPrimitive). */
+export function sourceEnumOperatorKeepsDomain(operator: SourcePrimitiveUnaryOperator | SourcePrimitiveBinaryOperator,
+  enums: readonly (Node | undefined)[]): boolean {
+  if (enums.length === 0 || enums.some(declaration => declaration === undefined)) return false;
+  if (operator === "bit-not") return enums.length === 1;
+  return (operator === "bit-and" || operator === "bit-or" || operator === "bit-xor") && enums.length === 2 && enums[0] === enums[1];
 }

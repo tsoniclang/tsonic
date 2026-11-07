@@ -5,7 +5,11 @@ import { createHostSourceProgram } from "@tsonic/target-api/host";
 import { tsonicCoreSourceAnalyses } from "./analysis/host-analyses.js";
 
 const options = Object.freeze({
-  profile: () => Object.freeze({ collection: () => undefined, member: () => undefined, callRefusal: () => undefined }),
+  profile: () => Object.freeze({
+    identity: () => undefined, collection: () => undefined, member: () => undefined, callRefusal: () => undefined,
+    callStorage: () => undefined, callbackEffects: () => undefined, invocationOnlyParameters: () => Object.freeze([]),
+    nativeConstructorStorage: () => undefined, keyCategories: () => undefined,
+  }),
   analyses: Object.freeze([tsonicCoreSourceAnalyses]),
   // E24 (N5): the known 64-bit native integer premise of source-core tests.
   platform: Object.freeze({ kind: "known" as const, nativeIntegerBits: 64 as const, basis: "source-core test fixture" }),

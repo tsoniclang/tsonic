@@ -271,7 +271,11 @@ test("source navigation resolves project references, shapes, constructors, and d
   const construction = (reference) => ast.parent(reference);
   assert.equal(identity.isProjectShape(construction(derivedReference)), true);
   assert.equal(identity.isProjectShape(namedVariable(ast, sourceFile, "shaped")), true);
-  assert.equal(shape !== undefined, true);
+  // The interface's own type name (baseline isProjectShape(ast.name(shape))). The shape role is a value-node fact
+  // (B3 D2), so the type-name case is asked through identity: the name denotes this project interface declaration.
+  const named = identity.target(ast.name(shape));
+  assert.equal(named?.declaration === shape && named.project === true &&
+    ast.kindName(shape) === "KindInterfaceDeclaration", true, "the type name denotes the project shape declaration");
   assert.equal(identity.isProjectConstructibleObject(construction(derivedReference)), true);
   assert.equal(identity.isProjectConstructibleObject(construction(optionalReference)), true);
   assert.equal(identity.isProjectConstructibleObject(construction(requiredReference)), false);

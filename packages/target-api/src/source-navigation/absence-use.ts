@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "./ast.js";
+import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-model/ast.js";
 import type { SourceProgramNavigation } from "./types.js";
 
 export type SourceAbsenceUse = "coalesce" | "comparison" | undefined;

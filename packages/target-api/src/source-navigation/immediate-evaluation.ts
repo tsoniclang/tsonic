@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { isTypeSyntaxNode } from "./syntax.js";
+import { isTypeSyntaxNode } from "../source-model/syntax.js";
 
 export function forEachSourceImmediateEvaluationChild(
   ast: AstReader,

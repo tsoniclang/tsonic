@@ -1,6 +1,6 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import type { TargetSourceSafetyBuilderAnalysis } from "@tsonic/target-api/provider";
 import type {
-  ExtensionFactKey,
   ExtensionFactSubject,
   Node,
   SourceAnalysisContext,
@@ -8,7 +8,6 @@ import type {
 } from "@tsonic/tsts";
 import {
   sourceSafetySignatureIds,
-  type SourceSafetyProviderNames,
 } from "./declarations.js";
 import type {
   TsonicSafetyApplicationPlacement,
@@ -42,16 +41,8 @@ const coreErasedValueMarkers = tsonicCoreSourceSemanticsModules().flatMap(module
   module.exports.flatMap(declaration => declaration.kind === "call-marker" && erasedValueMarkers.has(declaration.marker)
     ? [{ module: module.moduleSpecifier, exportName: declaration.exportName }] : []));
 
-export interface SafetyBuilderAnalysisContract {
-  readonly providerId: string;
-  readonly providerVersion: string;
-  readonly providerModuleId: string;
-  readonly names: SourceSafetyProviderNames;
-  readonly factKey: ExtensionFactKey<TsonicSafetyBuilderFact>;
-  readonly extensionId: string;
-  readonly diagnosticPrefix: string;
-  readonly diagnosticNumberBase: number;
-}
+/** The target-api analysis request (target/source-extensions.ts) plus the extension id the facts are written under. */
+export type SafetyBuilderAnalysisContract = Omit<TargetSourceSafetyBuilderAnalysis, "kind"> & { readonly extensionId: string };
 
 export function analyzeSafetyBuilderCalls(
   context: SourceAnalysisContext,

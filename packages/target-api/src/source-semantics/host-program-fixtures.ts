@@ -11,9 +11,15 @@ import type { HostSourceProgram } from "./types.js";
 import type { SourcePlatformFacts } from "./platform-model.js";
 
 export const emptySourceJsApiFacts: SourceJsApiFacts = Object.freeze({
+  identity: () => undefined,
   collection: () => undefined,
   member: () => undefined,
   callRefusal: () => undefined,
+  keyCategories: () => undefined,
+  callStorage: () => undefined,
+  callbackEffects: () => undefined,
+  invocationOnlyParameters: () => Object.freeze([]),
+  nativeConstructorStorage: () => undefined,
 });
 
 /** The known 64-bit native integer premise of Host tests (E24); the 32-bit / missing / conflicting controls are unit tests. */

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 
 function fixture(text) {
   const checked = createCompilerSessionFromFiles({
@@ -46,9 +46,11 @@ test("an exact checked indexed write preserves its original container without in
     current.source.navigation.memberAccess(node)?.accessMode === "write");
   assert.equal(access !== undefined, true, "the original checked indexed write is retained");
   const evidence = current.source.navigation.memberAccess(access);
+  // The published storage fact (facts.selections.storage, baseline: elementAccess(...).writable) admits the write.
+  const location = current.source.facts.selections.storage(access);
   assert.equal(evidence?.declaration !== undefined &&
     current.source.ast.is.IsIndexSignatureDeclaration(evidence.declaration) &&
-    !current.source.ast.hasModifierKind(evidence.declaration, "readonly"), true,
+    location !== undefined && location.writable === true, true,
     "the actual checked index contract, not a fabricated named field, admits the write");
   const selected = current.select("selected");
   assert.equal(selected.kind === "complete" && selected.origins.length === 1 &&

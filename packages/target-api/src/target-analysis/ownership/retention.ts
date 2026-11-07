@@ -1,11 +1,12 @@
 import { sourceAnalysisIncludesNode, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
-import type { SourceEffectiveTypeArgument, SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/descriptor-model.js";
+import type { SourceEffectiveTypeArgument, SourceTypeDescriptor } from "../../source-semantics/descriptor-model.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipValue,
   SourceDeclarationOwnershipValues, SourceDeclarationRetentionPremise, SourceDeclarationRetentionReadSelection,
   SourceDeclarationRetentionSelection } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+import { sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
 
 export function createSourceDeclarationRetentionQuery(input: {
   readonly source: SourceAnalysisProgram;
@@ -19,7 +20,8 @@ export function createSourceDeclarationRetentionQuery(input: {
   // arguments) and of the call's published instantiation (receiver and method binders).
   const typeArgumentsOf = (type: SourceTypeDescriptor, call: Node | undefined): readonly SourceEffectiveTypeArgument[] => {
     const selected: SourceEffectiveTypeArgument[] = [];
-    if (type.kind === "declared") {
+    // Only a type-parameter owner has binders: an enum or type-parameter reference has none (and no type arguments).
+    if (type.kind === "declared" && sourceNodeHasRole(source.ast, type.declaration, "type-parameter-owner")) {
       const binders = source.ast.typeParameters(type.declaration);
       if (binders.length === type.typeArguments.length)
         type.typeArguments.forEach((argument, index) => selected.push({ declaration: binders[index]!, type: argument }));

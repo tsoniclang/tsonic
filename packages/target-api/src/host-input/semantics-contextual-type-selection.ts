@@ -1,5 +1,5 @@
 import { ContextFlagsSkipBindingPatterns, type AstReader, type Node, type Type, type TypeCheckerQueries, type TypeShapeQueries } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, Node_Type } from "../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer, Node_Type } from "../source-model/ast.js";
 import type { SourceFileSemantics, SourceTypeComponentEvidence } from "./semantics-types.js";
 
 export type SourceContextualValueTypeSelection =

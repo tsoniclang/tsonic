@@ -1,8 +1,9 @@
 import type { Node } from "@tsonic/tsts";
-import type { HostSourceProgram, SourceNavigationCall } from "@tsonic/target-api/host";
+import {
+  sourceTypeDescriptorIsAbsent, sourceTypeDescriptorMayBeAbsent, sourceAnalysisValueType, type HostSourceProgram, type SourceNavigationCall,
+} from "@tsonic/target-api/host";
 import type { SourcePointerOperationRecord } from "@tsonic/target-api/source";
-import { tsonicDescriptorAdmitsAbsence, tsonicDescriptorIsAbsent, tsonicValueType } from "../host-values.js";
-import { createTsonicHostRecords, type TsonicReinterpretRecord } from "../../analysis/host-records.js";
+import type { TsonicHostRecords, TsonicReinterpretRecord } from "../../analysis/host-records.js";
 import { createPointerContainerQueries } from "./containers.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./source-forms.js";
 
@@ -34,8 +35,10 @@ export interface TsonicPointerBackingQueries {
   resolve(expression: Node): TsonicPointerBackingResolution;
 }
 
+/** `records` are the Host records of the same program view (one record table per view, host-analyses.ts). */
 export function createTsonicPointerBackingQueries(
   source: HostSourceProgram,
+  records: Pick<TsonicHostRecords, "reinterpret">,
   options: {
     readonly hasClosedCallers: (declaration: Node) => boolean;
     readonly maximumValues: number;
@@ -45,7 +48,6 @@ export function createTsonicPointerBackingQueries(
     throw new Error("Pointer backing requires a positive finite source-value budget.");
   }
   const { ast, navigation, facts } = source;
-  const records = createTsonicHostRecords(source);
   const cached = new WeakMap<Node, TsonicPointerBackingResolution>();
   const containers = createPointerContainerQueries(source, options.maximumValues);
 
@@ -154,8 +156,8 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
-      const valueType = tsonicValueType(source, node);
-      if (valueType !== undefined && tsonicDescriptorIsAbsent(valueType)) {
+      const valueType = sourceAnalysisValueType(source, node);
+      if (valueType !== undefined && sourceTypeDescriptorIsAbsent(valueType)) {
         includesUndefined = true;
         terminals.add(node);
         continue;
@@ -232,9 +234,9 @@ export function createTsonicPointerBackingQueries(
           reject(node, "The pointer result has no exact non-virtual source implementation.");
           continue;
         }
-        // The Host result of the call admits absence (a null/undefined/void arm).
-        const result = tsonicValueType(source, node);
-        if (result !== undefined && tsonicDescriptorAdmitsAbsence(result)) {
+        // The Host result of the call may be absent (an absence/void arm, an optional, or any / unknown).
+        const result = sourceAnalysisValueType(source, node);
+        if (result !== undefined && sourceTypeDescriptorMayBeAbsent(ast, result)) {
           includesUndefined = true;
           terminals.add(node);
         }

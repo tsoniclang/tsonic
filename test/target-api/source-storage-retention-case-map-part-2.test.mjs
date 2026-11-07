@@ -7,7 +7,7 @@ import { sourceDeclarationUses } from "../../packages/target-api/dist/source-nav
 import { sourceCallableValueParameters } from "../../packages/target-api/dist/source-navigation/callable-parameters.js";
 import { sourceStorageFormalOwner } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceDeclarationRetentionQuery, createSourceDeclarationOwnershipValues, createSourceDeclarationOwnershipBudget,
-  defaultSourceDeclarationOwnershipLimits, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+  defaultSourceDeclarationOwnershipLimits, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
 import { fixture, deferred } from "./source-storage-retention-case-map-fixtures.mjs";
 
 for (const [label, expression] of [

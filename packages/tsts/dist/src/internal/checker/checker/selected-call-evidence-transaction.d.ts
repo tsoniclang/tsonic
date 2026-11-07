@@ -33,6 +33,12 @@ export interface SelectedCallEvidenceTransactionState {
     readonly frames: SelectedCallEvidenceFrameRecord[];
     entryCount: number;
     inferenceEntryCount: number;
+    /** Bumped on every frame push or pop and every context bound to a frame: the journal lookup is valid per revision. */
+    revision: number;
+    /** The last journal lookup (selectedCallInferenceJournal): one inference context per revision. */
+    lookupRevision: number;
+    lookupInferences: InferenceContext["inferences"] | undefined;
+    lookupJournal: SelectedCallInferenceJournal | undefined;
 }
 export declare function beginSelectedCallEvidenceFrame(checker: Checker, kind: SelectedCallEvidenceFrameKind): SelectedCallEvidenceFrame | undefined;
 export declare function commitSelectedCallEvidenceFrame(checker: Checker, frame: SelectedCallEvidenceFrame | undefined): void;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AstReader, Node } from "@tsonic/tsts";
-import { ObjectLiteralProperty_SourceName } from "./ast.js";
+import { ObjectLiteralProperty_SourceName } from "../source-model/ast.js";
 
 test("object-literal property names preserve exact authored key semantics", () => {
   const identifier = node("identifier", "value");

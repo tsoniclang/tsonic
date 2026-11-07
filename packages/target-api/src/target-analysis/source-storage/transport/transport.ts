@@ -1,4 +1,4 @@
-import { sourceStorageIsGenerator, sourceStoragePointerOperation } from "./host-reads.js";
+import { sourceStorageIsGenerator, sourceStoragePointerOperation } from "../model/host-reads.js";
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import { createSourceStoragePointerBackings } from "./pointer-backings.js";
@@ -22,11 +22,11 @@ import { createSourceStorageSubstitutions, sourceStorageMissingProducerReason } 
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs, createSourceStorageInvocationOrigins, sourceStorageInvocationInputSelection, sourceStorageSelectedInputSlots, sourceStorageNativeCallablePayloads, sourceStorageInvocationArgumentAbsence,
-  sourceStorageBindingArgumentType } from "../graph/invocation-inputs.js";
+  sourceStorageBindingArgumentType, sourceStorageWitnessBinding } from "../graph/invocation-inputs.js";
 import type { SourceStorageInvocationSelectionKey, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
+import { sourceMemberOwner } from "../../../source-model/class-members.js";
 import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites } from "../graph/stored-values.js";
@@ -36,8 +36,7 @@ import { createSourceStorageGraphQueries, type SourceStorageReconciliation } fro
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import { createSourceStorageGuardedValues } from "../graph/guarded-values.js";
-import { sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations,
-  sourceStorageRoleDeclaration } from "../model/components.js";
+import { sourceStorageAccessDeclarations, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageDynamicMemberDeclarations, sourceStorageRoleDeclaration } from "../model/components.js";
 import { createSourceStorageMutationDestinations } from "./mutation-destinations.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { createSourceStorageMemberAccessors } from "../scoped/member-accessors.js";
@@ -708,9 +707,9 @@ export function createSourceStorageTransport(
         const instantiated = source.facts.selections.call(invocation);
         const selectedResult = instantiated === undefined || instantiated.kind === "refused" ? undefined : instantiated.result;
         const callResult = sourceAnalysisValueType(source, invocation);
-        const generator = sourceStorageIsGenerator(ast, candidate);
+        const generator = sourceStorageIsGenerator(source, candidate);
         if (generator && invocationImplementationSelection(invocation)?.exact === true &&
-          [...invocationImplementations(invocation)].every(owner => sourceStorageIsGenerator(source.ast, owner)))
+          [...invocationImplementations(invocation)].every(owner => sourceStorageIsGenerator(source, owner)))
           invocationEffects.set(invocation, Object.freeze({ resultAllocation: invocation }));
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async") && !generator) connect(subject(candidate, "return"), subject(invocation),
           selectedResult === undefined || callResult === undefined ? undefined : { from: selectedResult, to: callResult });
@@ -721,15 +720,18 @@ export function createSourceStorageTransport(
           throw new Error("Selected source storage invocation actuals were not published before their consumers.");
         for (const argument of arguments_ ?? []) {
           if (!step()) break;
-          const binding = argument.binding;
+          const effectiveIndex = argument.binding.effectiveIndex;
+          const binding = selected === undefined ? undefined : sourceStorageWitnessBinding(selected, argument.binding);
+          if (selected !== undefined && binding === undefined)
+            throw new Error("A published source storage argument correspondence requires its call witness binding.");
           for (const slot of slots ?? []) {
             if (!step()) return;
-            if (slot.projection === undefined || slot.effectiveIndex !== binding.effectiveArgumentIndex &&
-              !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)) continue;
+            if (slot.projection === undefined || slot.effectiveIndex !== effectiveIndex &&
+              !(slot.repeated && effectiveIndex >= slot.effectiveIndex)) continue;
             const destination = subject(slot.parameter, "input", slot.projection);
             const initialized = Node_Initializer(ast, slot.parameter) !== undefined;
-            const argumentType = selected === undefined ? undefined : sourceStorageBindingArgumentType(source, selected, binding);
-            if (!initialized || selected !== undefined &&
+            const argumentType = selected === undefined || binding === undefined ? undefined : sourceStorageBindingArgumentType(source, selected, binding);
+            if (!initialized || selected !== undefined && binding !== undefined &&
               sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
               connect(argument.actual, destination, argumentType === undefined || argument.parameterType === undefined ? undefined
                 : { from: argumentType, to: argument.parameterType });

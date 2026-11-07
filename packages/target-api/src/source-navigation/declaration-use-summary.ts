@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceMemberOwner, sourceParameterIsProperty } from "./class-members.js";
-import { Node_Expression } from "./ast.js";
+import { sourceMemberOwner, sourceParameterIsProperty } from "../source-model/class-members.js";
+import { Node_Expression } from "../source-model/ast.js";
 import type { SourceDeclarationUse, SourceDeclarationUseSummary, SourceParameterUseSummary, SourceValueEscapeKind } from "./types.js";
 
 const escapeOrder: readonly SourceValueEscapeKind[] = Object.freeze([

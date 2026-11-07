@@ -1,4 +1,5 @@
-import type { CompilerExtension, SourceSemanticsModule } from "@tsonic/tsts";
+import type { SourceSemanticsModule } from "@tsonic/tsts";
+import type { TargetSourceExtensionContribution } from "./source-extensions.js";
 import type { TsonicDataLayoutRegistration } from "./data-layout.js";
 import type { TargetRuntimeContributions } from "../artifacts.js";
 import type { TargetSelection, TargetSurfaceId, TsonicProjectConfig } from "../config.js";
@@ -13,9 +14,13 @@ export interface TargetCompositionContext {
   readonly selectedSurfaceIds: readonly TargetSurfaceId[];
 }
 
+/**
+ * What a target contributes to source compilation, as data (K-2682, I1). The Host composition root builds the
+ * checker-facing compiler extensions from `extensions`; a target never supplies a checker callback.
+ */
 export interface TargetSourceCompilerContributions {
   readonly semanticsModules?: readonly SourceSemanticsModule[];
-  readonly extensions?: readonly CompilerExtension[];
+  readonly extensions?: readonly TargetSourceExtensionContribution[];
   readonly dataLayouts?: readonly TsonicDataLayoutRegistration[];
 }
 

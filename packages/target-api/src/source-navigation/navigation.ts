@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import { createSourceMemberDispatchNavigation } from "./member-dispatch.js";
 import { createSourceMemberImplementationNavigation } from "./member-implementation.js";
 import { createSourceMemberContractNavigation } from "./member-contracts.js";
@@ -15,7 +15,6 @@ import {
 import { createSourceReferenceNavigation } from "./references.js";
 import { sourceBindingWritesWithin, sourceEntityHasReferenceOutside, sourceEntityReferencesWithin } from "./references-usage.js";
 import { sourceExpressionResultDisposition } from "./expression-use.js";
-import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceDeclarationUseSummary, sourceParameterUseSummary } from "./declaration-use-summary.js";
 import { sourceCountedLoop } from "./counted-loops.js";
@@ -88,9 +87,6 @@ export function createSourceProgramNavigation(
   >>();
   const expressionValueFlowCache = new WeakMap<Node, ReturnType<
     typeof sourceExpressionValueFlow
-  >>();
-  const expressionEffectsCache = new WeakMap<Node, ReturnType<
-    typeof sourceExpressionEffects
   >>();
   const expressionResultDispositions = new WeakMap<Node, ReturnType<typeof sourceExpressionResultDisposition>>();
   const expressionResultDisposition = (expression: Node) => {
@@ -285,19 +281,6 @@ export function createSourceProgramNavigation(
     },
     expressionResultDisposition,
     expressionResultUse: (expression: Node) => expressionResultDisposition(expression).kind === "discarded" ? "discarded" : "consumed",
-    expressionEffects(expression: Node) {
-      const cached = expressionEffectsCache.get(expression);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const effects = sourceExpressionEffects(
-        { ast: source.ast, sourceReferenceFor: references.sourceReferenceFor },
-        expression,
-        expressionEffectsCache,
-      );
-      expressionEffectsCache.set(expression, effects);
-      return effects;
-    },
     hasReferenceOutside(declaration: Node, excludedNode: Node) {
       return sourceEntityHasReferenceOutside(
         source.ast,

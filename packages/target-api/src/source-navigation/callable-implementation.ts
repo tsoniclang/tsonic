@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import type { SourceCallableImplementationResult } from "./types.js";
 
 type CallableCategory = "function" | "method" | "get" | "set" | "constructor";

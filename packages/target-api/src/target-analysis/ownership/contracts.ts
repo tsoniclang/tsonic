@@ -1,7 +1,7 @@
 import { sourceAnalysisIncludesNode, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
-import { sourceTypeDescriptorsEqual } from "../../source-semantics/local-type-flow/terms.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
+import { sourceTypeDescriptorsEqual } from "../../source-semantics/descriptor-model.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-model/callable-boundaries.js";
 import { sourceStorageRoleDeclaration } from "../source-storage/model/components.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipComponent, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";

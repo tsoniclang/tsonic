@@ -1,10 +1,7 @@
 import type { AstReader } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
-import {
-  sourceStorageComponentType, sourceStorageIsNeverType, sourceStorageOriginalComponents, sourceStorageTypeHasTypeVariables,
-  sourceStorageTypesEqual,
-} from "../model/components.js";
+import { sourceStorageComponentType, sourceStorageIsNeverType, sourceStorageOriginalComponents, sourceStorageTypeHasTypeVariables, sourceStorageTypesEqual } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 

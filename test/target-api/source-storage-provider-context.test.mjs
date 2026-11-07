@@ -3,9 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, TstsSourceProviderContractVersion } from "@tsonic/tsts";
 import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
-import { sourceStorageMemberCorrespondence } from "../../packages/target-api/dist/target-analysis/source-storage/model/components.js";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/graph/edges.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
@@ -123,7 +122,8 @@ test("virtual structural members transport aliases, fields and cross-file calls 
   const original = namedVariable(source.ast, file, "original");
   const property = source.ast.properties(source.ast.as.AsVariableDeclaration(original).Initializer)[0];
   const record = storage.argumentTransportsFor(invocation(source, file, "record")).arguments[0].formal;
-  const relation = sourceStorageMemberCorrespondence(source, storage.typeFor(storage.subjectFor(original).subject).type,
+  // Member correspondence is the one Host object fact (objects.correspondence, R2 #23).
+  const relation = source.facts.objects.correspondence(storage.typeFor(storage.subjectFor(original).subject).type,
     storage.typeFor(record).type, "correspondence");
   assert.equal(relation.kind === "available" && relation.members.length === 1 && relation.members[0].kind === "present", true, "exact checked field correspondence");
   const field = storage.subjects.find(subject => subject.node === relation.members[0].destination.declarations[0]);

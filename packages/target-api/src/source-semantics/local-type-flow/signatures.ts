@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
-import { sourceEnclosing } from "../../source-navigation/callable-boundaries.js";
+import { Node_Expression, Node_Initializer } from "../../source-model/ast.js";
+import { sourceEnclosing } from "../../source-model/callable-boundaries.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeFlowAnalysisContext,

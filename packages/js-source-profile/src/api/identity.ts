@@ -1,15 +1,22 @@
 // JS API declaration identity (D18): which JS standard-library entity a declaration is. Target-neutral; moved from
-// the Source half of tsonic-csharp policy/identities/selected-source.ts. A target keys its own mapping by this identity.
+// the Source half of tsonic-csharp policy/identities/selected-source.ts. Published as facts.profile.identity; a target
+// keys its own mapping by it.
 import { providerVirtualDeclarationFactKey, type AstReader, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { isTsonicSourceProfileDeclarationPath } from "@tsonic/target-api/provider";
+import type { SourceJsApiIdentity } from "@tsonic/target-api/source";
 import { jsSourceSemanticsIdentity } from "../identities/source.js";
 
-export interface JsSourceApiIdentity {
-  readonly kind: "type" | "member" | "indexer" | "call" | "construct";
-  /** The declaring interface / class / alias (`Map`, `ArrayConstructor`); `Global` for top-level functions. */
-  readonly declaringName?: string;
-  readonly name?: string;
-  readonly declaration: Node;
+export type JsSourceApiIdentity = SourceJsApiIdentity;
+
+/**
+ * A profile declaration identity with its scope. "js": a declaration of the JS source profile (or of its provider).
+ * "profile": a declaration under another target source profile; such a profile includes the shared base declarations
+ * of this package (Error, Promise, Object, ...), so the JS API table also answers its constructor and call signatures
+ * and its native operations.
+ */
+export interface JsSourceProfileIdentity {
+  readonly scope: "js" | "profile";
+  readonly identity: JsSourceApiIdentity;
 }
 
 export interface JsSourceApiIdentityInput {
@@ -27,13 +34,22 @@ const namedMemberKinds: ReadonlySet<string> = new Set([
   "KindGetAccessor", "KindSetAccessor",
 ]);
 
-/** The JS API identity of a declaration, or undefined when the declaration is not owned by the JS source profile. */
-export function jsSourceApiIdentity(input: JsSourceApiIdentityInput, declaration: Node): JsSourceApiIdentity | undefined {
+/** The profile identity of a declaration, or undefined when no source profile declares it. */
+export function jsSourceProfileIdentity(input: JsSourceApiIdentityInput, declaration: Node): JsSourceProfileIdentity | undefined {
   const { ast } = input;
   const provided = providerIdentity(input, declaration);
-  if (provided !== undefined) return provided;
+  if (provided !== undefined) return Object.freeze({ scope: "js", identity: provided });
   const sourceFile = ast.getSourceFile(declaration);
-  if (sourceFile === undefined || !isTsonicSourceProfileDeclarationPath(ast.getFileName(sourceFile), "js")) return undefined;
+  const fileName = sourceFile === undefined ? undefined : ast.getFileName(sourceFile);
+  if (fileName === undefined || !isTsonicSourceProfileDeclarationPath(fileName)) return undefined;
+  const identity = structuralIdentity(input, declaration);
+  return identity === undefined ? undefined : Object.freeze({
+    scope: isTsonicSourceProfileDeclarationPath(fileName, "js") ? "js" : "profile", identity });
+}
+
+/** The identity a profile declaration has by its declaration structure (declaring entity and member name). */
+function structuralIdentity(input: JsSourceApiIdentityInput, declaration: Node): JsSourceApiIdentity | undefined {
+  const { ast } = input;
   const kind = ast.kindName(declaration);
   const parent = ast.parent(declaration);
   const parentKind = parent === undefined ? undefined : ast.kindName(parent);

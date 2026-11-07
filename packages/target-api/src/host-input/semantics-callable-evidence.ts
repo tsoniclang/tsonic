@@ -1,5 +1,5 @@
 // host-input/semantics-callable-evidence: the checker's single call signature of a callable type, as parameter and
-// result evidence for the descriptor reader (host-input/descriptors.ts). Replaces the deleted standard-transformation
+// result evidence for the descriptor reader (local-type-flow/descriptors.ts, through the queries facade). Replaces the deleted standard-transformation
 // selector; only this callable evidence had a Host-internal reader.
 import type { AstReader, Node, Type, TypeSignatureInfo, TypeSignatureParameterInfo } from "@tsonic/tsts";
 import type {

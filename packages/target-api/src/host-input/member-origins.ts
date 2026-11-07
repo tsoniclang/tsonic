@@ -1,9 +1,10 @@
-import { SymbolFlagsPrototype, type Node, type Type, type TypePropertyInfo } from "@tsonic/tsts";
+import { SymbolFlagsPrototype, type AstReader, type Node, type Type, type TypePropertyInfo } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "./semantics-types.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "./semantics-selected-property-declarations.js";
-import type { SourceMemberKey, SourceTypeDescriptorMember, SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
-import { freezeSourceTypeDescriptorMemberOrigin } from "../source-semantics/local-type-flow/member-origins.js";
+import type { SourceMemberKey, SourceTypeDescriptorMember } from "../source-semantics/descriptor-model.js";
 
+// The checker member-origin selection (a selection witness: which declaration, mapped key or class prototype a checked
+// property comes from). The records are neutral identities; the descriptor rules that read them are local-type-flow's.
 type Origin = SourceTypeDescriptorMember["origin"];
 
 export function sourceTypeDescriptorMemberKey(type: Type, queries: SourceFileSemantics): SourceMemberKey | undefined {
@@ -24,7 +25,7 @@ export type SourceMemberOriginResult =
   | { readonly kind: "resolved"; readonly origin: Origin }
   | { readonly kind: "refused"; readonly owner: Node; readonly name: string };
 
-export function sourceTypeDescriptorMemberOrigin(source: Pick<SourceTypeFlowSource, "ast">, queries: SourceFileSemantics,
+export function sourceTypeDescriptorMemberOrigin(source: { readonly ast: AstReader }, queries: SourceFileSemantics,
   property: TypePropertyInfo, receiver: Type): SourceMemberOriginResult | undefined {
   const { ast } = source;
   const mapped = property.mapped;
@@ -39,7 +40,7 @@ export function sourceTypeDescriptorMemberOrigin(source: Pick<SourceTypeFlowSour
     }
     const key = mapped.keyType === undefined ? undefined : sourceTypeDescriptorMemberKey(mapped.keyType, queries);
     return key === undefined ? Object.freeze({ kind: "refused", owner, name: property.name })
-      : Object.freeze({ kind: "resolved", origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "mapped", owner, key }) });
+      : Object.freeze({ kind: "resolved", origin: Object.freeze({ kind: "mapped" as const, owner, key }) });
   }
   const declarations = mapped?.syntheticOrigin === undefined
     ? selectedSourcePropertyDeclarations(queries, undefined, property.symbol, [receiver])
@@ -48,12 +49,12 @@ export function sourceTypeDescriptorMemberOrigin(source: Pick<SourceTypeFlowSour
   const declaration = declarations === undefined ? undefined : selectSourcePropertyDeclaration(ast, declarations, role)
     ?? canonicalMemberDeclaration(ast, declarations, property);
   if (declaration !== undefined) return Object.freeze({ kind: "resolved",
-    origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "declared", declaration }) });
+    origin: Object.freeze({ kind: "declared" as const, declaration }) });
   const parent = property.symbol.Parent;
   const owners = mapped === undefined && (property.symbol.Flags & SymbolFlagsPrototype) !== 0 && parent !== undefined
     ? queries.declarations.symbolDeclarations(parent).filter(owner => ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) : [];
   return owners.length !== 1 ? undefined : Object.freeze({ kind: "resolved",
-    origin: freezeSourceTypeDescriptorMemberOrigin({ kind: "class-prototype", owner: owners[0]! }) });
+    origin: Object.freeze({ kind: "class-prototype" as const, owner: owners[0]! }) });
 }
 
 // A member with several non-accessor declarations (overloads, or one interface merged across files) is
@@ -61,7 +62,7 @@ export function sourceTypeDescriptorMemberOrigin(source: Pick<SourceTypeFlowSour
 // binder appends a symbol's declarations in bind order and mergeSymbol appends merged declarations in program
 // file order. A synthetic member with several root symbols (e.g. an intersection of distinct members) is not one
 // logical member and has no declared origin here.
-function canonicalMemberDeclaration(ast: SourceTypeFlowSource["ast"], declarations: readonly Node[],
+function canonicalMemberDeclaration(ast: AstReader, declarations: readonly Node[],
   property: TypePropertyInfo): Node | undefined {
   if (property.rootSymbols.length > 1) return undefined;
   if (declarations.length < 2 || declarations.some(declaration =>

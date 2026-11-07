@@ -3,8 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHostSourceProgram } from "../../packages/target-api/dist/public/host.js";
 import { sourceTypeDescriptorsEqual } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
+import { formatDiagnostics } from "@tsonic/tsts";
+import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
+import { jsSurfaceSourceProfileDeclarations, sourceNoLibBaseDeclarations, sourcePrimitiveProfileDeclarations }
+  from "../../packages/js-source-profile/dist/index.js";
+import { errorConstructorFootprintSource, errorOriginDomainSource } from "../fixtures/error-origin-domains.mjs";
 
 const globals = `
 interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -251,3 +256,99 @@ test("observed local implementations never close an externally supplied receiver
   assert.equal(exact.exact, true, "a constructed local receiver keeps its exact implementation");
   assert.equal(current.demand.invalidationFor(current.variable("original"), current.call("plain.describe"), new Set()).kind, "preserved");
 });
+
+// The Error storage-demand origin, domain and footprint cases of the baseline C# test
+// (keel-baseline-20261107-1648 tsonic-csharp test/analysis/objects/error-storage-origin-proof.test.mjs), as Host tests
+// (R-T6-5, REVIEW-R4 #62). Both source profiles: the JS surface profile and another target's profile over the shared
+// base declarations. The JS API storage effects are the Host's own (facts.profile through facts.analyses.storage).
+const nativeProfileDeclarations = `
+${sourcePrimitiveProfileDeclarations}
+${sourceNoLibBaseDeclarations}
+
+interface String { readonly length: int32; }
+interface Array<T> extends Iterable<T> { readonly length: int32; [index: number]: T; }
+interface ReadonlyArray<T> extends Iterable<T> { readonly length: int32; readonly [index: number]: T; }
+`;
+const sourceErrorNames = ["Error", "RangeError", "TypeError", "URIError"];
+
+/** The Error protocol of the profile declarations: Error fields, Error constructor signatures, stack captures. */
+function profileErrorProtocol(source) {
+  const { ast } = source;
+  const interfaces = source.sourceFiles.filter(file => ast.getFileName(file).includes("/.tsonic/source-profiles/"))
+    .flatMap(file => ast.statements(file).filter(statement => statement !== undefined && ast.is.IsInterfaceDeclaration(statement)));
+  const nameOf = node => { const name = ast.name(node); return name === undefined ? undefined : ast.text(name); };
+  const membersOf = names => interfaces.filter(declaration => names.includes(nameOf(declaration)))
+    .flatMap(declaration => ast.members(declaration).filter(member => member !== undefined));
+  const stackCaptures = membersOf(["ErrorConstructor"]).filter(member => nameOf(member) === "captureStackTrace");
+  return Object.freeze({
+    fields: membersOf(["Error"]).filter(member => ["name", "message", "stack"].includes(nameOf(member))),
+    constructors: membersOf(sourceErrorNames.map(name => `${name}Constructor`))
+      .filter(member => ast.is.IsCallSignatureDeclaration(member) || ast.is.IsConstructSignatureDeclaration(member)),
+    stackCaptures,
+    storageMutators: stackCaptures.map(signature => ({ signature, sourceParameterIndex: 0 })),
+    retention: () => ({ kind: "ordinary" }),
+  });
+}
+
+async function profiled(name, body, jsEnabled) {
+  const profile = jsEnabled
+    ? { ".tsonic/source-profiles/js/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+      ".tsonic/source-profiles/js/js-globals.d.ts": jsSurfaceSourceProfileDeclarations }
+    : { ".tsonic/source-profiles/native/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+      ".tsonic/source-profiles/native/native-globals.d.ts": nativeProfileDeclarations };
+  const checked = await checkedSource(name, { ...profile, "src/index.ts": body }, { sourceCore: true });
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
+  assert.equal(checked.extensionDiagnostics.length, 0, "exact source facts admitted");
+  const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
+  const file = projectSourceFile(source, "src/index.ts");
+  const protocol = profileErrorProtocol(source);
+  assert.equal(protocol.fields.length === 3 && protocol.constructors.length >= 2 && protocol.stackCaptures.length === 1, true,
+    "the profile declares the Error protocol");
+  const storage = source.facts.analyses.storage({ sourceFiles: [file] });
+  const demand = createSourceErrorStorageDemandQuery(source, protocol, storage);
+  return { source, file, storage, demand };
+}
+
+for (const jsEnabled of [false, true]) {
+  const profileName = jsEnabled ? "JS" : "native";
+  for (const called of [false, true]) {
+    test(`${profileName} ${called ? "call" : "new"} Error storage origins require complete admitted origins`, async () => {
+      const { source, file, storage, demand } = await profiled(`error-origin-domains-${profileName}-${called}`,
+        errorOriginDomainSource(called), jsEnabled);
+      const { ast } = source;
+      for (const [name, expectedDomain] of [["inspect", "open"], ["privateInspect", "complete"]]) {
+        const formal = ast.parameters(namedDeclaration(ast, file, name))[0];
+        const observed = demand.storageOriginsFor(requiredStorageSubject(storage, formal));
+        assert.equal(observed.kind === "resolved" && observed.origins.length > 0 &&
+          observed.origins.every(origin => demand.isNativeConstructor(origin.node)), true, `${name}: same observed native roots`);
+        assert.equal(demand.closedStorageOriginsFor(requiredStorageSubject(storage, formal)).kind, expectedDomain,
+          `${name}: exact admission proof`);
+      }
+      const construct = namedDeclaration(ast, file, "construct");
+      const external = requiredNode(ast, file, node => ast.is.IsReturnStatement(node) && ast.parent(ast.parent(node)) === construct);
+      const returned = ast.as.AsReturnStatement(external).Expression;
+      assert.equal(demand.closedStorageOriginsFor(requiredStorageSubject(storage, namedVariable(ast, file, "aliased"))).kind, "complete",
+        "immutable owned global constructor alias");
+      assert.equal(demand.closedStorageOriginsFor(requiredStorageSubject(storage, returned)).kind, "open",
+        "signature identity does not own an external constructor value");
+      assert.equal(demand.invalidationFor(ast.parameters(construct)[1], returned, new Set()).kind, "unproven",
+        "a valid external constructor is not evidence that a guarded Error read is preserved");
+      assert.equal(demand.closedStorageOriginsFor(requiredStorageSubject(storage, namedVariable(ast, file, "unowned"))).kind, "open",
+        "ambient external values are not owned global constructors");
+    });
+  }
+  for (const [footprint, expected] of [["mutating", "invalidated"], ["readonly", "preserved"], ["deferred", "preserved"],
+    ["receiver", "preserved"], ["bound", "invalidated"]]) {
+    test(`${profileName} native Error allocation preserves exact ${footprint} inherited initialization`, async () => {
+      const { source, file, storage, demand } = await profiled(`error-footprint-${profileName}-${footprint}`,
+        errorConstructorFootprintSource(footprint), jsEnabled);
+      const owner = namedVariable(source.ast, file, "original");
+      const expression = source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, "created"))?.Initializer;
+      assert.equal(expression !== undefined, true);
+      assert.equal(demand.isNativeConstructor(expression), true, "the inherited constructor selects the owned native Error protocol");
+      assert.equal(demand.closedStorageOriginsFor(requiredStorageSubject(storage, expression)).kind, "complete",
+        "fresh result ownership is complete but is not a purity proof");
+      assert.equal(demand.invalidationFor(owner, expression, new Set()).kind, expected);
+    });
+  }
+}

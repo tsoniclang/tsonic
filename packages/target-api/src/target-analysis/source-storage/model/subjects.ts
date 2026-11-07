@@ -1,6 +1,6 @@
 import { sourceAnalysisIncludesFile, type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
+import { sourceParameterIsProperty } from "../../../source-model/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 
 export type SourceStorageProjection =

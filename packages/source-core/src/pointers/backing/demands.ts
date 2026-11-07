@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { HostSourceProgram } from "@tsonic/target-api/host";
+import type { TsonicHostRecords } from "../../analysis/host-records.js";
 import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingQueries } from "./requirements.js";
@@ -17,11 +18,15 @@ export interface TsonicPointerBackingDemands {
   issues(): readonly TsonicPointerBackingIssue[];
 }
 
-export function createTsonicPointerBackingDemands(source: HostSourceProgram): TsonicPointerBackingDemands {
+/** `records` are the Host records of the same program view (host-records.ts). */
+export function createTsonicPointerBackingDemands(
+  source: HostSourceProgram,
+  records: Pick<TsonicHostRecords, "reinterpret">,
+): TsonicPointerBackingDemands {
   const demands = new Map<Node, TsonicPointerBackingDemand>();
   const issues: TsonicPointerBackingIssue[] = [];
   const recorded = new WeakSet<Node>();
-  const queries = createTsonicPointerBackingQueries(source, {
+  const queries = createTsonicPointerBackingQueries(source, records, {
     maximumValues: 131_072,
     hasClosedCallers(declaration) {
       return source.ast.is.IsFunctionDeclaration(declaration) &&

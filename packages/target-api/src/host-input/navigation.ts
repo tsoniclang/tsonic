@@ -3,111 +3,24 @@
 // program membership question it needs is answered here. Records carry declaration and authored-syntax Nodes only.
 // R3: no record carries or classifies a checker-inferred value type. The witnesses are selections (which declaration,
 // signature, member or module the checker selected) and declaration input (declared members, construct signatures).
-import { SymbolFlagsAlias, type AstReader, type CheckedSourceProgram, type Node, type SourceFile, type Symbol,
-  type TypeCheckerQueries } from "@tsonic/tsts";
-import { selectSourcePropertyDeclaration } from "./semantics-selected-property-declarations.js";
+// This module is the one translator of a checker call selection and of a checker member-access selection (R2 #1, #2):
+// SourceHostInput.call/.member (index.ts), HostCheckerInput.call/.memberAccess (objects.ts) and the per-file checker
+// views (semantics-program.ts operations.propertyAccess) project from the records built here. The records are defined
+// in the checker-free source-model/navigation-records.ts.
+import type {
+  AstReader, CheckedSourceProgram, Node, ResolvedSourcePropertyAccessInfo, SourceFile, SourceFileQueries, Symbol, TypeCheckerQueries,
+} from "@tsonic/tsts";
+import type {
+  SourceNavigationCall, SourceNavigationConstructSignature, SourceNavigationConstructSignatures, SourceNavigationInput,
+  SourceNavigationMemberAccess, SourceNavigationModuleExport, SourceNavigationReference, SourceNavigationSignatureParameter,
+} from "../source-model/navigation-records.js";
 import {
-  aliasedSymbol, createSourceNavigationReferenceSelector, primaryDeclaration, symbolAtReferenceNode,
-  type SourceNavigationReference,
-} from "./navigation-references.js";
-
-export type { SourceNavigationReference } from "./navigation-references.js";
-
-/** One parameter of a selected or declared signature. */
-export interface SourceNavigationSignatureParameter {
-  readonly parameterIndex: number;
-  readonly parameterName: string;
-  readonly parameterDeclaration?: Node;
-  readonly authoredTypeNode?: Node;
-  readonly acceptsOmission: boolean;
-  readonly rest: boolean;
-}
-
-/** A construct signature of a class value: its declaration (absent for an implicit constructor) and parameters. */
-export interface SourceNavigationConstructSignature {
-  readonly declaration?: Node;
-  readonly parameters: readonly (SourceNavigationSignatureParameter & { readonly parameterDeclaration: Node })[];
-}
-
-export type SourceNavigationConstructSignatures =
-  | { readonly kind: "signatures"; readonly signatures: readonly SourceNavigationConstructSignature[] }
-  | { readonly kind: "unresolved"; readonly site: Node; readonly reason: string };
-
-/** The argument-to-parameter binding the checker selected at a call (indexes into the call record vectors). */
-export interface SourceNavigationCallBinding {
-  readonly sourceArgumentIndex: number;
-  readonly effectiveArgumentIndex: number;
-  readonly sourceForm: "value" | "spread-element" | "spread-sequence";
-  readonly spreadElementIndex?: number;
-  readonly sourceParameterIndex: number;
-  readonly sourceParameterForm: "parameter" | "rest-element" | "rest-sequence";
-}
-
-/** The checker's selection at a call, `new`, tagged template or `super(...)`, as declarations and syntax. */
-export interface SourceNavigationCall {
-  readonly call: Node;
-  /** "untyped": the callee has no typed signature (the checker selected an any-call). */
-  readonly selection: "resolved" | "untyped";
-  readonly applicable: boolean;
-  readonly optionalChain: boolean;
-  /** The selected signature's declaration; absent for a signature with no declaration. */
-  readonly signature?: Node;
-  readonly callee: Node;
-  /** The authored argument expressions, in source order. */
-  readonly arguments: readonly Node[];
-  readonly bindings: readonly SourceNavigationCallBinding[];
-  readonly parameters: readonly SourceNavigationSignatureParameter[];
-}
-
-/** The checker's member selection at a property or element access, as declarations. */
-export interface SourceNavigationMemberAccess {
-  readonly access: Node;
-  readonly receiver: Node;
-  /** The selected member declaration for the access role (get accessor for reads, set accessor for writes). */
-  readonly declaration?: Node;
-  /** `declaration`, else every declaration of the selected member and its root members (union/intersection members). */
-  readonly declarations: readonly Node[];
-  readonly accessMode: "read" | "write" | "read-write" | "delete";
-  readonly optionalChain: boolean;
-}
-
-export interface SourceNavigationModuleExport {
-  readonly exportName: string;
-  readonly declaration: Node;
-  readonly sourceFile: SourceFile;
-}
-
-/** The checker input of source-navigation. One per program view; lifetime is the program's (I5). */
-export interface SourceNavigationInput {
-  readonly ast: AstReader;
-  /** The checked program's source files (project files and libraries), as the program lists them. */
-  readonly sourceFiles: readonly (SourceFile | undefined)[];
-  containsSourceFile(sourceFile: SourceFile): boolean;
-  /**
-   * The declaration a reference occurrence selects (identifier, qualified name, property or element access, type
-   * reference, heritage expression), imports and aliases resolved. `reserveModuleExports` is told how many module
-   * exports an import resolution examined.
-   */
-  reference(node: Node, reserveModuleExports?: (count: number) => void): SourceNavigationReference | undefined;
-  /** All declarations of the entity a declaration declares (overloads, merged declarations, accessor pairs). */
-  mergedDeclarations(declaration: Node): readonly Node[];
-  /** The declaration a heritage clause element names (aliases resolved); undefined when the checker selects none. */
-  heritageTarget(heritage: Node): Node | undefined;
-  /** The construct signatures of a class declaration or class expression value. */
-  constructSignatures(classDeclaration: Node): SourceNavigationConstructSignatures;
-  /**
-   * The declarations of the member of the declared instance type of a class/interface declaration that has the same
-   * member name as `member`; primary declaration first. Undefined when `member` declares no named member.
-   */
-  declaredMember(typeDeclaration: Node, member: Node): readonly Node[] | undefined;
-  /** Parameters of a callable declaration's own declared signature; undefined when it declares none. */
-  declaredParameters(declaration: Node): readonly Node[] | undefined;
-  moduleExports(sourceFile: SourceFile): readonly SourceNavigationModuleExport[];
-  /** The source file a module specifier resolves to (program module resolution). */
-  moduleSourceFile(moduleSpecifier: Node): SourceFile | undefined;
-  call(use: Node): SourceNavigationCall | undefined;
-  memberAccess(access: Node): SourceNavigationMemberAccess | undefined;
-}
+  normalizeSourcePropertyAccessDeclarations, selectedSourcePropertyDeclarations, type SourcePropertySelectionQueries,
+} from "./semantics-selected-property-declarations.js";
+import { selectRefinedSourcePropertyAccess } from "./semantics-property-refinement.js";
+import { selectSourceTypeRefinement } from "./semantics-type-refinement.js";
+import { sourceDeclarationSymbol, sourceDeclaredValueType } from "./navigation-checker.js";
+import { aliasedSymbol, createSourceNavigationReferenceSelector, primaryDeclaration, symbolAtReferenceNode } from "./navigation-references.js";
 
 export function createSourceNavigationInput(source: CheckedSourceProgram): SourceNavigationInput {
   const { ast } = source;
@@ -118,19 +31,45 @@ export function createSourceNavigationInput(source: CheckedSourceProgram): Sourc
   const constructs = new WeakMap<Node, SourceNavigationConstructSignatures>();
   const ignoreModuleExports = (): void => undefined;
 
-  const checkerOf = (node: Node): TypeCheckerQueries => {
+  const queriesOf = (node: Node): SourceFileQueries => {
     const sourceFile = ast.getSourceFile(node);
     if (sourceFile === undefined) throw new Error("Navigation input requires a node of the checked program.");
-    return source.getSourceFileQueries(sourceFile).checker;
+    return source.getSourceFileQueries(sourceFile);
   };
-  const defined = (nodes: readonly (Node | undefined)[]): readonly Node[] =>
-    Object.freeze(nodes.filter((node): node is Node => node !== undefined));
-  const declarationSymbol = (declaration: Node): Symbol | undefined => {
-    if (ast.is.IsClassExpression(declaration)) {
-      const checker = checkerOf(declaration);
-      return checker.getTypeSymbol(checker.getTypeAtLocation(declaration));
+  const checkerOf = (node: Node): TypeCheckerQueries => queriesOf(node).checker;
+  const defined = <T>(values: readonly (T | undefined)[]): readonly T[] =>
+    Object.freeze(values.filter((value): value is T => value !== undefined));
+  // The declaration's symbol in its own file's checker: the one declaration -> symbol selector (navigation-checker.ts).
+  const declarationSymbol = (declaration: Node): Symbol | undefined => sourceDeclarationSymbol(ast, checkerOf(declaration), declaration);
+  // Program membership: the project's own implementation files (no declaration files, no provider virtual modules).
+  const projectSourceFiles = Object.freeze(source.sourceFiles.filter((sourceFile): sourceFile is SourceFile =>
+    sourceFile !== undefined && !sourceFile.IsDeclarationFile && !ast.getFileName(sourceFile).startsWith("tsts-provider://")));
+  const projectFiles = new Set<SourceFile>(projectSourceFiles);
+  const isProjectNode = (node: Node | undefined): boolean => {
+    const sourceFile = node === undefined ? undefined : ast.getSourceFile(node);
+    return sourceFile !== undefined && projectFiles.has(sourceFile);
+  };
+  const reference = (node: Node, reserveModuleExports: (count: number) => void = ignoreModuleExports): SourceNavigationReference | undefined => {
+    const sourceFile = ast.getSourceFile(node);
+    return sourceFile === undefined ? undefined
+      : selectReference(source.getSourceFileQueries(sourceFile).checker, node, reserveModuleExports);
+  };
+  const selectionQueries = new WeakMap<SourceFileQueries, SourcePropertySelectionQueries>();
+  const selectionQueriesOf = (queries: SourceFileQueries): SourcePropertySelectionQueries => {
+    let selected = selectionQueries.get(queries);
+    if (selected === undefined) {
+      const { checker, typeShape } = queries;
+      selected = Object.freeze({
+        declarations: Object.freeze({
+          rootSymbols: (symbol: Symbol) => defined(checker.getRootSymbols(symbol)),
+          aliasedSymbol: (symbol: Symbol) => checker.getAliasedSymbol(symbol),
+          symbolDeclarations: (symbol: Symbol) => defined(checker.getSymbolDeclarations(symbol)),
+        }),
+        types: Object.freeze({ propertyInfos: typeShape.getPropertyInfos }),
+      });
+      selectionQueries.set(queries, selected);
     }
-    return checkerOf(declaration).getSymbolAtLocation(ast.name(declaration) ?? declaration);
+    return selected;
   };
 
   const mergedDeclarations = (declaration: Node): readonly Node[] => {
@@ -178,6 +117,13 @@ export function createSourceNavigationInput(source: CheckedSourceProgram): Sourc
         return signature === undefined ? {} : { signature };
       })(),
       callee: info.sourceCallee.expression,
+      ...(info.sourceReceiver === undefined ? {} : { receiver: info.sourceReceiver.expression }),
+      ...(info.sourceCalleeAccess === undefined ? {} : { calleeAccess: Object.freeze({ kind: info.sourceCalleeAccess.kind,
+        ...((): { readonly declaration?: Node } => {
+          const access = info.sourceCalleeAccess;
+          const declaration = access?.kind === "property" ? access.selectedDeclaration ?? access.declaration : undefined;
+          return declaration === undefined ? {} : { declaration };
+        })() }) }),
       arguments: Object.freeze(info.sourceArguments.map(argument => argument.expression)),
       bindings: Object.freeze(info.sourceArgumentBindings.map(binding => Object.freeze({
         sourceArgumentIndex: binding.sourceArgumentIndex,
@@ -203,22 +149,58 @@ export function createSourceNavigationInput(source: CheckedSourceProgram): Sourc
   const memberAccess = (access: Node): SourceNavigationMemberAccess | undefined => {
     const known = accesses.get(access);
     if (known !== undefined) return known ?? undefined;
-    const checker = checkerOf(access);
-    const selected = ast.is.IsPropertyAccessExpression(access) ? propertyAccess(ast, checker, access)
-      : ast.is.IsElementAccessExpression(access) ? elementAccess(checker, access) : undefined;
+    const queries = queriesOf(access);
+    const selected = ast.is.IsPropertyAccessExpression(access) ? propertyAccess(access, queries)
+      : ast.is.IsElementAccessExpression(access) ? elementAccess(access, queries) : undefined;
     accesses.set(access, selected ?? null);
     return selected;
   };
 
+  // A property access: the checker selection, role-normalized (an accessor pair selects the get accessor for reads and
+  // the set accessor for writes) and, for an unselected read through a narrowed project reference, the member of the
+  // one refined receiver arm (selectRefinedSourcePropertyAccess). The one property-access declaration answer.
+  function propertyAccess(access: Node, queries: SourceFileQueries): SourceNavigationMemberAccess | undefined {
+    const info = queries.checker.getResolvedPropertyAccessInfo(access);
+    if (info === undefined) return undefined;
+    const selectedQueries = selectionQueriesOf(queries);
+    const normalized = normalizeSourcePropertyAccessDeclarations(ast, selectedQueries, info);
+    const selected = refinedPropertyAccess(normalized, queries);
+    return memberAccessRecord(access, selected.receiver.expression, selected.selectedDeclaration,
+      selected.selectedReadDeclaration, selected.selectedWriteDeclaration,
+      () => selectedSourcePropertyDeclarations(selectedQueries, undefined, selected.selectedSymbol) ?? [],
+      selected.accessMode, selected.optionalChain, selected.callCallee);
+  }
+
+  function refinedPropertyAccess(selected: ResolvedSourcePropertyAccessInfo, queries: SourceFileQueries): ResolvedSourcePropertyAccessInfo {
+    if (selected.selectedDeclaration !== undefined || selected.selectedSymbol === undefined || selected.accessMode !== "read") return selected;
+    const receiver = selected.receiver.expression;
+    if (!isProjectNode(receiver) || ast.is.IsTypeQueryNode(receiver)) return selected;
+    const selectedReference = reference(receiver);
+    if (selectedReference === undefined || !isProjectNode(selectedReference.declaration)) return selected;
+    const { checker, typeShape } = queries;
+    const declaredType = sourceDeclaredValueType(ast, checker, declaration => sourceDeclarationSymbol(ast, checker, declaration),
+      selectedReference.declaration);
+    if (declaredType === undefined) return selected;
+    const selectedType = selected.receiver.type;
+    return selectRefinedSourcePropertyAccess(selected, Object.freeze({ kind: "resolved", reference: selectedReference,
+      declaredType, selectedType, refinement: selectSourceTypeRefinement(typeShape, checker, source.sourceFacts, declaredType, selectedType) }),
+      checker, typeShape, source.sourceFacts, ast);
+  }
+
+  function elementAccess(access: Node, queries: SourceFileQueries): SourceNavigationMemberAccess | undefined {
+    const info = queries.checker.getResolvedElementAccessInfo(access);
+    if (info === undefined) return undefined;
+    return memberAccessRecord(access, info.receiver.expression, info.selectedDeclaration, undefined, undefined,
+      () => selectedSourcePropertyDeclarations(selectionQueriesOf(queries), undefined, info.selectedSymbol) ?? [],
+      info.accessMode, info.optionalChain, info.callCallee);
+  }
+
   return Object.freeze({
     ast,
     sourceFiles: source.sourceFiles,
+    projectSourceFiles,
     containsSourceFile: (sourceFile: SourceFile) => source.containsSourceFile(sourceFile),
-    reference(node: Node, reserveModuleExports: (count: number) => void = ignoreModuleExports) {
-      const sourceFile = ast.getSourceFile(node);
-      return sourceFile === undefined ? undefined
-        : selectReference(source.getSourceFileQueries(sourceFile).checker, node, reserveModuleExports);
-    },
+    reference,
     mergedDeclarations,
     heritageTarget(heritage: Node): Node | undefined {
       const reference = ast.is.IsExpressionWithTypeArguments(heritage)
@@ -330,55 +312,19 @@ function selectConstructSignatures(
   return Object.freeze({ kind: "signatures", signatures: Object.freeze(selected) });
 }
 
-function memberDeclarations(checker: TypeCheckerQueries, symbol: Symbol | undefined): readonly Node[] {
-  if (symbol === undefined) return Object.freeze([]);
-  const declarations = new Set<Node>();
-  for (const member of [symbol, ...checker.getRootSymbols(symbol)]) {
-    if (member === undefined) continue;
-    const selected = (member.Flags & SymbolFlagsAlias) === 0 ? member : checker.getAliasedSymbol(member);
-    for (const declaration of checker.getSymbolDeclarations(selected)) if (declaration !== undefined) declarations.add(declaration);
-  }
-  return Object.freeze([...declarations]);
-}
-
-// The property-access declaration normalization of source-semantics (normalizeSourcePropertyAccessDeclarations):
-// an accessor pair selects the get accessor for reads and the set accessor for writes.
-function propertyAccess(ast: AstReader, checker: TypeCheckerQueries, access: Node): SourceNavigationMemberAccess | undefined {
-  const info = checker.getResolvedPropertyAccessInfo(access);
-  if (info === undefined) return undefined;
-  const role = info.accessMode === "write" ? "write" : "read";
-  const all = memberDeclarations(checker, info.selectedSymbol);
-  let declaration = info.selectedDeclaration;
-  if (declaration === undefined || (role === "read" ? ast.is.IsSetAccessorDeclaration(declaration)
-    : ast.is.IsGetAccessorDeclaration(declaration))) {
-    const read = info.accessMode === "write" ? undefined : selectSourcePropertyDeclaration(ast, all, "read");
-    const write = info.writable && (info.accessMode === "write" || info.accessMode === "read-write")
-      ? selectSourcePropertyDeclaration(ast, all, "write") : undefined;
-    const consistent = (info.selectedReadDeclaration === undefined || info.selectedReadDeclaration === read) &&
-      (info.selectedWriteDeclaration === undefined || info.selectedWriteDeclaration === write);
-    const normalized = role === "write" ? write : read;
-    if (all.length > 0 && consistent && normalized !== undefined) declaration = normalized;
-  }
+function memberAccessRecord(access: Node, receiver: Node, declaration: Node | undefined, read: Node | undefined,
+  write: Node | undefined, members: () => readonly Node[], accessMode: SourceNavigationMemberAccess["accessMode"],
+  optionalChain: boolean, callCallee: boolean): SourceNavigationMemberAccess {
+  const selected = [...new Set([read, declaration, write].filter((node): node is Node => node !== undefined))];
   return Object.freeze({
     access,
-    receiver: info.receiver.expression,
+    receiver,
     ...(declaration === undefined ? {} : { declaration }),
-    declarations: declaration === undefined ? all : Object.freeze([declaration]),
-    accessMode: info.accessMode,
-    optionalChain: info.optionalChain,
-  });
-}
-
-function elementAccess(checker: TypeCheckerQueries, access: Node): SourceNavigationMemberAccess | undefined {
-  const info = checker.getResolvedElementAccessInfo(access);
-  if (info === undefined) return undefined;
-  const declaration = info.selectedDeclaration;
-  return Object.freeze({
-    access,
-    receiver: info.receiver.expression,
-    ...(declaration === undefined ? {} : { declaration }),
-    declarations: declaration === undefined ? memberDeclarations(checker, info.selectedSymbol) : Object.freeze([declaration]),
-    accessMode: info.accessMode,
-    optionalChain: info.optionalChain,
+    ...(read === undefined ? {} : { readDeclaration: read }),
+    ...(write === undefined ? {} : { writeDeclaration: write }),
+    declarations: Object.freeze(selected.length > 0 ? selected : [...members()]),
+    accessMode,
+    optionalChain,
+    callCallee,
   });
 }

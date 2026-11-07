@@ -1,7 +1,6 @@
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm } from "../../../source-semantics/descriptor-arms.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
-import {
-  sourceAnalysisArms, sourceAnalysisIsAbsentArm, sourceAnalysisIsNeverArm, type SourceAnalysisProgram,
-} from "../../analysis-program.js";
+import { type SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers } from "../../../source-semantics/value-flow-conditions.js";
@@ -36,6 +35,7 @@ export function createSourceStorageGuardedValues(source: SourceAnalysisProgram, 
   const { ast, navigation } = source;
   // Guard selection reads the Host flow conditions and Host value descriptors (R3), never the checker.
   const context = { ast, navigation, sourceFacts: source.sourceFacts, values: source.facts.values,
+    effects: source.facts.navigation.expressions.effects,
     flowConditions: (reference: Node) => source.flowConditions(reference) };
   const retained = budget.createRows();
   const plans = new Map<Node, GuardPlan | null>();
@@ -88,11 +88,11 @@ export function createSourceStorageGuardedValues(source: SourceAnalysisProgram, 
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
     let result: boolean | undefined;
-    for (const member of sourceAnalysisArms(type)) {
+    for (const member of sourceTypeDescriptorArms(type)) {
       if (!budget.step()) return undefined;
-      if (sourceAnalysisIsNeverArm(member)) continue;
+      if (sourceTypeDescriptorIsNeverArm(member)) continue;
       let selected: boolean;
-      if (sourceAnalysisIsAbsentArm(member)) selected = true;
+      if (sourceTypeDescriptorIsAbsentArm(member)) selected = true;
       else {
         if (sourceTypeDescriptorOpenness(source.ast, member) === "top") return undefined;
         selected = false;

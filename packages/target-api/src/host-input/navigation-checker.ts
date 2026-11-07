@@ -5,8 +5,6 @@ import type {
   AstReader, CheckedSourceProgram, Node, ResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo, Signature,
   SourceFile, SourceFileQueries, Symbol, Type, TypeCheckerQueries,
 } from "@tsonic/tsts";
-import { referenceQueryNode } from "../source-navigation/syntax.js";
-import { aliasedSymbol } from "./navigation-references.js";
 
 /** The checker's resolved call record (moved from source-navigation/call-info.ts). */
 export type ResolvedSourceCallInfo = NonNullable<ReturnType<TypeCheckerQueries["getResolvedCallInfo"]>>;
@@ -50,13 +48,36 @@ export interface SourceNavigationFileQueries {
 }
 
 /**
- * The checker symbol a declaration declares, asked in a consumer file's checker (moved from
- * source-navigation/declaration-symbol.ts). For source-semantics only; navigation is keyed by declaration Node.
- * `referencesToDeclaration` is the navigation reverse index; it backs declarations whose name has no symbol.
+ * The one declaration -> checker symbol selector (R2 #3), asked in a given checker: navigation's merged declarations
+ * ask the declaration's own file checker, the per-file checker views ask the consumer file's checker. A class expression
+ * declares the symbol of its own class type; a named declaration declares the symbol of its name; an unnamed
+ * declaration (`export default class {}`, `export default function () {}`) declares the module export whose
+ * declarations include it. Declaration input only; there is no lookup through references.
+ */
+export function sourceDeclarationSymbol(ast: AstReader, checker: TypeCheckerQueries, declaration: Node): Symbol | undefined {
+  if (ast.is.IsClassExpression(declaration)) return checker.getTypeSymbol(checker.getTypeAtLocation(declaration));
+  const name = ast.name(declaration);
+  const named = checker.getSymbolAtLocation(name ?? declaration);
+  if (named !== undefined || name !== undefined) return named;
+  const sourceFile = ast.getSourceFile(declaration);
+  const moduleSymbol = sourceFile === undefined ? undefined : checker.getSymbolAtLocation(sourceFile);
+  if (moduleSymbol === undefined) return undefined;
+  return checker.getExportsOfModule(moduleSymbol).find((exported): exported is Symbol =>
+    exported !== undefined && checker.getSymbolDeclarations(exported).includes(declaration));
+}
+
+/** The declared value type of a declaration in a given checker: a class expression's own value, else its symbol's type. */
+export function sourceDeclaredValueType(ast: AstReader, checker: TypeCheckerQueries,
+  symbolOf: (declaration: Node) => Symbol | undefined, declaration: Node): Type | undefined {
+  return ast.is.IsClassExpression(declaration) ? checker.getTypeAtLocation(declaration) : checker.getTypeOfSymbol(symbolOf(declaration));
+}
+
+/**
+ * The per-consumer-file cache of the one selector (sourceDeclarationSymbol), for the per-file checker views
+ * (semantics-program.ts). A declaration outside the checked program has no symbol; a consumer outside it is refused.
  */
 export function createSourceDeclarationSymbolQuery(
   source: Pick<CheckedSourceProgram, "ast" | "containsSourceFile" | "getSourceFileQueries">,
-  referencesToDeclaration: (declaration: Node) => readonly Node[],
 ): (declaration: Node, sourceFile: SourceFile) => Symbol | undefined {
   const selections = new WeakMap<SourceFile, WeakMap<Node, Symbol | null>>();
   return (declaration, sourceFile) => {
@@ -65,23 +86,8 @@ export function createSourceDeclarationSymbolQuery(
     const retained = byDeclaration?.get(declaration);
     if (retained !== undefined) return retained ?? undefined;
     const declarationFile = source.ast.getSourceFile(declaration);
-    let symbol: Symbol | undefined;
-    if (declarationFile !== undefined && source.containsSourceFile(declarationFile)) {
-      const checker = source.getSourceFileQueries(sourceFile).checker;
-      symbol = checker.getSymbolAtLocation(source.ast.name(declaration) ?? declaration);
-      if (symbol === undefined) {
-        for (const node of referencesToDeclaration(declaration)) {
-          const query = referenceQueryNode(source.ast, node);
-          const selected = query === undefined ? undefined : source.getSourceFileQueries(source.ast.getSourceFile(node)).checker
-            .getSymbolAtLocation(query);
-          const candidate = selected === undefined ? undefined
-            : aliasedSymbol(source.ast, checker, selected) ?? selected;
-          if (candidate === undefined || !checker.getSymbolDeclarations(candidate).includes(declaration)) continue;
-          symbol = candidate;
-          break;
-        }
-      }
-    }
+    const symbol = declarationFile !== undefined && source.containsSourceFile(declarationFile)
+      ? sourceDeclarationSymbol(source.ast, source.getSourceFileQueries(sourceFile).checker, declaration) : undefined;
     byDeclaration ??= new WeakMap();
     byDeclaration.set(declaration, symbol ?? null);
     selections.set(sourceFile, byDeclaration);

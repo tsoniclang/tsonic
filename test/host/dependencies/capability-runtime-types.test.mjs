@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { collectImportActivatedTargetCapabilities, collectRuntimeActivatedTargetCapabilities } from "../../../packages/host/dist/target/capability-activation.js";
-import { sourceProjectFiles } from "../../../packages/target-api/dist/public/source.js";
+import { sourceProjectFiles } from "../../../packages/target-api/dist/public/host.js";
 
 for (const statement of [
   'import type { Options } from "native:records";',

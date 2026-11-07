@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { type Node } from "@tsonic/tsts";
 
-import { Node_Initializer, Node_Type } from "../source-navigation/ast.js";
+import { Node_Initializer, Node_Type } from "../source-model/ast.js";
 
 import { fixture, unannotated, authoredDestinations } from "../../../../test/target-api/fixtures/source-semantics/contextual-type-selection-fixtures.mjs";
 

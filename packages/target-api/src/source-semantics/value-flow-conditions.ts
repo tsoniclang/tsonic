@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
-import { Node_Expression } from "../source-navigation/ast.js";
+import { Node_Expression } from "../source-model/ast.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";

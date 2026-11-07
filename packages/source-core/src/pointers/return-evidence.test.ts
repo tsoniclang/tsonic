@@ -4,6 +4,7 @@ import { sourcePrimitiveFactKey } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../host-program-fixtures.js";
 import { cleanMemorySession } from "../memory-layout/testing/fixtures.js";
 import { createTsonicPointerReturnQueries } from "./return-evidence.js";
+import { createTsonicHostRecords } from "../analysis/host-records.js";
 
 // The Host completion selection does not publish the fall-through witness yet (request R-B4-9:
 // SourceCompletionSelection.canFallThrough). The expectation stays; this helper fails loudly until the field exists.
@@ -25,7 +26,8 @@ function inspect(body: string, maximumValues = 4096) {
   const declaration = checked.ast.statements(file).find(node => checked.ast.is.IsFunctionDeclaration(node) &&
     checked.ast.text(checked.ast.name(node)) === "expose");
   assert.ok(declaration);
-  const queries = createTsonicPointerReturnQueries(createHostSourceProgramFixture(checked), maximumValues);
+  const source = createHostSourceProgramFixture(checked);
+  const queries = createTsonicPointerReturnQueries(source, createTsonicHostRecords(source), maximumValues);
   return { checked, queries, declaration, result: queries.resolve(declaration) };
 }
 

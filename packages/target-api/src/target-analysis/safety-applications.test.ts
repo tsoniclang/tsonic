@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
-import { Node_Expression } from "../source-navigation/ast.js";
+import { Node_Expression } from "../source-model/ast.js";
 import { createTargetSafetyApplicationIndex, type TargetSafetyApplicationFact, type TargetSafetyApplicationPlacement } from "./safety-applications.js";
 
 type TestBuilderFact =

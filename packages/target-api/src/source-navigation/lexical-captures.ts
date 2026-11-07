@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
-import { isTypeSyntaxNode } from "./syntax.js";
-import { sourceNodeHasRole } from "./callable-boundaries.js";
+import { isTypeSyntaxNode } from "../source-model/syntax.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 import { sourceReceiverOwner } from "./receiver-owner.js";
 
 export interface SourceLexicalCapture {
@@ -85,18 +85,13 @@ export function sourceLexicalCaptures(
   });
 }
 
-/** The owners a lexical capture selection is published for: callables that own a body, and classes. */
-const lexicalCaptureOwnerKinds: ReadonlySet<string> = new Set([
-  "KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor",
-  "KindGetAccessor", "KindSetAccessor", "KindClassDeclaration", "KindClassExpression",
-]);
-
 /**
  * The published lexical capture query (`facts.analyses.lexicalCaptures`): the full selection of an owner over the whole
  * owner (roots `[owner]`), with every captured binding's references, the owner's self references and the captured outer
  * receivers. Keyed by declaration Node; references resolve through the reference index (no Symbol, I3). One memo table
- * per program view (I5). An owner outside the published domain (a project callable with a body, or a project class) is
- * an invariant failure.
+ * per program view (I5). The owner domain is exactly the role union `callable-body` ∪ `class-scope` of a project
+ * declaration (callable-boundaries.ts); an owner outside it is an invariant failure. `navigation.scopes.captures` is a
+ * projection of this selection (roles.ts), so both answer from one selection.
  */
 export function createSourceLexicalCaptureQuery(
   ast: AstReader,
@@ -106,10 +101,9 @@ export function createSourceLexicalCaptureQuery(
   return (owner: Node): SourceLexicalCaptureSelection => {
     const known = memo.get(owner);
     if (known !== undefined) return known;
-    const kind = ast.kindName(owner);
-    if (!navigation.isProjectDeclaration(owner) || !lexicalCaptureOwnerKinds.has(kind) ||
-      kind !== "KindClassDeclaration" && kind !== "KindClassExpression" && ast.body(owner) === undefined) {
-      throw new Error(`Lexical captures are published for a project callable with a body or a project class, not '${kind}'.`);
+    if (!navigation.isProjectDeclaration(owner) ||
+      !sourceNodeHasRole(ast, owner, "callable-body") && !sourceNodeHasRole(ast, owner, "class-scope")) {
+      throw new Error(`Lexical captures are published for a project callable with a body or a project class, not '${ast.kindName(owner)}'.`);
     }
     const selected = sourceLexicalCaptures(owner, [owner], ast, navigation, "source");
     memo.set(owner, selected);

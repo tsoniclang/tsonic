@@ -1,7 +1,7 @@
 import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../../source-model/callable-boundaries.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
@@ -13,11 +13,14 @@ import type { SourceControlFlowSelectedDomain, SourceControlFlowSelection,
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
 
-const sourceControlFlowDomains = new WeakMap<SourceControlFlowSelectedDomain, {
-  readonly domain: SourceControlFlowSelectedDomain;
+// The selected domain carries its program and member set under this module-private key (an immutable symbol, I5): only
+// createSourceControlFlowDomain can attach it, so a domain record not built here is never authenticated.
+const selectedDomainWitness: unique symbol = Symbol("source-control-flow-selected-domain");
+interface SelectedDomainWitness {
   readonly source: SourceAnalysisProgram;
   readonly members: ReadonlySet<Node>;
-}>();
+}
+type WitnessedSelectedDomain = SourceControlFlowSelectedDomain & { readonly [selectedDomainWitness]?: SelectedDomainWitness };
 
 export function createSourceControlFlowDomain(source: SourceAnalysisProgram, nodes: readonly Node[]):
   | { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain }
@@ -45,8 +48,8 @@ export function createSourceControlFlowDomain(source: SourceAnalysisProgram, nod
     }
     if (!actual.has(node)) return fail("Source flow requires each original checked parent/child identity in its selected domain.", node);
   }
-  const domain = Object.freeze({ kind: "selected", source, nodes: selected.nodes } satisfies SourceControlFlowSelectedDomain);
-  sourceControlFlowDomains.set(domain, Object.freeze({ domain, source, members: new Set(selected.nodes) }));
+  const domain: SourceControlFlowSelectedDomain = Object.freeze(Object.defineProperty({ kind: "selected" as const, nodes: selected.nodes },
+    selectedDomainWitness, { value: Object.freeze({ source, members: new Set(selected.nodes) }), enumerable: false }));
   return Object.freeze({ kind: "resolved", domain });
 }
 
@@ -79,8 +82,8 @@ export function createSourceDeclarationControlFlow(source: SourceAnalysisProgram
     let included: SourceNodeDomain;
     if (domain.kind === "source" && Reflect.ownKeys(domain).length === 1) included = "source";
     else if (domain.kind === "selected") {
-      const selected = sourceControlFlowDomains.get(domain);
-      if (selected === undefined || selected.domain !== domain || selected.source !== source)
+      const selected = (domain as WitnessedSelectedDomain)[selectedDomainWitness];
+      if (selected === undefined || selected.source !== source)
         throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
       included = selected.members;
       if (!included.has(declaration)) throw new SourceFlowFailure("Source flow requires its requested root in the canonical selected domain.", declaration);

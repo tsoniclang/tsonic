@@ -1,11 +1,21 @@
 // Per-use operation selections: the Host translation of checker selection witnesses (host-input/),
 // replacing semantics.forNode(n).operations. Declarations and descriptors only (I1).
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor, SourceTypeDescriptorTupleElement } from "../../source-semantics/descriptor-model.js";
 import type { SourceRefusal } from "./facts.js";
-import type { SourcePointerOperationRecord } from "../../source-semantics/local-type-flow/program-facts.js";
 
-export type { SourcePointerOperationRecord };
+/** A native pointer marker call (writer A2 value model): operation, Host pointee and result, operands in marker order. */
+export interface SourcePointerOperationRecord {
+  readonly call: Node;
+  readonly operation: "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer";
+  readonly pointee: SourceTypeDescriptor;
+  readonly result: SourceTypeDescriptor;
+  /** The operand expressions in marker parameter order (storage, initial value, pointer, value, identity/read/write ...). */
+  readonly operands: readonly Node[];
+  /** address-of / allocate / bind-pointer: the storage location identity. */
+  readonly location?: Node;
+  readonly storageDeclaration?: Node;
+}
 
 /**
  * One selected argument binding, in effective (spread-expanded) order. A spread of a tuple-typed value binds one entry
@@ -64,6 +74,12 @@ export interface SourceMemberAccessSelection {
   readonly result: SourceTypeDescriptor;
   readonly access: "read" | "write" | "read-write" | "call";
   readonly optionalChain: boolean;
+  /**
+   * The access is not writable (FX-CC #7): the selected member has a readonly modifier (also through a readonly mapped
+   * modifier), is a getter without a setter, or the selected index signature is readonly. Every receiver kind (class,
+   * interface, array, primitive, union), as SourceElementAccessRecord.readonly.
+   */
+  readonly readonly: boolean;
 }
 
 /** An object literal element and the destination member it fills. */
@@ -82,6 +98,31 @@ export interface SourceIterationSelection {
   readonly element: SourceTypeDescriptor;
   readonly iteratorMethod?: Node;               // the [Symbol.iterator] / [Symbol.asyncIterator] declaration
 }
+
+/**
+ * A for-await whose iterable has no single iteration protocol (Q94): "mixed" = a union whose arms select different
+ * protocols (one entry per arm protocol, checker order), "untyped" = no typed protocol. The Host raises no Source code;
+ * the target refuses the loop with its own code (C# CSHARP_ITERATION_PROTOCOL, baseline texts).
+ */
+export interface SourceUnresolvedIterationSelection {
+  readonly kind: "unresolved-protocol";
+  readonly statement: Node;
+  readonly iterable: SourceTypeDescriptor;
+  readonly reason: "mixed" | "untyped";
+  readonly alternatives: readonly { readonly protocol: SourceIterationSelection["protocol"]; readonly iteratorMethod?: Node }[];
+}
+
+/**
+ * The Host contextual tuple of an array literal (R2 #17; baseline contextual-tuple-literal.ts rules): selected when the
+ * literal's Host destination is a tuple of required and optional elements only, with no more present elements than
+ * the tuple has and every omitted position an optional one (trailing omission). "unavailable" otherwise: no tuple
+ * destination, a rest or variadic element, more present elements than positions, a spread element, or an omitted
+ * required position.
+ */
+export type SourceTupleLiteralSelection =
+  | { readonly kind: "selected"; readonly literal: Node; readonly type: SourceTypeDescriptor;
+      readonly elements: readonly SourceTypeDescriptorTupleElement[]; readonly omittedOptionalElementIndexes: readonly number[] }
+  | { readonly kind: "unavailable" };
 
 export interface SourceGeneratorSelection {
   readonly callable: Node;
@@ -136,8 +177,10 @@ export interface SourceSelectionFacts {
   call(use: Node): SourceCallSelection | SourceRefusal | undefined;
   memberAccess(use: Node): SourceMemberAccessSelection | undefined;
   objectLiteralElement(element: Node): SourceObjectLiteralElementSelection | undefined;
-  iteration(statement: Node): SourceIterationSelection | SourceRefusal | undefined;
+  iteration(statement: Node): SourceIterationSelection | SourceUnresolvedIterationSelection | SourceRefusal | undefined;
   generator(callable: Node): SourceGeneratorSelection | undefined;
+  /** The contextual tuple selection of an array literal; never undefined for an array literal (R2 #17). */
+  tupleLiteral(arrayLiteral: Node): SourceTupleLiteralSelection;
   completion(callable: Node): SourceCompletionSelection | undefined;
   /** undefined for a declaration that is not `using` / `await using`; untyped (dynamic) disposal is a refusal. */
   resource(declaration: Node): SourceResourceSelection | SourceRefusal | undefined;

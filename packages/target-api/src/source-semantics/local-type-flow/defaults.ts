@@ -1,18 +1,24 @@
 import type { Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
-import { freezeSourceTypeDescriptor, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue,
+import { freezeSourceTypeDescriptor, sourceTypeDescriptorOptional, sourceTypeDescriptorUnion, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue,
   sourceTypeDescriptorsEqual } from "./terms.js";
 import type { SourceTypeDescriptorUnions } from "./terms.js";
-import type { SourceTypeDescriptorReadResult } from "../../host-input/descriptors.js";
+import { createSourceTypeDescriptorReader, type SourceTypeDescriptorReadResult } from "./descriptors.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowDiscardedValue, sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { sourceTypeFlowRecursiveSignatures } from "./callable-returns.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
-import { isSourceCallableSignatureDeclaration, sourceNodeHasRole } from "../../source-navigation/callable-boundaries.js";
-import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import type { SourceHostComponent, SourceHostInput, SourceHostQueries, SourceHostType } from "../../host-input/index.js";
+import { isSourceCallableBodyBoundary, isSourceCallableSignatureDeclaration, sourceEnclosing, sourceNodeHasRole } from "../../source-model/callable-boundaries.js";
+import { Node_Expression } from "../../source-model/ast.js";
+import { sourceReceiverOwner } from "../../source-navigation/receiver-owner.js";
+import { isTypeSyntaxNode } from "../../source-model/syntax.js";
+import type { SourceHostInput } from "../../host-input/index.js";
+import type { SourceHostComponent, SourceHostQueries, SourceHostType } from "../../host-input/queries.js";
+import { sourceTypeDescriptorIndexValue, sourceTypeDescriptorKeyKind } from "./element-selection.js";
+import { sourceTypeFlowOptionalChainCallResult } from "./presence.js";
+import { sourceTypeFlowReceiverBinderValues } from "./instantiation.js";
 import type {
   SourceEffectiveTypeArgument, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext,
   SourceTypeFlowFixedRule, SourceTypeFlowInheritedBinding, SourceTypeFlowRefusal, SourceTypeFlowSource,
@@ -118,6 +124,19 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
   }
 
+  // The file view that reads a declaration: its own program file; else, for a library or provider declaration, the view
+  // of the use that selected it or that selected its nearest enclosing declaration (a parameter, type parameter or member
+  // of a selected signature or type); else the program view (provider declarations are declaration input, R3).
+  function declarationView(node: Node): SourceHostQueries | undefined {
+    const own = input.file(node);
+    if (own !== undefined) return own;
+    for (let current: Node | undefined = node; current !== undefined && !ast.is.IsSourceFile(current); current = ast.parent(current)) {
+      const selected = declarationQueries.get(current);
+      if (selected !== undefined) return selected;
+    }
+    return input.program();
+  }
+
   function primitive(queries: SourceHostQueries, subjects: Parameters<SourceHostQueries["primitive"]>[0]): SourceTypeDescriptor | undefined {
     const kind = queries.primitive(subjects);
     return kind === undefined ? undefined : { kind: "primitive", primitive: kind };
@@ -165,7 +184,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     return undefined;
   }
 
-  const descriptor = input.descriptors(unions,
+  const descriptor = createSourceTypeDescriptorReader(source, unions,
     declaration => sourceTypeFlowTypeParameters(ast, declaration), (declaration, queries, bindings) =>
       describe(declaration, undefined, 0, queries, [...bindings].map(([declaration, type]) => ({ declaration, type }))),
     declaration => signatureRefusals.has(declaration));
@@ -238,6 +257,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   // The values of a receiver's binders from its Host descriptor: `this` inside the binders' owner binds each binder to
   // itself; otherwise the descriptor (absence removed, aliases expanded) must be the owner's declared application with
   // one argument per binder, or an array for a one-binder owner. undefined: the Host descriptor does not state them.
+  // The receiver binder values of a member call (instantiation.ts, the one rule, R1 #5). A `this` read inside the owner
+  // is the owner applied to its own binders; any other receiver is its Host default description.
   function receiverBinderValues(expression: Node, binders: readonly Node[]): readonly SourceTypeDescriptor[] | undefined {
     const owner = ast.parent(binders[0]!);
     if (owner === undefined || binders.some(binder => ast.parent(binder) !== owner)) return undefined;
@@ -247,28 +268,39 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (enclosing === owner) return binders.map(declaration =>
         Object.freeze({ kind: "declared" as const, declaration, typeArguments: Object.freeze([]) }));
     }
-    let selected = describe(expression);
-    const seen = new Set<SourceTypeDescriptor>();
-    while (selected !== undefined && !seen.has(selected)) {
-      seen.add(selected);
-      if (selected.kind === "optional") { selected = selected.value; continue; }
-      if (selected.kind === "array") return binders.length === 1 ? [selected.element] : undefined;
-      // A tuple read as its array view: the one element binder is the union of its element types (Host order).
-      if (selected.kind === "tuple") {
-        if (binders.length !== 1) return undefined;
-        const elements = selected.elements.map(element => {
-          if (element.kind !== "rest") return element.type;
-          const rest = sourceTypeDescriptorStructure(element.type);
-          return rest.kind === "array" ? rest.element : element.type;
-        });
-        const element = sourceTypeDescriptorUnion(unions, elements);
-        return element === undefined ? undefined : [element];
+    return sourceTypeFlowReceiverBinderValues({ unions, navigation }, describe(expression), owner, binders);
+  }
+
+  // The value of a `this` read from its receiver binder's declaration (declaration input only, R3; never the checked
+  // type of the `this` expression). The binder is the nearest receiver owner (arrows are transparent):
+  // - a callable with an explicit `this` parameter: that parameter's authored type;
+  // - a class member (method, accessor, constructor, field initializer, static block): the class instance type, or the
+  //   class constructor value for a static member and a static block;
+  // - anything else (an object-literal method, whose receiver is the literal's own construction group in the flow
+  //   graph; a free function; module scope): no description here.
+  function receiverValue(node: Node, queries: SourceHostQueries, depth: number,
+    bindings: ReadonlyMap<Node, SourceTypeDescriptor>): SourceTypeDescriptor | undefined {
+    const owner = sourceReceiverOwner(node, ast, "lexical-capture");
+    if (owner === undefined || ast.is.IsSourceFile(owner)) return undefined;
+    if (isSourceCallableBodyBoundary(ast, owner)) {
+      const explicit = ast.parameters(owner).find(parameter => {
+        const name = parameter === undefined ? undefined : ast.name(parameter);
+        return name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "this";
+      });
+      if (explicit !== undefined) {
+        const annotation = ast.typeNode(explicit);
+        return annotation === undefined ? undefined : describeSyntax(annotation, queries, depth, bindings);
       }
-      if (selected.kind !== "declared") return undefined;
-      if (selected.declaration === owner) return selected.typeArguments.length === binders.length ? selected.typeArguments : undefined;
-      selected = selected.definition;
     }
-    return undefined;
+    // The receiver owner is a class member exactly when its parent is the nearest enclosing class scope (role model).
+    const owningClass = sourceEnclosing(ast, owner, "class-scope");
+    if (owningClass === undefined || ast.parent(owner) !== owningClass) return undefined;
+    if (ast.is.IsClassStaticBlockDeclaration(owner) || ast.hasModifierKind(owner, "static")) {
+      return describe(owningClass, undefined, depth, queries);
+    }
+    const instance = queries.declaredType(owningClass);
+    return instance === undefined ? undefined
+      : describeType({ selectedType: instance, declaration: owningClass }, queries, depth, bindings);
   }
 
   function numericCreationLiteral(node: Node): SourceLiteralValue | undefined {
@@ -288,6 +320,81 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       selected = parent;
       literal = enclosing;
     }
+  }
+
+  // The Host rule of a value whose own syntax states its type (V1, total publication; declaration and syntax input
+  // only, R3): `null`, the global `undefined` and `void e` are absence; a bigint literal is bigint; `delete e` is bool; a
+  // regular expression literal is the library RegExp declaration it constructs (declaration witness); `typeof e` and a
+  // template are strings (descriptors carry no literal types); parentheses and `satisfies` are transparent; `e!` is its
+  // operand without the absence arm; `super` in an instance member is the declared base-class instance.
+  function intrinsicValue(node: Node, depth: number): SourceTypeDescriptor | undefined {
+    const kind = ast.kindName(node);
+    if (kind === "KindNullKeyword" || ast.is.IsVoidExpression(node) ||
+      ast.is.IsIdentifier(node) && ast.text(node) === "undefined" && navigation.sourceReferenceFor(node)?.declaration === undefined) {
+      return { kind: "intrinsic", intrinsic: "absence" };
+    }
+    if (ast.is.IsBigIntLiteral(node)) return { kind: "intrinsic", intrinsic: "bigint" };
+    if (ast.is.IsDeleteExpression(node)) return { kind: "primitive", primitive: "bool" };
+    // A class expression is its constructor value: the declared value type of its own declaration (declaration input),
+    // as for a function declaration read as a value.
+    if (ast.is.IsClassExpression(node)) {
+      const queries = input.at(node);
+      const selectedType = queries.declaredValueType(node);
+      return selectedType === undefined ? undefined : describeType({ selectedType, declaration: node }, queries, depth);
+    }
+    if (kind === "KindRegularExpressionLiteral") {
+      const queries = input.at(node);
+      const component = input.regularExpressionComponent(node);
+      return component === undefined ? undefined : describeType(component, queries, depth);
+    }
+    if (ast.is.IsTypeOfExpression(node) || ast.is.IsTemplateExpression(node) || kind === "KindNoSubstitutionTemplateLiteral") {
+      return { kind: "string" };
+    }
+    // `e as const` is its operand under the const rule (the operand's own literal rule reads constAsserted); `e as T` /
+    // `<T>e` is the authored T.
+    if (ast.isConstAssertion(node)) {
+      const operand = Node_Expression(ast, node);
+      return operand === undefined ? undefined : describe(operand, undefined, depth);
+    }
+    if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
+      const annotation = ast.typeNode(node);
+      return annotation === undefined ? undefined : describeSyntax(annotation, input.at(node), depth);
+    }
+    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsSatisfiesExpression(node)) {
+      const operand = Node_Expression(ast, node);
+      return operand === undefined ? undefined : describe(operand, undefined, depth);
+    }
+    if (ast.is.IsNonNullExpression(node)) {
+      const operand = Node_Expression(ast, node);
+      const value = operand === undefined ? undefined : describe(operand, undefined, depth);
+      return value === undefined ? undefined : presentPart(value);
+    }
+    if (kind === "KindSuperKeyword") {
+      const owner = sourceReceiverOwner(node, ast, "lexical-capture");
+      const owningClass = owner === undefined || ast.is.IsSourceFile(owner) ? undefined : sourceEnclosing(ast, owner, "class-scope");
+      if (owningClass === undefined || ast.parent(owner!) !== owningClass) return undefined;
+      const queries = input.at(node);
+      const instance = queries.declaredType(owningClass);
+      const base = instance === undefined ? undefined : queries.instantiatedBaseTypes(instance)?.[0];
+      const declaration = base === undefined ? undefined : queries.typeDeclaration(base);
+      // In a static member or static block `super` is the base class constructor value, described as receiverValue
+      // describes a static `this` (the class declaration's value).
+      if (ast.hasModifierKind(owner!, "static") || ast.is.IsClassStaticBlockDeclaration(owner!)) {
+        return declaration === undefined ? undefined : describe(declaration, undefined, depth, queries);
+      }
+      return base === undefined ? undefined
+        : describeType({ selectedType: base, ...(declaration === undefined ? {} : { declaration }) }, queries, depth);
+    }
+    return undefined;
+  }
+
+  // A value without its absence arm (`e!`): an optional value's value, a union's present arms.
+  function presentPart(type: SourceTypeDescriptor): SourceTypeDescriptor | undefined {
+    const structure = sourceTypeDescriptorStructure(type);
+    if (structure.kind === "optional") return structure.value;
+    if (structure.kind !== "union") return type;
+    const present = structure.types.filter(arm => !(arm.kind === "intrinsic" && arm.intrinsic === "absence"));
+    return present.length === structure.types.length ? type : present.length === 1 ? present[0] : sourceTypeDescriptorUnion(unions, present);
   }
 
   function ownLiteral(node: Node, depth: number): SourceTypeDescriptor | undefined {
@@ -310,6 +417,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     }
     if (literal?.form === "true" || literal?.form === "false") return { kind: "primitive", primitive: "bool" };
     if (literal?.form === "string" || literal?.form === "template") return { kind: "string" };
+    const intrinsic = intrinsicValue(node, depth);
+    if (intrinsic !== undefined) return intrinsic;
     if (ast.is.IsArrayLiteralExpression(node)) {
       const elements: SourceTypeDescriptor[] = [];
       for (const element of ast.elements(node)) {
@@ -360,7 +469,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (cached !== undefined) return cached;
     }
     const inProgram = input.includes(node);
-    const queries = consumer ?? input.file(node) ?? declarationQueries.get(node);
+    const queries = consumer ?? declarationView(node);
     if (queries === undefined) return undefined;
     if (component === undefined && ast.is.IsCallExpression(node)) {
       const call = queries.call(node);
@@ -377,8 +486,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     describing.push(node);
     const bindings = new Map(occurrenceBindings(node, queries, component));
     for (const argument of arguments_) bindings.set(argument.declaration, argument.type);
-    const nominal = component === undefined || component.declaration === declarationFor(node)
-      ? input.nominalReadComponent(node) : undefined;
+    // An identifier read narrowed to one project class (instanceof): the class's own declared instance type
+    // (declaration input); the narrowing witness names only the class (R3).
+    const narrowedClass = component === undefined || component.declaration === declarationFor(node)
+      ? input.narrowedClass(node) : undefined;
+    const narrowedInstance = narrowedClass === undefined ? undefined : queries.declaredType(narrowedClass);
+    const nominal = narrowedClass === undefined || narrowedInstance === undefined ? undefined
+      : { selectedType: narrowedInstance, declaration: narrowedClass };
     let result = nominal === undefined ? undefined : describeType(nominal, queries, depth, bindings);
     if (contextual !== undefined) {
       const signature = queries.declarationSignature(node);
@@ -397,6 +511,9 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const rule = inProgram ? fixedRule(node) : undefined;
     if (rule !== undefined && (component === undefined || component.declaration === rule.declaration)) {
       result = { kind: "primitive", primitive: "int64" };
+    }
+    if (result === undefined && component === undefined && ast.kindName(node) === "KindThisKeyword") {
+      result = receiverValue(node, queries, depth, bindings);
     }
     const declaration = component?.declaration ?? declarationFor(node);
     if (result === undefined && component?.declaration === node && ast.is.IsTypeAliasDeclaration(node)) {
@@ -420,6 +537,12 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       if (selectedDeclaration !== undefined && descriptor?.kind === "shape") {
         result = descriptor.members.find(member => member.origin.kind === "declared" && member.origin.declaration === selectedDeclaration)?.type;
       }
+      // A receiver whose Host structure has no member inventory (array, tuple, string, primitive, a declared reference
+      // without definition) reads the selected member declaration's declared value under this access's receiver binder
+      // bindings (receiverBinderValues: an array's element, the owner's declared application). Declaration input only.
+      if (result === undefined && selectedDeclaration !== undefined && descriptor !== undefined && descriptor.kind !== "shape") {
+        result = describe(selectedDeclaration, undefined, depth, queries, [...bindings].map(([declaration, type]) => ({ declaration, type })));
+      }
       // A property read with no declared member reads the string index signature (e.g. a Record<string, T> receiver).
       if (result === undefined && descriptor?.kind === "shape" && descriptor.indexes.length > 0 &&
         !descriptor.members.some(member => member.name === ast.text(ast.name(node)))) {
@@ -441,10 +564,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       else if (descriptor?.kind === "shape" && descriptor.indexes.length > 0 && index !== undefined) {
         // The key kind comes from the Host descriptor of the index expression (R3), not from its checked type.
         const keyType = describe(index, undefined, depth, queries);
-        const keyStructure = keyType === undefined ? undefined : sourceTypeDescriptorStructure(keyType);
-        const key = keyStructure?.kind === "string" || keyStructure?.kind === "primitive" && keyStructure.primitive === "char" ? "string" as const
-          : keyStructure?.kind === "primitive" && keyStructure.primitive !== "bool" ? "number" as const
-          : keyStructure?.kind === "intrinsic" && keyStructure.intrinsic === "symbol" ? "symbol" as const : undefined;
+        const key = keyType === undefined ? undefined : sourceTypeDescriptorKeyKind(keyType, { ast, literal: selected => literals.get(selected) });
         if (key !== undefined) result = sourceTypeDescriptorIndexValue(descriptor, key);
       }
     }
@@ -523,7 +643,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       declaration === declarationFor(node)) result = narrowedArms(node, result, queries, depth);
     if (result !== undefined && ast.is.IsCallExpression(node)) {
       const call = component?.contextualCall ?? (component === undefined ? queries.call(node) : undefined);
-      if (call?.call === node) result = queries.callResultType(unions, call, result);
+      if (call?.call === node) result = sourceTypeFlowOptionalChainCallResult(unions, input, call, result);
     }
     // A read of the component's own declaration takes its presence at the read (flow witness); any other component
     // carries its own declared presence.
@@ -533,17 +653,17 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     // A declared alias whose definition already carries absence (type T = U | undefined) is not wrapped again.
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && declaration !== undefined && ast.questionToken(declaration) !== undefined) {
       const presence = presenceAt();
-      if (node === declaration || presence !== undefined && presence !== "present") result = { kind: "optional", value: result };
+      if (node === declaration || presence !== undefined && presence !== "present") result = sourceTypeDescriptorOptional(result);
     }
     // An optional-chain read (a?.b, a?.[i], a?.f()) is absent when its chain short-circuits: its value carries absence
     // even though the selected member's own declared type does not.
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && component === undefined &&
       sourceTypeFlowOptionalChainRead(node, queries)) {
-      if (input.presence(node) === "possibly-absent") result = { kind: "optional", value: result };
+      if (input.presence(node) === "possibly-absent") result = sourceTypeDescriptorOptional(result);
     }
     if (result !== undefined && sourceTypeDescriptorStructure(result).kind !== "optional" && component !== undefined &&
       presenceAt() === "possibly-absent") {
-      result = { kind: "optional", value: result };
+      result = sourceTypeDescriptorOptional(result);
     }
     const structure = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
     if (structure?.kind === "optional" && declaration !== undefined && node !== declaration &&
@@ -580,7 +700,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const arms = structure.types.filter((_, index) => kept.has(index));
     const narrowed = arms.length === 1 ? arms[0]! : sourceTypeDescriptorUnion(unions, arms);
     if (narrowed === undefined) return type;
-    return outer.kind === "optional" && witness.absent ? { kind: "optional", value: narrowed } : narrowed;
+    return outer.kind === "optional" && witness.absent ? sourceTypeDescriptorOptional(narrowed) : narrowed;
   }
 
   function hasDeclaredSourceType(node: Node): boolean {
@@ -627,7 +747,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     if (!isTypeSyntaxNode(ast, node)) return undefined;
     const existing = typeSyntaxResults.get(node);
     if (existing !== undefined) return existing;
-    const queries = input.file(node) ?? declarationQueries.get(node) ?? input.program();
+    const queries = declarationView(node);
     const read = queries === undefined ? undefined : descriptor.syntax(node, queries);
     const result: SourceTypeDescriptor | SourceTypeFlowRefusal = read?.kind === "refused"
       ? Object.freeze({ ...createSourceTypeFlowRefusal(read.code, node, read.owner),
@@ -658,14 +778,3 @@ export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): S
     reason: "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint." });
 }
 
-// An index read takes the value of the one index signature whose key kind accepts the key: a number key reads a
-// numeric index, or else the string index (number keys are converted to strings); a string key reads the string index;
-// a symbol key reads the symbol index. Zero or several candidate indexes give no value.
-export function sourceTypeDescriptorIndexValue(descriptor: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>,
-  key: "number" | "string" | "symbol"): SourceTypeDescriptor | undefined {
-  const kindOf = (selected: SourceTypeDescriptor): "number" | "string" | "symbol" | undefined => selected.kind === "string" ? "string"
-    : selected.kind === "primitive" ? "number" : selected.kind === "intrinsic" && selected.intrinsic === "symbol" ? "symbol" : undefined;
-  let selected = descriptor.indexes.filter(index => kindOf(index.key) === key);
-  if (selected.length === 0 && key === "number") selected = descriptor.indexes.filter(index => kindOf(index.key) === "string");
-  return selected.length === 1 ? selected[0]!.value : undefined;
-}

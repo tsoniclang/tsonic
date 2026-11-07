@@ -1,5 +1,5 @@
 // Member origin identity (pure descriptor algebra). The checker-reading member-origin selection is host-input/member-origins.ts.
-import type { SourceMemberKey, SourceTypeDescriptorMember } from "./types.js";
+import type { SourceMemberKey, SourceTypeDescriptorMember } from "../descriptor-model.js";
 
 type Origin = SourceTypeDescriptorMember["origin"];
 

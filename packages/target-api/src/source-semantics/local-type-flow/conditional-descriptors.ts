@@ -1,23 +1,25 @@
-import type { Node, Type, TypeAliasApplicationInfo } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "./semantics-types.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "../source-semantics/local-type-flow/terms.js";
-import { sourceTypeDescriptorMemberKey } from "./member-origins.js";
-import { sourceTypeDescriptorMemberKeysEqual } from "../source-semantics/local-type-flow/member-origins.js";
-import type { SourceTypeDescriptor, SourceTypeFlowSource } from "../source-semantics/local-type-flow/types.js";
+// The Host definition of a conditional alias application (part of the descriptor reader, descriptors.ts): the selected
+// branch of each step of the checker's conditional instantiation journal (a selection witness), read back as Host
+// descriptors. The checker input arrives only through the SourceHostQueries facade (I3).
+import type { Node } from "@tsonic/tsts";
+import { sourceTypeDescriptorOptional, sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion, type SourceTypeDescriptorUnions } from "./terms.js";
+import { sourceTypeDescriptorMemberKeysEqual } from "./member-origins.js";
+import type { SourceHostAliasApplication, SourceHostQueries, SourceHostType } from "../../host-input/queries.js";
+import type { SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
 export function sourceTypeDescriptorConditionalDefinition(
   source: SourceTypeFlowSource,
   unions: SourceTypeDescriptorUnions,
-  queries: SourceFileSemantics,
-  application: TypeAliasApplicationInfo,
+  queries: SourceHostQueries,
+  application: SourceHostAliasApplication,
   bindings: Bindings,
-  read: (node: Node, bindings: Bindings, checked: ReadonlyMap<Node, Type>) => SourceTypeDescriptor | undefined,
+  read: (node: Node, bindings: Bindings, checked: ReadonlyMap<Node, SourceHostType>) => SourceTypeDescriptor | undefined,
 ): SourceTypeDescriptor | undefined {
   const { ast } = source;
   const results: SourceTypeDescriptor[] = [];
-  const retained = new Map<Node, { readonly values: Bindings; readonly types: ReadonlyMap<Node, Type> }>();
+  const retained = new Map<Node, { readonly values: Bindings; readonly types: ReadonlyMap<Node, SourceHostType> }>();
   const original = { values: bindings, types: new Map(application.bindings.map(binding => [binding.declaration, binding.argument])) };
   for (const [index, step] of application.conditionalSteps.entries()) {
     if (step.branch === "deferred" || step.selectedNode === undefined || step.selectedType === undefined) return undefined;
@@ -66,7 +68,7 @@ export function sourceTypeDescriptorConditionalDefinition(
       continue;
     }
     if (ast.is.IsTypeReferenceNode(selectedNode) || ast.is.IsImportTypeNode(selectedNode)) {
-      const declaration = queries.declarations.authoredTypeDeclaration(selectedNode);
+      const declaration = queries.authoredTypeDeclaration(selectedNode);
       const body = declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration) ? undefined : ast.typeNode(declaration);
       const next = application.conditionalSteps[index + 1];
       if (body !== undefined && ast.is.IsConditionalTypeNode(body) && next?.conditional === body) {
@@ -97,14 +99,14 @@ export function sourceTypeDescriptorConditionalDefinition(
   });
   return results.length === 0 ? undefined : sourceTypeDescriptorUnion(unions, inhabited.length === 0 ? results : inhabited);
 
-  function selectedBinding(previous: Type, value: SourceTypeDescriptor, selected: Type): SourceTypeDescriptor | undefined {
-    if (queries.types.isIdentical(previous, selected)) return value;
+  function selectedBinding(previous: SourceHostType, value: SourceTypeDescriptor, selected: SourceHostType): SourceTypeDescriptor | undefined {
+    if (queries.isIdentical(previous, selected)) return value;
     const structure = sourceTypeDescriptorStructure(value);
-    if (structure.kind !== "optional" || !queries.types.isUnion(previous)) return undefined;
-    if (queries.types.isNullish(selected) && queries.types.unionOrIntersectionTypes(previous).some(member =>
-      queries.types.isIdentical(member, selected))) return { kind: "intrinsic", intrinsic: "absence" };
-    const present = queries.types.nonNullableType(previous);
-    return present !== undefined && queries.types.isIdentical(present, selected) ? structure.value : undefined;
+    if (structure.kind !== "optional" || !queries.isUnion(previous)) return undefined;
+    if (queries.isNullish(selected) && queries.members(previous).some(member =>
+      queries.isIdentical(member, selected))) return { kind: "intrinsic", intrinsic: "absence" };
+    const present = queries.nonNullableType(previous);
+    return present !== undefined && queries.isIdentical(present, selected) ? structure.value : undefined;
   }
 
   function project(pattern: Node, actual: SourceTypeDescriptor, inferred: Map<Node, SourceTypeDescriptor>): boolean {
@@ -129,15 +131,13 @@ export function sourceTypeDescriptorConditionalDefinition(
       for (const property of ast.members(pattern)) {
         if (property === undefined) return false;
         const nameNode = ast.name(property);
-        const name = nameNode === undefined ? undefined : queries.operations.propertyName(nameNode);
-        const key = name === undefined ? undefined : sourceTypeDescriptorMemberKey(name.type, queries);
+        const key = nameNode === undefined ? undefined : queries.propertyNameKey(nameNode);
         if (key === undefined) return false;
         const matching = structure.members.filter(member => {
           const origin = member.origin;
           const selectedNode = origin.kind === "declared" ? ast.name(origin.declaration) : undefined;
-          const selectedName = selectedNode === undefined ? undefined : queries.operations.propertyName(selectedNode);
           const selectedKey = origin.kind === "mapped" ? origin.key
-            : selectedName === undefined ? undefined : sourceTypeDescriptorMemberKey(selectedName.type, queries);
+            : selectedNode === undefined ? undefined : queries.propertyNameKey(selectedNode);
           return selectedKey !== undefined && sourceTypeDescriptorMemberKeysEqual(key, selectedKey);
         });
         if (matching.length !== 1) return false;
@@ -162,7 +162,7 @@ export function sourceTypeDescriptorConditionalDefinition(
         const value: SourceTypeDescriptor | undefined = rest
           ? remaining.length === 1 && remaining[0]!.kind === "rest" ? remaining[0]!.type
             : { kind: "tuple", readonly: false, elements: remaining.map(parameter => parameter.kind !== "optional" ||
-              parameter.type.kind === "optional" ? parameter : { ...parameter, type: { kind: "optional", value: parameter.type } }) }
+              parameter.type.kind === "optional" ? parameter : { ...parameter, type: sourceTypeDescriptorOptional(parameter.type) }) }
           : signature.parameters[index]?.type;
         if (value === undefined || !project(annotation, value, inferred)) return false;
       }

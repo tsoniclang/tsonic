@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../source-semantics/descriptor-model.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceStorageClosedOriginsSelection } from "../source-storage/model/types.js";
 

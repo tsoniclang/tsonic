@@ -10,6 +10,7 @@ import {
   createTsonicCoreSourceExtension,
   tsonicCoreSourceSemanticsModules,
 } from "@tsonic/source-core";
+import { analyzeSafetyBuilderCalls, analyzeUnsafeContextCalls } from "@tsonic/source-core/extension";
 import type {
   SelectedTargetCapabilityContributions,
   TargetCompositionContext,
@@ -17,6 +18,7 @@ import type {
   TargetProviderDescriptor,
   TargetSelection,
   TargetSourceCompilerContributions,
+  TargetSourceExtensionContribution,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
@@ -119,11 +121,52 @@ export function createTargetSourceCompilerComposition(
         ...surfaceContributions.flatMap((contribution) => contribution.dataLayouts ?? []),
       ],
     }),
-    ...(options.targetContributions.extensions ?? []),
-    ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
-    ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),
+    ...[
+      ...(options.targetContributions.extensions ?? []),
+      ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
+      ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),
+    ].map(createTargetContributedCompilerExtension),
   ]);
   return Object.freeze({ semanticsModules, extensions });
+}
+
+/**
+ * The checker-facing compiler extension of one target source-extension contribution (K-2682, I1). Host-only: the
+ * target contributes data (declaration providers, provider-call analysis requests); the Host registers the providers
+ * and runs its own provider-call analyses (source-core) over the checked program. No target callback sees the checker.
+ */
+export function createTargetContributedCompilerExtension(contribution: TargetSourceExtensionContribution): CompilerExtension {
+  const extensionId = contribution.identity.id;
+  const dependsOn = Object.freeze([...(contribution.dependsOn ?? [])]);
+  const providers = Object.freeze([...(contribution.declarationProviders ?? [])]);
+  const analyses = Object.freeze([...(contribution.providerCallAnalyses ?? [])]);
+  return Object.freeze({
+    identity: Object.freeze({ id: extensionId, version: contribution.identity.version }),
+    ...(dependsOn.length === 0 ? {} : { dependencies: Object.freeze({ dependsOn, runsAfter: dependsOn }) }),
+    ...(providers.length === 0 ? {} : {
+      initialize(context: Parameters<NonNullable<CompilerExtension["initialize"]>>[0]): void {
+        for (const provider of providers) context.registerSourceDeclarationProvider(provider);
+      },
+    }),
+    ...(analyses.length === 0 ? {} : {
+      analyzeSource(context: Parameters<NonNullable<CompilerExtension["analyzeSource"]>>[0]): void {
+        for (const analysis of analyses) {
+          switch (analysis.kind) {
+            case "unsafe-context": {
+              const { kind: _kind, ...contract } = analysis;
+              analyzeUnsafeContextCalls(context, { ...contract, extensionId });
+              break;
+            }
+            case "safety-builder": {
+              const { kind: _kind, ...contract } = analysis;
+              analyzeSafetyBuilderCalls(context, { ...contract, extensionId });
+              break;
+            }
+          }
+        }
+      },
+    }),
+  });
 }
 
 export function getTargetRequiredProviderModules(

@@ -49,7 +49,7 @@ test("provider field addresses preserve scoped location dependencies after aggre
   assert.equal(checked.diagnostics.length === 0 && checked.extensionDiagnostics.length === 0, true,
     "The complete original provider program has checked source evidence.");
   const source = createHostSourceProgramFixture(checked);
-  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles, premises: {} });
   const reads = memoryCalls(checked, "loadptr");
   assert.equal(reads.length, 4);
   for (const call of reads) {

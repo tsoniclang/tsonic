@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 
 import { test } from "node:test";
 
+import type { Node } from "@tsonic/tsts";
+import { sourceTypeDescriptorsEqual, type SourceTypeDescriptor } from "@tsonic/target-api/source";
 
 import { readTsonicMemoryLayout } from "../readers.js";
 import { readTsonicMemoryType } from "../type-contract/facts.js";
@@ -58,10 +60,30 @@ test("the reported allocation/import reproduction retains each checker-local typ
   const layoutType = readTsonicMemoryType(checked.sourceFacts, result.layout.call);
   const selectedLayout = readTsonicMemoryLayout(checked.sourceFacts, result.operation.layoutExpression);
   assert.equal(result.operation.call === conversion, true, "the original checked conversion owns the pointee");
-  const record = createTsonicHostRecords(createHostSourceProgramFixture(checked)).memory.rawLocation(conversion);
+  const source = createHostSourceProgramFixture(checked);
+  const records = createTsonicHostRecords(source);
+  const record = records.memory.rawLocation(conversion);
   assert.ok(selectedCall?.sourceSelectedMethodTypeArguments?.[0]?.selectedType !== undefined);
-  assert.equal(record?.kind === "resolved" && record.call === conversion && record.layout.call === result.layout.call, true,
+  assert.ok(record?.kind === "resolved" && record.call === conversion && record.layout.call === result.layout.call,
     "the original checked conversion supplies its Host pointee record and selected layout");
+  // The Host descriptor of the authored T of a memorylayout<T> call.
+  const authored = (call: Node): SourceTypeDescriptor => {
+    const node = checked.ast.typeArguments(call)[0];
+    assert.ok(node);
+    const outcome = source.facts.values.type(node);
+    assert.ok(outcome.kind !== "refused");
+    return outcome.type;
+  };
+  const instantiation = source.facts.instantiations.at(conversion);
+  assert.ok(instantiation !== undefined && instantiation.kind !== "refused");
+  assert.equal(sourceTypeDescriptorsEqual(record.pointee, instantiation.method[0]!.type) &&
+    sourceTypeDescriptorsEqual(record.pointee, authored(result.layout.call)), true,
+    "the original checked conversion supplies its exact pointee type");
+  const localLayout = records.memory.layout(memoryCall(checked, "memorylayout"));
+  assert.ok(localLayout !== undefined && localLayout.kind !== "rejected");
+  assert.equal(sourceTypeDescriptorsEqual(record.layout.type, authored(result.layout.call)) &&
+    sourceTypeDescriptorsEqual(localLayout.type, authored(localLayout.call)), true,
+    "each original checked site retains its own source type");
   assert.equal(result.operation.layoutExpression === checked.ast.arguments(conversion)[1], true,
     "the original selected layout argument is retained");
   assert.equal(selectedLayout !== undefined && selectedLayout.call === result.layout.call, true,

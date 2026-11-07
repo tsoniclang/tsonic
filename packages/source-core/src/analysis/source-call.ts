@@ -1,5 +1,6 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactKey, ExtensionFactSubject, Node, ProviderVirtualDeclarationFact, ResolvedSourceCallInfo, SourceAnalysisContext } from "@tsonic/tsts";
+import type { TargetProviderSourceCallSelector } from "@tsonic/target-api/provider";
 import type { TsonicSourceFileAnalysisContext } from "./context.js";
 import { forEachTsonicSourceFile } from "./context.js";
 
@@ -9,25 +10,8 @@ export interface SelectedProviderSourceCall {
   readonly declaration: ProviderVirtualDeclarationFact;
 }
 
-export type ProviderSourceCallSelector =
-  | {
-      readonly kind: "export-signature";
-      readonly providerId: string;
-      readonly providerVersion: string;
-      readonly providerModuleId: string;
-      readonly exportId: string;
-      readonly signatureId: string;
-    }
-  | {
-      readonly kind: "member-signature";
-      readonly providerId: string;
-      readonly providerVersion: string;
-      readonly providerModuleId: string;
-      readonly exportId: string;
-      readonly memberId: string;
-      readonly memberStatic: boolean;
-      readonly signatureId: string;
-    };
+/** Owned by target-api (target/source-extensions.ts); an alias, not a copy (R4). */
+export type ProviderSourceCallSelector = TargetProviderSourceCallSelector;
 
 export function selectedProviderCallMatches(
   selected: SelectedProviderSourceCall,

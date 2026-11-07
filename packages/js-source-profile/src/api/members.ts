@@ -1,6 +1,9 @@
-// Target-neutral meaning of JS standard-library members (D18): receiver mutation, parameter roles, result kind and
-// effects. This is the Source half of the tsonic-csharp policy/operations/source-profiles/js tables; a target keeps
-// only its own names, types and ABI, keyed by the JS API identity (declaringName + name).
+// Meaning rows of the JS API meaning table (api/table.ts, D18): receiver mutation, parameter roles, result kind and
+// effects of JS standard-library members. This is the Source half of the tsonic-csharp policy/operations/source-profiles/js
+// tables; a target keeps only its own names, types and ABI, keyed by the JS API identity (declaringName + name).
+// Row data only; every lookup goes through the one table.
+// A parameter role holds for every overload of the member: a parameter that is a callback in one overload only
+// (`replace(search, replacer)` beside `replace(search, replaceValue: string)`) is a "value".
 import type { SourceJsApiMember } from "@tsonic/target-api/source";
 
 type Owner = SourceJsApiMember["owner"];
@@ -18,6 +21,8 @@ export interface JsSourceApiMemberMeaning {
 type Row = readonly [name: string, parameters: readonly Parameter[], result: Result, flags?: "callback" | "stores" | "callback-stores"];
 
 const table = new Map<string, JsSourceApiMemberMeaning>();
+/** Meaning rows keyed `declaringName.name`; a construct signature is `declaringName.constructor`, a call signature `declaringName.call`. */
+export const jsSourceApiMeaningRows: ReadonlyMap<string, JsSourceApiMemberMeaning> = table;
 
 function define(declaringNames: readonly string[], owner: Owner, receiver: SourceJsApiMember["receiver"], rows: readonly Row[]): void {
   for (const declaringName of declaringNames) {
@@ -171,8 +176,8 @@ define(["String"], "string", "readonly", [
   ["padEnd", ["count", "value"], "string"],
   ["padStart", ["count", "value"], "string"],
   ["repeat", ["count"], "string"],
-  ["replace", ["value", "callback"], "string", "callback"],
-  ["replaceAll", ["value", "callback"], "string", "callback"],
+  ["replace", ["value", "value"], "string"],
+  ["replaceAll", ["value", "value"], "string"],
   ["search", ["value"], "number"],
   ["slice", ["index", "index"], "string"],
   ["split", ["value", "count"], "new-collection"],
@@ -265,7 +270,7 @@ define(["Math"], "math", "static", [
 ]);
 define(["JSON"], "json", "static", [
   ["parse", ["value", "callback"], "value", "callback"],
-  ["stringify", ["value", "callback", "value"], "string", "callback"],
+  ["stringify", ["value", "value", "value"], "string"],
 ]);
 
 // Object statics.
@@ -412,24 +417,31 @@ const constructions: readonly (readonly [declaringName: string, owner: Owner, pa
   ["IntlDateTimeFormatConstructor", "intl", ["value", "options"]],
   ["IntlCollatorConstructor", "intl", ["value", "options"]],
 ];
-const constructionTable = new Map<string, JsSourceApiMemberMeaning>(constructions.map(([declaringName, owner, parameters, flags]) => [
-  declaringName,
-  Object.freeze({
+for (const [declaringName, owner, parameters, flags] of constructions) {
+  table.set(`${declaringName}.constructor`, Object.freeze({
     owner, receiver: "static" as const, parameters: Object.freeze([...parameters]),
     // Collections construct a new collection; every other owner constructs one value (a promise, date, symbol, bigint,
     // error, buffer, view or formatter).
     result: owner === "array" || owner === "set" || owner === "map" || owner === "weak-set" || owner === "weak-map"
       ? "new-collection" as const : "value" as const,
     effects: Object.freeze({ invokesCallbacks: flags === "callback", storesArguments: flags === "stores" }),
-  }),
-]));
-
-/** The meaning of a named JS member, by its declaring entity and member name. */
-export function jsSourceApiMemberMeaning(declaringName: string, name: string): JsSourceApiMemberMeaning | undefined {
-  return table.get(`${declaringName}.${name}`);
+  }));
 }
 
-/** The meaning of a construct or call signature of a JS constructor interface (`new Set(values)`). */
-export function jsSourceApiConstructionMeaning(declaringName: string): JsSourceApiMemberMeaning | undefined {
-  return constructionTable.get(declaringName);
+// Call signatures of constructor interfaces (`Array(n)`, `Error("m")`, `String(x)`, `Date()`).
+const calls: readonly (readonly [declaringName: string, owner: Owner, parameters: readonly Parameter[], result: Result,
+  flags?: "stores"])[] = [
+  ["ArrayConstructor", "array", ["rest"], "new-collection", "stores"],
+  ["ErrorConstructor", "error", ["value", "options"], "value"],
+  ["RegExpConstructor", "regexp", ["value", "options"], "value"],
+  ["SymbolConstructor", "symbol", ["value"], "value"],
+  ["BigIntConstructor", "bigint", ["value"], "value"],
+  ["DateConstructor", "date", [], "string"],
+  ["StringConstructor", "string", ["value"], "string"],
+];
+for (const [declaringName, owner, parameters, result, flags] of calls) {
+  table.set(`${declaringName}.call`, Object.freeze({
+    owner, receiver: "static" as const, parameters: Object.freeze([...parameters]), result,
+    effects: Object.freeze({ invokesCallbacks: false, storesArguments: flags === "stores" }),
+  }));
 }

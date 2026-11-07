@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceIntegerConstantReader, sourceIntegerConstantValue, sourceIntegerLiteralValue } from "../../packages/target-api/dist/public/source.js";
+import { sourceIntegerLiteralValue } from "../../packages/target-api/dist/public/source.js";
+import { createSourceIntegerConstantReader, sourceIntegerConstantValue } from "../../packages/target-api/dist/public/host.js";
 import { checkedSource, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 function integerAst(operatorRead = () => {}) {

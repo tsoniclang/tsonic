@@ -11,7 +11,10 @@ import type { SourceSelectionFacts } from "../public/source/selections.js";
 export interface SourceSelectionRefusalInput {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
-  readonly selections: SourceSelectionFacts & { refusals(): readonly SourceRefusal[] };
+  readonly selections: SourceSelectionFacts & {
+    refusals(): readonly SourceRefusal[];
+    iterationProtocolRefusal(site: Node): SourceRefusal | undefined;
+  };
   readonly profile: SourceJsApiFacts;
 }
 
@@ -37,7 +40,9 @@ function collect(input: SourceSelectionRefusalInput): readonly SourceRefusal[] {
         }
       }
     } else if (ast.is.IsForOfStatement(node) || ast.is.IsSpreadElement(node)) {
-      selections.iteration(node);
+      // The protocol witness only: a SpreadElement is not a value node, and the iterable / element value refusals are
+      // the value model's own (R2 #28).
+      selections.iterationProtocolRefusal(node);
     } else if (ast.is.IsVariableDeclarationList(node)) {
       const kind = ast.variableDeclarationKind(node);
       if (kind === "using" || kind === "await using") {

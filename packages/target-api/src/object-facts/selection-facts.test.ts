@@ -192,3 +192,57 @@ void run;`);
   const refusal = facts.refusals().find(entry => entry.site === loop);
   assert.equal(refusal?.code, "TSONIC_SOURCE_FOR_AWAIT_UNTYPED");
 });
+
+// R2 #17: the contextual tuple of an array literal is a Host selection with the baseline rules.
+test("tuple-literal selection: trailing optional omissions only, from the literal's Host destination (R2 #17)", () => {
+  const { ast, facts, all } = fixture(`
+const trailing: [number, string?, boolean?] = [1];
+const full: [number, string?] = [1, "a"];
+const rest: [number, ...string[]] = [1];
+const extra: [number] | number[] = [1, 2];
+const untyped = [1, 2];`);
+  const literals = all(node => ast.is.IsArrayLiteralExpression(node));
+  const selected = literals.map(literal => facts.selections.tupleLiteral(literal));
+  assert.deepEqual(selected.map(entry => entry.kind), ["selected", "selected", "unavailable", "unavailable", "unavailable"]);
+  const [trailing, full] = selected as Extract<(typeof selected)[number], { readonly kind: "selected" }>[];
+  assert.deepEqual(trailing!.omittedOptionalElementIndexes, [1, 2]);
+  assert.deepEqual(full!.omittedOptionalElementIndexes, []);
+});
+
+// R2 #28 / #41: a spread element is not a value node; the census asks only its protocol witness, and every program with
+// `...xs` reaches refusals() without an invariant failure.
+test("the eager census reads spreads through the protocol witness only (R2 #28)", () => {
+  const { facts } = fixture(`
+const xs = [1, 2, 3];
+const copy = [...xs];
+function sum(...values: number[]): number { return values.length; }
+sum(...xs);`);
+  assert.deepEqual(facts.refusals().map(refusal => refusal.code), []);
+});
+
+// R2 #29 / #36 / #41: generator protocol types by binder identity (aliases, defaults), and iteration elements from the
+// iterable (for-of over an existing binding, spreads).
+test("generator selections read the library protocol binders through aliases and defaults (R2 #29)", () => {
+  const { facts, named } = fixture(`
+type Numbers = Generator<number, string, boolean>;
+function* aliased(): Numbers { const sent: boolean = yield 1; return sent ? "a" : "b"; }
+function* defaulted(): Generator<number> { yield 1; }`);
+  const aliased = facts.selections.generator(named("KindFunctionDeclaration", "aliased"));
+  assert.deepEqual([aliased?.yieldType, aliased?.returnType, aliased?.nextType].map(type => type === undefined ? undefined :
+    sourceTypeDescriptorStructure(type).kind), ["primitive", "string", "primitive"]);
+  const defaulted = facts.selections.generator(named("KindFunctionDeclaration", "defaulted"));
+  assert.equal(defaulted !== undefined, true, "a defaulted Generator<number> has a selection");
+  assert.equal(sourceTypeDescriptorStructure(defaulted!.yieldType).kind, "primitive");
+});
+
+test("a for-of over an existing binding takes the iterable's element, not the binding's declared type (R2 #36)", () => {
+  const { ast, facts, all } = fixture(`
+const nums: number[] = [1, 2];
+let x: number | string = "";
+for (x of nums) {}`);
+  const [statement] = all(node => ast.is.IsForOfStatement(node));
+  const selection = facts.selections.iteration(statement!);
+  assert.equal(selection !== undefined && !("code" in selection), true);
+  assert.equal(sourceTypeDescriptorStructure((selection as Extract<typeof selection, { readonly element: unknown }>).element).kind,
+    "primitive");
+});

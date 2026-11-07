@@ -200,3 +200,41 @@ for (const [label, text, construction, count] of [
     assert.equal(selected !== undefined && selected.length === count, true, `${label}: original checked input count`);
   });
 }
+
+// R2 #43: a holder annotated through a non-generic alias, interface or type literal naming one call signature answers its
+// parameters in declaration mode, as at baseline (single call signature of the declared type); generic and multi-signature
+// annotations stay undefined.
+test("an aliased or interface callable annotation answers the parameters of its single call signature", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": [
+      "type Handler = (value: number) => void;",
+      "type Wrapped = (Handler);",
+      "interface Reader { (text: string): number; }",
+      "type Generic<T> = (item: T) => void;",
+      "interface Twice { (a: number): void; (b: string): void; }",
+      "export const aliased: Handler = value => {};",
+      "export const wrapped: Wrapped = value => {};",
+      "export const read: Reader = text => text.length;",
+      "export const literal: { (key: string): void } = key => {};",
+      "export const generic: Generic<number> = item => {};",
+      "export const twice: Twice = (_: number | string) => {};",
+    ].join("\n"),
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, "the source is checked");
+  const source = createHostSourceProgramFixture(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  const holders = new Map<string, Node>();
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) holders.set(source.ast.text(source.ast.name(node)!), node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  const names = (holder: string) => sourceCallableValueParameters(source.ast, holders.get(holder)!, source.navigation)
+    ?.map(parameter => source.ast.text(source.ast.name(parameter)));
+  assert.deepEqual(names("aliased"), ["value"]);
+  assert.deepEqual(names("wrapped"), ["value"]);
+  assert.deepEqual(names("read"), ["text"]);
+  assert.deepEqual(names("literal"), ["key"]);
+  assert.equal(names("generic"), undefined, "a generic alias is not followed");
+  assert.equal(names("twice"), undefined, "two call signatures name no single parameter vector");
+});

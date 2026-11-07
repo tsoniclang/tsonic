@@ -1,6 +1,6 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
-import { referenceQueryNode } from "./syntax.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
+import { referenceQueryNode } from "../source-model/syntax.js";
 import type { SourceDeclarationReference, SourceReferenceIndexStatistics } from "./types.js";
 
 const noSourceReferences: readonly Node[] = Object.freeze([]);

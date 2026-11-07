@@ -1,24 +1,18 @@
-// Syntax and witness reads the storage scoped and transport modules share (I3): generator callables from authored syntax,
+// Syntax and witness reads every storage stage shares (I3; model stage, so graph, scoped and transport may import it): generator callables from the published selection,
 // member-call receivers from the navigation call witness, pointer records, indexes and signatures from Host facts.
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import { sourceTypeDescriptorPresentArms } from "../../../source-semantics/descriptor-arms.js";
 import { Node_Expression } from "../../../source-navigation/index.js";
-import { sourceStorageCallReceiver } from "../graph/invocation-inputs.js";
-import {
-  sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisPresentArms,
-  type SourceAnalysisProgram,
-} from "../../analysis-program.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
-import { sourceTypeDescriptorStructure } from "../../../source-semantics/local-type-flow/terms.js";
+import type { SourceNavigationCall } from "../../../source-model/navigation-records.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, type SourceAnalysisProgram } from "../../analysis-program.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
+import { sourceTypeDescriptorStructure } from "../../../source-semantics/descriptor-model.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import type { SourceCompletionSelection } from "../../../public/source/selections.js";
 
-/** A generator callable: a function declaration, function expression or method with an authored `*`. */
-export function sourceStorageIsGenerator(ast: AstReader, callable: Node): boolean {
-  const value = (ast.is.IsFunctionDeclaration(callable) ? ast.as.AsFunctionDeclaration(callable)
-    : ast.is.IsFunctionExpression(callable) ? ast.as.AsFunctionExpression(callable)
-    : ast.is.IsMethodDeclaration(callable) ? ast.as.AsMethodDeclaration(callable) : undefined) as
-    { readonly AsteriskToken?: unknown } | undefined;
-  return value?.AsteriskToken !== undefined;
+/** A generator callable: the published Host generator selection (facts.selections.generator), the one generator predicate (R4). */
+export function sourceStorageIsGenerator(source: Pick<SourceAnalysisProgram, "facts">, callable: Node): boolean {
+  return source.facts.selections.generator(callable) !== undefined;
 }
 
 /** The member access a call selects its callee through (`r.m()`, `r[k]()`, parentheses skipped); undefined otherwise. */
@@ -28,6 +22,18 @@ export function sourceStorageCalleeAccess(source: Pick<SourceAnalysisProgram, "a
   while (callee !== undefined && ast.is.IsParenthesizedExpression(callee)) callee = Node_Expression(ast, callee);
   return callee !== undefined && (ast.is.IsPropertyAccessExpression(callee) || ast.is.IsElementAccessExpression(callee))
     ? callee : undefined;
+}
+
+/** The receiver expression of a member call (`o.m()` → `o`), from the callee's member witness. */
+export function sourceStorageCallReceiver(source: Pick<SourceAnalysisProgram, "ast" | "navigation">, selected: SourceNavigationCall): Node | undefined {
+  let callee = selected.callee;
+  while (source.ast.is.IsParenthesizedExpression(callee)) {
+    const inner = source.ast.as.AsParenthesizedExpression(callee)?.Expression;
+    if (inner === undefined) return undefined;
+    callee = inner;
+  }
+  return source.ast.is.IsPropertyAccessExpression(callee) || source.ast.is.IsElementAccessExpression(callee)
+    ? source.navigation.memberAccess(callee)?.receiver : undefined;
 }
 
 /** The receiver expression of a member call at an invocation node (sourceStorageCallReceiver over its call witness). */
@@ -102,7 +108,7 @@ export function sourceStorageCompletionFallsThrough(completion: SourceCompletion
  */
 export function sourceStorageIndexes(source: Pick<SourceAnalysisProgram, "ast" | "facts">, type: SourceTypeDescriptor):
   readonly { readonly readonly: boolean }[] {
-  return sourceAnalysisPresentArms(type).filter(arm => sourceTypeDescriptorOpenness(source.ast, arm) !== "top").flatMap(arm => {
+  return sourceTypeDescriptorPresentArms(type).filter(arm => sourceTypeDescriptorOpenness(source.ast, arm) !== "top").flatMap(arm => {
     const structure = sourceTypeDescriptorStructure(arm);
     return structure.kind === "array" || structure.kind === "tuple" ? [{ readonly: structure.readonly }]
       : source.facts.objects.indexes(arm).map(index => ({ readonly: index.readonly }));
@@ -111,12 +117,12 @@ export function sourceStorageIndexes(source: Pick<SourceAnalysisProgram, "ast" |
 
 /** The call and construct signature declarations of every present arm of a storage type (descriptor signatures). */
 export function sourceStorageSignatureDeclarations(type: SourceTypeDescriptor): readonly Node[] {
-  return sourceAnalysisPresentArms(type).flatMap(arm => [...sourceAnalysisCallSignatures(arm), ...sourceAnalysisConstructSignatures(arm)])
+  return sourceTypeDescriptorPresentArms(type).flatMap(arm => [...sourceAnalysisCallSignatures(arm), ...sourceAnalysisConstructSignatures(arm)])
     .flatMap(signature => signature.declaration === undefined ? [] : [signature.declaration]);
 }
 
 /** Whether a storage type has a call or construct signature in some present arm. */
 export function sourceStorageHasSignatures(type: SourceTypeDescriptor): boolean {
-  return sourceAnalysisPresentArms(type).some(arm =>
+  return sourceTypeDescriptorPresentArms(type).some(arm =>
     sourceAnalysisCallSignatures(arm).length !== 0 || sourceAnalysisConstructSignatures(arm).length !== 0);
 }

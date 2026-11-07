@@ -41,7 +41,7 @@ function run(value: unknown, other: unknown): void {
   };
   visit(file);
   const context = { ast: source.ast, navigation: source.navigation, sourceFacts: source.sourceFacts,
-    flowConditions: source.flowConditions, values: source.facts.values };
+    flowConditions: source.flowConditions, values: source.facts.values, effects: source.facts.navigation.expressions.effects };
   const guards = comparisons.map(node => selectSourceNativeValueGuard(context, node));
   assert.deepEqual(guards.slice(0, 4).map(guard => guard?.kind === "typeof" ? [guard.value, guard.negated] : undefined),
     [["string", false], ["object", true], ["function", false], ["number", true]]);

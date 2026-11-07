@@ -12,11 +12,6 @@ export type TsonicClosedArrayStorage =
 export function createTsonicClosedArrayStorageQueries(source: HostSourceProgram, maximumValues: number) {
   if (!Number.isSafeInteger(maximumValues) || maximumValues < 1) throw new Error("Array storage requires a finite source-value budget.");
   const { ast, navigation } = source;
-  // The access is the callee of a call (a method call on the element, not a storage read).
-  const isCallCallee = (node: Node): boolean => {
-    const parent = ast.parent(node);
-    return parent !== undefined && ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent)?.Expression === node;
-  };
   const cache = new WeakMap<Node, TsonicClosedArrayStorage>();
   return Object.freeze({ resolve });
 
@@ -103,7 +98,7 @@ export function createTsonicClosedArrayStorageQueries(source: HostSourceProgram,
           if (other !== undefined) { queue.push(other); continue; }
         }
         const element = parent !== undefined && ast.is.IsElementAccessExpression(parent) ? navigation.memberAccess(parent) : undefined;
-        if (element === undefined || element.access !== parent || element.receiver !== value || element.optionalChain || isCallCallee(parent!) ||
+        if (element === undefined || element.access !== parent || element.receiver !== value || element.optionalChain || element.callCallee ||
           ast.is.IsDeleteExpression(pointerFlowParent(ast, parent!).parent)) {
           return reject("Native array storage has an unproved escape, property operation, deletion or resize.");
         }

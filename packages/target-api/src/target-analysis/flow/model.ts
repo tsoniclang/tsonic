@@ -1,4 +1,3 @@
-import type { SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
 
@@ -72,9 +71,12 @@ export interface SourceFlowLimits {
   readonly maximumDepth: number;
 }
 
+/**
+ * A selected node domain of one program, built by the Host (createSourceControlFlowDomain). It carries its program and
+ * member set under a Host-private key only; the published record names the selected nodes.
+ */
 export interface SourceControlFlowSelectedDomain {
   readonly kind: "selected";
-  readonly source: SourceAnalysisProgram;
   readonly nodes: readonly Node[];
 }
 

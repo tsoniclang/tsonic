@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../../host-program-fixtures.js";
 import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
+import { createTsonicHostRecords } from "../../analysis/host-records.js";
 import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../bindings/selection.js";
 import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
@@ -67,7 +68,7 @@ for (const swapped of [false, true]) {
     const source = createHostSourceProgramFixture(checked);
     const calls = memoryCalls(checked, "torawptr");
     for (const order of [calls, [...calls].reverse()]) {
-      const demands = createTsonicPointerBackingDemands(source);
+      const demands = createTsonicPointerBackingDemands(source, createTsonicHostRecords(source));
       for (const call of order) demands.record(call);
       assert.equal(demands.entries().length, 1);
       assert.deepEqual(demands.issues().map(issue => issue.reason), swapped

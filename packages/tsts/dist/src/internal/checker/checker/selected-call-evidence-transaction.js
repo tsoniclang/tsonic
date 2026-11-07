@@ -13,6 +13,10 @@ export function beginSelectedCallEvidenceFrame(checker, kind) {
             frames: [],
             entryCount: 0,
             inferenceEntryCount: 0,
+            revision: 0,
+            lookupRevision: -1,
+            lookupInferences: undefined,
+            lookupJournal: undefined,
         };
         checker.selectedCallEvidenceTransactionState = state;
     }
@@ -48,6 +52,7 @@ export function beginSelectedCallEvidenceFrame(checker, kind) {
         }),
     };
     state.frames.push(frame);
+    state.revision++;
     return frame;
 }
 export function commitSelectedCallEvidenceFrame(checker, frame) {
@@ -144,6 +149,7 @@ function retainDefaultContext(checker, state, frame, context) {
         failClosed(checker, state, "selected-default context budget exceeded");
     }
     frame.contexts.push(context);
+    state.revision++;
     state.entryCount++;
 }
 export function retainSelectedCallDefault(checker, context, parameter, selectedType, defaultTypeNode) {
@@ -207,8 +213,15 @@ export function selectedCallInferenceJournal(checker, inferences) {
         return undefined;
     if (state.failed)
         throw failedStateError();
-    return state.frames.findLast(frame => frame.kind === "overload-candidate" &&
+    // Inference recursion asks for the same context many times between frame changes: reuse the last lookup.
+    if (state.lookupRevision === state.revision && state.lookupInferences === inferences)
+        return state.lookupJournal;
+    const journal = state.frames.findLast(frame => frame.kind === "overload-candidate" &&
         frame.contexts.some(context => context.inferences === inferences))?.inference;
+    state.lookupRevision = state.revision;
+    state.lookupInferences = inferences;
+    state.lookupJournal = journal;
+    return journal;
 }
 function selectedDefaultOwner(checker, context, parameter) {
     const state = checker.selectedCallEvidenceTransactionState;
@@ -308,6 +321,7 @@ function settleRoot(checker, state, frame) {
 }
 function settleTopFrame(state, frame) {
     const top = state.frames.pop();
+    state.revision++;
     if (top !== frame) {
         throw new Error("Selected-call evidence frame stack changed during settlement.");
     }

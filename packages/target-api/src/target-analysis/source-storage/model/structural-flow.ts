@@ -1,12 +1,9 @@
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageMemberSubject } from "./subjects.js";
-import {
-  sourcePresentStorageArms, sourceStorageComponents, sourceStorageComponentType, sourceStorageMemberCorrespondence,
-  sourceStorageOriginalComponents, sourceStorageSubjectType, sourceStorageTypesEqual,
-} from "./components.js";
+import { sourcePresentStorageArms, sourceStorageComponents, sourceStorageComponentType, sourceStorageOriginalComponents, sourceStorageSubjectType, sourceStorageTypesEqual } from "./components.js";
 import type { SourceStorageEdgeTypes } from "./relations.js";
 
 // Structural flow over Host descriptors: a value edge `from` → `to` also connects the components (elements, members)
@@ -53,7 +50,7 @@ export function createSourceStorageStructuralFlow(
           pending.push({ from: fromComponent, to: toComponent, sourceFile });
         }
       }
-      const relation = sourceStorageMemberCorrespondence(source, from, to, "read");
+      const relation = source.facts.objects.correspondence(from, to, "read");
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
         if (!step()) break;

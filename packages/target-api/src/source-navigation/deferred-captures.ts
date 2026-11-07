@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceBindingScope } from "./lexical-captures.js";
-import { sourceNodeHasRole } from "./callable-boundaries.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 import { sourceCallableValueExpression } from "./callable-values.js";
 import { sourceBindingWriteAtReference } from "./references-usage.js";
 

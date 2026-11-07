@@ -1,10 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceTransparentExpressionOperand } from "../../source-model/ast.js";
 import { freezeSourceTypeDescriptor, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import type { SourceHostComponent } from "../../host-input/index.js";
+import type { SourceHostComponent } from "../../host-input/queries.js";
+import { sourceTypeDescriptorArrayLikeElements } from "./element-selection.js";
 import type { SourceLiteralValue } from "../literal-values-model.js";
 import { sourceIntegerConstantIsExactlyRepresentableAsBinaryFloat, sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "../literal-token.js";
 import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
@@ -88,8 +89,12 @@ export function createSourceSlotAdmissions(context: SourceTypeFlowAnalysisContex
     const component = selected?.component ?? entry.association?.component;
     const described = selected?.type ?? (component === undefined ? undefined : context.describe(use, component));
     if (described === undefined || sourceTypeFlowBroadSlotKind(described) === undefined) continue;
-    const slot = component?.declaration ?? component?.authoredTypeNode ?? entry.site;
-    const destination = retainSlot(slot, described).type;
+    const componentSlot = component?.declaration ?? component?.authoredTypeNode ?? entry.site;
+    // An instantiated destination (`g<unknown>(v)` into `x: T`): the declaration's own slot fact is the uninstantiated,
+    // non-broad binder slot, so the use's broad destination slot is retained at the use itself.
+    const own = retainSlot(componentSlot, described);
+    const slot = sourceTypeFlowBroadSlotKind(own.type) === undefined ? use : componentSlot;
+    const destination = slot === componentSlot ? own.type : retainSlot(slot, described).type;
     const broad = sourceTypeFlowBroadSlotKind(destination);
     if (broad === undefined) continue;
     const outcome = outcomes.get(use);
@@ -142,8 +147,10 @@ export function sourceLiteralMemberCorrespondence(context: SourceTypeFlowAnalysi
     }
     // Which destination member the property fills is a checker member-selection witness (host-input); the published
     // member is the Host descriptor member with that origin.
-    const origin = context.input.objectLiteralDestination(node, property, destination);
-    if (origin === undefined) continue;
+    const selected = context.input.objectLiteralDestination(node, property, destination);
+    if (selected === undefined) continue;
+    if (selected.kind !== "resolved") throw new Error("A published Source destination requires its complete canonical member origin.");
+    const origin = selected.origin;
     const matches = selectedType.members.filter(member => sourceTypeDescriptorMemberOriginsEqual(member.origin, origin));
     if (matches.length !== 1) throw new Error("A checked Source correspondence requires exactly one descriptor member with the same origin.");
     result.push(Object.freeze({ property, origin: matches[0]!.origin }));
@@ -189,6 +196,11 @@ export function publishSourceLiteralMetadata(
       const outcome = published(value);
       if (outcome.kind === "refused") return outcome;
       if (!spread) { types.push(outcome.type); continue; }
+      // The elements a spread yields come from the operand's Host descriptor (element-selection.ts): an array's element,
+      // each tuple element, a string. Only an iterator-protocol operand (Set, Map, generator, custom iterable) still
+      // reads the checker iteration element (R3 open item, AGENT-FX-HV-NOTES R1 #1b).
+      const hostElements = sourceTypeDescriptorArrayLikeElements(outcome.type);
+      if (hostElements !== undefined) { types.push(...hostElements); continue; }
       const iteration = context.input.at(element).iteration(element);
       if (iteration?.subjectKind !== "spread" || iteration.subject !== element) {
         throw new Error("A Source spread construction requires the checker's iteration result for that exact spread element.");

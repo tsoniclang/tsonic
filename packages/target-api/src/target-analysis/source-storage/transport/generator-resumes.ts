@@ -1,5 +1,4 @@
-import { sourceStorageInvocationReceiver } from "./host-reads.js";
-import { sourceStorageIsGenerator } from "./host-reads.js";
+import { sourceStorageInvocationReceiver, sourceStorageIsGenerator } from "../model/host-reads.js";
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -27,7 +26,7 @@ export function createSourceStorageGeneratorResumes(source: SourceAnalysisProgra
       if (implementations === undefined) return undefined;
       for (const candidate of implementations) {
         if (!budget.step()) return undefined;
-        if (!sourceStorageIsGenerator(source.ast, candidate) || result.has(candidate)) continue;
+        if (!sourceStorageIsGenerator(source, candidate) || result.has(candidate)) continue;
         if (!rows.add(1)) return undefined;
         result.add(candidate);
       }

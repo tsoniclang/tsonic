@@ -1,4 +1,5 @@
-import { sourceAnalysisArms, sourceAnalysisConstructSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
+import { sourceTypeDescriptorArms } from "../../source-semantics/descriptor-arms.js";
+import { sourceAnalysisConstructSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
@@ -64,7 +65,7 @@ export function sourceDeclarationFlowEntry(source: SourceAnalysisProgram, declar
       if (!ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner)) {
         // A native base (declared value with construct signatures): the Host type of the declaration carries them.
         const type = sourceAnalysisValueType(source, owner);
-        const signatures = type === undefined ? [] : sourceAnalysisArms(type).flatMap(sourceAnalysisConstructSignatures);
+        const signatures = type === undefined ? [] : sourceTypeDescriptorArms(type).flatMap(sourceAnalysisConstructSignatures);
         if (signatures.length === 0)
           throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
         for (const signature of signatures) {

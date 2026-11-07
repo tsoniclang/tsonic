@@ -1,10 +1,10 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
-import { Node_Expression, sourceTransparentExpressionOperand, SpreadAssignment_Expression } from "./ast.js";
-import { isTypeSyntaxNode, sourceReferenceMeaning } from "./syntax.js";
+import { Node_Expression, sourceTransparentExpressionOperand, SpreadAssignment_Expression } from "../source-model/ast.js";
+import { isTypeSyntaxNode, sourceReferenceMeaning } from "../source-model/syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
-import { sourceClassFieldIsTypeOnly } from "./class-members.js";
+import { sourceClassFieldIsTypeOnly } from "../source-model/class-members.js";
 
 const sourceLinkageKinds = new Set([
   "KindImportSpecifier",

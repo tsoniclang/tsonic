@@ -2,7 +2,7 @@ import { createHostSourceProgramFixture } from "../source-semantics/host-program
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { referenceQueryNode, sourceReferenceMeaning } from "./syntax.js";
+import { referenceQueryNode, sourceReferenceMeaning } from "../source-model/syntax.js";
 
 for (const valueFirst of [false, true]) {
   test(`merged source symbols retain type and value meaning with value-first=${valueFirst}`, () => {

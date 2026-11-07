@@ -149,9 +149,8 @@ export function createPointerContainerQueries(source: HostSourceProgram, maximum
     const property = ast.is.IsPropertyAccessExpression(node) ? ast.as.AsPropertyAccessExpression(node) : undefined;
     if (element === undefined && property === undefined) return undefined;
     const selected = navigation.memberAccess(node);
-    const parent = ast.parent(node);
-    const callCallee = parent !== undefined && ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent)?.Expression === node;
-    return selected?.access === node && selected.receiver === (element?.Expression ?? property?.Expression) && !callCallee
+    // A callee access is a method call on the member, not a storage read (navigation callCallee, one role model).
+    return selected?.access === node && selected.receiver === (element?.Expression ?? property?.Expression) && !selected.callCallee
       ? selected : undefined;
   }
 

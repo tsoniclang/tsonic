@@ -1,4 +1,5 @@
-import { sourceAnalysisArms, sourceAnalysisIsNeverArm, sourceAnalysisValueType, type SourceAnalysisProgram } from "./analysis-program.js";
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsNeverArm } from "../source-semantics/descriptor-arms.js";
+import { sourceAnalysisValueType, type SourceAnalysisProgram } from "./analysis-program.js";
 import type { Node } from "@tsonic/tsts";
 import { AsBinaryExpression, AsConditionalExpression, AsIfStatement, AsVariableStatement,
   AsVariableDeclarationList, Node_Expression, Node_Initializer, forEachSourceImmediateEvaluationChild,
@@ -18,13 +19,12 @@ export function analyzeSourceConstructorResults(
 ): readonly SourceConstructorResultIssue[] {
   const issues: SourceConstructorResultIssue[] = [];
   const { ast } = source;
-  // A value read or call whose Host type is never (a binding or call that cannot complete). Only value-read and call
-  // syntax is asked; other syntax is "unknown" (the Host value model answers value nodes only).
+  // A value whose Host type is never (a binding, call, await, cast, non-null assertion ... that cannot complete). Every
+  // expression the Host value model answers is asked, as at baseline every checked expression was (values.has).
   const valueIsNever = (node: Node): boolean => {
-    if (!ast.is.IsIdentifier(node) && !ast.is.IsCallExpression(node) && !ast.is.IsPropertyAccessExpression(node) &&
-      !ast.is.IsElementAccessExpression(node)) return false;
+    if (!source.facts.values.has(node)) return false;
     const type = sourceAnalysisValueType(source, node);
-    return type !== undefined && sourceAnalysisArms(type).every(sourceAnalysisIsNeverArm);
+    return type !== undefined && sourceTypeDescriptorArms(type).every(sourceTypeDescriptorIsNeverArm);
   };
   const constructors: Node[] = [...source.sourceFiles];
   while (constructors.length > 0) {
@@ -64,7 +64,7 @@ export function analyzeSourceConstructorResults(
     };
     const invalidateEffects = (node: Node, bindings: ConstructorBindings): void => {
       if (deferredWrites.size === 0) return;
-      const effects = source.navigation.expressionEffects(node);
+      const effects = source.facts.navigation.expressions.effects(node);
       if (effects.invokes || effects.suspends) invalidateDeferredWrites(bindings);
     };
     const receiverReference = (node: Node, bindings: ConstructorBindings): boolean => {

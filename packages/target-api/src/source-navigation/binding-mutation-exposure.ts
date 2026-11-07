@@ -1,7 +1,7 @@
 import { argumentPassingFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceDeclarationUseSummary } from "./types.js";
-import { sourceNodeHasRole } from "./callable-boundaries.js";
+import { sourceNodeHasRole } from "../source-model/callable-boundaries.js";
 
 export function sourceBindingHasMutableExposure(
   input: { readonly ast: AstReader; readonly sourceFacts?: Pick<ReadonlySourceFactResolver, "getFact"> },

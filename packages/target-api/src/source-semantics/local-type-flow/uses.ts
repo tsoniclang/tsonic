@@ -1,32 +1,20 @@
 import { pointerOperationFactKey, type AstReader, type Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
-import type { SourceHostArgumentBinding, SourceHostCall, SourceHostComponent, SourceHostQueries, SourceHostType } from "../../host-input/index.js";
+import { Node_Expression, Node_Initializer } from "../../source-model/ast.js";
+import { isSourceCallableBodyBoundary } from "../../source-model/callable-boundaries.js";
+import type { SourceHostArgumentBinding, SourceHostCall, SourceHostComponent, SourceHostQueries } from "../../host-input/queries.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeFlowLinkAdjacency, sourceTypeFlowReachableVariables } from "./links.js";
 import { sourceTypeFlowConstructionSlot } from "./construction-slots.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual } from "./terms.js";
+import { sourceTypeDescriptorIsTop, sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual } from "./terms.js";
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
+import { sourceTypeFlowAuthoredAwaitedArgument } from "./awaited.js";
+import { sourceTypeFlowAssignmentTokens, sourceTypeFlowShiftTokens } from "./operators.js";
 import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowAssociation,
   SourceTypeFlowArgumentPlace, SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowRefusalCode, SourceTypeFlowUse, SourceTypeFlowVariable,
 } from "./types.js";
 
-const assignments = new Set([
-  "KindEqualsToken", "KindPlusEqualsToken", "KindMinusEqualsToken",
-  "KindAsteriskEqualsToken", "KindAsteriskAsteriskEqualsToken", "KindSlashEqualsToken",
-  "KindPercentEqualsToken", "KindLessThanLessThanEqualsToken",
-  "KindGreaterThanGreaterThanEqualsToken", "KindGreaterThanGreaterThanGreaterThanEqualsToken",
-  "KindAmpersandEqualsToken", "KindBarEqualsToken", "KindCaretEqualsToken",
-  "KindBarBarEqualsToken", "KindAmpersandAmpersandEqualsToken", "KindQuestionQuestionEqualsToken",
-]);
-const shifts = new Set([
-  "KindLessThanLessThanToken", "KindGreaterThanGreaterThanToken",
-  "KindGreaterThanGreaterThanGreaterThanToken",
-  "KindLessThanLessThanEqualsToken", "KindGreaterThanGreaterThanEqualsToken",
-  "KindGreaterThanGreaterThanGreaterThanEqualsToken",
-]);
 
 export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
   return sourceTypeFlowBroadSlotKind(type) !== undefined;
@@ -41,7 +29,7 @@ export function sourceTypeFlowIsBroadSlot(type: SourceTypeDescriptor): boolean {
 export function sourceTypeDescriptorOpenness(ast: Pick<AstReader, "is">, type: SourceTypeDescriptor):
   "top" | "type-parameter" | "closed" {
   const structure = sourceTypeDescriptorStructure(type);
-  if (structure.kind === "intrinsic" && (structure.intrinsic === "any" || structure.intrinsic === "unknown")) return "top";
+  if (sourceTypeDescriptorIsTop(type)) return "top";
   return structure.kind === "declared" && ast.is.IsTypeParameterDeclaration(structure.declaration) ? "type-parameter" : "closed";
 }
 
@@ -246,7 +234,7 @@ export function collectSourceTypeFlowUses(
     const operator = ast.operatorKindName(parent) ?? "";
     if (!captured && fixed && !constructionAliases.has(record.variable)) {
       const assignment = ast.is.IsBinaryExpression(parent) && ast.as.AsBinaryExpression(parent)?.Left === value &&
-        assignments.has(operator);
+        sourceTypeFlowAssignmentTokens.has(operator);
       const update = (ast.is.IsPrefixUnaryExpression(parent) || ast.is.IsPostfixUnaryExpression(parent)) &&
         (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken");
       if (!assignment && !update) return [];
@@ -282,9 +270,9 @@ export function collectSourceTypeFlowUses(
     }
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
-      if (assignments.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
+      if (sourceTypeFlowAssignmentTokens.has(operator) && binary?.Left !== undefined && binary.Right !== undefined) {
         if (binary.Left === value) {
-          if (shifts.has(operator) || fixed && operator !== "KindEqualsToken") return [write(record, parent, parent, value)];
+          if (sourceTypeFlowShiftTokens.has(operator) || fixed && operator !== "KindEqualsToken") return [write(record, parent, parent, value)];
           if (!captured && operator !== "KindEqualsToken" && ast.is.IsIdentifier(value)) {
             const component = declaredValueComponent(context, binary.Right);
             if (component !== undefined) return [required(record, parent, component)];
@@ -470,41 +458,23 @@ function declaredStorageComponent(context: SourceTypeFlowAnalysisContext, expres
     const declaration = access?.selectedWriteDeclaration ?? access?.selectedDeclaration;
     if (declaration !== undefined && ast.is.IsSetAccessorDeclaration(declaration)) {
       const parameter = ast.parameters(declaration);
-      return parameter.length === 1 && parameter[0] !== undefined ? authoredComponent(context, parameter[0], queries, access?.sourceWriteType) : undefined;
+      return parameter.length === 1 && parameter[0] !== undefined ? authoredComponent(context, parameter[0], queries) : undefined;
     }
-    if (declaration !== undefined) return authoredComponent(context, declaration, queries, access?.sourceWriteType);
+    if (declaration !== undefined) return authoredComponent(context, declaration, queries);
   }
   return declaredValueComponent(context, expression);
 }
 
+// The returned value of an annotated async callable fills the authored payload argument of its return annotation
+// (awaited.ts, the one awaited owner; declaration input only, R3).
 function awaitedReturnComponent(context: SourceTypeFlowAnalysisContext,
   component: SourceHostComponent, queries: SourceHostQueries): SourceHostComponent | undefined {
   const { ast, navigation } = context.source;
   const root = component.authoredTypeNode;
-  if (root === undefined) return undefined;
-  const awaited = queries.awaitedType(component.selectedType);
-  if (awaited === undefined) return undefined;
-  const visited = new Set<Node>();
-  let node: Node | undefined = root;
-  while (node !== undefined && !visited.has(node)) {
-    visited.add(node);
-    if (ast.is.IsParenthesizedTypeNode(node)) {
-      node = ast.as.AsParenthesizedTypeNode(node)?.Type;
-      continue;
-    }
-    if (!ast.is.IsTypeReferenceNode(node)) return undefined;
-    const candidates = ast.typeArguments(node).filter((argument): argument is Node => {
-      if (argument === undefined) return false;
-      const selected = queries.authoredType(argument);
-      return selected !== undefined && queries.isIdentical(selected, awaited);
-    });
-    if (candidates.length === 1) return Object.freeze({ ...component, selectedType: awaited, authoredTypeNode: candidates[0]! });
-    if (candidates.length !== 0) return undefined;
-    const declaration = navigation.sourceReferenceFor(ast.as.AsTypeReferenceNode(node)?.TypeName)?.declaration;
-    node = declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) && ast.typeParameters(declaration).length === 0
-      ? ast.typeNode(declaration) : undefined;
-  }
-  return undefined;
+  const argument = root === undefined ? undefined : sourceTypeFlowAuthoredAwaitedArgument(ast, navigation, root);
+  const selectedType = argument === undefined ? undefined : queries.authoredType(argument);
+  return argument === undefined || selectedType === undefined ? undefined
+    : Object.freeze({ ...component, selectedType, authoredTypeNode: argument });
 }
 
 function sourceAssociation(
@@ -519,15 +489,16 @@ function sourceAssociation(
   return Object.freeze({ occurrence, sourceFile, ...(component === undefined ? {} : { component }) });
 }
 
+// The authored annotation of a declaration as a component: declaration input only (R3). A use whose annotation names
+// a type variable fills nothing (requiredUse), so no instantiated checker read, write or result type is needed here.
 function authoredComponent(
   context: SourceTypeFlowAnalysisContext,
   declaration: Node,
   queries: SourceHostQueries,
-  selectedType?: SourceHostType,
 ): SourceHostComponent | undefined {
   const authoredTypeNode = context.source.ast.typeNode(declaration);
   if (authoredTypeNode === undefined) return undefined;
-  const selected = selectedType ?? queries.authoredType(authoredTypeNode);
+  const selected = queries.authoredType(authoredTypeNode);
   return selected === undefined ? undefined : Object.freeze({ selectedType: selected, declaration, authoredTypeNode });
 }
 
@@ -575,20 +546,16 @@ function declaredValueComponent(
     node = inner;
   }
   let declaration: Node | undefined;
-  let selectedType: SourceHostType | undefined;
   if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
     const call = queries.call(node);
     if (call?.sourceSelectedSignatureKind !== "resolved") return undefined;
     declaration = queries.callSignature(call);
-    selectedType = call.sourceResultType;
   } else if (ast.is.IsPropertyAccessExpression(node)) {
     const access = queries.propertyAccess(node);
     declaration = access?.selectedReadDeclaration ?? access?.selectedDeclaration;
-    selectedType = access?.sourceReadType;
   } else if (ast.is.IsElementAccessExpression(node)) {
     const access = queries.elementAccess(node);
     declaration = access?.selectedDeclaration;
-    selectedType = access?.sourceReadType;
   } else if (ast.is.IsIdentifier(node)) {
     declaration = navigation.sourceReferenceFor(node)?.declaration;
   }
@@ -597,7 +564,7 @@ function declaredValueComponent(
     ast.is.IsPropertySignatureDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
     isSourceCallableBodyBoundary(ast, declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
     ast.is.IsCallSignatureDeclaration(declaration) || ast.is.IsConstructSignatureDeclaration(declaration))) return undefined;
-  const component = authoredComponent(context, declaration, queries, selectedType);
+  const component = authoredComponent(context, declaration, queries);
   return component?.authoredTypeNode !== undefined && !containsTypeVariables(context, component.authoredTypeNode)
     ? component : undefined;
 }

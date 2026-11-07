@@ -1,10 +1,10 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
+import { sourceTransparentExpressionOperand } from "../source-model/ast.js";
 import type { SourceProgramNavigation } from "./types.js";
 import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
-import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations } from "./ast.js";
-import { sourceEnclosing } from "./callable-boundaries.js";
+import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations } from "../source-model/ast.js";
+import { sourceEnclosing } from "../source-model/callable-boundaries.js";
 
 export function sourceImmediatelyAwaitedLocal(ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationUses" | "expressionResultDisposition">, call: Node): boolean {

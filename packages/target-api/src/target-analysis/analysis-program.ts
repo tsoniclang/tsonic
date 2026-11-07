@@ -2,14 +2,13 @@
 // target-analysis is Host-internal but never reads the checker: checker selections arrive only through the Node-keyed
 // navigation witnesses (`navigation.call`, `memberAccess`, `mergedDeclarations`, `declaredParameters`, `classConstructors`,
 // references), and Source meaning only through the published facts (`facts.values`, `selections`, `objects`, `navigation`).
-// `semantics` (the checker-backed services) is not part of this view, so the compiler rejects any checker query here.
-import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+// HostSourceProgram carries no checker service (I3), and no target-analysis module imports host-input.
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { HostSourceProgram } from "../source-semantics/types.js";
-import type { SourceTypeDescriptor } from "../source-semantics/local-type-flow/types.js";
-import { sourceTypeDescriptorStructure } from "../source-semantics/local-type-flow/terms.js";
-import { sourceTypeDescriptorOpenness } from "../source-semantics/local-type-flow/uses.js";
+import type { SourceTypeDescriptor } from "../source-semantics/descriptor-model.js";
+import { sourceTypeDescriptorStructure } from "../source-semantics/descriptor-model.js";
 
-export type SourceAnalysisProgram = Omit<HostSourceProgram, "semantics">;
+export type SourceAnalysisProgram = HostSourceProgram;
 
 /** Whether a source file is one of the program's checked files (project and library files). */
 export function sourceAnalysisIncludesFile(source: Pick<SourceAnalysisProgram, "sourceFiles">, sourceFile: SourceFile | undefined): boolean {
@@ -35,48 +34,7 @@ export function sourceAnalysisCallableResult(source: Pick<SourceAnalysisProgram,
   return outcome.kind === "refused" ? undefined : outcome.type;
 }
 
-/** The descriptor with alias/declared definitions followed and `optional` kept (structure of one arm). */
-export function sourceAnalysisStructure(type: SourceTypeDescriptor): SourceTypeDescriptor {
-  return sourceTypeDescriptorStructure(type);
-}
-
-/** The arms of a descriptor: union members (flattened), the value and absence of an optional, else the descriptor. */
-export function sourceAnalysisArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
-  const structure = sourceTypeDescriptorStructure(type);
-  if (structure.kind === "union") return structure.types.flatMap(sourceAnalysisArms);
-  if (structure.kind === "optional") return [...sourceAnalysisArms(structure.value), absenceDescriptor];
-  return [type];
-}
-
-const absenceDescriptor: SourceTypeDescriptor = Object.freeze({ kind: "intrinsic", intrinsic: "absence" });
-
-/** An arm that is only null/undefined/void (checker isNullish || isVoidLike). */
-export function sourceAnalysisIsAbsentArm(type: SourceTypeDescriptor): boolean {
-  const structure = sourceTypeDescriptorStructure(type);
-  return structure.kind === "intrinsic" && (structure.intrinsic === "absence" || structure.intrinsic === "void");
-}
-
-/** An arm with no values. */
-export function sourceAnalysisIsNeverArm(type: SourceTypeDescriptor): boolean {
-  const structure = sourceTypeDescriptorStructure(type);
-  return structure.kind === "intrinsic" && structure.intrinsic === "never";
-}
-
-/** The whole value is absent: every arm is absence/void (a never type is not absent). */
-export function sourceAnalysisIsAbsent(type: SourceTypeDescriptor): boolean {
-  const arms = sourceAnalysisArms(type).filter(arm => !sourceAnalysisIsNeverArm(arm));
-  return arms.length !== 0 && arms.every(sourceAnalysisIsAbsentArm);
-}
-
-/** The value may be absent at runtime: an absence/void arm, an optional, or a top (any / unknown) arm (R4 classifier). */
-export function sourceAnalysisMayBeAbsent(ast: Pick<AstReader, "is">, type: SourceTypeDescriptor): boolean {
-  return sourceAnalysisArms(type).some(arm => sourceAnalysisIsAbsentArm(arm) || sourceTypeDescriptorOpenness(ast, arm) === "top");
-}
-
-/** The present arms: absence, void and never arms removed. Empty when the value is never present. */
-export function sourceAnalysisPresentArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
-  return sourceAnalysisArms(type).filter(arm => !sourceAnalysisIsAbsentArm(arm) && !sourceAnalysisIsNeverArm(arm));
-}
+// The absence and present-arm classifier is source-semantics/descriptor-arms.ts (one owner, R4).
 
 /**
  * A scalar arm: a primitive (number family, bool, char), string, bigint, symbol, or an enum (checker

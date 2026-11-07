@@ -1,9 +1,7 @@
-import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationCallBinding } from "../../../host-input/navigation.js";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import type { SourceCallSelection } from "../../../public/source/selections.js";
+import type { SourceArgumentCorrespondence, SourceCallSelection } from "../../../public/source/selections.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 
 export interface SourceStorageLimits {
@@ -164,8 +162,8 @@ export interface SourceStorageArgumentTransport {
   readonly actual: SourceStorageSubject;
   readonly formal: SourceStorageSubject;
   readonly selectedParameterDeclaration: Node;
-  /** The argument-to-parameter binding the call selected (navigation call witness). */
-  readonly binding: SourceNavigationCallBinding;
+  /** The argument-to-parameter binding the call selected, as the published correspondence record (R4, I1). */
+  readonly binding: SourceArgumentCorrespondence;
   /** The argument expression of the binding. */
   readonly argument: Node;
   /** The Host descriptor of the selected parameter at this use (instantiated); undefined when the Host refused it. */
@@ -201,6 +199,10 @@ export interface SourceStorageBindings {
 
 export type SourceStorageBindingsSelection =
   | { readonly kind: "resolved"; readonly bindings: SourceStorageBindings }
+  | SourceStorageUnresolved;
+
+export type SourceStorageBoundTypesSelection =
+  | { readonly kind: "resolved"; readonly types: readonly SourceTypeDescriptor[] }
   | SourceStorageUnresolved;
 
 export type SourceStorageBoundActivation =
@@ -255,7 +257,6 @@ export type SourceStorageConstructionSelection = SourceStorageUnresolved | {
 };
 
 export interface SourceStorageQueries {
-  readonly source: SourceAnalysisProgram;
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];
   readonly subjects: readonly SourceStorageSubject[];
@@ -294,6 +295,12 @@ export interface SourceStorageQueries {
     { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
   boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;
+  /**
+   * The producer's Host descriptor once per bound activation of its storage owner (R-FXCR-9): the generic receiver and
+   * method binders of each invocation activation bound by the Host instantiation, through the caller's activations, with
+   * the sole substitution (I6). One entry for a producer outside every callable body or with no binder to bind.
+   */
+  boundTypesFor(producer: SourceStorageProducer): SourceStorageBoundTypesSelection;
   contributingExecutionsFor(subject: SourceStorageSubject, declaration: Node,
     entry: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageProducersSelection;
   nativeCallbackArgumentsFor(invocation: Node): SourceStorageArgumentsSelection;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeSourceLiteralValues } from "../../packages/target-api/dist/public/source.js";
+import { analyzeSourceLiteralValues } from "../../packages/target-api/dist/public/host.js";
 
 function syntheticAst(touched) {
   const kinds = ["StringLiteral", "NoSubstitutionTemplateLiteral", "NumericLiteral", "BigIntLiteral", "PrefixUnaryExpression",

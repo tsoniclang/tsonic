@@ -1,11 +1,19 @@
 import { AsCaseBlock } from "../source-navigation/checked-casts.js";
+import { Node_Expression } from "../source-model/ast.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import type { SourceValueFacts } from "../public/source/facts.js";
+import type { SourceSlotOutcome, SourceTypeOutcome, SourceValueFacts } from "../public/source/facts.js";
+import type { SourceJsApiFacts } from "../public/source/objects.js";
 import type { SourceTypeDescriptor } from "./local-type-flow/types.js";
-import { sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
+import { sourceTypeDescriptorHasTypeVariables, sourceTypeDescriptorStructure } from "./local-type-flow/terms.js";
+import { sourceTypeDescriptorOpenness } from "./local-type-flow/uses.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-model.js";
+import { sourceTypeDescriptorIsAbsent, sourceTypeDescriptorPresentArms } from "./descriptor-arms.js";
+
+// N3′: the Source (TS) category of a Host primitive. bool is boolean, char is string, and the wide integers
+// (int64, uint64, int128, uint128) are TS bigint; every other primitive is a TS number.
+const nonNumberPrimitives: ReadonlySet<string> = new Set(["bool", "char", "int64", "uint64", "int128", "uint128"]);
 
 // Enum use admission over the Host value model (R3: every type answer is a Host descriptor; no checked type, no
 // checker contextual type). An enum value may be compared, combined bitwise, switched on and stored only within its
@@ -36,8 +44,10 @@ export interface SourceEnumNumericUseContext {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
   readonly navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary" |
-    "expressionResultDisposition" | "memberAccess">;
+    "expressionResultDisposition" | "memberAccess" | "call">;
   readonly values: Pick<SourceValueFacts, "type" | "contextual" | "slot" | "callableReturn" | "elementAccess" | "has">;
+  /** The JS profile: a `String(value)` call is the one whose selected signature is the StringConstructor call row. */
+  readonly profile: Pick<SourceJsApiFacts, "member">;
 }
 
 export function analyzeSourceEnumNumericUses(
@@ -97,13 +107,24 @@ export function analyzeSourceEnumNumericUses(
     return outcome.kind === "refused" ? undefined : outcome.type;
   }
 
-  /** The arms of a descriptor: union members and optional values flattened; absence and never arms dropped. */
+  /**
+   * A Host destination: the descriptor, "refused" when the Host refused the destination value or slot (that refusal is
+   * in facts.refusals() and covers the site, R5: the enum use gets no second refusal), or undefined: no destination.
+   */
+  type Destination = SourceTypeDescriptor | "refused" | undefined;
+
+  function outcomeDestination(outcome: SourceTypeOutcome | SourceSlotOutcome): Destination {
+    return outcome.kind === "refused" ? "refused" : outcome.type;
+  }
+
+  /** The destination descriptor of a value node (an assignment target or an assertion result). */
+  function valueDestination(node: Node): Destination {
+    return values.has(node) ? outcomeDestination(values.type(node)) : undefined;
+  }
+
+  /** The present arms of a descriptor (the one Host classifier, descriptor-arms.ts), each as its structure. */
   function presentArms(type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] {
-    if (type.kind === "declared" && armEnum(type) !== undefined) return [type];
-    const structure = sourceTypeDescriptorStructure(type);
-    if (structure.kind === "union") return structure.types.flatMap(presentArms);
-    if (structure.kind === "optional") return presentArms(structure.value);
-    return structure.kind === "intrinsic" && (structure.intrinsic === "absence" || structure.intrinsic === "never") ? [] : [structure];
+    return sourceTypeDescriptorPresentArms(type).map(sourceTypeDescriptorStructure);
   }
 
   /** The enum declaration a descriptor arm names (an enum type or one of its member literal types), if any. */
@@ -174,7 +195,11 @@ export function analyzeSourceEnumNumericUses(
         if (binary.Left !== undefined && binary.Right !== undefined && identicalEnum(enumValue(binary.Left), enumValue(binary.Right))) return undefined;
         if (equalityOperators.has(operator!) && (absenceType(binary.Left!) || absenceType(binary.Right!))) return undefined;
       }
-      if (operator === "KindEqualsToken" && (binary.Left === expression || admitsDestination(valueType(binary.Left!), value))) return undefined;
+      if (operator === "KindEqualsToken") {
+        if (binary.Left === expression) return undefined;
+        const left = valueDestination(binary.Left!);
+        if (left === "refused" || admitsDestination(left, value)) return undefined;
+      }
     }
     if (ast.is.IsSwitchStatement(parent)) {
       const block = ast.as.AsSwitchStatement(parent)?.CaseBlock;
@@ -189,15 +214,24 @@ export function analyzeSourceEnumNumericUses(
       if (subject !== undefined && identicalEnum(enumValue(subject), value)) return undefined;
     }
     if (ast.is.IsElementAccessExpression(parent) && ast.as.AsElementAccessExpression(parent)?.ArgumentExpression === expression) {
+      // The access record exists only for an access whose result and receiver the Host typed. A Host-refused access is
+      // in facts.refusals() and covers the site (R5), so the enum use is not refused a second time.
+      const receiver = ast.as.AsElementAccessExpression(parent)?.Expression;
+      if (receiver === undefined || valueDestination(parent) === "refused" || valueDestination(receiver) === "refused") return undefined;
       const access = values.elementAccess(parent);
       if (access.selected.kind === "tuple" || access.selected.kind === "member") return undefined;
       return { root: parent, stringProjection: access.selected.kind === "index-signature" &&
-        stringIndexSignature(access.selected.declaration) };
+        stringIndexSignature(access.receiverType, access.selected.declaration) };
     }
     if (ast.is.IsVariableDeclaration(parent) && ast.as.AsVariableDeclaration(parent)?.Initializer === expression &&
       ast.typeNode(parent) === undefined && ast.is.IsIdentifier(ast.name(parent)) &&
       !navigation.declarationUseSummary(parent).bindingWritten) return undefined;
-    if (admitsDestination(destinationType(expression, parent), value)) return undefined;
+    const destination = destinationType(expression, parent);
+    if (destination === "refused" || admitsDestination(destination, value)) return undefined;
+    // A member read on the enum value that the Host refused (a method projection whose value the Host could not type)
+    // is in facts.refusals() and covers the site (R5).
+    if ((ast.is.IsPropertyAccessExpression(parent) || ast.is.IsElementAccessExpression(parent)) &&
+      Node_Expression(ast, parent) === expression && valueDestination(parent) === "refused") return undefined;
     const callParent = ast.parent(parent);
     const root = (ast.is.IsPropertyAccessExpression(parent) || ast.is.IsElementAccessExpression(parent)) &&
       callParent !== undefined && ast.is.IsCallExpression(callParent) && ast.as.AsCallExpression(callParent)?.Expression === parent
@@ -205,25 +239,22 @@ export function analyzeSourceEnumNumericUses(
     return { root, stringProjection: isStringProjection(expression, parent) };
   }
 
-  function stringIndexSignature(declaration: Node): boolean {
-    let key: Node | undefined;
-    ast.forEachChild(declaration, child => {
-      if (key === undefined && child !== undefined && ast.is.IsParameterDeclaration(child)) key = ast.typeNode(child);
+  /**
+   * The selected index signature has a string key: the key of the receiver descriptor's index that the Host element
+   * selection chose (the same `declaration`). Covers `[k: string]`, `Record<string, T>`, mapped keys and aliased `string`.
+   */
+  function stringIndexSignature(receiverType: SourceTypeDescriptor, declaration: Node): boolean {
+    return presentArms(receiverType).some(arm => {
+      const structure = sourceTypeDescriptorStructure(arm);
+      return structure.kind === "shape" && structure.indexes.some(index =>
+        index.declaration === declaration && sourceTypeDescriptorStructure(index.key).kind === "string");
     });
-    return key !== undefined && ast.kindName(key) === "KindStringKeyword";
   }
 
-  /** Every present arm of the operand's Host descriptor is absence (null/undefined). */
+  /** The operand's Host descriptor is wholly absent (null / undefined / void; the one Host classifier). */
   function absenceType(node: Node): boolean {
     const type = valueType(node);
-    if (type === undefined) return false;
-    const structure = sourceTypeDescriptorStructure(type);
-    if (structure.kind === "intrinsic") return structure.intrinsic === "absence";
-    if (structure.kind !== "union") return false;
-    return structure.types.length !== 0 && structure.types.every(part => {
-      const arm = sourceTypeDescriptorStructure(part);
-      return arm.kind === "intrinsic" && arm.intrinsic === "absence";
-    });
+    return type !== undefined && sourceTypeDescriptorIsAbsent(type);
   }
 
   function isStringType(type: SourceTypeDescriptor | undefined): boolean {
@@ -237,11 +268,11 @@ export function analyzeSourceEnumNumericUses(
       return isStringType(valueType(binary.Left!)) || isStringType(valueType(binary.Right!));
     }
     if (ast.is.IsCallExpression(parent)) {
-      // `String(value)`: the callee is the library `String` value.
-      const callee = ast.as.AsCallExpression(parent)?.Expression;
-      const declaration = callee !== undefined && ast.is.IsIdentifier(callee) && ast.text(callee) === "String"
-        ? navigation.sourceReferenceFor(callee)?.declaration : undefined;
-      return libraryDeclaration(declaration);
+      // `String(value)` (also through an alias such as `const convert = String`): the selected signature is the JS
+      // profile's StringConstructor call row (R2 #47; baseline: the library String call signatures).
+      const signature = navigation.call(parent)?.signature;
+      const member = signature === undefined ? undefined : context.profile.member(signature);
+      return member?.owner === "string" && member.name === "call" && member.receiver === "static";
     }
     if (!ast.is.IsPropertyAccessExpression(parent) && !ast.is.IsElementAccessExpression(parent)) return false;
     const access = navigation.memberAccess(parent);
@@ -252,23 +283,48 @@ export function analyzeSourceEnumNumericUses(
     return calls.some(signature => isStringType(signature.result));
   }
 
-  function slotType(node: Node): SourceTypeDescriptor | undefined {
-    const outcome = values.slot(node);
-    return outcome.kind === "slot" ? outcome.type : undefined;
+  /** The constructed descriptor of an object or array literal (its own type, `construction` when published). */
+  function literalDestination(literal: Node): Destination {
+    if (!values.has(literal)) return undefined;
+    const outcome = values.type(literal);
+    return outcome.kind === "refused" ? "refused" : outcome.construction ?? outcome.type;
   }
 
-  function destinationType(expression: Node, parent: Node): SourceTypeDescriptor | undefined {
-    if (ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent)) return valueType(parent);
+  /**
+   * The Host destination of a value use (baseline enum-numeric-uses.ts:247-274 over checked types): an assertion
+   * result; the Host slot the use flows into (`values.contextual`); a declaration slot; an element of an object or array
+   * literal that flows into no slot, typed by the containing literal's own Host descriptor (the member whose origin is
+   * the element, or the array element / tuple position); the enclosing callable's result.
+   */
+  function destinationType(expression: Node, parent: Node): Destination {
+    if (ast.is.IsAsExpression(parent) || ast.is.IsTypeAssertion(parent)) return valueDestination(parent);
     const contextual = values.contextual(expression);
-    if (contextual !== undefined) return contextual.kind === "refused" ? undefined : contextual.type;
+    if (contextual !== undefined) return outcomeDestination(contextual);
     if (ast.is.IsVariableDeclaration(parent) || ast.is.IsPropertyDeclaration(parent) ||
-      ast.is.IsParameterDeclaration(parent) || ast.is.IsBindingElement(parent)) return slotType(parent);
+      ast.is.IsParameterDeclaration(parent) || ast.is.IsBindingElement(parent)) return outcomeDestination(values.slot(parent));
+    if (ast.is.IsPropertyAssignment(parent) || ast.is.IsShorthandPropertyAssignment(parent)) {
+      const literal = ast.parent(parent);
+      const container = literal !== undefined && ast.is.IsObjectLiteralExpression(literal) ? literalDestination(literal) : undefined;
+      if (container === undefined || container === "refused") return container;
+      const structure = sourceTypeDescriptorStructure(container);
+      return structure.kind === "shape" ? structure.members.find(member =>
+        member.origin.kind === "declared" && member.origin.declaration === parent)?.type : undefined;
+    }
+    if (ast.is.IsArrayLiteralExpression(parent)) {
+      const container = literalDestination(parent);
+      if (container === undefined || container === "refused") return container;
+      const structure = sourceTypeDescriptorStructure(container);
+      if (structure.kind === "array") return structure.element;
+      if (structure.kind !== "tuple") return undefined;
+      const elements = ast.elements(parent);
+      const index = elements.indexOf(expression);
+      return index >= 0 && elements.length === structure.elements.length &&
+        elements.every(element => element !== undefined && !ast.is.IsSpreadElement(element)) ? structure.elements[index]?.type : undefined;
+    }
     if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent)) {
       let callable: Node | undefined = parent;
       while (callable !== undefined && !isSourceCallableBodyBoundary(ast, callable)) callable = ast.parent(callable);
-      if (callable === undefined) return undefined;
-      const outcome = values.callableReturn(callable);
-      return outcome.kind === "refused" ? undefined : outcome.type;
+      return callable === undefined ? undefined : outcomeDestination(values.callableReturn(callable));
     }
     return undefined;
   }
@@ -341,17 +397,17 @@ export function analyzeSourceEnumNumericUses(
   }
 
   /**
-   * A descriptor whose every present arm is a known non-numeric value (so a logical result cannot be an enum value):
-   * checker `excludesEnum` was "not number-like, not any/unknown, no type variables".
+   * A descriptor whose every present arm is a known non-numeric value (so a logical result cannot be an enum value),
+   * as baseline checker `excludesEnum`: no enum arm, no type variables, every arm closed (the one openness classifier,
+   * sourceTypeDescriptorOpenness: not any/unknown, not a type parameter) and not a TS number (N3′: the wide integers
+   * are TS bigint and exclude an enum value; an absence-only value excludes one too).
    */
   function excludesEnum(type: SourceTypeDescriptor): boolean {
-    if (enumDomain(type).possibleEnums.length !== 0) return false;
-    const arms = presentArms(type);
-    return arms.length !== 0 && arms.every(arm => {
-      if (arm.kind === "primitive") return arm.primitive === "bool" || arm.primitive === "char";
-      if (arm.kind === "intrinsic") return arm.intrinsic !== "any" && arm.intrinsic !== "unknown";
-      if (arm.kind === "declared") return !ast.is.IsTypeParameterDeclaration(arm.declaration);
-      return true;
+    if (enumDomain(type).possibleEnums.length !== 0 || sourceTypeDescriptorHasTypeVariables(ast, type)) return false;
+    return presentArms(type).every(arm => {
+      if (sourceTypeDescriptorOpenness(ast, arm) !== "closed") return false;
+      const structure = sourceTypeDescriptorStructure(arm);
+      return structure.kind !== "primitive" || nonNumberPrimitives.has(structure.primitive);
     });
   }
 }

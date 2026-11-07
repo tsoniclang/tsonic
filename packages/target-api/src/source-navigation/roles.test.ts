@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
-import { sourceEnclosing, sourceNodeRoleOrder, sourceNodeRoles } from "./callable-boundaries.js";
+import { sourceEnclosing, sourceNodeRoleOrder, sourceNodeRoles } from "../source-model/callable-boundaries.js";
 
 const sourceText = `export {};
 function overloaded(value: string): string;

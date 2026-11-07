@@ -9,6 +9,7 @@ export const targetLayerNames = Object.freeze([
   "provider-implementation",
   "target-model",
   "policy",
+  "representation",
   "analysis",
   "target-ast",
   "artifact-model",
@@ -27,6 +28,7 @@ export const canonicalTargetTestDomains = Object.freeze([
   "policy",
   "print",
   "providers",
+  "representation",
   "source",
   "target-model",
   "toolchain",
@@ -43,7 +45,10 @@ const allowedTargetLayerDependencies = Object.freeze({
   "provider-implementation": ["source", "provider-model", "target-model", "policy"],
   "target-model": [],
   policy: ["source", "provider-model", "target-model"],
-  analysis: ["source", "provider-model", "target-model", "policy"],
+  // The one Source descriptor -> target type mapping (I6). Above policy (it uses target conversion and storage policy),
+  // below analysis (every analysis reads represented types through it). Policy never imports it (R8).
+  representation: ["source", "provider-model", "target-model", "policy"],
+  analysis: ["source", "provider-model", "target-model", "policy", "representation"],
   "target-ast": ["target-model"],
   "artifact-model": ["target-model", "target-ast"],
   planner: ["analysis", "target-model", "target-ast", "artifact-model"],
@@ -216,7 +221,7 @@ export function createTargetLayerRules({ providerModelPaths = [], providerSdkPat
     ...["descriptor", "compilation", "options", "source"].map(layer => targetLayerPrefix(`src/${layer}/`, layer)),
     targetLayerPredicate("provider-model", isModel),
     targetLayerPredicate("provider-implementation", path => path.startsWith("src/providers/") && !isModel(path)),
-    ...["target-model", "policy", "analysis"].map(layer => targetLayerPrefix(`src/${layer}/`, layer)),
+    ...["target-model", "policy", "representation", "analysis"].map(layer => targetLayerPrefix(`src/${layer}/`, layer)),
     ...["target-ast", "artifact-model", "planner", "emission"].map(layer => targetLayerPrefix(`src/backend/${layer}/`, layer)),
     targetLayerExact(["src/backend/compile.ts"], "backend-entrypoint"),
     targetLayerPrefix("src/print/", "printer"),
@@ -271,7 +276,7 @@ function targetLayerRuleId(layer) {
   if (layer === "provider-model" || layer === "provider-implementation") {
     return "ARCH-PROVIDER-001";
   }
-  if (layer === "policy" || layer === "source" || layer === "target-model") {
+  if (layer === "policy" || layer === "source" || layer === "target-model" || layer === "representation") {
     return "ARCH-POLICY-001";
   }
   if (layer === "analysis") {

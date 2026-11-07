@@ -5,8 +5,9 @@ import type {
   SourceMemberKey,
   SourceTypeDescriptor,
   SourceTypeDescriptorSignature,
-} from "../../source-semantics/local-type-flow/types.js";
-import type { SourceRefusal } from "./facts.js";
+} from "../../source-semantics/descriptor-model.js";
+import type { SourceRefusal, SourceTypeofCategoryName } from "./facts.js";
+import type { SourceCallSelection } from "./selections.js";
 
 export interface SourceObjectMember {
   readonly key: SourceMemberKey;
@@ -28,14 +29,18 @@ export interface SourceHeritageEdge {
   readonly heritage: Node;
   readonly target: Node;
   readonly typeArguments: readonly SourceTypeDescriptor[];
+  /**
+   * The base reference as the Host describes it: the Host descriptor of the heritage type node (`values.type(heritage)`),
+   * the target applied to `typeArguments`, with its `definition`. For a class `extends` clause it is the base
+   * constructor's instance type (`extends Error` gives the Error interface, not ErrorConstructor).
+   */
+  readonly type: SourceTypeDescriptor;
 }
 
 export interface SourceConstructFacts {
   readonly declaration: Node;
   readonly implicit: boolean;
   readonly signatures: readonly SourceTypeDescriptorSignature[];
-  /** Parameter properties and field initializers in execution order (class init regions). */
-  readonly initialization: readonly { readonly member: Node; readonly region: "parameter-property" | "field" | "constructor-body" }[];
 }
 
 export interface SourceMemberImplementation {
@@ -52,7 +57,11 @@ export interface SourceObjectFacts {
   indexes(type: SourceTypeDescriptor): readonly { readonly key: SourceTypeDescriptor; readonly value: SourceTypeDescriptor;
     readonly readonly: boolean; readonly declaration: Node }[];
   heritage(declaration: Node): readonly SourceHeritageEdge[] | SourceRefusal;
-  heritagePath(from: Node, to: Node): readonly SourceHeritageEdge[] | "unrelated" | SourceRefusal;
+  /**
+   * The instance type of a class or interface declaration (R3 #17): its Host descriptor, declared with its definition;
+   * for a class expression the declared reference its constructions produce. Any other node is an invariant failure.
+   */
+  selfType(declaration: Node): SourceTypeDescriptor | SourceRefusal;
   construction(declaration: Node): SourceConstructFacts | SourceRefusal;
   implementation(classDeclaration: Node, contractMember: Node): SourceMemberImplementation | "unrelated" | SourceRefusal;
   contracts(implementation: Node): readonly Node[] | SourceRefusal;
@@ -66,11 +75,54 @@ export interface SourceObjectFacts {
    * no single implementation of the contract's kind exists (refusal at the contract, collected in `refusals()`).
    */
   callableImplementation(contract: Node): Node | "unrelated" | SourceRefusal;
-  /** Members an object literal must supply for its destination (required-member coverage). */
-  requiredMembers(objectLiteral: Node): readonly SourceObjectMember[];
   /** Own enumerable property keys of a value in producer order, or ambiguous (A17/R12). */
   ownKeys(value: Node): readonly SourceMemberKey[] | "ambiguous";
+
+  // ---- member correspondence (PLAN §4.3 Object facts, G8; R2 #23) ------------------------------------------------
+  /**
+   * The members of a type joined over its present arms: a member exists only when every present arm has it (joined by
+   * name). undefined when the type has no present arm, an arm is open (any / unknown), or an arm's members are refused.
+   */
+  joinedMembers(type: SourceTypeDescriptor): readonly SourceJoinedMember[] | undefined;
+  /**
+   * The structural member correspondence from a source type to a destination type, joined by member name. A union side
+   * has its pairs (for one-member selection) but no whole correspondence ("unresolved-shape"). "read": a present member
+   * must be readable.
+   */
+  correspondence(from: SourceTypeDescriptor, to: SourceTypeDescriptor, purpose: "correspondence" | "read"): SourceMemberCorrespondence;
+  /** The pair of one destination member declaration; undefined unless exactly one pair names it (and is usable). */
+  correspondingMember(from: SourceTypeDescriptor, to: SourceTypeDescriptor, declaration: Node,
+    purpose: "correspondence" | "read"): SourceMemberPair | undefined;
 }
+
+/** One member of a type joined over its present arms (objects.joinedMembers). */
+export interface SourceJoinedMember {
+  readonly name: string;
+  /** Optional in some arm. */
+  readonly optional: boolean;
+  /** Read-only in some arm (readonly property or getter-only member). */
+  readonly readonly: boolean;
+  /** The type the member was selected from. */
+  readonly receiverType: SourceTypeDescriptor;
+  readonly declarations: readonly Node[];
+  readonly getters: readonly Node[];
+  readonly setters: readonly Node[];
+  readonly read: "property" | "accessor" | "method" | "unavailable";
+  /** The read type: the arms' member types through the one union builder (sums.join); undefined when not formed. */
+  readonly type: SourceTypeDescriptor | undefined;
+}
+
+export type SourceMemberPair =
+  | { readonly kind: "present"; readonly destination: SourceJoinedMember; readonly source: SourceJoinedMember }
+  | { readonly kind: "absent"; readonly destination: SourceJoinedMember };
+
+export type SourceMemberCorrespondence = (
+  | { readonly kind: "available"; readonly members: readonly SourceMemberPair[] }
+  | { readonly kind: "unavailable"; readonly reason: "unresolved-shape" | "missing-required-member" | "unreadable-member" | "disjoint-shape" }
+) & { readonly pairs: readonly SourceMemberPair[] };
+
+/** A collection key category: a typeof category other than "undefined" (Q86). */
+export type SourceKeyCategory = Exclude<SourceTypeofCategoryName, "undefined">;
 
 export type SourceJsCollectionKind = "array" | "readonly-array" | "typed-array" | "set" | "map" | "weak-set" | "weak-map" | "string";
 
@@ -93,12 +145,90 @@ export interface SourceJsApiMember {
   readonly effects: { readonly invokesCallbacks: boolean; readonly storesArguments: boolean };
 }
 
+/** The JS standard-library identity of a declaration (D18): its declaring entity and member name. */
+export interface SourceJsApiIdentity {
+  readonly kind: "type" | "member" | "indexer" | "call" | "construct";
+  /** The declaring interface / class / alias (`Map`, `ArrayConstructor`); `Global` for top-level functions. */
+  readonly declaringName?: string;
+  readonly name?: string;
+  readonly declaration: Node;
+}
+
+/** The global binding a JS API operation belongs to (`Object`, `Error`), with the provider that declares it. */
+export interface SourceJsGlobalBinding {
+  readonly name: string;
+  readonly providerId: string;
+}
+
+/** What a JS API call does to storage: its result aliases an argument, is a fresh allocation, or resumes the receiver. */
+export interface SourceJsCallStorageEffect {
+  readonly resultAlias?: Node;
+  readonly resultAllocation?: Node;
+  readonly resumeReceiver?: true;
+}
+
+/**
+ * The storage effect of one JS API call, with the operation declaration (the selected signature) and how the call names
+ * it: through a member of its global binding (`Object.freeze(x)`), through the binding as a value (`new Error()`,
+ * `Error()`), or through its receiver (`generator.next()`).
+ */
+export type SourceJsCallStorage = {
+  readonly declaration: Node;
+  readonly effect: SourceJsCallStorageEffect;
+} & ({ readonly form: "member" | "value"; readonly binding: SourceJsGlobalBinding } | { readonly form: "receiver" });
+
+/** A native constructor a JS global binding constructs (`new Error()`): the construct signature and the binding. */
+export interface SourceJsNativeConstructorStorage {
+  readonly declaration: Node;
+  readonly binding: SourceJsGlobalBinding;
+}
+
+/** When a JS API call runs a callback argument, and which values flow into the callback parameters. */
+export interface SourceJsCallbackEffect {
+  readonly parameterIndex: number;
+  readonly timing: "synchronous" | "deferred";
+  /** The parameter index (in the callback) of the rejection function it receives (`new Promise((resolve, reject) => …)`). */
+  readonly rejection?: number;
+  readonly inputs?: readonly {
+    readonly parameterIndex: number;
+    readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
+    readonly sourceParameterIndex?: number;
+  }[];
+}
+
+/**
+ * The JS API profile facts (D18), all read from one meaning table keyed by the JS API identity. The effect members
+ * (callStorage, callbackEffects, nativeConstructorStorage) also cover the shared base declarations a target source
+ * profile includes, for their constructor and call signatures and native operations only.
+ */
 export interface SourceJsApiFacts {
+  /** The JS API identity of a JS profile declaration; undefined for any other declaration. */
+  identity(declaration: Node): SourceJsApiIdentity | undefined;
   collection(type: SourceTypeDescriptor): SourceJsCollectionFacts | undefined;
   member(declaration: Node): SourceJsApiMember | undefined;
   /**
-   * The Source refusal of calling this JS API member (`Generator.throw`), or undefined when calling it is supported.
-   * The Host raises it at every call that selects the member (facts.refusals()).
+   * The Source refusal of calling this JS API member (`Generator.throw`, `Object.isFrozen`), or undefined when calling
+   * it is supported. The Host raises it at every call that selects the member (facts.refusals()).
    */
   callRefusal(declaration: Node): { readonly code: string; readonly message: string } | undefined;
+  /**
+   * The Source key category of each present arm of a union key or set element type, in authored arm order (Q77, Q82,
+   * Q86): the N3' typeof category of the arm's Host type (int64 / uint64 / int128 / uint128 are bigint), "function" and
+   * an arm proving no category taken as "object". undefined for a key type that is not a union.
+   */
+  keyCategories(type: SourceTypeDescriptor): readonly SourceKeyCategory[] | undefined;
+  /** The storage effect of a call whose selected signature is a JS API operation; undefined when it has none. */
+  callStorage(call: SourceCallSelection): SourceJsCallStorage | undefined;
+  /**
+   * The callback effects of a call whose selected signature is a JS API operation. An empty list is a classified
+   * operation that runs no callback; undefined means the operation has no callback classification.
+   */
+  callbackEffects(call: SourceCallSelection): readonly SourceJsCallbackEffect[] | undefined;
+  /**
+   * The parameter indexes of a JS profile member whose callback arguments the member only invokes during the call (never
+   * retains or defers); empty for every other declaration.
+   */
+  invocationOnlyParameters(declaration: Node): readonly number[];
+  /** The native constructor storage of a JS API construct signature (`new Error()`); undefined otherwise. */
+  nativeConstructorStorage(declaration: Node): SourceJsNativeConstructorStorage | undefined;
 }

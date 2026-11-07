@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse, sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
-import { Node_Initializer, sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "../source-model/ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {

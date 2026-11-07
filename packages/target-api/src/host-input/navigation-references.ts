@@ -2,14 +2,9 @@
 // navigation reference index, and the symbol helpers other Host checker readers share. Moved whole from
 // source-navigation/reference-selection.ts and the checker half of source-navigation/syntax.ts. Symbol identity is
 // translated into the selected declaration; no Symbol leaves through SourceNavigationInput (navigation.ts).
-import type { AstReader, Node, SourceFile, Symbol, Type, TypeCheckerQueries } from "@tsonic/tsts";
-import { isTypeSyntaxNode, referenceQueryNode, sourceReferenceMeaning, type SourceReferenceMeaning } from "../source-navigation/syntax.js";
-
-/** The declaration a reference occurrence selects, and that declaration's file. */
-export interface SourceNavigationReference {
-  readonly declaration: Node;
-  readonly sourceFile: SourceFile;
-}
+import type { AstReader, Node, Symbol, TypeCheckerQueries } from "@tsonic/tsts";
+import { referenceQueryNode, sourceReferenceMeaning, type SourceReferenceMeaning } from "../source-model/syntax.js";
+import type { SourceNavigationReference } from "../source-model/navigation-records.js";
 
 type ImportedDeclarationSelection =
   | { readonly kind: "not-imported" }
@@ -174,14 +169,6 @@ export function referenceDeclarationForMeaning(
         ast.is.IsTypeAliasDeclaration(candidate) || ast.is.IsEnumDeclaration(candidate) ||
         ast.is.IsTypeParameterDeclaration(candidate));
   return accepts(declaration) ? declaration : checker.getSymbolDeclarations(symbol).find(accepts);
-}
-
-/** The checked type at a node (type syntax: the authored type). Host checker readers only; never published (R3). */
-export function semanticTypeForNode(ast: AstReader, checker: TypeCheckerQueries, node: Node): Type | undefined {
-  // `import type { A } from "..."` has an unnamed type-only import clause. TS-Go classifies it as a type declaration
-  // but binds no symbol for it, so it declares no type and the checker cannot be asked for one.
-  if (ast.is.IsImportClause(node) && ast.name(node) === undefined) return undefined;
-  return isTypeSyntaxNode(ast, node) ? checker.getTypeFromTypeNode(node) : checker.getTypeAtLocation(node);
 }
 
 export function symbolAtReferenceNode(ast: AstReader, checker: TypeCheckerQueries, node: Node): Symbol | undefined {

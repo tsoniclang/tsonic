@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNavigationInput } from "../host-input/navigation.js";
+import type { SourceNavigationInput } from "../source-model/navigation-records.js";
 import { createSourceDeclarationReferenceIndex } from "./reference-index.js";
 import type { SourceDeclarationReference, SourceProjectReference, SourceReferenceIndexStatistics } from "./types.js";
 

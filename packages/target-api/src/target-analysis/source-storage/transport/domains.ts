@@ -1,7 +1,7 @@
 import type { SourceAnalysisProgram } from "../../analysis-program.js";
 import { createSourceStorageDomainInitialization } from "./domain-initialization.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeDescriptor } from "../../../source-semantics/local-type-flow/types.js";
+import type { SourceTypeDescriptor } from "../../../source-semantics/descriptor-model.js";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import { sourceStorageSubjectType, sourceStorageTypesEqual } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";

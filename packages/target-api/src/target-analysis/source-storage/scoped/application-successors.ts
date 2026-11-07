@@ -3,7 +3,7 @@ import { Node_Expression } from "../../../source-navigation/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageIsAbsentType, sourceStorageSubjectType } from "../model/components.js";
-import { sourceStorageIsGenerator } from "../transport/host-reads.js";
+import { sourceStorageIsGenerator } from "../model/host-reads.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -64,7 +64,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
         if (implementations === undefined) return undefined;
         for (const candidate of implementations) {
           if (!budget.step()) return undefined;
-          if (!sourceStorageIsGenerator(ast, candidate)) continue;
+          if (!sourceStorageIsGenerator(source, candidate)) continue;
           const activation = scopes.boundActivation(term.callee.scope, candidate);
           const body = ast.body(candidate);
           if (activation?.invocation !== node || body === undefined) continue;
@@ -173,7 +173,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
     }
     const candidate = selected.implementation.declaration;
-    const generator = sourceStorageIsGenerator(ast, candidate) ? candidate : undefined;
+    const generator = sourceStorageIsGenerator(source, candidate) ? candidate : undefined;
     const asynchronous = ast.hasModifierKind(candidate, "async");
     const scope = asynchronous && term.activation.kind !== "entered" &&
       (term.mode === "throw" || term.mode === "value" && generator === undefined)

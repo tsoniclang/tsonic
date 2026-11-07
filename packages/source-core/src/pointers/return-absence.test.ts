@@ -19,7 +19,7 @@ for (const [form, ending] of [["implicit fallthrough", ""], ["explicit bare retu
       torawptr(maybe(true), uint32Layout);
     `);
     const source = createHostSourceProgramFixture(checked);
-    const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
+    const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles, premises: {} });
     const relation = createTsonicPointerStorageRelation(source, storage);
     const declaration = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
       source.ast.text(source.ast.name(node)) === "maybe");
@@ -47,7 +47,7 @@ test("pointer storage does not invent fallthrough absence for a complete return"
     export function make() { return allocateptr<uint32>(7); }
   `);
   const source = createHostSourceProgramFixture(checked);
-  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles });
+  const storage = source.facts.analyses.storage({ sourceFiles: source.sourceFiles, premises: {} });
   const declaration = storage.nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === "make");
   assert.equal(declaration !== undefined, true);

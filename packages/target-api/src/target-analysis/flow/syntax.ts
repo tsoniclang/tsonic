@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
+import { sourceTransparentExpressionOperand } from "../../source-model/ast.js";
 import type { SourceFlowConstruction } from "./construction.js";
 
 export function sourceFlowUnwrap(build: SourceFlowConstruction, node: Node): Node {
