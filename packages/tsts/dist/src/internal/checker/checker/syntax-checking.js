@@ -1,16 +1,17 @@
 import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
+import { configuredSourcePrimitiveOperand } from "../../../extensions/compiler-integration.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import { Contains as slicesContains } from "../../../go/slices.js";
 import { AsBinaryExpression, AsSyntheticExpression, AsIfStatement, AsForStatement, AsForInOrOfStatement, AsSwitchStatement, AsTryStatement, AsCatchClause, AsLabeledStatement, AsCaseOrDefaultClause, AsCaseBlock, AsVariableStatement, AsVariableDeclarationList, AsPrefixUnaryExpression, AsPostfixUnaryExpression, AsYieldExpression, AsConditionalExpression, AsNumericLiteral, AsBigIntLiteral, } from "../../ast/generated/casts.js";
 import { NewSyntheticExpression } from "../../ast/generated/factory.js";
-import { NodeFlagsAwaitContext, NodeFlagsOptionalChain, NodeFlagsUnreachable } from "../../ast/generated/flags.js";
+import { NodeFlagsAwaitContext, NodeFlagsOptionalChain, NodeFlagsUnreachable, SymbolFlagsAlias } from "../../ast/generated/flags.js";
 import { Diagnostic_AddRelatedInfo, Diagnostic_Code, Diagnostic_Loc } from "../../ast/diagnostic.js";
 import { Node_Locals, SourceFile_Text, SourceFile_Diagnostics, Node_Expression, Node_Statements, Node_Statement, Node_Initializer, Node_Type, Node_Text, Node_Label, Node_Body, Node_TypeParameters, Node_TypeArguments, AsSourceFile } from "../../ast/ast.js";
 import { SignatureFlagsAbstract, SignatureFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../types.js";
 import { Checker_isIteratorResult } from "./support-queries.js";
 import { createExtensionForInIterationSelection, freezeExtensionCheckedIterationSelection, } from "./iteration-evidence.js";
 import { CheckModeInferential, CheckModeIsForSignatureHelp, CheckModeNormal, CheckModeSkipContextSensitive, CheckModeSkipGenericFunctions, InferenceFlagsSkippedGenericFunction, IterationTypeKindReturn, IterationTypeKindYield, IterationTypeKindNext, IterationUseForOf, IterationUseForAwaitOf, IterationUseSpread, IterationUseYieldStar, IterationUseAsyncYieldStar, TypeFactsIsUndefined, TypeFactsTruthy, TypeFactsFalsy, UnusedKindLocal, UnusedKindParameter, Checker_getSourceFileLinks, someSignature, } from "./state.js";
-import { IsEmptyStatement, IsVariableDeclarationList, IsArrowFunction, IsComputedPropertyName, IsJsxAttributes, IsJsxSelfClosingElement, IsIdentifier, IsArrayLiteralExpression, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPrivateIdentifier, IsConstructorDeclaration, IsSetAccessorDeclaration, IsBlock, IsParameterDeclaration, IsBindingElement, IsClassStaticBlockDeclaration, IsCaseClause, IsDefaultClause, IsParenthesizedExpression, IsLabeledStatement, IsConditionalExpression, IsBinaryExpression, IsSourceFile, IsLogicalOrCoalescingAssignmentOperator, } from "../../ast/generated/predicates.js";
+import { IsEmptyStatement, IsVariableDeclarationList, IsArrowFunction, IsComputedPropertyName, IsJsxAttributes, IsJsxSelfClosingElement, IsIdentifier, IsArrayLiteralExpression, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPrivateIdentifier, IsConstructorDeclaration, IsSetAccessorDeclaration, IsBlock, IsParameterDeclaration, IsBindingElement, IsClassStaticBlockDeclaration, IsCaseClause, IsDefaultClause, IsParenthesizedExpression, IsShiftOperator, IsLabeledStatement, IsConditionalExpression, IsBinaryExpression, IsSourceFile, IsLogicalOrCoalescingAssignmentOperator, } from "../../ast/generated/predicates.js";
 import { GetSourceFileOfNode, IsExternalOrCommonJSModule, IsFunctionOrModuleBlock, IsInstanceOfExpression, IsAccessExpression, IsClassLike, IsBindingPattern, SkipParentheses, SkipOuterExpressions, IsInJSFile, OEKParentheses, OEKSatisfies, OEKExcludeJSDocTypeAssertion, OEKAssertions, GetCombinedNodeFlags, IsFunctionLike, GetNodeId, ForEachReturnStatement, GetClassLikeDeclarationOfSymbol, HasModifier, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorTrue, FindAncestorQuit, GetContainingClass, IsCallLikeExpression, IsCallOrNewExpression, GetContainingFunction, IsImportCall, IsLogicalBinaryOperator, IsLogicalOrCoalescingBinaryExpression, IsLogicalOrCoalescingBinaryOperator, WalkUpParenthesizedExpressions, GetExtendsHeritageClauseElement, GetEnclosingBlockScopeContainer, NodeKindIs, IsStatic, } from "../../ast/utilities.js";
 import { FunctionFlagsAsync, FunctionFlagsGenerator, FunctionFlagsInvalid, GetFunctionFlags } from "../../ast/functionflags.js";
 import { ModifierFlagsAbstract } from "../../ast/modifierflags.js";
@@ -20,7 +21,7 @@ import { LanguageFeatureMinimumTarget, ExternalEmitHelpersForAwaitOfIncludes, Ex
 import { Checker_checkSourceElements, Checker_checkSourceElement, Checker_checkUnusedRenamedBindingElements, Checker_error, Checker_errorOrSuggestion, Checker_reportUnused, Checker_checkNaNEquality, Checker_checkAssertionDeferred, keyBuilder_writeInt, Checker_checkThisBeforeSuper, Checker_checkAssertion } from "./support.js";
 import { Checker_checkReflectCollision, Checker_checkWeakMapSetCollision } from "./support.js";
 import { Checker_getSuggestedBooleanOperator, Checker_isSideEffectFree, Checker_isContextSensitive, Checker_isConstContext, Checker_getThisContainer } from "./support-queries.js";
-import { Checker_registerForUnusedIdentifiersCheck, Checker_checkVariableDeclarationList, Checker_checkVariableLikeDeclaration, Checker_checkExternalModuleExports, Checker_checkForDisallowedESSymbolOperand, Checker_getIndexTypeOrString, Checker_checkAccessorDeclaration, Checker_checkUnusedIdentifiers, Checker_reportUnusedVariableDeclarations, Checker_isUnreferencedVariableDeclaration, Checker_getIndexedAccessType, Checker_getTargetOfAliasLikeExpression, Checker_markSymbolOfAliasDeclarationIfTypeOnly, Checker_needCollisionCheckForIdentifier, Checker_getTypeOfSymbol, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getResolvedSymbolOrNil, Checker_isReadonlySymbol, Checker_reportNonexistentProperty, Checker_checkIdentifier, Checker_checkPrivateIdentifierExpression, Checker_checkPropertyAccessExpression, Checker_checkQualifiedName, Checker_checkIndexedAccess, Checker_checkMetaProperty, Checker_getDeclaredTypeOfSymbol, Checker_getSymbolOfDeclaration, Checker_classDeclarationExtendsNull, } from "./symbols.js";
+import { Checker_registerForUnusedIdentifiersCheck, Checker_checkVariableDeclarationList, Checker_checkVariableLikeDeclaration, Checker_checkExternalModuleExports, Checker_checkForDisallowedESSymbolOperand, Checker_getIndexTypeOrString, Checker_checkAccessorDeclaration, Checker_checkUnusedIdentifiers, Checker_reportUnusedVariableDeclarations, Checker_isUnreferencedVariableDeclaration, Checker_getIndexedAccessType, Checker_getTargetOfAliasLikeExpression, Checker_markSymbolOfAliasDeclarationIfTypeOnly, Checker_needCollisionCheckForIdentifier, Checker_getTypeOfSymbol, Checker_getExportSymbolOfValueSymbolIfExported, Checker_getResolvedSymbolOrNil, Checker_isReadonlySymbol, Checker_reportNonexistentProperty, Checker_checkIdentifier, Checker_checkPrivateIdentifierExpression, Checker_checkPropertyAccessExpression, Checker_checkQualifiedName, Checker_checkIndexedAccess, Checker_checkMetaProperty, Checker_getDeclaredTypeOfSymbol, Checker_getSymbolOfDeclaration, Checker_classDeclarationExtendsNull, Checker_GetSymbolAtLocation, Checker_resolveAlias, } from "./symbols.js";
 import { Checker_checkTruthinessExpression, Checker_checkTestingKnownTruthyCallableOrAwaitableOrEnumMemberType, Checker_checkTruthinessOfType, Checker_extractDefinitelyFalsyTypes, Checker_removeDefinitelyFalsyTypes } from "./flow-narrowing.js";
 import { Checker_isCanceled, Checker_isUncheckedJSSuggestion, IsTypeAny, getContainingFunctionOrClassStaticBlock, NewDiagnosticForNode, forEachYieldExpression, isTypeAssertion, expressionResultIsUnused, isLiteralExpressionOfObject, getSuperContainer } from "../utilities.js";
 import { Checker_checkGrammarStatementInAmbientContext, Checker_grammarErrorOnFirstToken, Checker_grammarErrorOnNode, Checker_checkGrammarVariableDeclarationList, Checker_checkGrammarBreakOrContinueStatement, Checker_checkGrammarForInOrForOfStatement, Checker_checkGrammarYieldExpression, Checker_checkGrammarAwaitOrAwaitUsing, Checker_checkGrammarForDisallowedBlockScopedVariableStatement, Checker_grammarErrorAtPos, Checker_checkGrammarSourceFile, Checker_checkGrammarNumericLiteral, Checker_checkGrammarBigIntLiteral, } from "../grammarchecks.js";
@@ -2595,6 +2596,7 @@ function isIterativelyCheckableNonLogicalBinaryExpression(node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryLikeExpression","kind":"method","status":"implemented","sigHash":"058951d0c451f4334faaa90f108eb88c838ea7af7a55bddace4da2ff77570115","bodyHash":"35a4d3d98cecf55f83774842062fdfe4dbc8bb5d764df060a73c2c94e942e66b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Configured primitive shift operands retain their existing exact declaration facts instead of inheriting backing number/bigint incompatibilities; the Host remains the sole native operator-admission owner and ordinary number/bigint checking is unchanged."}
  *
  * Go source:
  * func (c *Checker) checkBinaryLikeExpression(left *ast.Node, operatorToken *ast.Node, right *ast.Node, checkMode CheckMode, errorNode *ast.Node) *Type {
@@ -2897,6 +2899,18 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
             }
             const leftOk = Checker_checkArithmeticOperandType(receiver, left, leftType, The_left_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type, true);
             const rightOk = Checker_checkArithmeticOperandType(receiver, right, rightType, The_right_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type, true);
+            const shift = IsShiftOperator(operator) || operator === KindLessThanLessThanEqualsToken
+                || operator === KindGreaterThanGreaterThanEqualsToken || operator === KindGreaterThanGreaterThanGreaterThanEqualsToken;
+            const originalSymbol = (node) => {
+                const symbol = Checker_GetSymbolAtLocation(receiver, node);
+                return symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
+                    ? Checker_resolveAlias(receiver, symbol) : symbol;
+            };
+            const configuredLeft = shift ? configuredSourcePrimitiveOperand(receiver.program, left, originalSymbol) : undefined;
+            const configuredRight = shift ? configuredSourcePrimitiveOperand(receiver.program, right, originalSymbol) : undefined;
+            const configuredShift = configuredLeft !== undefined && configuredRight !== undefined
+                && (configuredLeft.runtimeBase === "number" || configuredLeft.runtimeBase === "bigint")
+                && (configuredRight.runtimeBase === "number" || configuredRight.runtimeBase === "bigint");
             let resultType;
             if ((Checker_isTypeAssignableToKind(receiver, leftType, TypeFlagsAnyOrUnknown) && Checker_isTypeAssignableToKind(receiver, rightType, TypeFlagsAnyOrUnknown)) ||
                 (!Checker_maybeTypeOfKind(receiver, leftType, TypeFlagsBigIntLike) && !Checker_maybeTypeOfKind(receiver, rightType, TypeFlagsBigIntLike))) {
@@ -2906,7 +2920,8 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
                 switch (operator) {
                     case KindGreaterThanGreaterThanGreaterThanToken:
                     case KindGreaterThanGreaterThanGreaterThanEqualsToken:
-                        Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, undefined);
+                        if (!configuredShift)
+                            Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, undefined);
                         break;
                     case KindAsteriskAsteriskToken:
                     case KindAsteriskAsteriskEqualsToken:
@@ -2916,6 +2931,9 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
                         break;
                 }
                 resultType = receiver.bigintType;
+            }
+            else if (configuredShift) {
+                resultType = configuredLeft.runtimeBase === "bigint" ? receiver.bigintType : receiver.numberType;
             }
             else {
                 Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, (leftOperand, rightOperand) => Checker_bothAreBigIntLike(receiver, leftOperand, rightOperand));
