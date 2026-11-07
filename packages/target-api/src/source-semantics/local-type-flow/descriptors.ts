@@ -483,11 +483,19 @@ export function createSourceTypeDescriptorReader(
         if (selected === undefined) return undefined;
         arguments_.push(selected);
       }
-      // Inside its own body, a generic class or interface's this-type carries no checker type arguments: it is the
-      // declaration instantiated with its own type parameters.
       if (declaredBindings === undefined && arguments_.length === 0 && (ast.is.IsClassDeclaration(declaration) ||
         ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration))) {
-        for (const parameter of parametersFor(declaration)) arguments_.push({ kind: "declared", declaration: parameter, typeArguments: [] });
+        const owner = queries.declarations.declaredType(declaration);
+        const parameters = owner === undefined ? undefined : queries.types.typeArgumentBindings(owner);
+        if (parameters === undefined) return undefined;
+        for (const parameter of parameters) {
+          if (parameter.argumentType !== parameter.parameterType ||
+            queries.declarations.declaredType(parameter.declaration) !== parameter.parameterType) return undefined;
+          const selected = type(parameter.argumentType, queries, { selectedType: parameter.argumentType }, depth + 1, bindings);
+          if (selected === undefined) return undefined;
+          arguments_.push(selected);
+          instantiated.set(parameter.declaration, selected);
+        }
       }
       return nominal(selectedType, declaration, arguments_, queries, component, depth, instantiated, application);
     }
