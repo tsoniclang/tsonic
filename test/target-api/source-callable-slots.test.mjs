@@ -316,6 +316,111 @@ test("tail conditional applications retain their successive exact Source binder 
   }
 });
 
+test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
+  const current = fixture("export const integer = 1; export const fractional = 1.0; export const exponent = 1e3; export const radix = 0xff;");
+  for (const [name, primitive] of [["integer", "int64"], ["radix", "int64"], ["fractional", "float64"], ["exponent", "float64"]]) {
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "primitive" && value.type.primitive === primitive, true, name);
+  }
+});
+
+test("authored array syntax preserves the element source fact instead of erasing to number", () => {
+  const current = fixture("declare const integers: int32[]; declare const singles: readonly float32[];");
+  for (const [name, primitive, readonly] of [["integers", "int32", false], ["singles", "float32", true]]) {
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "array" && value.type.readonly === readonly && value.type.element.kind === "primitive" &&
+      value.type.element.primitive === primitive, true, name);
+    const child = current.source.facts.descriptors.component(value, { kind: "array-element" });
+    assert.equal(child.kind === "resolved" && child.value.type === value.type.element, true, `${name}: the original registered child is retained`);
+  }
+});
+
+test("never-open folded integer arithmetic retains its native int64 creation default", () => {
+  const current = fixture("export const quotient = 7 / 2; export const sum = 1 + 2;");
+  for (const name of ["quotient", "sum"]) {
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "primitive" && value.type.primitive === "int64", true, name);
+  }
+});
+
+test("an imported primitive qualifier keeps its declaration fact instead of its erased number type", () => {
+  const current = fixture('declare const value: import("@test/words").int32;');
+  const value = current.slot("value");
+  assert.equal(value.type.kind === "primitive" && value.type.primitive === "int32", true);
+});
+
+test("optional member presence is independent of an absence-capable member value", () => {
+  const current = fixture("declare const absent: { value?: int32 }; declare const present: { value: int32 | undefined };");
+  for (const [name, optional] of [["absent", true], ["present", false]]) {
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "shape" && value.type.members.length === 1, true, name);
+    const member = value.type.members[0];
+    assert.equal(member.optional === optional && member.type.kind === "optional" && member.type.value.kind === "primitive" &&
+      member.type.value.primitive === "int32", true, name);
+  }
+});
+
+test("declared undefined and null are absence while a callable void result remains void", () => {
+  const current = fixture("declare const empty: undefined; declare const nil: null; declare const callback: () => void;");
+  for (const name of ["empty", "nil"]) {
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "intrinsic" && value.type.intrinsic === "absence", true, name);
+  }
+  const callback = current.slot("callback");
+  assert.equal(callback.type.kind === "callable" && callback.type.calls.length === 1 &&
+    callback.type.calls[0].result.kind === "intrinsic" && callback.type.calls[0].result.intrinsic === "void", true);
+  const result = current.source.facts.values.callableReturn(callback.type.calls[0].identity);
+  assert.equal(result.kind === "resolved" && result.value.type === callback.type.calls[0].result, true);
+});
+
+test("nominal source identity is a declaration and its ordered actual descriptors", () => {
+  const current = fixture("declare class Box<T> { value: T } declare const box: Box<int32>;");
+  const value = current.slot("box");
+  assert.equal(value.type.kind === "declared" && current.source.ast.is.IsClassDeclaration(value.type.declaration) &&
+    value.type.typeArguments.length === 1 && value.type.typeArguments[0].kind === "primitive" &&
+    value.type.typeArguments[0].primitive === "int32", true);
+});
+
+test("the two readonly tuple positions retain independent source widths", () => {
+  const current = fixture("declare const pair: readonly [int32, float32];");
+  const value = current.slot("pair");
+  assert.equal(value.type.kind === "tuple" && value.type.readonly && value.type.elements.length === 2, true);
+  for (const [index, primitive] of ["int32", "float32"].entries()) {
+    const element = value.type.elements[index];
+    assert.equal(element.kind === "required" && element.type.kind === "primitive" && element.type.primitive === primitive, true);
+    const child = current.source.facts.descriptors.component(value, { kind: "tuple-element", index });
+    assert.equal(child.kind === "resolved" && child.value.type === element.type, true);
+  }
+});
+
+test("checked optional-property occurrences keep their narrowed declared width", () => {
+  const current = fixture("declare const data: { value?: int32 }; function run(): void { if (data.value !== undefined) { const narrowed = data.value; } }");
+  const value = current.slot("narrowed");
+  assert.equal(value.type.kind === "primitive" && value.type.primitive === "int32", true);
+});
+
+test("an opaque declared object publishes the object intrinsic, not a structural shape", () => {
+  const current = fixture("declare const value: object;");
+  const value = current.slot("value");
+  assert.equal(value.type.kind === "intrinsic" && value.type.intrinsic === "object", true);
+  const definition = current.source.facts.descriptors.definition(value);
+  assert.equal(definition.kind === "resolved" && definition.value.type === value.type, true);
+  assert.equal(current.source.facts.refusals().length, 0);
+});
+
+test("a generic type annotation retains its checked type declaration beside a same-name constructor value", () => {
+  const current = fixture(`interface Box<Value> { value: Value; }
+    declare const Box: { new<Value>(value: Value): Box<Value> };
+    function run(): void { const selected: Box<int32> = new Box<int32>(1); }`);
+  const declaration = current.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "Box");
+  const value = current.slot("selected");
+  assert.equal(declaration !== undefined && value.type.kind === "declared" && value.type.declaration === declaration, true,
+    "the constructor value never owns the original type annotation's binders");
+  assert.equal(value.type.typeArguments.length === 1 && value.type.typeArguments[0].kind === "primitive" &&
+    value.type.typeArguments[0].primitive === "int32", true);
+});
+
 for (const example of receiverExamples) test(`a ${example.name} this-type retains the complete original checked binder vector`, () => {
   const current = fixture(example.text);
   const { ast, facts } = current.source;

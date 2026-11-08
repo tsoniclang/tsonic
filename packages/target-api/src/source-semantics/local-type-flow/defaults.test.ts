@@ -506,53 +506,6 @@ test("expanding alias recursion uses the shared declared resource budget rather 
       failure.diagnostic.evidence?.includes(`depth=${sourceTypeExpansionBudget.depth}`) === true);
 });
 
-test("integer tokens and fractional or exponent tokens retain distinct leaf defaults", () => {
-  const current = fixture("export const integer = 1; export const fractional = 1.0; export const exponent = 1e3; export const radix = 0xff;");
-  for (const name of ["integer", "radix"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
-  for (const name of ["fractional", "exponent"]) assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "float64" });
-});
-
-test("authored array syntax preserves the element source fact instead of erasing to number", () => {
-  const current = fixture("declare const integers: int32[]; declare const singles: readonly float32[];");
-  assertSameValue(current.defaults.context.describe(current.declaration("integers")), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int32" } });
-  assertSameValue(current.defaults.context.describe(current.declaration("singles")), { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float32" } });
-});
-
-test("never-open folded integer arithmetic retains its native int64 creation default", () => {
-  const current = fixture("export const quotient = 7 / 2; export const sum = 1 + 2;");
-  for (const name of ["quotient", "sum"]) {
-    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
-  }
-});
-
-test("an imported primitive qualifier keeps its declaration fact instead of its erased number type", () => {
-  const current = fixture('declare const value: import("@test/words").int32;');
-  assertSameValue(current.defaults.context.describe(current.declaration("value")), { kind: "primitive", primitive: "int32" });
-});
-
-test("optional member presence is independent of an absence-capable member value", () => {
-  const current = fixture("declare const absent: { value?: int32 }; declare const present: { value: int32 | undefined };");
-  for (const [name, optional] of [["absent", true], ["present", false]] as const) {
-    const type = current.defaults.context.describe(current.declaration(name));
-    assert.equal(type?.kind === "shape", true);
-    if (type?.kind !== "shape") throw new Error("The exact declared shape is required.");
-    assert.equal(type.members.length, 1);
-    assert.equal(type.members[0]!.optional, optional);
-    assertSameValue(type.members[0]!.type, { kind: "optional", value: { kind: "primitive", primitive: "int32" } });
-  }
-});
-
-test("declared undefined and null are absence while a callable void result remains void", () => {
-  const current = fixture("declare const empty: undefined; declare const nil: null; declare const callback: () => void;");
-  for (const name of ["empty", "nil"]) {
-    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "intrinsic", intrinsic: "absence" });
-  }
-  const callback = current.defaults.context.describe(current.declaration("callback"));
-  assert.equal(callback?.kind === "callable", true);
-  if (callback?.kind !== "callable") throw new Error("The actual declared callback is required.");
-  assertSameValue(callback.calls[0]?.result, { kind: "intrinsic", intrinsic: "void" });
-});
-
 test("a required component overrides the occurrence's literal default", () => {
   const current = fixture("declare const required: number[]; export const literal = [1];");
   const declaration = current.declaration("required");
@@ -562,21 +515,6 @@ test("a required component overrides the occurrence's literal default", () => {
   const value = current.defaults.context.describe(current.declaration("literal"), { selectedType, declaration,
     authoredTypeNode: current.source.ast.typeNode(declaration) });
   assertSameValue(value, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
-});
-
-test("nominal source identity is a declaration and its ordered actual descriptors", () => {
-  const current = fixture("declare class Box<T> { value: T } declare const box: Box<int32>;");
-  const type = current.defaults.context.describe(current.declaration("box"));
-  assert.equal(type?.kind === "declared", true);
-  assert.equal(type?.kind === "declared" && current.source.ast.is.IsClassDeclaration(type.declaration), true);
-  if (type?.kind === "declared") assertSameValue(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
-});
-
-test("the two readonly tuple positions retain independent source widths", () => {
-  const current = fixture("declare const pair: readonly [int32, float32];");
-  assertSameValue(current.defaults.context.describe(current.declaration("pair")), { kind: "tuple", readonly: true,
-    elements: [{ kind: "required", type: { kind: "primitive", primitive: "int32" } },
-      { kind: "required", type: { kind: "primitive", primitive: "float32" } }] });
 });
 
 test("a descending or non-unit-step counter is fixed without a counted-loop proof", () => {
@@ -611,11 +549,6 @@ for (const selected of [{ annotation: "number", primitive: "float64" }, { annota
 test("ordinary int64-compatible values do not acquire loop-counter authority", () => {
   const current = fixture("export const value = 8;");
   assert.equal(current.defaults.fixedRule(current.declaration("value")), undefined);
-});
-
-test("checked optional-property occurrences keep their narrowed declared width", () => {
-  const current = fixture("declare const data: { value?: int32 }; function run(): void { if (data.value !== undefined) { const narrowed = data.value; } }");
-  assertSameValue(current.defaults.context.describe(current.declaration("narrowed")), { kind: "primitive", primitive: "int32" });
 });
 
 test("excluded annotations and tuple aliases retain the included consumer's query", () => {
@@ -749,31 +682,6 @@ test("annotated unions and index signatures publish their declared type, never t
       : described?.kind === "shape" && described.indexes.length > 0, true);
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
-
-test("an opaque declared object publishes the object intrinsic, not a structural shape", () => {
-  const current = fixture("declare const value: object;");
-  const described = current.defaults.context.describe(current.declaration("value"));
-  const published = current.source.effectiveTypes.get(current.declaration("value"));
-  assertSameValue(described, { kind: "intrinsic", intrinsic: "object" });
-  assert.equal(published !== undefined && published.kind !== "refused", true);
-  if (published === undefined || published.kind === "refused") throw new Error("The declared type must be published.");
-  assertSameValue(published.type, { kind: "intrinsic", intrinsic: "object" });
-  assert.equal(described?.kind === "shape" || published.type.kind === "shape", false);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
-
-test("a generic type annotation retains its checked type declaration beside a same-name constructor value", () => {
-  const current = fixture(`interface Box<Value> { value: Value; }
-    declare const Box: { new<Value>(value: Value): Box<Value> };
-    function run(): void { const selected: Box<int32> = new Box<int32>(1); }`);
-  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node) &&
-    current.source.ast.text(current.source.ast.name(node)) === "Box");
-  const type = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(declaration !== undefined && type?.kind === "declared", true, "the real checked generic declaration is retained");
-  if (type?.kind !== "declared") throw new Error("The declared generic descriptor is required.");
-  assert.equal(type.declaration === declaration, true, "the constructor value cannot own a type annotation's binders");
-  assertSameValue(type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
 });
 
 test("declared index aliases retain the actual signature only in their resolved definition", () => {
