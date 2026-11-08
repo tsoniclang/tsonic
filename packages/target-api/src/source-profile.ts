@@ -1,4 +1,4 @@
-import type { SourceJsApiFactsFactory } from "./target-analysis/source-profile.js";
+import type { SourceJsApiFactsFactory } from "./source-model/profile.js";
 
 export const tsonicSourceProfileVirtualDirectory = ".tsonic/source-profiles";
 

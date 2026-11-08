@@ -1,7 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
-import type { SourceJsApiFactsFactory } from "../target-analysis/source-profile.js";
-import type { SourceProfileDeclarationIdentity } from "../target-analysis/source-profile-identity.js";
+import type { SourceJsApiFactsFactory } from "../source-model/profile.js";
+import type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";
 import type { SourceDescriptorInput } from "./descriptor-input.js";
 import type { SourceInputDiagnosticIdentity } from "./call-input.js";
 import type { SourceInputMemberUseSelection } from "./member-input.js";

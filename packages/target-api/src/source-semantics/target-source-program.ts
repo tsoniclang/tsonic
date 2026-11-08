@@ -19,7 +19,7 @@ import type { SourceObjectFacts, SourceProgramFacts, TargetSourceProgram } from 
 import { createSourceAdmissionFacts } from "./admission.js";
 import { createSourcePropertyNameQuery } from "./property-names.js";
 import { createSourceAnalysisFacts } from "../target-analysis/source-protocol-production.js";
-import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
+import type { SourceAnalysisFacts } from "../source-model/protocols.js";
 import { createSourceNodeNavigationFacts } from "../source-navigation/facts.js";
 import { createSourcePointerFacts } from "../target-analysis/source-pointer-production.js";
 import { createSourceControlFlowQueries } from "../target-analysis/flow/graph.js";

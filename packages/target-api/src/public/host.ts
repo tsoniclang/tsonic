@@ -7,7 +7,7 @@ export type * from "../host-input/marker-input.js";
 export type * from "../host-input/navigation-input.js";
 export type * from "../host-input/core-input.js";
 export type { SourcePropertyNameFacts } from "../host-input/property-name-input.js";
-export type { SourceJsApiFactsInput, SourceJsApiFactsFactory } from "../target-analysis/source-profile.js";
+export type { SourceJsApiFactsInput, SourceJsApiFactsFactory } from "../source-model/profile.js";
 export type { SourceProgramInput, SourceOriginalNodeInventory } from "../host-input/program-input.js";
 export { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 export { sourceIntegerLiteralValue } from "../source-model/literals/integer.js";

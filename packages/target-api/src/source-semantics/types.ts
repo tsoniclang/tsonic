@@ -1,8 +1,8 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceAdmissionFacts, SourceApplicationFacts, SourceDescriptorView, SourceEnumFacts, SourceIntegerFacts, SourceNavigationFacts, SourcePresence, SourcePropertyName, SourceRefusal, SourceResult, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
-import type { SourceJsApiFacts } from "../target-analysis/source-profile.js";
-import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
+import type { SourceJsApiFacts } from "../source-model/profile.js";
+import type { SourceAnalysisFacts } from "../source-model/protocols.js";
 import type { SourceMemberCorrespondenceQueries } from "./member-correspondence.js";
 import type { SourceMemberUse } from "./member-use.js";
 
