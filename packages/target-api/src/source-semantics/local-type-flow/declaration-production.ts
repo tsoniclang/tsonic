@@ -3,21 +3,14 @@ import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceCorrespondenceMember } from "../../source-model/members.js";
+import type { SourceDeclarationProduction } from "./production-context.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceParameterPresence, produceSourceReceiverBindings } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
-import type { SourceTypeFlowAnalysisContext } from "./types.js";
 import { produceSourceBindingValue } from "./binding-production.js";
 
-export interface SourceDeclarationProduction extends SourceCallableProduction {
-  readonly context: SourceTypeFlowAnalysisContext;
-  callableHead(declaration: Node, role: "body" | "signature", bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  inferred(node: Node): SourceProductionResult<SourceTypeEvidence>;
-  iteration(declaration: Node): SourceProductionResult<SourceTypeEvidence | undefined>;
-  enumValue(component: SourceInputComponent, declaration: Node): SourceProductionResult<SourceTypeEvidence>;
-}
 
 export function produceSourceDeclaredSlot(production: SourceDeclarationProduction, declaration: Node,
   bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceDeclaredSlot> {

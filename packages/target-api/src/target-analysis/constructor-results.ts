@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { TargetSourceProgram } from "../source-model/program.js";
 import { AsBinaryExpression, AsConditionalExpression, AsIfStatement, AsVariableStatement,
   AsVariableDeclarationList, Node_Expression, Node_Initializer, forEachSourceImmediateEvaluationChild,
   sourceCallableRoles, sourceBindingWriteAtReference, sourceEnclosing,

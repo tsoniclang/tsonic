@@ -4,7 +4,7 @@ import {
   Node_Expression, sourceCallableDefinitionIsDiscarded,
   sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
 } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import { createSourceGenericAdoptionDiagnostics } from "./generic-adoption-diagnostics.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises,
   SourceDeclarationOwnershipUnresolved } from "./model.js";

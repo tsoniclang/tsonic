@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";

@@ -17,7 +17,8 @@ import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
-import type { SourceStorageBindings, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "../../source-model/storage.js";
+import type { SourceStorageBindings, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../source-model/program.js";
 
 export function createSourceStorageQueries(
   source: SourceStorageProgram,

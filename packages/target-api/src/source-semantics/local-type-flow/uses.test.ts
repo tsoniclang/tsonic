@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, pointerOperationFactKey,
   type CompilerExtension, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
-import type { SourceTypeComponentEvidence } from "../types.js";
+import type { SourceTypeComponentEvidence } from "../../source-model/program.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import type {
   SourceTypeDescriptor, SourceTypeFlowAnalysisContext, SourceTypeFlowArgumentPlace,

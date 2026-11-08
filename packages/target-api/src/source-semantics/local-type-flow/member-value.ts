@@ -2,7 +2,8 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
 import { sourceOpenLiteralDomain, sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export function produceSourceMemberValue(context: Pick<SourceSemanticProduction, "builder" | "input">,
   occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write", arms: readonly SourceTypeEvidence[],

@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { TargetSourceProgram } from "../source-model/program.js";
 import { createSourceCallableValueQuery, sourceCallableValueExpression } from "../source-navigation/callable-values.js";
 
 export interface SourceBinaryEntryIssue {

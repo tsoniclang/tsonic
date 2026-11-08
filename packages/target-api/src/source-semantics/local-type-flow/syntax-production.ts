@@ -6,7 +6,8 @@ import { produceSourceConditionalType } from "./conditional-descriptors.js";
 import { produceSourceMappedType } from "./mapped-types.js";
 import { produceSourceIndexedType, produceSourceKeyOfType, sourceKeyEvidence } from "./type-keys.js";
 import { sourceEvidenceExtends } from "./evidence-relations.js";
-import { sourceProductionValues, sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
+import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSyntaxProduction } from "./production-context.js";
 
 export function produceSourceSyntaxType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
   const { ast, syntax } = context;

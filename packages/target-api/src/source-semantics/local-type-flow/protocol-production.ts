@@ -1,14 +1,16 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputAtomicIteration, SourceInputIterationMechanism, SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { SourceInputSignature } from "../../host-input/identities.js";
-import type { SourceAnalysisFacts, SourceAtomicIterationMechanism, SourceGenerator, SourceIteration,
-  SourceIterationMechanism, SourceIterationValues, SourceYield } from "../../source-model/protocols.js";
+import type { SourceAnalysisFacts } from "../../source-model/program.js";
+import type { SourceAtomicIterationMechanism, SourceGenerator, SourceIteration, SourceIterationMechanism, SourceIterationValues, SourceYield } from "../../source-model/protocols.js";
 import type { SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { produceSourceAwaitedType } from "./awaited.js";
 import { createSourceProductionCache } from "./production-cache.js";
-import { produceSourceReceiverBindings, type SourceCallableProduction, type SourceProducedSignature } from "./callable-production.js";
+import { produceSourceReceiverBindings } from "./callable-production.js";
+import type { SourceCallableProduction } from "./production-context.js";
+import type { SourceProducedSignature } from "./application-data.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceSequenceElements } from "./tuple-layout.js";
 

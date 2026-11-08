@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclaredHeritageEdge, SourceProgramNavigation } from "../source-navigation/index.js";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-model/program.js";
 
 export function sourceInterfaceRepresentationBase(
   declaration: Node,

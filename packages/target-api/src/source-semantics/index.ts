@@ -1,6 +1,7 @@
-export type * from "./types.js";
+export type { SourceDocument, SourceAuthoredOccurrence, SourceSyntheticOccurrence, SourceOccurrence, SourceOccurrenceLookup, SourceProgramDocuments, SourceObjectFacts, SourceProgramFacts, TargetSourceProgram, SourceAnalysisFacts } from "../source-model/program.js";
 export type { SourceCorrespondenceMember, SourceCorrespondenceIndex, SourceCorrespondenceMemberIdentity, SourceMemberPair, SourceIndexPair, SourceMemberCorrespondence, SourceMemberCorrespondenceQueries } from "../source-model/members.js";
-export type { SourcePropertyUseArm, SourceIndexUseArm, SourceMemberUseArm, SourceMemberUse } from "./member-use.js";
+export type { SourceDisposalAlternative, SourceResourceManagement } from "../source-model/resources.js";
+export type { SourceNodeCountedLoop } from "../source-model/loops.js";
 export type * from "../source-model/profile.js";
 export type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";
 export type * from "../source-model/protocols.js";

@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourceFile, Symbol } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { TargetSourceProgram } from "../source-model/program.js";
 import { sourceBindingWriteAtReference } from "../source-navigation/index.js";
 import { sourceCallableRoles } from "../source-navigation/callable-boundaries.js";
 import type { SourceBindingWrite, SourceCallableImplementationResult, SourceCountedLoop, SourceDeclarationReference, SourceDeclarationUseSummary, SourceDeclaredHeritageResult, SourceExpressionEffects, SourceProjectMemberContractsResult, SourceProjectMemberDispatch, SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectReference } from "../source-navigation/index.js";

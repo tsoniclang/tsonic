@@ -1,6 +1,6 @@
 import type { AstReader, Node, SourceFileQueries, Type } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo } from "../source-navigation/call-info.js";
-import type { SourceFileSemantics, SourceTypeComponentEvidence } from "./types.js";
+import type { SourceFileSemantics, SourceTypeComponentEvidence } from "../source-model/program.js";
 
 export function getSourceCallTypeParameterDeclaration(
   ast: AstReader,

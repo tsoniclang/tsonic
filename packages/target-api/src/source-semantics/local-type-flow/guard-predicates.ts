@@ -4,7 +4,7 @@ import type { SourceLiteralDomain } from "../../source-model/literals/domain.js"
 import { sourceLiteralUnitsEqual, sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceValueGuard } from "../native-value-guards.js";
-import type { SourceSemanticProduction } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export function produceSourceGuardPredicate(context: Pick<SourceSemanticProduction, "builder"> & {
   syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;

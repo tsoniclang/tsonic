@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceLexicalCapture, SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import { sourceLexicalEnvironment } from "../../source-navigation/lexical-environments.js";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import { SourceFlowFailure } from "./resources.js";
 
 export function createSourceFlowCaptureQuery(source: TargetSourceProgram, step: (node?: Node) => void,

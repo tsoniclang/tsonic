@@ -5,7 +5,8 @@ import { sourceLiteralValueDomain } from "../../source-model/literals/value-doma
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Expression, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { sourceTypeFlowNumericLiteralKind } from "./defaults.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import { sourceScalarCreationDestination } from "./construction-slots.js";

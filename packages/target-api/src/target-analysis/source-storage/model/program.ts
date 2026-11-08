@@ -3,7 +3,7 @@ import type { SourceDeclaredSlot, SourceCallableRole, SourcePresence, SourceRefu
 import type { SourceProductionResult } from "../../../source-model/production.js";
 import type { SourceMemberInventoryQueries } from "../../../source-semantics/member-inventory.js";
 import type { SourceMemberCorrespondenceProduction } from "../../../source-semantics/member-correspondence.js";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../../source-model/program.js";
 import type { SourceLiteralDomain } from "../../../source-model/literals/domain.js";
 
 export interface SourceStorageAnalysisInputs {

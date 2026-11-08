@@ -1,6 +1,6 @@
 import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
 import { Node_Expression } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises, SourceDeclarationOwnershipValues,
   SourceDeclarationPendingOperation, SourceDeclarationPendingSelection } from "./model.js";
 import { sourceDeclarationOwnershipContractProblem, sourceDeclarationOwnershipUnresolved } from "./contracts.js";

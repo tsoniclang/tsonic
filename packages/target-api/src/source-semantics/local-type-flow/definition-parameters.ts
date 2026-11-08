@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export function produceSourceDefinitionParameters(context: Pick<SourceSemanticProduction, "ast" | "input">,
   declaration: Node): SourceProductionResult<readonly Node[]> {

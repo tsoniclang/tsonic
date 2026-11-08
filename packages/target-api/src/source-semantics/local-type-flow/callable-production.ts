@@ -5,26 +5,14 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
-import type { SourceCallParameter } from "./argument-places.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
+import type { SourceCallParameter } from "./application-data.js";
+import type { SourceCallableProduction } from "./production-context.js";
+import type { SourceProducedSignature } from "./application-data.js";
 import { produceSourceDefinitionParameters } from "./definition-parameters.js";
 
-export interface SourceCallableProduction extends SourceSemanticProduction {
-  readonly navigation: SourceNodeNavigationFacts;
-  value(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  place(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  parameter(component: SourceInputComponent, declaration: Node | undefined, signature: SourceSignatureIdentity, index: number,
-    bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  completion(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  observeSignature(signature: SourceSignatureIdentity, result: SourceTypeEvidence, bindings: readonly SourceTypeBinding[], root: Node): void;
-}
 
-export interface SourceProducedSignature {
-  readonly identity: SourceSignatureIdentity;
-  readonly receiver: { readonly declaration: Node | undefined; readonly value: SourceTypeEvidence } | undefined;
-  readonly parameters: readonly SourceCallParameter[];
-  readonly result: SourceTypeEvidence;
-}
 
 export function produceSourceParameterPresence(context: Pick<SourceSemanticProduction, "builder" | "reader">,
   component: SourceInputComponent, value: SourceTypeEvidence, optional: boolean): SourceProductionResult<SourceTypeEvidence> {

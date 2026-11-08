@@ -1,16 +1,12 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputCallSelection,
+import type { SourceInputCallCandidate, SourceInputCallSelection,
 } from "../../host-input/call-input.js";
-import type { SourceApplication } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import type { SourceProducedApplication } from "./applications.js";
+import type { SourceProducedApplication } from "./application-data.js";
+import type { SourceCallCandidateEvaluation } from "./application-data.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";
 
-export type SourceCallCandidateEvaluation =
-  | { readonly kind: "not-applicable"; readonly candidate: SourceInputCallCandidate; readonly site: Node; readonly message: string }
-  | { readonly kind: "applicable"; readonly candidate: SourceInputCallCandidate; readonly application: SourceApplication;
-      readonly proven: readonly SourceInputBackingConstraint[] };
 
 export function selectSourceCallCandidate(selection: SourceInputCallSelection, invocation: Node,
   evaluate: (candidate: SourceInputCallCandidate) => SourceProductionResult<SourceCallCandidateEvaluation>): SourceProductionResult<SourceProducedApplication> {

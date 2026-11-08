@@ -1,5 +1,5 @@
 import type { AstReader, Node, ReadonlySourceFactResolver, ResolvedSourcePropertyAccessInfo, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
-import type { SourceValueTypeRefinementSelection } from "./types.js";
+import type { SourceValueTypeRefinementSelection } from "../source-model/program.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { selectSourcePropertyDeclaration } from "./selected-property-declarations.js";
 

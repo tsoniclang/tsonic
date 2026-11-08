@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
 import { sourceLiteralUnitsEqual, type SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { AsCaseBlock, AsCaseOrDefaultClause, AsSwitchStatement } from "../../source-navigation/checked-casts.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 
 export function createSourceSwitchCoverage(source: TargetSourceProgram): (switchStatement: Node) => SourceResult<boolean> {
   const { ast } = source;

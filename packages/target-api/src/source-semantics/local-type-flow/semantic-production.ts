@@ -1,24 +1,8 @@
-import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDescriptorInput } from "../../host-input/descriptor-input.js";
-import type { SourceInputComponent } from "../../host-input/identities.js";
-import type { SourceCategoryDomain, SourceRefusal, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceCategoryDomain, SourceRefusal, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import type { SourceDescriptorBuilder, SourceDescriptorReader } from "../descriptor-contracts.js";
-import type { SourceMemberCorrespondenceProduction } from "../member-correspondence.js";
 
-export interface SourceSemanticProduction {
-  readonly ast: AstReader;
-  readonly input: SourceDescriptorInput;
-  readonly builder: SourceDescriptorBuilder;
-  readonly reader: SourceDescriptorReader;
-  readonly objects: SourceMemberCorrespondenceProduction;
-}
 
-export interface SourceSyntaxProduction extends SourceSemanticProduction {
-  readonly component: SourceInputComponent;
-  readonly syntax: Node;
-  readonly bindings: readonly SourceTypeBinding[];
-}
 
 export function sourceSemanticRefusal(site: Node, message: string, code = "TSONIC_LOCAL_TYPE_UNSUPPORTED"): SourceRefusal {
   return Object.freeze({ kind: "refused", source: "tsonic", code, site, message });

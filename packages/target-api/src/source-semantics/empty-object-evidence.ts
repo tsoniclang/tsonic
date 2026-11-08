@@ -1,5 +1,5 @@
 import type { AstReader, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics, TargetSourceProgram } from "./types.js";
+import type { SourceFileSemantics, TargetSourceProgram } from "../source-model/program.js";
 
 export function sourceTypeIsAuthoredEmptyObject(
   type: Type,

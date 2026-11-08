@@ -6,10 +6,11 @@ import type { SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult,
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceMemberInventoryQueries } from "../source-semantics/member-inventory.js";
-import type { SourceMemberUse } from "../source-semantics/member-use.js";
+import type { SourceMemberUse } from "../source-model/member-use.js";
 import type { SourceMarkerFacts } from "../source-model/markers.js";
 import type { SourcePointerFacts } from "../source-model/pointers.js";
-import type { SourceAnalysisFacts, SourceDisposalAlternative, SourceResourceManagement } from "../source-model/protocols.js";
+import type { SourceAnalysisFacts } from "../source-model/program.js";
+import type { SourceDisposalAlternative, SourceResourceManagement } from "../source-model/resources.js";
 import { createSourceStoragePlaceQueries } from "./source-storage/place.js";
 import type { SourceControlFlowQueries } from "../source-model/control-flow.js";
 import type { SourceSafetyFacts } from "../source-model/safety.js";

@@ -1,4 +1,4 @@
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../../source-model/program.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceSignatureIdentity, SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceStorageValue } from "./program.js";

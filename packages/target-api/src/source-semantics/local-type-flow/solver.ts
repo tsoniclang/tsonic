@@ -18,10 +18,11 @@ import { createSourceProductionCache } from "./production-cache.js";
 import { createSourceSolvedFacts } from "./publication.js";
 import { createSourceLiteralDomainQueries, produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { createSourceSolvedProtocolFacts } from "./protocol-production.js";
-import { produceSourceApplication, type SourceApplicationProduction, type SourceProducedApplication } from "./applications.js";
+import { produceSourceApplication, type SourceApplicationProduction } from "./applications.js";
+import type { SourceProducedApplication } from "./application-data.js";
 import { produceSourceCallableHead, produceSourceCallableSignature, produceSourceHeritageBindings } from "./callable-production.js";
-import { produceSourceDeclaredComponent, produceSourceDeclaredSlot, produceSourceCallableCompletion,
-  produceSourceMemberDestination, sourceUnresolvedDeclaration, type SourceDeclarationProduction } from "./declaration-production.js";
+import { produceSourceDeclaredComponent, produceSourceDeclaredSlot, produceSourceCallableCompletion, produceSourceMemberDestination, sourceUnresolvedDeclaration } from "./declaration-production.js";
+import type { SourceDeclarationProduction } from "./production-context.js";
 import { produceSourceOperation } from "./operation-production.js";
 import { produceSourceValue } from "./value-production.js";
 import { sourceEvidenceExtends } from "./evidence-relations.js";

@@ -1,5 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
-import type { SourceNodeCountedLoop } from "../../source-model/navigation.js";
+import type { SourceNodeCountedLoop } from "../../source-model/loops.js";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 export type { SourcePropertyName } from "../../source-model/property-names.js";
 

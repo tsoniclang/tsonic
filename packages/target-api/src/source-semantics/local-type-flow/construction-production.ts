@@ -7,7 +7,8 @@ import { sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type Source
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { Node_Expression, ObjectLiteralProperty_Value, SpreadAssignment_Expression } from "../../source-navigation/ast.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 import { produceSourceConstructionDestination } from "./construction-destinations.js";
 import { produceSourceMemberKey } from "./type-keys.js";
 

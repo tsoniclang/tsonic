@@ -7,7 +7,8 @@ import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
-import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction, type SourceSyntaxProduction } from "./semantic-production.js";
+import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction, SourceSyntaxProduction } from "./production-context.js";
 import { produceSourceSequenceElements } from "./tuple-layout.js";
 
 export function sourceMemberKeyUnit(key: SourceMemberKey): SourceLiteralUnit {

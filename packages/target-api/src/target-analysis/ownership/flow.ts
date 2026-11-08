@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../../source-model/control-flow.js";

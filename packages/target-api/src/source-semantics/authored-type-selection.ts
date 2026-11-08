@@ -2,7 +2,7 @@ import type { AstReader, Node, ReadonlySourceFactResolver, Type, TypeCheckerQuer
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { sourceTypeMemberRefines } from "./type-refinement.js";
 import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-model/program.js";
 
 export type SourceAuthoredTypeSelection =
   | {

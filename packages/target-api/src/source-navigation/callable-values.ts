@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourcePresence, SourceResult } from "../public/source/contracts.js";
-import type { SourceMemberUse } from "../source-semantics/member-use.js";
+import type { SourceMemberUse } from "../source-model/member-use.js";
 import type { SourceNavigationQueryContext } from "./query-context.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { Node_Expression } from "./ast.js";

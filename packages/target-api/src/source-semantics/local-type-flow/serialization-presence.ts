@@ -5,7 +5,8 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceKeyEvidence } from "./type-keys.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 type SerializationPresence = "present" | "absent" | "unknown";
 

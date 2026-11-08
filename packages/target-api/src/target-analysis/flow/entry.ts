@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
 import type { SourceDeclarationFlowExecutionRegion } from "../../source-model/control-flow.js";

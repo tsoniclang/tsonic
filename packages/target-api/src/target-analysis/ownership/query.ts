@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import type { SourceFlowLimits } from "../../source-model/control-flow.js";
 import type { SourceDeclarationAsyncOwnershipSelection, SourceDeclarationContinuationSelection,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipPremises } from "./model.js";

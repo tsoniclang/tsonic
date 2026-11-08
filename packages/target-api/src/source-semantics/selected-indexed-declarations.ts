@@ -1,5 +1,5 @@
 import type { Node, TypeIndexedAccessSelection } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-model/program.js";
 import { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 
 export function selectedSourceIndexedDeclarations(

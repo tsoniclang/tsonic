@@ -1,6 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceArgumentPlace, SourceRefusal, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { TargetSourceProgram } from "../source-semantics/types.js";
 import type { SourceNodeWriteValue } from "./navigation.js";
 import type { SourceJsCallbackEffect, SourceJsCallStorageEffect } from "./profile.js";
 
@@ -37,10 +36,6 @@ export interface SourceStorageAnalysisOptions {
   readonly limits: SourceStorageLimits;
   readonly nativeClassConstructors: readonly SourceStorageNativeConstructorPremise[];
 }
-
-export type SourceStorageAnalysisSelection =
-  | { readonly kind: "resolved"; readonly queries: SourceStorageQueries }
-  | SourceStorageUnresolved;
 
 export type SourceStorageUnresolved = SourceRefusal | {
   readonly kind: "unresolved";
@@ -251,58 +246,3 @@ export type SourceStorageConstructionSelection = SourceStorageUnresolved | {
     } | undefined;
   }[];
 };
-
-export interface SourceStorageQueries {
-  readonly source: TargetSourceProgram;
-  readonly sourceFiles: readonly SourceFile[];
-  readonly nodes: readonly Node[];
-  readonly subjects: readonly SourceStorageSubject[];
-  readonly boundaries: readonly SourceStorageBoundary[];
-  readonly invocations: readonly Node[];
-  readonly accessorInvocations: readonly Node[];
-  readonly emptyBindings: SourceStorageBindings;
-  failureReason(): string | undefined;
-  subject(node: Node, kind?: SourceStorageSubject["kind"], projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
-  subjectFor(node: Node): SourceStorageSubjectSelection;
-  memberSubjectFor(node: Node): SourceStorageSubjectSelection;
-  storageSubjectFor(node: Node, projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
-  writeAt(reference: Node, bindings: SourceStorageBindings): SourceStorageWriteSelection;
-  memberWritesFor(subject: SourceStorageSubject): SourceStorageMemberWritesSelection;
-  formalMemberWriteDemand(declaration: Node, parameter: Node): SourceStorageFormalMemberWriteDemandSelection;
-  sealFormalMemberWriteDemands(): void;
-  typeFor(subject: SourceStorageSubject): SourceStorageTypeSelection;
-  incomingFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
-  ancestorsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
-  originSubjectsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
-  originsFor(subject: SourceStorageSubject): SourceStorageOriginsSelection;
-  closedOriginsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageClosedOriginsSelection;
-  storageProducersFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
-  localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
-  unresolvedFor(subject: SourceStorageSubject): string | undefined;
-  invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings,
-    callback?: SourceStorageArgumentTransport): SourceStorageImplementationsSelection;
-  invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
-  bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
-  bindingsForLexicalOwner(node: Node): SourceStorageBindingsSelection;
-  bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings,
-    capture?: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageBindingsSelection;
-  invocationContextKeyFor(invocation: Node, bindings: SourceStorageBindings):
-    { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
-  contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: SourceStorageBindings):
-    { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
-  boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
-  boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;
-  contributingExecutionsFor(subject: SourceStorageSubject, declaration: Node,
-    entry: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageProducersSelection;
-  nativeCallbackArgumentsFor(invocation: Node): SourceStorageArgumentsSelection;
-  boundValueFrontierFor(subject: SourceStorageSubject, bindings: SourceStorageBindings,
-    boundaries: readonly SourceStorageSubject[], position?: "value" | "input"): SourceStorageValueFrontierSelection;
-  invocationArgumentsFor(invocation: Node): SourceStorageNodesSelection;
-  argumentTransportsFor(invocation: Node): SourceStorageArgumentsSelection;
-  mutationOwnerFor(node: Node): SourceStorageSubject | undefined;
-  isAccessorInvocation(node: Node): boolean;
-  executionRegionsFor(candidate: Node, invocation?: Node, callerBindings?: SourceStorageBindings): SourceStorageNodesSelection;
-  constructionFor(invocation: Node, callerBindings?: SourceStorageBindings): SourceStorageConstructionSelection;
-  instanceRegionsFor(invocation: Node): SourceStorageInstanceRegionsSelection;
-  enclosingRegionFor(node: Node): Node | undefined;
-}

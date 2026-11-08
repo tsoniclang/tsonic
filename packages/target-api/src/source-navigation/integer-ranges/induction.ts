@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceNodeCountedLoop, SourceNodeNavigationFacts } from "../../source-model/navigation.js";
+import type { SourceNodeCountedLoop } from "../../source-model/loops.js";
+import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceApplication, SourceDeclaredSlot, SourceDescriptorView } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";

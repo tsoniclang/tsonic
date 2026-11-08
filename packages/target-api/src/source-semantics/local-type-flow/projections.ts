@@ -1,7 +1,7 @@
 import type { SourceDeferredProjection, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { produceSourceAwaitedType } from "./awaited.js";
-import type { SourceSemanticProduction } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export interface SourceProjectionProduction extends SourceSemanticProduction {
   readonly source: SourceTypeEvidence;

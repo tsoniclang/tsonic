@@ -11,7 +11,8 @@ import { decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator
   sourcePrimitiveBinaryOperators, sourcePrimitiveUnaryOperators,
   type SourcePrimitiveOperatorOperand } from "./operator-decisions.js";
 import { produceSourceAwaitedType } from "./awaited.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
 import { sourceEnumOperator, sourceEnumDestination } from "../enum-numeric-uses.js";
 import { produceSourceOperatorCategory, type SourceNumericOperationCategory } from "./operator-categories.js";

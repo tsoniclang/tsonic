@@ -3,7 +3,7 @@ import type { SourceConstructionDestination, SourcePresence, SourceTypeEvidence,
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceEvidenceExtends, type SourceEvidenceRelation } from "./evidence-relations.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
-import type { SourceSemanticProduction } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export function produceSourceConstructionDestination(context: SourceSemanticProduction, occurrence: Node,
   value: SourceTypeEvidence, expected: SourcePresence<SourceUseDestination>): SourceProductionResult<SourcePresence<SourceConstructionDestination>> {

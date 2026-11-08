@@ -1,12 +1,6 @@
 import type { ArgumentPassingMode, Node } from "@tsonic/tsts";
-import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeBinding,
+import type { SourceMemberOrigin, SourcePresence, SourceTypeBinding,
   SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
-import type { SourcePointerFacts } from "./pointers.js";
-import type { SourceMarkerFacts } from "./markers.js";
-import type { SourceControlFlowQueries } from "./control-flow.js";
-import type { SourceStorageAnalysisOptions, SourceStorageAnalysisSelection } from "./storage.js";
-import type { SourceSafetyFacts } from "./safety.js";
-import type { SourceAttributeFacts } from "./attributes.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;
@@ -72,27 +66,7 @@ export interface SourceCallableCompletion {
   readonly canFallThrough: boolean;
 }
 
-export interface SourceDisposalAlternative {
-  readonly resource: SourceTypeEvidence;
-  readonly kind: "sync" | "async";
-  readonly declarations: readonly Node[];
-  readonly origins: readonly SourceMemberOrigin[];
-  readonly member: SourceTypeEvidence;
-  readonly signatures: readonly SourceSignatureIdentity[];
-}
 
-export interface SourceResourceManagement {
-  readonly declaration: Node;
-  readonly kind: "using" | "await using";
-  readonly acquisition:
-    | { readonly kind: "initializer"; readonly value: SourceValueOperand }
-    | { readonly kind: "iteration"; readonly statement: Node; readonly value: SourceTypeEvidence };
-  readonly resource: SourceTypeEvidence;
-  readonly acceptsAbsence: true;
-  readonly disposal:
-    | { readonly kind: "selected"; readonly alternatives: readonly SourceDisposalAlternative[] }
-    | { readonly kind: "untyped-dynamic"; readonly value: SourceTypeEvidence };
-}
 
 export type SourceStoragePlace = {
   readonly occurrence: Node;
@@ -109,15 +83,3 @@ export type SourceStoragePlace = {
 export type SourceArgumentPassing =
   | { readonly role: "declaration"; readonly mode: ArgumentPassingMode }
   | { readonly role: "argument"; readonly mode: ArgumentPassingMode; readonly storageExpression: Node };
-
-export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts, SourceSafetyFacts, SourceAttributeFacts {
-  readonly controlFlow: SourceControlFlowQueries;
-  storageAnalysis(options: SourceStorageAnalysisOptions): SourceStorageAnalysisSelection;
-  iteration(occurrence: Node): SourceResult<SourcePresence<SourceIteration>>;
-  generator(declaration: Node): SourceResult<SourcePresence<SourceGenerator>>;
-  yield(occurrence: Node): SourceResult<SourcePresence<SourceYield>>;
-  resourceManagement(declaration: Node): SourceResult<SourcePresence<SourceResourceManagement>>;
-  callableCompletion(declaration: Node): SourceResult<SourcePresence<SourceCallableCompletion>>;
-  storage(occurrence: Node): SourceResult<SourcePresence<SourceStoragePlace>>;
-  argumentPassing(occurrence: Node): SourceResult<SourcePresence<SourceArgumentPassing>>;
-}

@@ -2,7 +2,8 @@ import type { SourceTypeComponent, SourceTypeEvidence } from "../../public/sourc
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
-import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 import { sourceKeyEvidence } from "./type-keys.js";
 
 export function produceSourceAwaitedType(context: SourceSemanticProduction, source: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {

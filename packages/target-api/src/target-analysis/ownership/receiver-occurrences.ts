@@ -3,7 +3,8 @@ import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceReceiverBoundary } from "../../source-navigation/receiver-owner.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
-import type { SourceStorageLimits, SourceStorageQueries, SourceStorageUnresolved } from "../../source-model/storage.js";
+import type { SourceStorageLimits, SourceStorageUnresolved } from "../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../source-model/program.js";
 
 interface ReceiverScope {
   readonly declaration: Node;

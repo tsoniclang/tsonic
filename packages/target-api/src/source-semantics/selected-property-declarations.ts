@@ -1,5 +1,5 @@
 import { SymbolFlagsAlias, type AstReader, type Node, type ResolvedSourcePropertyAccessInfo, type Symbol, type Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-model/program.js";
 
 export function selectedSourcePropertyDeclarations(
   semantics: SourceFileSemantics,

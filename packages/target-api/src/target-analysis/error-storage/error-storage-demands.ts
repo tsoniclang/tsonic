@@ -1,7 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../../source-model/storage.js";
-import type { SourceStorageQueries, SourceStorageSubjectSelection } from "../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../source-model/program.js";
+import type { SourceStorageSubjectSelection } from "../../source-model/storage.js";
 import { Node_Expression } from "../../source-navigation/index.js";
 import { createSourceErrorInvalidationQuery } from "./error-invalidation.js";
 import type { SourceErrorStorageProtocol } from "./protocol.js";

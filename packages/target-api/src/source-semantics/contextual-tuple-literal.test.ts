@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Node, Type, TypeTupleElementInfo } from "@tsonic/tsts";
 import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
 import type { SourceContextualValueTypeSelection } from "./contextual-type-selection.js";
-import type { SourceFinalTypeQueries } from "./types.js";
+import type { SourceFinalTypeQueries } from "../source-model/program.js";
 
 test("contextual tuple literals retain exact trailing optional omissions", () => {
   const contextualType = type();

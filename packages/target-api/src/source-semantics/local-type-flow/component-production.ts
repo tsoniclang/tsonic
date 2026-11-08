@@ -5,7 +5,8 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { produceSourceArgumentPlaces, produceSourceEffectiveArguments } from "./argument-places.js";
-import { produceSourceCallableSignature, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceCallableSignature } from "./callable-production.js";
+import type { SourceCallableProduction } from "./production-context.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceTypeFlowTypeSyntax } from "./value-syntax.js";
 

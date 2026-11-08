@@ -4,7 +4,8 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceEvidenceExtends, type SourceEvidenceRelation } from "./evidence-relations.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
-import { sourceProductionValues, sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
+import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSyntaxProduction } from "./production-context.js";
 
 export function produceSourceConditionalType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
   const { ast, builder, input, reader, syntax } = context;

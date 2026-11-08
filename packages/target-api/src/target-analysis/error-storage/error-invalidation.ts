@@ -3,7 +3,8 @@ import { forEachSourceImmediateEvaluationChild, Node_Expression } from "../../so
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../../source-model/storage.js";
 import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
-import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../../source-model/storage.js";
+import type { SourceStorageBindings, SourceStorageClosedOriginsSelection } from "../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../source-model/program.js";
 import type { SourceErrorStorageDemandQueries } from "./model.js";
 
 export function createSourceErrorInvalidationQuery(

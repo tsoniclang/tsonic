@@ -1,5 +1,5 @@
 import type { AstReader, Node, Symbol, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "./types.js";
+import type { SourceFileSemantics } from "../source-model/program.js";
 
 export interface SourceObjectLiteralAccessorOccurrence {
   readonly element: Node;

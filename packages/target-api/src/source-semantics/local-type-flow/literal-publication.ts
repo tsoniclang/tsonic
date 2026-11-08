@@ -4,7 +4,7 @@ import { freezeSourceTypeDescriptor, sourceTypeDescriptorStructure, sourceTypeDe
 import { sourceTypeFlowAssignmentPattern } from "./value-syntax.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourceTypeDescriptorMemberOrigin, sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
-import type { SourceTypeComponentEvidence } from "../types.js";
+import type { SourceTypeComponentEvidence } from "../../source-model/program.js";
 import type {
   SourceEffectiveTypeOutcome, SourceLiteralMemberCorrespondence, SourceTypeDescriptor,
   SourceTypeDescriptorMember, SourceTypeFlowAnalysisContext, SourceTypeFlowRefusal,

@@ -2,42 +2,13 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
+import type { SourceCallParameter, SourceUnappliedArgumentPlace, SourceEffectiveArgument, SourceArgumentPlacement } from "./application-data.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceSequenceLayout } from "./tuple-layout.js";
 
-export interface SourceCallParameter {
-  readonly index: number;
-  readonly declaration: Node | undefined;
-  readonly kind: "required" | "optional" | "rest";
-  readonly type: SourceTypeEvidence;
-}
 
-export interface SourceUnappliedArgumentPlace {
-  readonly sourceArgument: Node;
-  readonly sourceArgumentIndex: number;
-  readonly effectiveArgument: Node;
-  readonly effectiveArgumentIndex: number;
-  readonly sourceForm: SourceArgumentPlace["sourceForm"];
-  readonly spreadElementIndex: number | undefined;
-  readonly source: SourceTypeEvidence;
-  readonly parameter: SourceCallParameter;
-  readonly parameterForm: SourceArgumentPlace["parameter"]["form"];
-  readonly destination: SourceTypeEvidence;
-  readonly parameterPath: readonly SourceComponentSelector[];
-}
 
-export interface SourceEffectiveArgument {
-  readonly authored: SourceAuthoredArgument;
-  readonly operand: SourceValueOperand;
-  readonly sourceArgumentIndex: number;
-  readonly sourceForm: SourceArgumentPlace["sourceForm"];
-  readonly spreadElementIndex: number | undefined;
-  readonly source: SourceTypeEvidence;
-}
 
-export type SourceArgumentPlacement =
-  | { readonly kind: "placed"; readonly values: readonly SourceUnappliedArgumentPlace[] }
-  | { readonly kind: "not-applicable"; readonly site: Node; readonly message: string };
 
 export function produceSourceArgumentPlaces(context: {
   readonly builder: SourceDescriptorBuilder;

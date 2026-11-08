@@ -4,7 +4,8 @@ import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits,
   type SourcePrimitiveBinaryOperator, type SourcePrimitiveUnaryOperator } from "./operator-decisions.js";
-import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { sourceSemanticRefusal } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export type SourceNumericOperationCategory = "number" | "bigint" | "boolean";
 

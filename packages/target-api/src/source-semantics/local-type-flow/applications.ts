@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type {
-  SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity, SourceInputTypeArgument,
+  SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity, SourceInputTypeArgument,
 } from "../../host-input/call-input.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type {
@@ -9,12 +9,15 @@ import type {
 } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceObjectProduction } from "../member-use.js";
+import type { SourceProducedApplication } from "./application-data.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
-import { produceSourceCallableSignature, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceCallableSignature, produceSourceReceiverBindings } from "./callable-production.js";
+import type { SourceCallableProduction } from "./production-context.js";
 import { produceSourceArgumentPlaces, produceSourceDeclaredParameterPlace } from "./argument-places.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import type { SourceTypeFlowSource } from "./types.js";
-import { selectSourceCallCandidate, type SourceCallCandidateEvaluation } from "./call-selection.js";
+import { selectSourceCallCandidate } from "./call-selection.js";
+import type { SourceCallCandidateEvaluation } from "./application-data.js";
 import { sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
 import { produceSourceSerializationResult } from "./serialization-presence.js";
@@ -27,11 +30,6 @@ export interface SourceApplicationProduction extends SourceCallableProduction {
   proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<boolean>;
 }
 
-export interface SourceProducedApplication {
-  readonly application: SourceApplication;
-  readonly original: SourceInputApplication;
-  readonly diagnostics: readonly SourceInputDiagnosticIdentity[];
-}
 
 export function produceSourceApplication(context: SourceApplicationProduction, invocation: Node): SourceProductionResult<SourceProducedApplication> {
   const { builder, input, reader } = context;

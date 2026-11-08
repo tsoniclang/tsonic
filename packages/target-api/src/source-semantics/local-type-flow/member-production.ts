@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceEvidenceDetails, SourceMemberInventory } from "../member-inventory.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import type { SourceSemanticProduction } from "./semantic-production.js";
+import type { SourceSemanticProduction } from "./production-context.js";
 
 export function produceSourceMemberInventory(context: SourceSemanticProduction, occurrence: Node,
   bindings: readonly SourceTypeBinding[], element?: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory> {

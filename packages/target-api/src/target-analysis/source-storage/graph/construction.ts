@@ -7,7 +7,8 @@ import { sourceStorageAllocations, sourceStorageClassLineages } from "../model/c
 import { sourceConstructionExpression, sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageQueries, SourceStorageUnresolved } from "../../../source-model/storage.js";
+import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageUnresolved } from "../../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../../source-model/program.js";
 
 type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForInvocation" |
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;

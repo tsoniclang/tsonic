@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceTypeComponentEvidence, TargetSourceProgram } from "../../source-model/program.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipLimits, SourceDeclarationOwnershipUnresolved } from "./model.js";
 

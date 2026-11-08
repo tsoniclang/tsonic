@@ -67,22 +67,8 @@ export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "
 export { createSourceStorageBudget, defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
 export type { SourceStorageBudget } from "./source-storage/model/resource-budget.js";
 export type { SourceStorageProjection, SourceStorageSubject } from "../source-model/storage.js";
-export type {
-  SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
-  SourceStorageBoundActivation, SourceStorageActivationsSelection,
-  SourceStorageValueFrontier, SourceStorageValueFrontierSelection,
-  SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection, SourceStorageImplementationsSelection,
-  SourceStorageOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection,
-  SourceStorageConstructionClass, SourceStorageConstructionSelection,
-  SourceStorageSubjectsSelection, SourceStorageTypedSubject, SourceStorageProducer,
-  SourceStorageTypeSelection, SourceStorageUnresolved,
-  SourceStorageWrittenValue, SourceStorageWriteOccurrence, SourceStorageWriteSelection, SourceStorageMemberWritesSelection,
-  SourceStorageFormalMemberWriteDemandSelection,
-  SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,
-  SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection,
-  SourceStorageCallEffect, SourceStorageAnalysisOptions, SourceStorageAnalysisSelection,
-  SourceStorageNativeConstructorPremise,
-} from "../source-model/storage.js";
+export type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion, SourceStorageBoundActivation, SourceStorageActivationsSelection, SourceStorageValueFrontier, SourceStorageValueFrontierSelection, SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection, SourceStorageImplementationsSelection, SourceStorageOriginsSelection, SourceStorageSubjectSelection, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageSubjectsSelection, SourceStorageTypedSubject, SourceStorageProducer, SourceStorageTypeSelection, SourceStorageUnresolved, SourceStorageWrittenValue, SourceStorageWriteOccurrence, SourceStorageWriteSelection, SourceStorageMemberWritesSelection, SourceStorageFormalMemberWriteDemandSelection, SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary, SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection, SourceStorageCallEffect, SourceStorageAnalysisOptions, SourceStorageNativeConstructorPremise } from "../source-model/storage.js";
+export type { SourceStorageQueries, SourceStorageAnalysisSelection } from "../source-model/program.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";
 export type {
   TargetUseSiteRef,

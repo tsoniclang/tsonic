@@ -9,7 +9,7 @@ import { indexSource, produceSourceMemberKey, sourceKeyEvidence } from "./type-k
 import { produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { produceSourceMemberInventory } from "./member-production.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
-import type { SourceDeclarationProduction } from "./declaration-production.js";
+import type { SourceDeclarationProduction } from "./production-context.js";
 
 export function produceSourceBindingValue(context: SourceDeclarationProduction, declaration: Node,
   bindings: readonly SourceTypeBinding[], includeDefault: boolean): SourceProductionResult<SourceTypeEvidence> {

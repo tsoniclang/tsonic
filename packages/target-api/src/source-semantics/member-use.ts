@@ -1,55 +1,16 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputMemberUseSelection } from "../host-input/member-input.js";
-import type { SourceIndexSelection } from "../source-model/member-use.js";
-import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
+import type { SourceMemberUse, SourceMemberUseArm } from "../source-model/member-use.js";
+import type { SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
   SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
 import type { SourceCorrespondenceMember } from "../source-model/members.js";
 import type { SourceMemberCorrespondenceProduction } from "./member-correspondence.js";
 
-export interface SourcePropertyUseArm {
-  readonly kind: "member";
-  readonly receiver: SourceTypeEvidence;
-  readonly origins: readonly SourceMemberOrigin[];
-  readonly readOrigins: readonly SourceMemberOrigin[];
-  readonly writeOrigins: readonly SourceMemberOrigin[];
-  readonly declarations: readonly Node[];
-  readonly readDeclarations: readonly Node[];
-  readonly writeDeclarations: readonly Node[];
-  readonly readType: SourceTypeEvidence | undefined;
-  readonly writeType: SourceTypeEvidence | undefined;
-  readonly writeDestination: SourceUseDestination | undefined;
-}
 
-export interface SourceIndexUseArm {
-  readonly kind: "index";
-  readonly receiver: SourceTypeEvidence;
-  readonly selection: SourceIndexSelection;
-  readonly key: SourceTypeEvidence;
-  readonly readType: SourceTypeEvidence | undefined;
-  readonly writeType: SourceTypeEvidence | undefined;
-  readonly readonly: boolean;
-}
 
-export type SourceMemberUseArm = SourcePropertyUseArm | SourceIndexUseArm;
 
-export interface SourceMemberUse {
-  readonly occurrence: Node;
-  readonly receiver: { readonly occurrence: Node; readonly value: SourceTypeEvidence };
-  readonly key: SourcePresence<SourceValueOperand>;
-  readonly access: "read" | "write" | "read-write" | "delete";
-  readonly callCallee: boolean;
-  readonly optionalChain: boolean;
-  readonly chainContinuation: boolean;
-  readonly selectedDeclaration: SourcePresence<Node>;
-  readonly selectedDeclarations: readonly Node[];
-  readonly readDeclarations: readonly Node[];
-  readonly writeDeclarations: readonly Node[];
-  readonly readType: SourceTypeEvidence | undefined;
-  readonly writeType: SourceTypeEvidence | undefined;
-  readonly arms: readonly SourceMemberUseArm[];
-}
 
 export interface SourceObjectProduction extends SourceMemberCorrespondenceProduction {
   use(occurrence: Node): SourceProductionResult<SourceMemberUse>;

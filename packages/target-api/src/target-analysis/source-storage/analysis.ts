@@ -1,6 +1,7 @@
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageAnalysisOptions, SourceStorageAnalysisSelection } from "../../source-model/storage.js";
+import type { SourceStorageAnalysisOptions } from "../../source-model/storage.js";
+import type { SourceStorageAnalysisSelection } from "../../source-model/program.js";
 import { createSourceStorageBudget } from "./model/resource-budget.js";
 import type { SourceStorageAnalysisInputs, SourceStorageProgram } from "./model/program.js";
 import { SourceStorageFailure, sourceStorageOutcome } from "./model/program.js";

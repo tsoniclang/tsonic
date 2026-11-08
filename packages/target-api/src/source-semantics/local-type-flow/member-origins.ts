@@ -1,5 +1,5 @@
 import { SymbolFlagsPrototype, type Node, type Type, type TypePropertyInfo } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "../types.js";
+import type { SourceFileSemantics } from "../../source-model/program.js";
 import { selectSourcePropertyDeclaration, selectedSourcePropertyDeclarations } from "../selected-property-declarations.js";
 import type { SourceMemberKey, SourceTypeDescriptorMember, SourceTypeFlowSource } from "./types.js";
 

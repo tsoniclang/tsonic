@@ -1,6 +1,5 @@
 import type { Node, ProviderVirtualDeclarationFact, SourceFile } from "@tsonic/tsts";
-import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceCallableRole, SourceCallableRoles } from "../source-navigation/callable-boundaries.js";
+import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence, SourceCallableRole, SourceCallableRoles } from "../public/source/contracts.js";
 import type { SourceExpressionResultDisposition } from "../source-navigation/expression-use-model.js";
 import type { SourceProfileDeclarationIdentity } from "./profile-identity.js";
 
@@ -95,16 +94,6 @@ export interface SourceNodeEffects {
   readonly mayThrow: boolean;
 }
 
-export interface SourceNodeCountedLoop {
-  readonly statement: Node;
-  readonly counterDeclaration: Node;
-  readonly start: Node;
-  readonly bound: Node;
-  readonly body: Node;
-  readonly direction: "ascending";
-  readonly comparison: "exclusive-upper-bound";
-  readonly step: 1;
-}
 
 export interface SourceNodeReferenceIndexStatistics {
   readonly constructionPasses: 1;

@@ -2,7 +2,7 @@ import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "../../source-navigation/expression-use-model.js";
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
-import type { SourceTypeComponentEvidence } from "../../source-semantics/types.js";
+import type { SourceTypeComponentEvidence } from "../../source-model/program.js";
 import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../../source-model/control-flow.js";
 
 export type SourceFormalBorrowRegion =

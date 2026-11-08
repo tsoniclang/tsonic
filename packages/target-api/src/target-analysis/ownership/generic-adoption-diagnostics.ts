@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { isAbsolute, relative } from "node:path";
 import type { TargetDiagnosticSourceSpan } from "../../artifacts.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-model/program.js";
 import { createSourceDiagnosticSpanReader } from "../../source-semantics/diagnostic-spans.js";
 
 export function sourceGenericAdoptionDiagnosticMessage(parameter: string, operand: string): string {
