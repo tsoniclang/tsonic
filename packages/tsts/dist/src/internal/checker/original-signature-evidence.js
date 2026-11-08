@@ -20,7 +20,8 @@ export function readOriginalSignature(signature) {
             const original = declaration(parameter);
             return Object.freeze({ index, declaration: original, rest: index === restIndex,
                 optional: parameter !== undefined && ((parameter.Flags & SymbolFlagsOptional) !== 0 ||
-                    IsParameterDeclaration(original) && (Node_QuestionToken(original) !== undefined || Node_Initializer(original) !== undefined)) });
+                    original !== undefined && IsParameterDeclaration(original) &&
+                        (Node_QuestionToken(original) !== undefined || Node_Initializer(original) !== undefined)) });
         })),
         receiver: signature.thisParameter === undefined ? undefined
             : Object.freeze({ declaration: declaration(signature.thisParameter) }) });
