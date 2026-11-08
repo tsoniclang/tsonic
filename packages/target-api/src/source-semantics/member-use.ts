@@ -53,7 +53,12 @@ export interface SourceObjectProduction extends SourceMemberCorrespondenceProduc
   use(occurrence: Node): SourceProductionResult<SourceMemberUse>;
 }
 
-export function createSourceMemberUseQuery(input: {
+export interface SourceMemberUseProduction {
+  use(occurrence: Node): SourceProductionResult<SourceMemberUse>;
+  place(occurrence: Node): SourceProductionResult<SourceMemberUse>;
+}
+
+export function createSourceMemberUseQueries(input: {
   readonly view: SourceDescriptorView;
   readonly inventory: SourceMemberInventoryQueries;
   readonly assertNode: (node: Node) => void;
@@ -65,9 +70,9 @@ export function createSourceMemberUseQuery(input: {
     member: SourceCorrespondenceMember) => SourceProductionResult<SourceUseDestination>;
   readonly unavailable: (occurrence: Node,
     reason: Extract<SourceInputMemberUseSelection, { readonly kind: "unavailable" }>["reason"]) => SourceRefusal;
-}): (occurrence: Node) => SourceProductionResult<SourceMemberUse> {
+}): SourceMemberUseProduction {
   const { view, inventory, assertNode, select, value, compose, destination, unavailable } = input;
-  const retained = new WeakMap<Node, SourceResult<SourceMemberUse>>();
+  const retained = { use: new WeakMap<Node, SourceResult<SourceMemberUse>>(), place: new WeakMap<Node, SourceResult<SourceMemberUse>>() };
   const resolved = <Value>(selected: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value: selected });
   const optionalEvidence = (produce: () => SourceProductionResult<SourcePresence<SourceTypeEvidence>>):
     SourceProductionResult<SourceTypeEvidence | undefined> => {
@@ -83,7 +88,7 @@ export function createSourceMemberUseQuery(input: {
     const write = writes ? optionalEvidence(() => row.writeType()) : resolved(undefined);
     return write.kind !== "resolved" ? write : resolved({ readType: read.value, writeType: write.value });
   };
-  const build = (occurrence: Node): SourceProductionResult<SourceMemberUse> => {
+  const build = (occurrence: Node, purpose: "use" | "place"): SourceProductionResult<SourceMemberUse> => {
     const original = select(occurrence);
     if (original.kind === "unavailable") return unavailable(occurrence, original.reason);
     if (original.occurrence !== occurrence) throw new Error("A selected member use requires its exact original occurrence.");
@@ -104,8 +109,8 @@ export function createSourceMemberUseQuery(input: {
       view.assertEvidence(selected.value);
       key = Object.freeze({ kind: "present", value: Object.freeze({ occurrence: original.key, value: selected.value }) });
     }
-    const reads = original.access === "read" || original.access === "read-write";
-    const writes = original.access === "write" || original.access === "read-write";
+    const reads = purpose === "place" || original.access === "read" || original.access === "read-write";
+    const writes = purpose === "place" || original.access === "write" || original.access === "read-write";
     const arms: SourceMemberUseArm[] = [];
     const readTypes: SourceTypeEvidence[] = [];
     const writeTypes: SourceTypeEvidence[] = [];
@@ -125,7 +130,7 @@ export function createSourceMemberUseQuery(input: {
         const member: SourceCorrespondenceMember = Object.freeze({ ...row, receiver: arm,
           readType: types.value.readType, writeType: types.value.writeType });
         let writeDestination: SourceUseDestination | undefined;
-        if (types.value.writeType !== undefined) {
+        if (types.value.writeType !== undefined && purpose === "use") {
           const selectedDestination = destination(occurrence, arm, member);
           if (selectedDestination.kind !== "resolved") return selectedDestination;
           view.assertEvidence(selectedDestination.value.declaration.type);
@@ -133,8 +138,8 @@ export function createSourceMemberUseQuery(input: {
           if (selectedDestination.value.applied !== types.value.writeType)
             throw new Error("A member write destination must retain its exact canonical applied write evidence.");
           writeDestination = selectedDestination.value;
-          writeTypes.push(types.value.writeType);
         }
+        if (types.value.writeType !== undefined) writeTypes.push(types.value.writeType);
         if (types.value.readType !== undefined) readTypes.push(types.value.readType);
         arms.push(Object.freeze({ kind: "member", receiver: arm, origins: row.origins, readOrigins: row.readOrigins,
           writeOrigins: row.writeOrigins, declarations: row.declarations,
@@ -185,9 +190,11 @@ export function createSourceMemberUseQuery(input: {
       arms.push(Object.freeze({ kind: "index", receiver: arm, selection, key: key.value.value, readType, writeType, readonly }));
     }
     if (arms.length === 0) return unavailable(occurrence, "missing-selected-member");
-    const read = reads ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), original.optionalChain) : resolved(undefined);
+    const read = reads && (purpose === "use" || readTypes.length === arms.length)
+      ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), original.optionalChain) : resolved(undefined);
     if (read.kind !== "resolved") return read;
-    const write = writes ? compose(occurrence, receiver.value, "write", Object.freeze(writeTypes), original.optionalChain) : resolved(undefined);
+    const write = writes && (purpose === "use" || writeTypes.length === arms.length)
+      ? compose(occurrence, receiver.value, "write", Object.freeze(writeTypes), original.optionalChain) : resolved(undefined);
     if (write.kind !== "resolved") return write;
     if (read.value !== undefined) view.assertEvidence(read.value);
     if (write.value !== undefined) view.assertEvidence(write.value);
@@ -198,12 +205,15 @@ export function createSourceMemberUseQuery(input: {
       selectedDeclarations: original.selectedDeclarations, readDeclarations: original.readDeclarations,
       writeDeclarations: original.writeDeclarations, readType: read.value, writeType: write.value, arms: Object.freeze(arms) }));
   };
-  return occurrence => {
+  const query = (occurrence: Node, purpose: "use" | "place"): SourceProductionResult<SourceMemberUse> => {
     assertNode(occurrence);
-    const existing = retained.get(occurrence);
+    const cache = retained[purpose];
+    const existing = cache.get(occurrence);
     if (existing !== undefined) return existing;
-    const selected = build(occurrence);
-    if (selected.kind !== "pending") retained.set(occurrence, selected);
+    const selected = build(occurrence, purpose);
+    if (selected.kind !== "pending") cache.set(occurrence, selected);
     return selected;
   };
+  return Object.freeze({ use: (occurrence: Node) => query(occurrence, "use"),
+    place: (occurrence: Node) => query(occurrence, "place") });
 }

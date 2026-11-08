@@ -1,6 +1,8 @@
+import { argumentPassingFactKey } from "@tsonic/tsts";
 import type { CheckedSourceProgram, Node, ResolvedSourceIterationInfo, Signature } from "@tsonic/tsts";
 import type { SourceInputAtomicIteration, SourceInputComponent, SourceInputGenerator, SourceInputIteration,
   SourceInputIterationMechanism, SourceInputIteratorWitness, SourceInputProtocolQueries, SourceInputSignature,
+  SourceInputDisposalAlternative, SourceInputResourceManagement,
   SourceInputYield } from "@tsonic/target-api/host";
 import type { SourcePresence } from "@tsonic/target-api/source";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
@@ -126,6 +128,58 @@ export function createSourceProtocolInput(input: {
         mechanism: selected === undefined ? none : present(selected) }));
       yields.set(occurrence, result);
       return result;
+    },
+    resourceManagement(declaration) {
+      const { checker } = queriesFor(declaration);
+      const kind = ast.variableDeclarationKind(declaration);
+      if (!ast.is.IsVariableDeclaration(declaration) || kind !== "using" && kind !== "await using") return none;
+      const original = checker.getResolvedResourceManagementInfo(declaration);
+      const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+      let acquisition: SourceInputResourceManagement["acquisition"];
+      if (initializer !== undefined) {
+        assertNode(initializer);
+        acquisition = Object.freeze({ kind: "initializer", expression: initializer });
+      } else {
+        const list = ast.parent(declaration);
+        const statement = list === undefined ? undefined : ast.parent(list);
+        if (statement === undefined || !ast.is.IsForOfStatement(statement))
+          throw new Error("A resource declaration requires its original initializer or iteration acquisition.");
+        assertNode(statement);
+        acquisition = Object.freeze({ kind: "iteration", statement });
+      }
+      let disposal: SourceInputResourceManagement["disposal"] = Object.freeze({ kind: "unavailable" });
+      if (original?.disposal.kind === "untyped-dynamic") disposal = Object.freeze({ kind: "untyped-dynamic" });
+      else if (original?.disposal.kind === "selected") {
+        const alternatives: SourceInputDisposalAlternative[] = [];
+        for (const alternative of original.disposal.alternatives) {
+          const symbols = [alternative.selectedSymbol, ...checker.getRootSymbols(alternative.selectedSymbol)];
+          const declarations = Object.freeze([...new Set(symbols.flatMap(symbol => checker.getSymbolDeclarations(symbol))
+            .filter((node): node is Node => node !== undefined))]);
+          for (const node of declarations) assertNode(node);
+          const signatures = queriesFor(declaration).typeShape.getCallSignatures(alternative.selectedType);
+          if (signatures.length === 0 || signatures.some(signature => signature === undefined))
+            throw new Error("A selected original disposer requires its complete original signature inventory.");
+          alternatives.push(Object.freeze({ kind: alternative.kind, declarations,
+            signatures: Object.freeze(signatures.map(signature => originalSignature(
+              checker.getSignatureDeclaration(signature) ?? declaration, "call", signature!))) }));
+        }
+        disposal = Object.freeze({ kind: "selected", alternatives: Object.freeze(alternatives) });
+      }
+      return present(Object.freeze({ declaration, kind, acquisition, disposal }));
+    },
+    callableCompletion(declaration) {
+      const selected = queriesFor(declaration).checker.getResolvedCallableCompletionInfo(declaration);
+      if (selected === undefined) return none;
+      if (selected.declaration !== declaration) throw new Error("Callable completion requires the exact original declaration.");
+      return present(Object.freeze({ declaration, canFallThrough: selected.canFallThrough }));
+    },
+    argumentPassing(occurrence) {
+      assertNode(occurrence);
+      const selected = checked.sourceFacts.getFact(occurrence, argumentPassingFactKey);
+      if (selected === undefined) return none;
+      if (selected.role === "declaration") return present(Object.freeze({ role: selected.role, mode: selected.mode }));
+      assertNode(selected.storageExpression);
+      return present(Object.freeze({ role: selected.role, mode: selected.mode, storageExpression: selected.storageExpression }));
     },
     flowConditions(reference) {
       const selected = queriesFor(reference).checker.getResolvedFlowConditionInfo(reference);
