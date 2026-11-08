@@ -62,10 +62,11 @@ export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingSc
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
 export { sourceBindingCapturedBeforeInitialization, sourceBindingCapturedBeforeFirstWrite } from "./deferred-captures.js";
 export { sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
-export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused,
+export { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused,
   sourceNodesOutsideErasedSubtrees, createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
 export type { SourceSubtreeParticipation, SourceCallableInvocationReference } from "./callable-invocations.js";
-export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+export { sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
+export type { SourceCallableRole, SourceCallableRoles } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
+import { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
   createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -280,19 +281,22 @@ test("single lexical invocation rejects repeated, recursive, escaping and deferr
 });
 
 test("enclosing callable navigation accepts finite deep ancestry and terminates cycles", () => {
+  const current = fixture("return 0;");
   const node = {} as Node;
-  const ast = { parent: () => node, kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(node, ast) === undefined, true);
+  const ast = { ...current.source.ast, parent: () => node, kindName: () => "KindBlock" };
+  assert.throws(() => sourceEnclosing(ast, node, "body"), /acyclic original parent chain/u);
   const nodes = Array.from({ length: 4096 }, () => ({} as Node));
   const indexes = new Map(nodes.map((value, index) => [value, index]));
-  const deep = { parent: (value: Node) => nodes[indexes.get(value)! + 1],
-    kindName: (value: Node) => value === nodes[nodes.length - 1] ? "KindFunctionDeclaration" : "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], deep) === nodes[nodes.length - 1], true,
+  const deep = { ...current.source.ast, parent: (value: Node | undefined) => value === undefined ? undefined : nodes[indexes.get(value)! + 1],
+    body: (value: Node | undefined) => value === nodes[nodes.length - 1] ? nodes[nodes.length - 2] : undefined,
+    name: () => undefined, modifiers: () => [], parameters: () => [],
+    kindName: (value: Node | undefined) => value === nodes[nodes.length - 1] ? "KindFunctionDeclaration" : "KindBlock" };
+  assert.equal(sourceEnclosing(deep, nodes[0], "body") === nodes[nodes.length - 1], true,
     "finite lexical ancestry reaches its actual callable beyond an arbitrary depth");
-  assert.equal(sourceEnclosingCallable(undefined, deep) === undefined, true, "an absent source has no callable");
-  const cyclic = { parent: (value: Node) => nodes[(indexes.get(value)! + 1) % nodes.length],
-    kindName: () => "KindBlock" } as unknown as Parameters<typeof sourceEnclosingCallable>[1];
-  assert.equal(sourceEnclosingCallable(nodes[0], cyclic) === undefined, true,
+  assert.equal(sourceEnclosing(deep, undefined, "body") === undefined, true, "an absent source has no callable");
+  const cyclic = { ...deep, parent: (value: Node | undefined) => value === undefined ? undefined : nodes[(indexes.get(value)! + 1) % nodes.length],
+    kindName: () => "KindBlock" };
+  assert.throws(() => sourceEnclosing(cyclic, nodes[0], "body"), /acyclic original parent chain/u,
     "a long malformed cycle cannot manufacture an enclosing callable");
 });
 
@@ -304,7 +308,7 @@ called();
 ${"}".repeat(180)}
 return 0;`);
   const dormant = current.declaration("dormant");
-  assert.equal(sourceEnclosingCallable(current.source.ast.parent(dormant), current.source.ast) === current.declaration("outer"), true,
+  assert.equal(sourceEnclosing(current.source.ast, dormant, "deferred") === current.declaration("outer"), true,
     "the checked declaration retains its exact enclosing owner");
   assert.equal(current.unused("dormant"), true, "an unused deep native body remains erased");
   assert.equal(current.unused("called"), false, "a real deep invocation still requires its native body");

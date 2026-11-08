@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo } from "./call-info.js";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
-import { sourceEnclosingCallable } from "./callable-invocations.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 export interface SourceAnnotationHintBindings {
   readonly ast: AstReader;
@@ -31,7 +31,7 @@ export function sourceAnnotationHint(
     annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     declaration = navigation.referenceFor(assignment.Left)?.declaration;
   } else if (ast.is.IsReturnStatement(parent)) {
-    const callable = sourceEnclosingCallable(parent, ast);
+    const callable = sourceEnclosing(ast, parent, "body");
     annotation = callable === undefined ? undefined : ast.typeNode(callable);
   } else if (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) {
     const call = bindings.call(parent);

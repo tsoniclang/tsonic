@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram, isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, sourceCallableRoles, sourceBindingWriteAtReference, sourceCallableValueParameters } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 import { createSourceStorageFormalMemberWrites } from "../../packages/target-api/dist/target-analysis/source-storage/graph/stored-values.js";
@@ -328,7 +328,7 @@ test("formal member demands consume the complete checked callable-body inventory
   `);
   let inputs = 0;
   for (const declaration of current.nodes) {
-    if (!isSourceCallableBodyBoundary(current.source.ast, declaration) || current.source.ast.body(declaration) === undefined) continue;
+    if (!sourceCallableRoles(current.source.ast, declaration).body) continue;
     const parameters = sourceCallableValueParameters(current.source.ast, declaration,
       current.source.semantics.forNode(declaration), { kind: "declaration" });
     assert.equal(parameters !== undefined, true, "the original body supplies its complete runtime parameter vector");

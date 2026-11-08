@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceDeclarationControlFlow, createSourceControlFlowDomain } from "./graph.js";
+import { createSourceControlFlowQueries } from "./graph.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
 import type { SourceControlFlowGraph, SourceFlowPoint } from "./model.js";
@@ -19,6 +19,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   }, compilerOptions: { strict: true, target: "esnext", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "resource fixture is a checked source program");
   const source = createTargetSourceProgram(checked);
+  const flowQueries = createSourceControlFlowQueries(source);
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "resource fixture source exists");
   const nodes: Node[] = [];
@@ -29,7 +30,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   visit(file!);
   const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "run");
   assert.equal(owner !== undefined, true, "resource fixture callable exists");
-  const selection = createSourceDeclarationControlFlow(source, owner!, { domain: { kind: "source" } });
+  const selection = createSourceControlFlowQueries(source).declaration(owner!, { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "checked cleanup graph");
   if (selection.kind !== "resolved") throw new Error("Expected the checked resource flow graph.");
   const named = (name: string): Node => {
@@ -41,7 +42,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   const disposal = (name: string) => points(point => point.operation.kind === "dispose" && point.operation.declaration === named(name));
   const calls = (name: string) => points(point => point.operation.kind === "evaluate" && point.source !== undefined &&
     source.ast.is.IsCallExpression(point.source) && source.ast.text(source.ast.as.AsCallExpression(point.source)?.Expression) === name);
-  return { source, owner: owner!, nodes, graph: selection.graph, named, points, disposal, calls };
+  return { source, flowQueries, owner: owner!, nodes, graph: selection.graph, named, points, disposal, calls };
 }
 
 function reachable(graph: SourceControlFlowGraph<unknown>, start: number, destination: number,
@@ -250,10 +251,10 @@ test("selected native resource domains omit erased acquisition and preserve the 
   const selected = sourceNodesOutsideErasedSubtrees(current.source.ast, current.nodes, node => node === erased);
   assert.equal(selected.kind, "resolved", "the original source participation owner closes erased descendants");
   if (selected.kind !== "resolved") throw new Error("Expected the original selected resource inventory.");
-  const domain = createSourceControlFlowDomain(current.source, selected.nodes);
+  const domain = current.flowQueries.domain(selected.nodes);
   assert.equal(domain.kind, "resolved", "the identical checked selected inventory is admitted");
   if (domain.kind !== "resolved") throw new Error("Expected the checked resource domain.");
-  const result = createSourceDeclarationControlFlow(current.source, current.owner, { domain: domain.domain });
+  const result = current.flowQueries.declaration(current.owner, { domain: domain.domain });
   assert.equal(result.kind, "resolved", "the same cleanup graph handles the actual native domain");
   if (result.kind !== "resolved") throw new Error("Expected the selected resource flow graph.");
   const excluded = new Set(current.nodes.filter(node => !selected.nodes.includes(node)));

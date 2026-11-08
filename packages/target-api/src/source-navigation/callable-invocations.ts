@@ -1,6 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUseSummary, SourceProgramNavigation } from "./types.js";
-import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+import { sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
 import { Node_Initializer } from "./ast.js";
 
 const repeatedKinds: ReadonlySet<string> = new Set([
@@ -143,23 +143,13 @@ export function sourceNodesOutsideErasedSubtrees(
   return Object.freeze({ kind: "resolved", nodes: Object.freeze(nodes.filter(node => selected.get(node) === true)) });
 }
 
-export function sourceEnclosingCallable(node: Node | undefined, ast: AstReader): Node | undefined {
-  const visited = new Set<Node>();
-  for (let current = node; current !== undefined; current = ast.parent(current)) {
-    if (visited.has(current)) return undefined;
-    visited.add(current);
-    if (isSourceCallableBodyBoundary(ast, current)) return current;
-  }
-  return undefined;
-}
-
 export function sourceLexicalFunctionIsUnused(
   declaration: Node,
   ast: AstReader,
   navigation: SourceLexicalFunctionNavigation,
 ): boolean {
   if (!ast.is.IsFunctionDeclaration(declaration) ||
-    sourceEnclosingCallable(ast.parent(declaration), ast) === undefined) return false;
+    sourceEnclosing(ast, declaration, "deferred") === undefined) return false;
   const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
   return summaries !== undefined && summaries.every(summary => !summary.exported && !summary.bindingWritten &&
     !summary.hasUnclassifiedValueUse && summary.uses.every(use => use.kind === "type-only"));
@@ -185,7 +175,7 @@ export function createSourceSingleInvocationQuery(
   }
 
   function classify(declaration: Node, active: Set<Node>): boolean {
-    const owner = sourceEnclosingCallable(ast.parent(declaration), ast);
+    const owner = sourceEnclosing(ast, declaration, "deferred");
     if (owner === undefined) return false;
     const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
     if (summaries === undefined || summaries.some(summary => summary.exported || summary.bindingWritten || summary.hasUnclassifiedValueUse))
@@ -200,8 +190,8 @@ export function createSourceSingleInvocationQuery(
       if (current === owner) return true;
       const kind = ast.kindName(current);
       if (repeatedKinds.has(kind)) return false;
-      if (isSourceCallableBodyBoundary(ast, current)) return (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) &&
-        sourceEnclosingCallable(ast.parent(current), ast) === owner && select(current, active);
+      if (sourceCallableRoles(ast, current).body) return (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) &&
+        sourceEnclosing(ast, current, "deferred") === owner && select(current, active);
     }
     return false;
   }

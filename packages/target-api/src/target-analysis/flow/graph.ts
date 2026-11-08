@@ -1,25 +1,29 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
+import { sourceCallableRoles } from "../../source-navigation/callable-boundaries.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
 import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceDeclarationFlowEntry, type SourceFlowInitializer } from "./entry.js";
 import { sourceFlowExpression } from "./expressions.js";
-import type { SourceControlFlowSelectedDomain, SourceControlFlowSelection,
+import type { SourceControlFlowQueries, SourceControlFlowSelectedDomain, SourceControlFlowSelection,
   SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "./model.js";
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
 
-const sourceControlFlowDomains = new WeakMap<SourceControlFlowSelectedDomain, {
-  readonly domain: SourceControlFlowSelectedDomain;
-  readonly source: TargetSourceProgram;
-  readonly members: ReadonlySet<Node>;
-}>();
+export function createSourceControlFlowQueries(source: TargetSourceProgram): SourceControlFlowQueries {
+  const domains = new WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>();
+  return Object.freeze({
+    domain: (nodes: readonly Node[]) => selectControlFlowDomain(source, nodes, domains),
+    declaration: (declaration: Node, options: SourceDeclarationControlFlowOptions) =>
+      selectDeclarationControlFlow(source, declaration, options, domains),
+  });
+}
 
-export function createSourceControlFlowDomain(source: TargetSourceProgram, nodes: readonly Node[]):
+function selectControlFlowDomain(source: TargetSourceProgram, nodes: readonly Node[],
+  domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>):
   | { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain }
   | SourceFlowUnresolved {
   const fail = (reason: string, node?: Node): SourceFlowUnresolved => Object.freeze({ kind: "unresolved", reason, source: node });
@@ -45,8 +49,8 @@ export function createSourceControlFlowDomain(source: TargetSourceProgram, nodes
     }
     if (!actual.has(node)) return fail("Source flow requires each original checked parent/child identity in its selected domain.", node);
   }
-  const domain = Object.freeze({ kind: "selected", source, nodes: selected.nodes } satisfies SourceControlFlowSelectedDomain);
-  sourceControlFlowDomains.set(domain, Object.freeze({ domain, source, members: new Set(selected.nodes) }));
+  const domain = Object.freeze({ kind: "selected", nodes: selected.nodes } satisfies SourceControlFlowSelectedDomain);
+  domains.set(domain, new Set(selected.nodes));
   return Object.freeze({ kind: "resolved", domain });
 }
 
@@ -56,14 +60,15 @@ interface PatternContinuation {
   entry: number | undefined;
 }
 
-export function createSourceDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
-  options: SourceDeclarationControlFlowOptions): SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
+function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
+  options: SourceDeclarationControlFlowOptions, domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>):
+  SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
   try {
     const { ast } = source;
     const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
     const file = ast.getSourceFile(declaration);
-    if (file === undefined || !source.sourceFiles.includes(file) ||
-      !isSourceCallableBodyBoundary(ast, declaration) && !propertyRoot &&
+    if (file === undefined || !source.sourceFiles.includes(file) || !source.navigation.isProjectDeclaration(declaration) ||
+      !sourceCallableRoles(ast, declaration).execution && !propertyRoot &&
       !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
@@ -79,10 +84,10 @@ export function createSourceDeclarationControlFlow(source: TargetSourceProgram, 
     let included: SourceNodeDomain;
     if (domain.kind === "source" && Reflect.ownKeys(domain).length === 1) included = "source";
     else if (domain.kind === "selected") {
-      const selected = sourceControlFlowDomains.get(domain);
-      if (selected === undefined || selected.domain !== domain || selected.source !== source)
+      const selected = domains.get(domain);
+      if (selected === undefined)
         throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
-      included = selected.members;
+      included = selected;
       if (!included.has(declaration)) throw new SourceFlowFailure("Source flow requires its requested root in the canonical selected domain.", declaration);
     } else throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
     const includes = (node: Node): boolean => included === "source" || included.has(node);

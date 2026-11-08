@@ -1,4 +1,4 @@
-export { createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "./graph.js";
+export { createSourceControlFlowQueries } from "./graph.js";
 export { solveSourceFlow } from "./solver.js";
 export { analyzeSourceStatementExits } from "./statement-exits.js";
 export { createSourceSwitchCoverage } from "./switch-coverage.js";
@@ -7,7 +7,7 @@ export type { SourceResourceScope, SourceResourceScopes } from "./resource-scope
 export type { SourceStatementExitFacts } from "./statement-exits.js";
 export { analyzeSourceLiveness, analyzeSourceDefiniteAssignment, analyzeSourceWrites } from "./instances.js";
 export { defaultSourceFlowLimits } from "./resources.js";
-export type { SourceControlFlowGraph, SourceControlFlowSelectedDomain, SourceControlFlowSelection, SourceFlowEdge, SourceFlowEdgeKind,
+export type { SourceControlFlowQueries, SourceControlFlowGraph, SourceControlFlowSelectedDomain, SourceControlFlowSelection, SourceFlowEdge, SourceFlowEdgeKind,
   SourceFlowLattice, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint, SourceFlowProblem,
   SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
 export type { SourceDeclarationFlowExecutionRegion, SourceDeclarationControlFlowOptions } from "./model.js";

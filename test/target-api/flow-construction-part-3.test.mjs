@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { classes, fixture, flow, declarationFlow, marked, reachable, propertyField, runtimeLayers } from "./flow-construction-fixtures.mjs";
 
@@ -59,7 +59,7 @@ test(`repeated class AST retains every actual factory activation in construction
       selected.kind === "unresolved" ? selected.reason : "One complete actual construction is published.");
     if (!capturesFirst) selectCaptures();
     const declaration = propertyField(current, "Layer", "field");
-    const graphSelection = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" } });
+    const graphSelection = createSourceControlFlowQueries(source).declaration(declaration, { domain: { kind: "source" } });
     assert.equal(graphSelection.kind === "resolved", true,
       graphSelection.kind === "unresolved" ? graphSelection.reason : "One checked declaration CFG is independent of observed instances.");
     const graph = graphSelection.graph;
@@ -93,7 +93,7 @@ test(`symbolic property initializer flow retains ${label} without a fabricated c
   const current = fixture(`declare const flag: boolean;
     class Base { value = 1; } class Derived extends Base { observed = ${expression}; }`);
   const declaration = propertyField(current, "Derived", "observed");
-  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" } });
+  const selected = current.flowQueries.declaration(declaration, { domain: { kind: "source" } });
   assert.equal(selected.kind, "resolved", selected.reason ?? "the actual property initializer defines its source flow");
   const graph = selected.graph;
   assert.equal(graph.declaration === declaration, true, "the graph retains the original property identity");
@@ -120,7 +120,7 @@ test("property initializer closure captures are retained without executing the d
   const current = fixture(`function build(token: number) {
     return class Derived { observed = () => { mark("delayed-body"); return token; }; };
   } const Copy = build(1); const instance = new Copy();`);
-  const selected = createSourceDeclarationControlFlow(current.source, propertyField(current, "Derived", "observed"), { domain: { kind: "source" } });
+  const selected = current.flowQueries.declaration(propertyField(current, "Derived", "observed"), { domain: { kind: "source" } });
   assert.equal(selected.kind, "resolved", selected.reason ?? "the exact initializer closure is admitted");
   assert.equal(selected.graph.points.some(point => point.operation.kind === "capture" &&
     current.ast.text(current.ast.name(point.operation.binding)) === "token"), true, "the original outer binding is captured");
@@ -143,7 +143,7 @@ test("actual implicit property flow carries its class-entry binding and exceptio
   assert.equal(classEntry !== undefined, true, "the actual construction contains the field's exact class entry");
   const region = classEntry.regions.find(entry => entry.node === current.ast.as.AsPropertyDeclaration(declaration).Initializer);
   assert.equal(region !== undefined, true, "the original initializer belongs to that actual class region");
-  const result = createSourceDeclarationControlFlow(current.source, declaration, {
+  const result = current.flowQueries.declaration(declaration, {
     domain: { kind: "source" },
   });
   assert.equal(result.kind, "resolved", result.reason ?? "the property uses its actual cached construction region");
@@ -169,7 +169,7 @@ test("property flow retains each repeated original class initializer with its di
   const call = current.construct("Layer2");
   const selected = current.storage.constructionFor(call);
   assert.equal(selected.kind === "resolved" && selected.alternatives.length === 1, true, "one finite original construction alternative");
-  const result = createSourceDeclarationControlFlow(current.source, declaration, {
+  const result = current.flowQueries.declaration(declaration, {
     domain: { kind: "source" },
   });
   assert.equal(result.kind, "resolved", result.reason ?? "all actual occurrences survive the property-root selection");
@@ -200,7 +200,7 @@ test("property flow rejects static, missing, foreign and forged actual initializ
   const selected = current.storage.constructionFor(call);
   assert.equal(selected.kind, "resolved", "the genuine construction exists for the inverse controls");
   const shared = propertyField(current, "Value", "shared");
-  const sharedFlow = createSourceDeclarationControlFlow(current.source, shared, { domain: { kind: "source" } });
+  const sharedFlow = current.flowQueries.declaration(shared, { domain: { kind: "source" } });
   assert.equal(sharedFlow.kind, "resolved", "the original checked static initializer has its explicit declaration role");
   const sharedInitializer = current.ast.as.AsPropertyDeclaration(shared).Initializer;
   const sharedRegions = [...sharedFlow.graph.executionRegions.values()];
@@ -216,7 +216,7 @@ test("property flow rejects static, missing, foreign and forged actual initializ
     ["foreign call", current.source, declaration, { storage: current.storage, call: foreign.construct("Value") }],
     ["copied construction", current.source, declaration, { storage: current.storage, call, construction: { ...selected.alternatives[0] } }],
   ]) {
-    const result = createSourceDeclarationControlFlow(source, root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
+    const result = createSourceControlFlowQueries(source).declaration(root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
     assert.equal(result.kind, "unresolved", `${label}: incomplete identity cannot publish an empty initializer graph`);
     assert.equal("graph" in result, false, `${label}: no partial graph escapes`);
   }
@@ -236,9 +236,9 @@ test(`property flow refuses an excluded ${part} instead of skipping its effects`
     nodes.push(node);
     for (const child of current.ast.children(node)) if (child !== undefined) pending.push(child);
   }
-  const domain = createSourceControlFlowDomain(current.source, nodes);
+  const domain = current.flowQueries.domain(nodes);
   assert.equal(domain.kind, "resolved", "the selected subset is a genuine parent-closed checked inventory");
-  const result = createSourceDeclarationControlFlow(current.source, declaration, { domain: domain.domain });
+  const result = current.flowQueries.declaration(declaration, { domain: domain.domain });
   assert.equal(result.kind, "unresolved", "the requested initializer requires its complete demanded domain");
   assert.equal(result.source === excluded, true, "the precise missing checked initializer node is reported");
   assert.match(result.reason, /complete initializer/u);
@@ -249,7 +249,7 @@ test(`property flow refuses an excluded ${part} instead of skipping its effects`
 for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }]){
 test(`property initializer flow retains ${Number.isFinite(Object.values(limits)[0]) ? "finite resource exhaustion" : "invalid limit rejection"} ${Object.keys(limits)[0]}=${Object.values(limits)[0]}`, () => {
     const current = fixture("class Value { value = 1; observed = mark('budget') + this.value; }");
-    const selected = createSourceDeclarationControlFlow(current.source, propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
+    const selected = current.flowQueries.declaration(propertyField(current, "Value", "observed"), { domain: { kind: "source" }, limits });
     assert.equal(selected.kind, "unresolved", "no property-entry path raises or bypasses a finite limit");
     assert.match(selected.reason, /finite/u);
     assert.equal("graph" in selected, false, "finite failure never publishes a partial initializer");
