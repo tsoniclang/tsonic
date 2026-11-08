@@ -119,6 +119,7 @@ export function createSourceMemberUseQueries(input: {
     for (const arm of receiver.value.sum?.arms ?? [receiver.value]) {
       view.assertEvidence(arm);
       if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence" && chain) continue;
+      if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "any" && original.arms.length === 0) continue;
       const selected = inventory.members(arm);
       if (selected.kind !== "resolved") return selected;
       if (selected.value.kind !== "complete") return unavailable(occurrence, "missing-selected-member");
@@ -193,7 +194,6 @@ export function createSourceMemberUseQueries(input: {
       if (writeType !== undefined) writeTypes.push(writeType);
       arms.push(Object.freeze({ kind: "index", receiver: arm, selection, key: key.value.value, readType, writeType, readonly }));
     }
-    if (arms.length === 0) return unavailable(occurrence, "missing-selected-member");
     const read = reads && (purpose === "use" || readTypes.length === arms.length)
       ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), chain) : resolved(undefined);
     if (read.kind !== "resolved") return read;
