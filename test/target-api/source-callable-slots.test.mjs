@@ -156,6 +156,48 @@ test("ordinary member origins retain fields, methods and read or write accessor 
   assert.equal(facts.refusals().length, 0);
 });
 
+const receiverExamples = [
+  { name: "outer and local", count: 2, text: `export function wrap<Outer>(first: Outer) {
+    class Local<Inner> { first: Outer; value: Inner;
+      constructor(first: Outer, value: Inner) { this.first = first; this.value = value; } }
+    return new Local<string>(first, "value"); }` },
+  { name: "unused outer", count: 2, text: `export function wrap<Outer>() {
+    class Local<Inner> { constructor(readonly value: Inner) {} read(): Inner { return this.value; } }
+    return Local; }` },
+  { name: "shadowed binder", count: 2, text: `export function wrap<Value>() {
+    class Local<Value> { constructor(readonly value: Value) {} read(): Value { return this.value; } }
+    return Local; }` },
+  { name: "anonymous class", count: 2, text: `export function wrap<Outer>() {
+    const Local = class<Inner> { constructor(readonly value: Inner) {} read(): Inner { return this.value; } };
+    return Local; }` },
+  { name: "nongeneric class", count: 0, text: `export class Plain { value: number = 0; read(): number { return this.value; } }` },
+  { name: "outer-only capture", count: 1, text: `export function wrap<Outer>(value: Outer) {
+    class Local { constructor(readonly value: Outer) {} read(): Outer { return this.value; } }
+    return new Local(value); }` },
+];
+
+for (const example of receiverExamples) test(`a ${example.name} this-type retains the complete original checked binder vector`, () => {
+  const current = fixture(example.text);
+  const { ast, facts } = current.source;
+  const owner = current.nodes.find(node => ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node));
+  const receiver = current.nodes.find(node => ast.kindName(node) === "KindThisKeyword");
+  assert.equal(owner !== undefined && receiver !== undefined, true, "the actual class and its original this occurrence are required");
+  const outer = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "wrap");
+  const parameters = [...outer === undefined ? [] : ast.typeParameters(outer), ...ast.typeParameters(owner)];
+  assert.equal(parameters.length, example.count, "the independently authored outer and local binder inventory has the expected arity");
+  const outcome = facts.values.type(receiver);
+  assert.equal(outcome.kind === "resolved" && outcome.value.type.kind === "declared", true,
+    "the exact receiver remains one resolved nominal instance");
+  assert.equal(outcome.value.component.occurrence === receiver && outcome.value.type.declaration === owner, true,
+    "the original receiver and class identities are unchanged");
+  assert.equal(outcome.value.type.typeArguments.length, parameters.length, "no outer or local argument is omitted");
+  for (const [index, declaration] of parameters.entries()) {
+    const argument = outcome.value.type.typeArguments[index];
+    assert.equal(argument?.kind === "parameter" && argument.declaration === declaration, true,
+      `argument ${index} is the identical original parameter, not a constraint or primitive substitute`);
+  }
+});
+
 for (const kind of ["array", "shape"]) {
   test(`C30 declared ${kind} construction positions do not unite or inherit operand inference`, () => {
     const current = fixture(`function run(): void {
