@@ -1,5 +1,6 @@
 import type { AstReader, Node, Type, TypeCheckerQueries, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputComponentPart, SourceInputCorrespondenceMember } from "@tsonic/target-api/host";
+import type { SourceLiteralKey } from "@tsonic/target-api/source";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
 
 export interface SourceStructuralMember {
@@ -9,6 +10,7 @@ export interface SourceStructuralMember {
   readonly getters: readonly Node[];
   readonly setters: readonly Node[];
   readonly read: "property" | "accessor" | "method" | "unavailable";
+  readonly key: SourceLiteralKey | undefined;
 }
 
 export function sourceCheckedMember(ast: AstReader, checker: TypeCheckerQueries,
@@ -18,9 +20,23 @@ export function sourceCheckedMember(ast: AstReader, checker: TypeCheckerQueries,
     .filter((node): node is Node => node !== undefined))]);
   const getters = Object.freeze(declarations.filter(ast.is.IsGetAccessorDeclaration));
   const setters = Object.freeze(declarations.filter(ast.is.IsSetAccessorDeclaration));
+  let key: SourceLiteralKey | undefined = Object.freeze({ kind: "name", name: property.name });
+  for (const declaration of declarations) {
+    const name = ast.name(declaration);
+    if (name === undefined || !ast.is.IsComputedPropertyName(name)) continue;
+    const selected = checker.getEffectivePropertyName(name);
+    if (selected?.kind !== "unique-symbol") continue;
+    const known = checker.getResolvedWellKnownSymbolInfo(name);
+    const origin = known?.wellKnownDeclaration ?? checker.getPrimarySymbolDeclaration(checker.getTypeSymbol(selected.type));
+    if (origin === undefined || key?.kind === "symbol" && key.declaration !== origin) {
+      key = undefined;
+      break;
+    }
+    key = Object.freeze({ kind: "symbol", declaration: origin });
+  }
   return Object.freeze({ receiverType,
     property: Object.freeze({ ...property, rootSymbols: Object.freeze([...property.rootSymbols]) }),
-    declarations, getters, setters,
+    declarations, getters, setters, key,
     read: getters.length > 0 ? "accessor" : setters.length > 0 ? "unavailable"
       : declarations.some(node => ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node)) ? "method" : "property" });
 }
@@ -48,6 +64,8 @@ export function createSourceInputMemberPublisher(input: {
     let byMember = members.get(receiver);
     const existing = byMember?.get(selected);
     if (existing !== undefined) return existing;
+    if (selected.key === undefined) return undefined;
+    if (selected.key.kind === "symbol") assertNode(selected.key.declaration);
     for (const declaration of selected.declarations) assertNode(declaration);
     const primary = checker.getPrimarySymbolDeclaration(selected.property.symbol);
     const ordinary = primary !== undefined && selected.declarations.includes(primary) ? primary
@@ -74,7 +92,7 @@ export function createSourceInputMemberPublisher(input: {
       write = identities.component(receiver.root, [...receiver.path,
         { kind: "member", declaration: writeDeclaration, access: "write" }, ...(part === undefined ? [] : [part])], terminal);
     }
-    const result: SourceInputCorrespondenceMember = Object.freeze({ receiver, name: selected.property.name,
+    const result: SourceInputCorrespondenceMember = Object.freeze({ receiver, key: selected.key, name: selected.property.name,
       declarations: selected.declarations, getters: selected.getters, setters: selected.setters,
       optional: selected.property.optional, readonly: selected.property.readonly,
       readKind: selected.read, read, write });
