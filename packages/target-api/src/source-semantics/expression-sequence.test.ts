@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
 import { sourceExpressionSequence } from "./expression-sequence.js";
 
 test("source comma sequences preserve exact ordered leaves without treating other operators as separators", () => {
@@ -15,19 +14,19 @@ declare function fourth(): number;
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
-  const source = createTargetSourceProgram(checked);
+  const { ast } = checked;
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
-  const expressions = source.ast.statements(file).slice(4).map(statement => source.ast.as.AsExpressionStatement(statement!)?.Expression);
+  const expressions = ast.statements(file).slice(4).map(statement => ast.as.AsExpressionStatement(statement!)?.Expression);
   assert.ok(expressions[0] && expressions[1]);
-  const sequence = sourceExpressionSequence(source.ast, expressions[0]);
+  const sequence = sourceExpressionSequence(ast, expressions[0]);
   assert.deepEqual(sequence.map(expression => {
-    assert.equal(source.ast.is.IsCallExpression(expression), true);
-    return source.ast.text(source.ast.as.AsCallExpression(expression)?.Expression!);
+    assert.equal(ast.is.IsCallExpression(expression), true);
+    return ast.text(ast.as.AsCallExpression(expression)?.Expression!);
   }),
     ["first", "second", "third", "fourth"]);
   assert.ok(Object.isFrozen(sequence));
-  const single = sourceExpressionSequence(source.ast, expressions[1]);
+  const single = sourceExpressionSequence(ast, expressions[1]);
   assert.equal(single.length, 1);
-  assert.equal(source.ast.operatorKindName(single[0]!), "KindPlusToken");
+  assert.equal(ast.operatorKindName(single[0]!), "KindPlusToken");
 });
