@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { sourceLiteralUnitsEqual, type SourceLiteralUnit } from "./domain.js";
+import { sourceNumericLiteralIdentity, type SourceLiteralUnit } from "./domain.js";
 import type { SourceNumericLiteralToken } from "./token.js";
 
 export type SourceLiteralKey =
@@ -41,5 +41,10 @@ function negativeZero(value: SourceNumericKeyValue): boolean {
 }
 
 export function sourceNumericKeyValuesEqual(left: SourceNumericKeyValue, right: SourceNumericKeyValue): boolean {
-  return negativeZero(left) === negativeZero(right) && sourceLiteralUnitsEqual({ kind: "number", value: left }, { kind: "number", value: right });
+  return sourceNumericKeyValueKey(left) === sourceNumericKeyValueKey(right);
+}
+
+export function sourceNumericKeyValueKey(value: SourceNumericKeyValue): string {
+  const identity = sourceNumericLiteralIdentity(value);
+  return typeof identity === "string" ? identity : `${identity.negative ? "-" : "+"}${identity.coefficient}:${identity.two}:${identity.five}:${negativeZero(value) ? "-0" : "+0"}`;
 }
