@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceDescriptorInputFixture } from "./fixtures/source-descriptor-input.mjs";
+import { sourceDescriptorInputFixture } from "../fixtures/source-descriptor-input.mjs";
 
 function fixture() {
   const current = sourceDescriptorInputFixture({ "/src/index.ts": `
