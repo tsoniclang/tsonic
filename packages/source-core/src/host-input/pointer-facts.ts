@@ -1,13 +1,14 @@
-import { defaultValueFactKey, fieldFactKey, functionPointerFactKey, pointerFactKey,
-  providerVirtualDeclarationFactKey, rawPointerFactKey, sourceMarkerFactKey, structFactKey } from "@tsonic/tsts";
-import type { CheckedSourceProgram, ExtensionFactKey, ExtensionFactSubject, FieldFact, Node, Type } from "@tsonic/tsts";
-import type { SourceInputComponent } from "@tsonic/target-api/host";
+import { functionPointerFactKey, pointerFactKey,
+  providerVirtualDeclarationFactKey, rawPointerFactKey, sourceMarkerFactKey } from "@tsonic/tsts";
+import type { CheckedSourceProgram, ExtensionFactKey, ExtensionFactSubject, Node, Type } from "@tsonic/tsts";
+import type { SourceFactProduction, SourceInputComponent, SourceInputFieldMarker } from "@tsonic/target-api/host";
 import type { SourceApplicationFacts, SourceDescriptorView, SourceFieldMarker, SourceMarkerFacts,
   SourceMemoryLayout, SourcePointerFacts, SourcePointerType, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
-  SourceValueFacts } from "@tsonic/target-api/source";
+  SourceValueFacts, SourceAnalysisFacts } from "@tsonic/target-api/source";
 import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { createSourceCorePointerOperationQuery } from "./pointer-operations.js";
 import type { TsonicMemoryLayoutFact } from "../memory-layout/facts.js";
+import { sourceCoreMarkerFacts } from "./marker-facts.js";
 
 export interface SourceCorePointerFactsInput {
   readonly checked: CheckedSourceProgram;
@@ -15,10 +16,12 @@ export interface SourceCorePointerFactsInput {
   readonly applications: SourceApplicationFacts;
   readonly view: SourceDescriptorView;
   readonly assertNode: (node: Node) => void;
-  readonly originalComponent: (value: SourceTypeEvidence) => SourceInputComponent;
+  readonly originalComponent: SourceFactProduction["originalComponent"];
+  readonly sourceOriginSubjects: SourceFactProduction["sourceOriginSubjects"];
   readonly observedComponent: (component: SourceInputComponent) => Type | undefined;
   readonly syntax: (node: Node) => SourceInputComponent;
   readonly publish: (component: SourceInputComponent, receiver?: SourceTypeEvidence) => SourceResult<SourceTypeEvidence>;
+  readonly storage: SourceAnalysisFacts["storage"];
   readonly unavailable: (node: Node, reason: string) => SourceRefusal;
 }
 
@@ -32,31 +35,42 @@ export function createSourceCorePointerFacts(input: SourceCorePointerFactsInput)
   const types = new WeakMap<SourceTypeEvidence, SourceResult<SourcePresence<SourcePointerType>>>();
   const markers = new WeakMap<SourceTypeEvidence, ReturnType<SourceMarkerFacts["typeMarkers"]>>();
   const declarations = new WeakMap<Node, ReturnType<SourceMarkerFacts["declarationMarkers"]>>();
-  const subjects = (value: SourceTypeEvidence): readonly ExtensionFactSubject[] => {
+  const subjects = (value: SourceTypeEvidence): { readonly values: readonly ExtensionFactSubject[]; readonly complete: boolean } => {
     view.assertEvidence(value);
-    const component = originalComponent(value);
-    const terminal = observedComponent(component);
-    assertNode(component.root);
-    const file = ast.getSourceFile(component.root);
-    if (file === undefined) throw new Error("Source pointer evidence requires its original checked source file.");
-    const { checker } = checked.getSourceFileQueries(file);
-    const selected = new Set<ExtensionFactSubject>([component.root]);
-    if (terminal !== undefined) {
-      selected.add(terminal);
-      for (const symbol of [checker.getTypeAliasSymbol(terminal), checker.getTypeSymbol(terminal)]) {
-        if (symbol === undefined) continue;
-        selected.add(symbol);
-        for (const declaration of checker.getSymbolDeclarations(symbol)) if (declaration !== undefined) {
-          assertNode(declaration);
-          selected.add(declaration);
-          const annotation = ast.typeAnnotation(declaration);
-          if (annotation !== undefined) selected.add(annotation);
+    const origins = input.sourceOriginSubjects(value);
+    const selected = new Set<ExtensionFactSubject>();
+    if (origins.kind === "complete") for (const node of origins.nodes) { assertNode(node); selected.add(node); }
+    const association = originalComponent(value);
+    let observed = false;
+    if (association.kind === "present") {
+      const component = association.value;
+      assertNode(component.root);
+      const terminal = observedComponent(component);
+      if (component.path.length === 0) {
+        selected.add(component.root);
+        const annotation = ast.typeAnnotation(component.root);
+        if (annotation !== undefined) selected.add(annotation);
+      }
+      if (terminal !== undefined) {
+        observed = true;
+        const file = ast.getSourceFile(component.root);
+        if (file === undefined) throw new Error("Source pointer evidence requires its original checked source file.");
+        const { checker } = checked.getSourceFileQueries(file);
+        selected.add(terminal);
+        for (const symbol of [checker.getTypeAliasSymbol(terminal), checker.getTypeSymbol(terminal)]) {
+          if (symbol === undefined) continue;
+          selected.add(symbol);
+          for (const declaration of checker.getSymbolDeclarations(symbol)) if (declaration !== undefined) {
+            assertNode(declaration);
+            selected.add(declaration);
+            const annotation = ast.typeAnnotation(declaration);
+            if (annotation !== undefined) selected.add(annotation);
+          }
         }
       }
     }
-    const annotation = ast.typeAnnotation(component.root);
-    if (annotation !== undefined) selected.add(annotation);
-    return Object.freeze([...selected]);
+    return Object.freeze({ values: Object.freeze([...selected]), complete: observed ||
+      origins.kind === "complete" && origins.nodes.length === 0 });
   };
   const fact = <Value>(selected: readonly ExtensionFactSubject[], key: ExtensionFactKey<Value>): Value | undefined => {
     let result: Value | undefined;
@@ -69,17 +83,18 @@ export function createSourceCorePointerFacts(input: SourceCorePointerFactsInput)
     }
     return result;
   };
-  const field = (value: FieldFact, receiver?: SourceTypeEvidence): SourceResult<SourceFieldMarker> => {
-    assertNode(value.type);
-    const selected = publish(syntax(value.type), receiver);
+  const field = (value: SourceInputFieldMarker, receiver?: SourceTypeEvidence): SourceResult<SourceFieldMarker> => {
+    assertNode(value.typeNode);
+    const selected = publish(syntax(value.typeNode), receiver);
     return selected.kind === "refused" ? selected : resolved(Object.freeze({ name: value.name,
-      typeNode: value.type, value: selected.value, readonly: value.readonly === true }));
+      typeNode: value.typeNode, value: selected.value, readonly: value.readonly }));
   };
   const pointerType: SourcePointerFacts["pointerType"] = value => {
     view.assertEvidence(value);
     const existing = types.get(value);
     if (existing !== undefined) return existing;
-    const selected = subjects(value);
+    const original = subjects(value);
+    const selected = original.values;
     const pointer = fact(selected, pointerFactKey);
     const raw = fact(selected, rawPointerFactKey);
     const marker = fact(selected, sourceMarkerFactKey);
@@ -117,9 +132,13 @@ export function createSourceCorePointerFacts(input: SourceCorePointerFactsInput)
       }
       const completion = publish(syntax(callable.result), value);
       if (completion.kind === "refused") return completion;
-      result = resolved(present(Object.freeze({ kind: "function-pointer", value, declaration: originalComponent(value).root,
+      const association = originalComponent(value);
+      if (association.kind === "none") return input.unavailable(value.component.root,
+        "A function pointer requires its original declared component association.");
+      result = resolved(present(Object.freeze({ kind: "function-pointer", value, declaration: association.value.root,
         signature: none, parameters: Object.freeze(parameters), result: completion.value, abi: Object.freeze([...callable.abi]) })));
-    } else result = resolved(none);
+    } else result = original.complete ? resolved(none) : input.unavailable(value.component.root,
+      "Pointer discovery requires complete original Source marker associations.");
     types.set(value, result);
     return result;
   };
@@ -128,16 +147,18 @@ export function createSourceCorePointerFacts(input: SourceCorePointerFactsInput)
     const existing = markers.get(value);
     if (existing !== undefined) return existing;
     const selected = subjects(value);
-    const struct = fact(selected, structFactKey);
+    if (!selected.complete) return input.unavailable(value.component.root,
+      "Source type markers require complete original factual associations.");
+    const original = sourceCoreMarkerFacts({ sourceFacts, assertNode }, selected.values);
     const fields: SourceFieldMarker[] = [];
-    for (const original of struct?.fields ?? []) {
-      const selectedField = field(original, value);
+    for (const item of original.struct.kind === "present" ? original.struct.value.fields ?? [] : []) {
+      const selectedField = field(item, value);
       if (selectedField.kind === "refused") return selectedField;
       fields.push(selectedField.value);
     }
     const result = resolved(Object.freeze({ value,
-      struct: struct === undefined ? none : present(Object.freeze({ valueType: struct.valueType, fields: Object.freeze(fields) })),
-      jsString: fact(selected, sourceMarkerFactKey)?.marker === "js-string" }));
+      struct: original.struct.kind === "none" ? none : present(Object.freeze({ valueType: original.struct.value.valueType, fields: Object.freeze(fields) })),
+      jsString: original.jsString }));
     markers.set(value, result);
     return result;
   };
@@ -145,20 +166,20 @@ export function createSourceCorePointerFacts(input: SourceCorePointerFactsInput)
     assertNode(occurrence);
     const existing = declarations.get(occurrence);
     if (existing !== undefined) return existing;
-    const originalField = sourceFacts.getFact(occurrence, fieldFactKey);
+    const original = sourceCoreMarkerFacts({ sourceFacts, assertNode }, [occurrence]);
     let selectedField: SourcePresence<SourceFieldMarker> = none;
-    if (originalField !== undefined) {
-      const published = field(originalField);
+    if (original.field.kind === "present") {
+      const published = field(original.field.value);
       if (published.kind === "refused") return published;
       selectedField = present(published.value);
     }
-    const originalDefault = sourceFacts.getFact(occurrence, defaultValueFactKey);
-    const selectedDefault = originalDefault === undefined ? undefined : publish(syntax(originalDefault.type));
+    const originalDefault = original.defaultValue;
+    const selectedDefault = originalDefault.kind === "none" ? undefined : publish(syntax(originalDefault.value.typeNode));
     if (selectedDefault?.kind === "refused") return selectedDefault;
     const result = resolved(Object.freeze({ occurrence,
       field: selectedField,
-      defaultValue: originalDefault === undefined || selectedDefault === undefined ? none
-        : present(Object.freeze({ typeNode: originalDefault.type, value: selectedDefault.value })) }));
+      defaultValue: originalDefault.kind === "none" || selectedDefault === undefined ? none
+        : present(Object.freeze({ typeNode: originalDefault.value.typeNode, value: selectedDefault.value })) }));
     declarations.set(occurrence, result);
     return result;
   };
@@ -174,7 +195,8 @@ export function createSourceMemoryLayoutQuery(input: SourceCorePointerFactsInput
   const select = (layout: TsonicMemoryLayoutFact, source: SourceTypeEvidence): SourceResult<SourceMemoryLayout> => {
     view.assertEvidence(source);
     assertNode(layout.call);
-    const terminal = observedComponent(originalComponent(source));
+    const association = originalComponent(source);
+    const terminal = association.kind === "none" ? undefined : observedComponent(association.value);
     if (terminal === undefined) return unavailable(layout.call, "A finalized memory layout requires its observed original Source component.");
     const file = checked.ast.getSourceFile(layout.call);
     if (file === undefined) throw new Error("A memory layout requires its original checked source file.");

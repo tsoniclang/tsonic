@@ -1,7 +1,7 @@
 import { pointerOperationFactKey, rawPointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, Type } from "@tsonic/tsts";
 import type { SourceApplication, SourcePointerFacts, SourcePointerOperation, SourcePresence, SourceRawLocation,
-  SourceResult, SourceTypeEvidence, SourceValueOperand } from "@tsonic/target-api/source";
+  SourceResult, SourceStoragePlace, SourceTypeEvidence, SourceValueOperand } from "@tsonic/target-api/source";
 import { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
 import { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
@@ -18,14 +18,16 @@ export function createSourceCorePointerOperationQuery(input: SourceCorePointerFa
   const { ast, sourceFacts } = checked;
   const retained = new WeakMap<Node, SourceResult<SourcePresence<SourcePointerOperation>>>();
   const layout = createSourceMemoryLayoutQuery(input);
-  const pointee = (application: SourceApplication, index: number, expected: Type): SourceResult<SourceTypeEvidence> => {
+  const pointee = (application: SourceApplication, index: number, expected: Type | undefined): SourceResult<SourceTypeEvidence> => {
     const parameter = application.identity.signature.typeParameters[index];
     const bindings = application.identity.signatureBindings.filter(binding => binding.declaration === parameter);
     if (parameter === undefined || bindings.length !== 1)
       return unavailable(application.identity.invocation, "Pointer semantics require the exact selected Source application binding.");
     const value = bindings[0]!.value;
     view.assertEvidence(value);
-    const terminal = observedComponent(originalComponent(value));
+    if (expected === undefined) return resolved(value);
+    const original = originalComponent(value);
+    const terminal = original.kind === "none" ? undefined : observedComponent(original.value);
     if (terminal === undefined) return unavailable(application.identity.invocation,
       "Pointer semantics require the observed original pointee component.");
     const file = ast.getSourceFile(application.identity.invocation);
@@ -50,6 +52,21 @@ export function createSourceCorePointerOperationQuery(input: SourceCorePointerFa
     if (count !== 1) throw new Error("A Source operation cannot carry competing pointer meanings.");
     for (const fact of [typed, raw, projected, memory, alive]) if (fact !== undefined && fact.call !== occurrence)
       throw new Error("Pointer facts must retain the exact original operation occurrence.");
+    let addressed: SourceStoragePlace | undefined;
+    if (typed !== undefined) {
+      for (const argument of [...typed.arguments, ...typed.typeArguments]) assertNode(argument);
+      if (typed.pointee.kind === "unavailable" && typed.pointee.reason !== "not-applicable")
+        return unavailable(occurrence, `${typed.exportName}(...) requires its exact selected pointer type argument${typed.operation === "project-pointer" ? "s" : ""}.`);
+      if (typed.operation === "address-of") {
+        const argument = typed.arguments[0];
+        if (argument === undefined) return unavailable(occurrence, `${typed.exportName}(...) requires an original storage operand.`);
+        const place = input.storage(argument);
+        if (place.kind === "refused") return place;
+        if (place.value.kind === "none" || !place.value.value.writable)
+          return unavailable(argument, `${typed.exportName}(...) requires writable storage.`);
+        addressed = place.value.value;
+      }
+    }
     const application = applications.application(occurrence);
     if (application.kind === "refused") return application;
     if (application.value.identity.invocation !== occurrence)
@@ -58,15 +75,13 @@ export function createSourceCorePointerOperationQuery(input: SourceCorePointerFa
     const operands = new Map<Node, SourceValueOperand>();
     let expressions: readonly Node[];
     if (typed !== undefined) {
-      switch (typed.operation) {
-        case "address-of": expressions = [typed.storageExpression]; break;
-        case "allocate": expressions = [typed.initialExpression]; break;
-        case "load": case "hash-pointer": expressions = [typed.pointerExpression]; break;
-        case "store": expressions = [typed.pointerExpression, typed.valueExpression]; break;
-        case "equal-pointer": expressions = [typed.leftExpression, typed.rightExpression]; break;
-        case "bind-pointer": expressions = [typed.identityExpression, typed.readExpression, typed.writeExpression]; break;
-        case "project-pointer": expressions = [typed.pointerExpression, typed.fromSourceExpression, typed.toSourceExpression]; break;
-      }
+      const count = typed.operation === "store" || typed.operation === "equal-pointer" ? 2
+        : typed.operation === "bind-pointer" || typed.operation === "project-pointer" ? 3 : 1;
+      if (typed.arguments.length !== count || application.value.sourceArguments.length !== count ||
+        application.value.sourceArguments.some((argument, index) => argument.form !== "value" ||
+          argument.occurrence !== typed.arguments[index] || argument.operand.occurrence !== typed.arguments[index]))
+        return unavailable(occurrence, `${typed.exportName}(...) requires ${count} exact original value argument${count === 1 ? "" : "s"}.`);
+      expressions = typed.arguments;
     } else if (raw !== undefined) expressions = raw.operation === "bind-raw-pointer" ? [raw.identityExpression]
       : raw.operation === "equal-raw-pointer" ? [raw.leftExpression, raw.rightExpression] : [raw.pointerExpression];
     else if (native !== undefined) expressions = native.operation === "load" ? [native.pointerExpression]
@@ -85,7 +100,8 @@ export function createSourceCorePointerOperationQuery(input: SourceCorePointerFa
     for (const expression of expressions) {
       assertNode(expression);
       if (!authored.has(expression)) throw new Error("Pointer operands must retain exact authored Source argument occurrences.");
-      const selected = values.type(expression);
+      const selected = addressed !== undefined && expression === typed?.arguments[0]
+        ? resolved(addressed.value) : values.type(expression);
       if (selected.kind === "refused") return selected;
       operands.set(expression, Object.freeze({ occurrence: expression, value: selected.value }));
     }
@@ -97,31 +113,35 @@ export function createSourceCorePointerOperationQuery(input: SourceCorePointerFa
     const base = { occurrence, result: application.value.result };
     let operation: SourcePointerOperation;
     if (typed !== undefined) {
-      const selected = pointee(application.value, typed.operation === "project-pointer" ? 1 : 0, typed.pointeeType);
+      const selected = pointee(application.value, typed.operation === "project-pointer" ? 1 : 0,
+        typed.pointee.kind === "available" ? typed.pointee.type : undefined);
       if (selected.kind === "refused") return selected;
       const common = { ...base, family: "typed-location" as const, pointee: selected.value };
+      const argument = (index: number): SourceValueOperand => operand(typed.arguments[index]!);
       switch (typed.operation) {
-        case "address-of":
-          assertNode(typed.locationIdentity);
-          if (typed.storageDeclaration !== undefined) assertNode(typed.storageDeclaration);
-          operation = Object.freeze({ ...common, operation: typed.operation, storage: operand(typed.storageExpression),
-            declaration: typed.storageDeclaration === undefined ? none : present(typed.storageDeclaration), locationIdentity: typed.locationIdentity }); break;
-        case "allocate": assertNode(typed.locationIdentity);
-          operation = Object.freeze({ ...common, operation: typed.operation, initial: operand(typed.initialExpression), locationIdentity: typed.locationIdentity }); break;
+        case "address-of": {
+          if (addressed === undefined) throw new Error("An address operation requires its canonical validated Source place.");
+          const declaration = addressed.kind === "binding" ? present(addressed.declaration)
+            : addressed.kind === "member" && addressed.declarations.length === 1 ? present(addressed.declarations[0]!) : none;
+          operation = Object.freeze({ ...common, operation: typed.operation, storage: argument(0),
+            declaration, locationIdentity: addressed.storage }); break;
+        }
+        case "allocate":
+          operation = Object.freeze({ ...common, operation: typed.operation, initial: argument(0), locationIdentity: occurrence }); break;
         case "load": case "hash-pointer":
-          operation = Object.freeze({ ...common, operation: typed.operation, pointer: operand(typed.pointerExpression) }); break;
+          operation = Object.freeze({ ...common, operation: typed.operation, pointer: argument(0) }); break;
         case "store": operation = Object.freeze({ ...common, operation: typed.operation,
-          pointer: operand(typed.pointerExpression), value: operand(typed.valueExpression) }); break;
+          pointer: argument(0), value: argument(1) }); break;
         case "equal-pointer": operation = Object.freeze({ ...common, operation: typed.operation,
-          left: operand(typed.leftExpression), right: operand(typed.rightExpression) }); break;
-        case "bind-pointer": assertNode(typed.locationIdentity);
-          operation = Object.freeze({ ...common, operation: typed.operation, identity: operand(typed.identityExpression),
-            read: operand(typed.readExpression), write: operand(typed.writeExpression), locationIdentity: typed.locationIdentity }); break;
+          left: argument(0), right: argument(1) }); break;
+        case "bind-pointer":
+          operation = Object.freeze({ ...common, operation: typed.operation, identity: argument(0),
+            read: argument(1), write: argument(2), locationIdentity: argument(0).occurrence }); break;
         case "project-pointer": {
-          const source = pointee(application.value, 0, typed.sourcePointeeType);
+          const source = pointee(application.value, 0, undefined);
           if (source.kind === "refused") return source;
           operation = Object.freeze({ ...common, operation: typed.operation, sourcePointee: source.value,
-            pointer: operand(typed.pointerExpression), fromSource: operand(typed.fromSourceExpression), toSource: operand(typed.toSourceExpression) }); break;
+            pointer: argument(0), fromSource: argument(1), toSource: argument(2) }); break;
         }
       }
     } else if (raw !== undefined) {
