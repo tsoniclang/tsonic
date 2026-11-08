@@ -3,9 +3,9 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
-import type { SourceCategoryDomain, SourceMemberKey, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeDescriptor, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceCategoryDomain, SourceMemberKey, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeDescriptor, SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain, type SourceLiteralDomain } from "../source-model/literals/domain.js";
-import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
+import type { SourceEvidenceComponent, SourceProductionResult } from "./descriptor-contracts.js";
 import type { SourceEvidenceDetails, SourceMemberInventory, SourceMemberInventoryRow } from "./member-inventory.js";
 import { createSourceDescriptorOwner } from "./descriptor-owner.js";
 import { sourceTypeDescriptorDepth } from "./descriptor-metrics.js";
@@ -13,7 +13,7 @@ import { createSourceMemberCorrespondenceQueries } from "./member-correspondence
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-    "/src/index.ts": "class Left<T> { value!: T; } class Right {} class Access { get item(): string { return ''; } set item(value: number) {} } interface TaggedLeft { tag: 'a'; x: number; lazy: string; } interface TaggedRight { tag: 'b'; x: number; lazy: string; } type Outer<U> = <T extends U = U>(value: T) => T; const constructed = { value: 1 }; function run(value: number): number { return value; }",
+    "/src/index.ts": "class Left<T> { value!: T; } class Right {} class Access { get item(): string { return ''; } set item(value: number) {} } interface TaggedLeft { tag: 'a'; x: number; lazy: string; } interface TaggedRight { tag: 'b'; x: number; lazy: string; } interface Indexed { [key: string]: number; } type Outer<U> = <T extends U = U>(value: T) => T; const constructed = { value: 1 }; function run(value: number): number { return value; }",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The exact original fixture file is required.");
@@ -213,6 +213,56 @@ test("foreign evidence and copied sums are rejected even after equivalent warm p
   assert.throws(() => local.builder.applyFamily({ ...sum.family }, []), /exact original descriptor view/);
 });
 
+test("evidence publication requires every descriptor child and its original category instead of descriptor reconstruction", () => {
+  const current = fixture(), local = current.createView();
+  const declaration = current.named("Left", current.checked.ast.is.IsClassDeclaration);
+  const member = current.checked.ast.members(declaration)[0];
+  if (member === undefined) throw new Error("The original member is required.");
+  const indexDeclaration = current.nodes.find(current.checked.ast.is.IsIndexSignatureDeclaration);
+  if (indexDeclaration === undefined) throw new Error("The original index declaration is required.");
+  const callable = current.named("run", current.checked.ast.is.IsFunctionDeclaration);
+  const identity = local.signature(callable);
+  const integer = local.evidence(local.builder.primitive("int64"), { kind: "known", category: "bigint" });
+  const text = local.evidence(local.builder.string(), { kind: "known", category: "string" });
+  const memberSelector = { kind: "member" as const, origin: { kind: "declared" as const, declaration: member } };
+  const parameterSelector = { kind: "parameter" as const, signature: identity, index: 0 };
+  const resultSelector = { kind: "result" as const, signature: identity };
+  const cases: readonly { readonly type: SourceTypeDescriptor; readonly children: readonly SourceEvidenceComponent[] }[] = [
+    { type: local.builder.optional(integer.type), children: [{ selector: { kind: "optional-value" }, value: integer }] },
+    { type: local.builder.array(integer.type, false), children: [{ selector: { kind: "array-element" }, value: integer }] },
+    { type: local.builder.tuple([{ kind: "required", type: integer.type }], false), children: [{ selector: { kind: "tuple-element", index: 0 }, value: integer }] },
+    { type: local.builder.declared({ declaration, typeArguments: [integer.type] }), children: [{ selector: { kind: "type-argument", declaration, index: 0 }, value: integer }] },
+    { type: local.builder.projection(integer.type, { kind: "awaited" }), children: [{ selector: { kind: "projection-source" }, value: integer }] },
+    { type: local.builder.shape({ members: [{ name: "value", key: { kind: "string", value: "value" }, origin: memberSelector.origin,
+      type: integer.type, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] }),
+    children: [{ selector: memberSelector, value: integer }] },
+    { type: local.builder.shape({ members: [], indexes: [{ declaration: indexDeclaration, key: text.type, value: integer.type, readonly: false }], calls: [], constructs: [] }),
+      children: [{ selector: { kind: "index-key", declaration: indexDeclaration }, value: text },
+        { selector: { kind: "index-value", declaration: indexDeclaration }, value: integer }] },
+    { type: local.builder.callable({ calls: [{ identity, receiver: { type: text.type },
+      parameters: [{ kind: "required", type: integer.type }], result: integer.type }], constructs: [] }),
+    children: [{ selector: { kind: "receiver", signature: identity }, value: text },
+      { selector: parameterSelector, value: integer }, { selector: resultSelector, value: integer }] },
+  ];
+  for (const { type, children } of cases) {
+    assert.throws(() => local.evidence(type, { kind: "known", category: "object" }), /exact registered child evidence/, type.kind);
+    for (const [index, child] of children.entries()) {
+      const missing = children.filter((_value, ordinal) => ordinal !== index);
+      assert.throws(() => local.evidence(type, { kind: "known", category: "object" }, current.file, sourceOpenLiteralDomain, missing),
+        /exact registered child evidence/, `${type.kind}:${child.selector.kind}`);
+    }
+    const value = local.evidence(type, { kind: "known", category: "object" }, current.file, sourceOpenLiteralDomain, children);
+    for (const child of children) assert.equal(resolved(local.view.component(value, child.selector)) === child.value, true, type.kind);
+  }
+  assert.throws(() => local.evidence(local.builder.array(integer.type, false), { kind: "known", category: "object" },
+    current.file, sourceOpenLiteralDomain, [{ selector: { kind: "array-element" }, value: text }]), /exact registered child evidence/);
+  const bareUnion = local.builder.union([integer.type, text.type]);
+  assert.throws(() => local.evidence(bareUnion, { kind: "dynamic" }), /authenticated family application/);
+  const sum = resolved(local.builder.join(local.builder.componentIdentity(current.file, []), "authored", [integer, text], undefined));
+  assert.throws(() => local.builder.evidence(sum, [], undefined, local.builder.domain(sum),
+    { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [] } }), /exact authenticated arm/);
+});
+
 test("constraint-only and default-only captured binders remain lazy through substitution", () => {
   const current = fixture(), local = current.createView();
   const outer = current.named("U", current.checked.ast.is.IsTypeParameterDeclaration);
@@ -251,20 +301,27 @@ test("construction metadata is registered before child production and retained b
   const declaration = current.checked.ast.members(occurrence)[0];
   if (declaration === undefined) throw new Error("The original property is required.");
   let forced = 0;
+  let completed: SourceTypeEvidence | undefined;
+  const produce = (): SourceProductionResult<SourcePresence<SourceTypeEvidence>> =>
+    completed === undefined ? { kind: "pending", dependencies: [local.builder.componentIdentity(declaration, [])] }
+      : { kind: "resolved", value: { kind: "present", value: completed } };
   const row: SourceMemberInventoryRow = { key: { kind: "name", name: "value" }, name: "value", declarations: [declaration],
     origins: [{ kind: "declared", declaration }], readOrigins: [{ kind: "declared", declaration }], writeOrigins: [{ kind: "declared", declaration }],
     getters: [], setters: [], read: "property", optional: false, readonly: false,
     readDomain: () => ({ kind: "resolved", value: sourceOpenLiteralDomain }),
-    readType: () => { forced++; return { kind: "pending", dependencies: [local.builder.componentIdentity(declaration, [])] }; },
-    writeType: () => ({ kind: "resolved", value: { kind: "none" } }) };
+    readType: () => { forced++; return produce(); }, writeType: produce };
   const original: SourceMemberInventory = { kind: "complete", members: [row], indexes: [] };
   local.builder.registerConstruction(occurrence, () => ({ kind: "resolved", value: original }));
   const metadata = local.builder.construction(occurrence);
   assert.equal(metadata.kind === "resolved" && metadata.value.kind === "complete", true);
   assert.equal(forced, 0);
   if (metadata.kind !== "resolved") throw new Error("The metadata must be available independently.");
-  const value = local.evidence(local.builder.shape({ members: [], indexes: [], calls: [], constructs: [] }), { kind: "known", category: "object" },
-    occurrence, sourceOpenLiteralDomain, [], { members: original, origins: { kind: "complete", nodes: [occurrence] } });
+  completed = local.evidence(local.builder.primitive("int64"), { kind: "known", category: "number" }, declaration);
+  const origin = { kind: "declared" as const, declaration };
+  const value = local.evidence(local.builder.shape({ members: [{ name: "value", key: { kind: "string", value: "value" }, origin,
+    optional: false, readonly: false, type: completed.type }], indexes: [], calls: [], constructs: [] }), { kind: "known", category: "object" },
+  occurrence, sourceOpenLiteralDomain, [{ selector: { kind: "member", origin }, value: completed }],
+  { members: original, origins: { kind: "complete", nodes: [occurrence] } });
   const retained = local.builder.members(value);
   assert.equal(retained.kind === "resolved" && retained.value === metadata.value, true);
   assert.equal(forced, 0);

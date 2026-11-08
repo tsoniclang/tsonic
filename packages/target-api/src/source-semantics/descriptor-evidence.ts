@@ -2,7 +2,8 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../host-input/identities.js";
 import { sourceFiniteLiteralDomain, sourceLiteralDomainsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
-  SourceCategoryDomain, SourceMemberOrigin, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
+  SourceCategoryDomain, SourceComponentSelector, SourceMemberOrigin, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
+  SourceTypeDescriptorSignature,
   SourceTypeBinding, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
@@ -137,6 +138,51 @@ export function createSourceEvidenceOwner(input: {
     return true;
   }
 
+  function requireChildren(value: SourceTypeEvidence, entries: ReadonlyMap<string, SourceEvidenceComponent>): void {
+    function child(selector: SourceComponentSelector, type: SourceTypeDescriptor): void {
+      const selected = entries.get(input.components.selectorKey(selector));
+      if (selected === undefined || selected.value.type !== type)
+        throw new Error("Every Source descriptor component requires its exact registered child evidence.");
+    }
+    function signature(value: SourceTypeDescriptorSignature): void {
+      if (value.receiver !== undefined) child({ kind: "receiver", signature: value.identity }, value.receiver.type);
+      for (const [index, parameter] of value.parameters.entries())
+        child({ kind: "parameter", signature: value.identity, index }, parameter.type);
+      child({ kind: "result", signature: value.identity }, value.result);
+    }
+    const type = value.type;
+    switch (type.kind) {
+      case "primitive": case "string": case "intrinsic": case "parameter": break;
+      case "optional": child({ kind: "optional-value" }, type.value); break;
+      case "array": child({ kind: "array-element" }, type.element); break;
+      case "tuple":
+        for (const [index, element] of type.elements.entries()) child({ kind: "tuple-element", index }, element.type);
+        break;
+      case "declared":
+        for (const [index, argument] of type.typeArguments.entries()) child({ kind: "type-argument", declaration: type.declaration, index }, argument);
+        break;
+      case "projection": child({ kind: "projection-source" }, type.source); break;
+      case "shape":
+        for (const member of type.members) child({ kind: "member", origin: member.origin }, member.type);
+        for (const index of type.indexes) {
+          child({ kind: "index-key", declaration: index.declaration }, index.key);
+          child({ kind: "index-value", declaration: index.declaration }, index.value);
+        }
+        for (const selected of [...type.calls, ...type.constructs]) signature(selected);
+        break;
+      case "callable":
+        for (const selected of [...type.calls, ...type.constructs]) signature(selected);
+        break;
+      case "union":
+        if (value.sum === undefined) throw new Error("A Source union requires its original authenticated family application.");
+        break;
+    }
+    if (value.sum !== undefined) for (const [index, arm] of value.sum.arms.entries()) {
+      const selected = entries.get(input.components.selectorKey({ kind: "sum-arm", family: value.sum.family, index }));
+      if (selected?.value !== arm) throw new Error("A Source sum requires each exact authenticated arm as registered child evidence.");
+    }
+  }
+
   function create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[], details: SourceEvidenceDetails): SourceTypeEvidence {
     input.assertDescriptor(value.type);
     input.components.assert(value.component);
@@ -164,6 +210,7 @@ export function createSourceEvidenceOwner(input: {
       const childComponent = input.components.identity(value.component.root, [...value.component.path, child.selector]);
       entries.set(selectorKey, Object.freeze({ selector: childComponent.path[childComponent.path.length - 1]!, value: child.value }));
     }
+    requireChildren(value, entries);
     const selected: SourceTypeEvidence = Object.freeze({ type: value.type, component: value.component,
       category: selectedCategory, numeric: selectedNumeric, sum: value.sum });
     const selectedDetails = freezeDetails(details);
