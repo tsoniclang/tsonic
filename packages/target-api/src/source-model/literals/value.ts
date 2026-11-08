@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import type { SourceNumericLiteralToken } from "./token.js";
 
 export type SourceLiteralForm = SourceLiteralValue["form"];
 
@@ -6,13 +7,6 @@ interface SourceLiteralNumbers {
   readonly number?: number;
   readonly integer?: bigint;
   readonly integerConstant?: bigint;
-}
-
-export interface SourceNumericLiteralToken {
-  readonly coefficient: bigint;
-  readonly exponent: bigint;
-  readonly negative: boolean;
-  readonly decimalText: string;
 }
 
 export type SourceNumericLiteralEvidence =
