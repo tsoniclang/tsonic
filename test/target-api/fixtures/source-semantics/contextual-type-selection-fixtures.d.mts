@@ -2,7 +2,7 @@ import { type Node } from "@tsonic/tsts";
 export declare function fixture(sourceText: string): {
     checked: import("@tsonic/tsts").CheckedSourceProgram;
     file: import("@tsonic/tsts").SourceFile;
-    source: import("../../../../packages/target-api/src/source-semantics/types.js").TargetSourceProgram;
+    source: import("../../../../packages/target-api/src/source-model/program.js").TargetSourceProgram;
     queries: import("@tsonic/tsts").SourceFileQueries;
     literals: Node[];
     literal: Node;

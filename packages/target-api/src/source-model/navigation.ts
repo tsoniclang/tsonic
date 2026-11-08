@@ -2,6 +2,7 @@ import type { Node, ProviderVirtualDeclarationFact, SourceFile } from "@tsonic/t
 import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence, SourceCallableRole, SourceCallableRoles } from "../public/source/contracts.js";
 import type { SourceExpressionResultDisposition } from "../source-navigation/expression-use-model.js";
 import type { SourceProfileDeclarationIdentity } from "./profile-identity.js";
+import type { SourceNodeCountedLoop } from "./loops.js";
 
 export interface SourceNodeReference {
   readonly meaning: "value" | "type" | "namespace";

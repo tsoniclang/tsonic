@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput } from "../../host-input/descriptor-input.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
-import type { SourceDeclaredSlot, SourcePresence, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceDescriptorBuilder, SourceDescriptorReader } from "../descriptor-contracts.js";

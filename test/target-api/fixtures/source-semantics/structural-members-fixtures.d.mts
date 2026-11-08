@@ -9,7 +9,7 @@ declare function inspect(text: string, files?: Record<string, string>): {
         readonly kind: "unavailable";
         readonly reason: "unresolved-shape" | "missing-required-member" | "inconsistent-member" | "unreadable-member" | "disjoint-shape";
     })[];
-    source: import("../../../../packages/target-api/src/source-semantics/types.js").TargetSourceProgram;
+    source: import("../../../../packages/target-api/src/source-model/program.js").TargetSourceProgram;
     semantics: import("../../../../packages/target-api/src/source-semantics/types.js").SourceFileSemantics;
     argumentTypes: Type[];
     checked: import("@tsonic/tsts").CheckedSourceProgram;

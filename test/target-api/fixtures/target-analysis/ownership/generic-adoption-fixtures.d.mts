@@ -1,5 +1,5 @@
 import { type Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../../../packages/target-api/src/source-semantics/types.js";
+import type { TargetSourceProgram } from "../../../../../packages/target-api/src/source-model/program.js";
 export declare function nativeEntryFixture(text: string, timing?: "synchronous" | "deferred"): {
     source: TargetSourceProgram;
     nodes: Node[];

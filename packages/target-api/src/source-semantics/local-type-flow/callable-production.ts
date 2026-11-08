@@ -3,7 +3,6 @@ import type { SourceInputComponent, SourceInputSignature } from "../../host-inpu
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
-import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceSemanticProduction } from "./production-context.js";
