@@ -56,8 +56,11 @@ export function createSourceInputIdentityOwner(assertNode: (node: Node) => void)
         case "parameter": return [part.kind, signatureId(part.signature), part.index];
         case "receiver": case "result": return [part.kind, signatureId(part.signature)];
         case "type-argument": return [part.kind, nodeId(part.declaration), part.index];
+        case "index-key": case "index-value": return [part.kind, nodeId(part.declaration)];
+        case "argument-place": case "parameter-place": return [part.kind, part.index];
+        case "argument-tail": case "parameter-tail": return [part.kind, part.start];
         case "element": case "optional-value": return [part.kind];
-        case "tuple-element": return [part.kind, part.index];
+        case "tuple-element": case "union-member": return [part.kind, part.index];
         case "tuple-slice": return [part.kind, part.start, part.readonly];
         case "signature-tail": return [part.kind, signatureId(part.signature), part.start, part.readonly];
       }

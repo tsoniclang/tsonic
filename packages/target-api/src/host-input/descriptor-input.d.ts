@@ -1,5 +1,6 @@
 import type { CheckedSourceProgram, Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
+import type { SourceInputBackingConstraint, SourceInputCallSelection } from "./call-input.js";
 
 export interface SourceInputParameter {
   readonly declaration: Node | undefined;
@@ -46,6 +47,8 @@ export interface SourceDescriptorInput {
   assertSignature(signature: SourceInputSignature): void;
   syntax(node: Node): SourceInputComponent;
   describe(component: SourceInputComponent): SourceInputTypeFacts;
+  application(invocation: Node): SourceInputCallSelection;
+  constraints(occurrence: Node): readonly SourceInputBackingConstraint[];
 }
 
 export declare function createSourceDescriptorInput(checked: CheckedSourceProgram): SourceDescriptorInput;
