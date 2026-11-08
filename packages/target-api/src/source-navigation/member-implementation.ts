@@ -1,5 +1,4 @@
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
-import { sourceNodeIdentity } from "./identity.js";
 import { primaryDeclaration } from "./syntax.js";
 import { sourceMemberOwner } from "./class-members.js";
 import { selectCallableImplementationDeclaration } from "./callable-implementation.js";
@@ -21,19 +20,13 @@ export function createSourceMemberImplementationNavigation(
     targetDeclaration: Node,
   ) => SourceHeritagePathResult,
 ): SourceMemberImplementationNavigation {
-  const { ast } = source;
-  const cache = new Map<string, SourceProjectMemberImplementationResult>();
+  const cache = new WeakMap<Node, WeakMap<Node, SourceProjectMemberImplementationResult>>();
 
   const memberImplementation = (
     typeDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult => {
-    const typeIdentity = sourceNodeIdentity(ast, typeDeclaration);
-    const memberIdentity = sourceNodeIdentity(ast, contractMemberDeclaration);
-    const cacheKey = typeIdentity === undefined || memberIdentity === undefined
-      ? undefined
-      : `${typeIdentity}::${memberIdentity}`;
-    const cached = cacheKey === undefined ? undefined : cache.get(cacheKey);
+    const cached = cache.get(typeDeclaration)?.get(contractMemberDeclaration);
     if (cached !== undefined) {
       return cached;
     }
@@ -46,9 +39,9 @@ export function createSourceMemberImplementationNavigation(
       isProjectDeclaration,
       declaredHeritagePath,
     );
-    if (cacheKey !== undefined) {
-      cache.set(cacheKey, result);
-    }
+    const members = cache.get(typeDeclaration) ?? new WeakMap<Node, SourceProjectMemberImplementationResult>();
+    members.set(contractMemberDeclaration, result);
+    cache.set(typeDeclaration, members);
     return result;
   };
 

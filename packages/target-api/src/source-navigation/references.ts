@@ -17,6 +17,7 @@ export interface SourceReferenceNavigation {
 export function createSourceReferenceNavigation(
   source: CheckedSourceProgram,
   sourceFiles: readonly SourceFile[],
+  containsNode: (node: Node) => boolean,
 ): SourceReferenceNavigation {
   const { ast } = source;
   const sourceFileSet = new Set(sourceFiles);
@@ -35,7 +36,7 @@ export function createSourceReferenceNavigation(
 
   const isProjectDeclaration = (declaration: Node | undefined): boolean =>
     declaration !== undefined &&
-    isProjectSourceFile(ast.getSourceFile(declaration));
+    isProjectSourceFile(ast.getSourceFile(declaration)) && containsNode(declaration);
 
   const referenceIndex = createSourceDeclarationReferenceIndex(
     source,
@@ -50,6 +51,7 @@ export function createSourceReferenceNavigation(
       : referenceIndex.sourceReferenceFor(node);
 
   const declarationFor = (node: Node | undefined): Node | undefined => {
+    if (node !== undefined && !containsNode(node)) throw new Error("Source references require an original checked node.");
     if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }
@@ -81,6 +83,7 @@ export function createSourceReferenceNavigation(
   const referenceFor = (
     node: Node | undefined,
   ): SourceProjectReference | undefined => {
+    if (node !== undefined && !containsNode(node)) throw new Error("Source references require an original checked node.");
     if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }

@@ -23,6 +23,7 @@ import { sourceDeclarationUseSummary, sourceParameterUseSummary } from "./declar
 import { sourceCountedLoop } from "./counted-loops.js";
 import { sourceExpressionValueFlow } from "./value-flow.js";
 import type { SourceProgramNavigation } from "./types.js";
+import { createSourceEnclosingQuery, sourceCallableRoles, type SourceCallableRole } from "./callable-boundaries.js";
 
 
 export function createSourceProgramNavigation(
@@ -33,7 +34,14 @@ export function createSourceProgramNavigation(
   const sourceFileSet = new Set(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
-  const references = createSourceReferenceNavigation(source, sourceFiles);
+  const requireNode = (node: Node): void => {
+    if (!nodeInventory.contains(node)) throw new Error("Source navigation requires an original checked node in its own program.");
+  };
+  const requireFile = (file: SourceFile): void => {
+    if (!source.containsSourceFile(file)) throw new Error("Source navigation requires its exact checked source-file identity.");
+  };
+  const enclosing = createSourceEnclosingQuery(source.ast);
+  const references = createSourceReferenceNavigation(source, sourceFiles, nodeInventory.contains);
   const declarationSymbol = createSourceDeclarationSymbolQuery(source, references);
   const dispatch = createSourceMemberDispatchNavigation(
     source,
@@ -66,17 +74,17 @@ export function createSourceProgramNavigation(
     source,
     references.isProjectDeclaration,
   );
-  const moduleDependencyCache = new Map<
-    string,
+  const moduleDependencyCache = new WeakMap<
+    SourceFile,
     readonly ReturnType<typeof sourceProjectModuleDependencies>[number][]
   >();
-  const moduleReferenceCache = new Map<
-    string,
+  const moduleReferenceCache = new WeakMap<
+    SourceFile,
     readonly ReturnType<typeof sourceProjectModuleReferences>[number][]
   >();
-  const topLevelAwaitCache = new Map<string, boolean>();
-  const moduleExportCache = new Map<
-    string,
+  const topLevelAwaitCache = new WeakMap<SourceFile, boolean>();
+  const moduleExportCache = new WeakMap<
+    SourceFile,
     readonly ReturnType<typeof sourceProjectModuleExports>[number][]
   >();
   const declarationUsesCache = new WeakMap<Node, readonly ReturnType<
@@ -93,6 +101,7 @@ export function createSourceProgramNavigation(
   >>();
   const expressionResultDispositions = new WeakMap<Node, ReturnType<typeof sourceExpressionResultDisposition>>();
   const expressionResultDisposition = (expression: Node) => {
+    requireNode(expression);
     const cached = expressionResultDispositions.get(expression);
     if (cached !== undefined) return cached;
     const selected = sourceExpressionResultDisposition(source.ast, expression);
@@ -103,6 +112,7 @@ export function createSourceProgramNavigation(
   const declarationUses = (declaration: Node): ReturnType<
     SourceProgramNavigation["declarationUses"]
   > => {
+    requireNode(declaration);
     const cached = declarationUsesCache.get(declaration);
     if (cached !== undefined) {
       return cached;
@@ -119,6 +129,7 @@ export function createSourceProgramNavigation(
   const declarationUseSummary = (declaration: Node): ReturnType<
     SourceProgramNavigation["declarationUseSummary"]
   > => {
+    requireNode(declaration);
     const cached = declarationUseSummaryCache.get(declaration);
     if (cached !== undefined) {
       return cached;
@@ -135,11 +146,8 @@ export function createSourceProgramNavigation(
   const moduleDependencies = (
     sourceFile: SourceFile,
   ): ReturnType<SourceProgramNavigation["moduleDependencies"]> => {
-    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
-    if (sourceFileKey === undefined) {
-      return Object.freeze([]);
-    }
-    const cached = moduleDependencyCache.get(sourceFileKey);
+    requireFile(sourceFile);
+    const cached = moduleDependencyCache.get(sourceFile);
     if (cached !== undefined) {
       return cached;
     }
@@ -148,32 +156,26 @@ export function createSourceProgramNavigation(
       sourceFileSet,
       sourceFile,
     );
-    moduleDependencyCache.set(sourceFileKey, dependencies);
+    moduleDependencyCache.set(sourceFile, dependencies);
     return dependencies;
   };
 
   const moduleHasTopLevelAwait = (sourceFile: SourceFile): boolean => {
-    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
-    if (sourceFileKey === undefined) {
-      return false;
-    }
-    const cached = topLevelAwaitCache.get(sourceFileKey);
+    requireFile(sourceFile);
+    const cached = topLevelAwaitCache.get(sourceFile);
     if (cached !== undefined) {
       return cached;
     }
     const result = sourceFileHasTopLevelAwait(source.ast, sourceFile);
-    topLevelAwaitCache.set(sourceFileKey, result);
+    topLevelAwaitCache.set(sourceFile, result);
     return result;
   };
 
   const moduleReferences = (
     sourceFile: SourceFile,
   ): ReturnType<SourceProgramNavigation["moduleReferences"]> => {
-    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
-    if (sourceFileKey === undefined) {
-      return Object.freeze([]);
-    }
-    const cached = moduleReferenceCache.get(sourceFileKey);
+    requireFile(sourceFile);
+    const cached = moduleReferenceCache.get(sourceFile);
     if (cached !== undefined) {
       return cached;
     }
@@ -182,28 +184,27 @@ export function createSourceProgramNavigation(
       sourceFileSet,
       sourceFile,
     );
-    moduleReferenceCache.set(sourceFileKey, references);
+    moduleReferenceCache.set(sourceFile, references);
     return references;
   };
 
   const moduleSpecifierResolution = (
     moduleSpecifier: Node,
-  ): ReturnType<SourceProgramNavigation["moduleSpecifierResolution"]> =>
-    sourceProjectModuleSpecifierResolution(source, sourceFileSet, moduleSpecifier);
+  ): ReturnType<SourceProgramNavigation["moduleSpecifierResolution"]> => {
+    requireNode(moduleSpecifier);
+    return sourceProjectModuleSpecifierResolution(source, sourceFileSet, moduleSpecifier);
+  };
 
   const moduleExports = (
     sourceFile: SourceFile,
   ): ReturnType<SourceProgramNavigation["moduleExports"]> => {
-    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
-    if (sourceFileKey === undefined) {
-      return Object.freeze([]);
-    }
-    const cached = moduleExportCache.get(sourceFileKey);
+    requireFile(sourceFile);
+    const cached = moduleExportCache.get(sourceFile);
     if (cached !== undefined) {
       return cached;
     }
     const exports = sourceProjectModuleExports(source, sourceFile);
-    moduleExportCache.set(sourceFileKey, exports);
+    moduleExportCache.set(sourceFile, exports);
     return exports;
   };
 
@@ -227,6 +228,7 @@ export function createSourceProgramNavigation(
   };
 
   const projectTypeDeclaration = (node: Node | undefined): Node | undefined => {
+    if (node !== undefined) requireNode(node);
     const sourceFile = node === undefined ? undefined : source.ast.getSourceFile(node);
     if (node === undefined || sourceFile === undefined || sourceFile.IsDeclarationFile) {
       return undefined;
@@ -243,6 +245,16 @@ export function createSourceProgramNavigation(
   return Object.freeze({
     sourceFiles,
     nodes: nodeInventory.nodes,
+    callableRoles(node: Node) {
+      requireNode(node);
+      return sourceCallableRoles(source.ast, node);
+    },
+    enclosing(node: Node | undefined, role: SourceCallableRole, visit?: (node: Node) => boolean) {
+      if (node !== undefined) requireNode(node);
+      const owner = enclosing(node, role, visit);
+      if (owner !== undefined) requireNode(owner);
+      return owner;
+    },
     nodesForFiles: nodeInventory.nodesForFiles,
     referenceIndexStatistics: references.referenceIndexStatistics,
     sourceReferenceFor: references.sourceReferenceFor,
@@ -253,15 +265,39 @@ export function createSourceProgramNavigation(
     moduleSpecifierResolution,
     moduleExports,
     moduleHasTopLevelAwait,
-    memberDispatch: dispatch.memberDispatch,
-    memberImplementation: memberImplementations.memberImplementation,
-    memberContracts: memberContracts.memberContracts,
+    memberDispatch(node: Node | undefined) {
+      if (node !== undefined) requireNode(node);
+      return dispatch.memberDispatch(node);
+    },
+    memberImplementation(declaration: Node, contract: Node) {
+      requireNode(declaration);
+      requireNode(contract);
+      return memberImplementations.memberImplementation(declaration, contract);
+    },
+    memberContracts(declaration: Node) {
+      requireNode(declaration);
+      return memberContracts.memberContracts(declaration);
+    },
     declarationSymbol,
-    callableImplementation: callableImplementations.callableImplementation,
-    classConstructors,
-    declaredHeritage: heritage.declaredHeritage,
-    declaredHeritagePath: heritage.declaredHeritagePath,
+    callableImplementation(declaration: Node) {
+      requireNode(declaration);
+      return callableImplementations.callableImplementation(declaration);
+    },
+    classConstructors(declaration: Node) {
+      requireNode(declaration);
+      return classConstructors(declaration);
+    },
+    declaredHeritage(declaration: Node) {
+      requireNode(declaration);
+      return heritage.declaredHeritage(declaration);
+    },
+    declaredHeritagePath(declaration: Node, target: Node) {
+      requireNode(declaration);
+      requireNode(target);
+      return heritage.declaredHeritagePath(declaration, target);
+    },
     bindingWritesWithin(symbol: Symbol, root: Node) {
+      requireNode(root);
       return sourceBindingWritesWithin(
         source.ast,
         symbol,
@@ -270,6 +306,7 @@ export function createSourceProgramNavigation(
       );
     },
     referencesWithin(symbol: Symbol, root: Node) {
+      requireNode(root);
       return sourceSymbolReferencesWithin(
         source.ast,
         symbol,
@@ -288,6 +325,7 @@ export function createSourceProgramNavigation(
       );
     },
     countedLoop(statement: Node) {
+      requireNode(statement);
       return sourceCountedLoop(
         source.ast,
         statement,
@@ -301,6 +339,7 @@ export function createSourceProgramNavigation(
       );
     },
     expressionValueFlow(expression: Node) {
+      requireNode(expression);
       const cached = expressionValueFlowCache.get(expression);
       if (cached !== undefined) {
         return cached;
@@ -318,6 +357,7 @@ export function createSourceProgramNavigation(
     expressionResultDisposition,
     expressionResultUse: (expression: Node) => expressionResultDisposition(expression).kind === "discarded" ? "discarded" : "consumed",
     expressionEffects(expression: Node) {
+      requireNode(expression);
       const cached = expressionEffectsCache.get(expression);
       if (cached !== undefined) {
         return cached;
@@ -331,6 +371,7 @@ export function createSourceProgramNavigation(
       return effects;
     },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
+      requireNode(excludedNode);
       return sourceSymbolHasReferenceOutside(
         source.ast,
         symbol,

@@ -4,7 +4,7 @@ import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
 import { createSourceControlFlowQueries } from "../flow/graph.js";
-import { sourceCallableRoles, sourceEnclosing } from "../../source-navigation/index.js";
+import { sourceCallableRoles } from "../../source-navigation/index.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationContinuationDependency, SourceDeclarationPendingOperation } from "./model.js";
@@ -66,7 +66,8 @@ export function createSourceDeclarationOwnershipValues(input: {
     if (!budget.step(node)) return budget.failure()!;
     const roles = sourceCallableRoles(source.ast, node);
     const owner = roles.execution && !roles.body && !source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node)
-      ? node : sourceEnclosing(source.ast, node, "execution");
+      ? node : source.navigation.enclosing(node, "execution", () => budget.step(node));
+    if (budget.failure() !== undefined) return budget.failure()!;
     return owner ?? sourceDeclarationOwnershipUnresolved(node, "A local value requires its actual checked declaration or module owner.");
   };
   const regionFor = (node: Node): SourceDeclarationFlowExecutionRegion | SourceDeclarationOwnershipUnresolved => {

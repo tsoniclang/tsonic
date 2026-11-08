@@ -13,7 +13,7 @@ export function createSourceMemberDispatchNavigation(
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceMemberDispatchNavigation {
   const ast = source.ast;
-  const cache = new Map<string, SourceProjectMemberDispatch | null>();
+  const cache = new WeakMap<Node, SourceProjectMemberDispatch | null>();
   const classDeclarations = collectClassDeclarations(ast, sourceFiles);
 
   const memberDispatch = (
@@ -22,15 +22,12 @@ export function createSourceMemberDispatchNavigation(
     if (node === undefined) {
       return undefined;
     }
-    const nodeKey = sourceNodeIdentity(ast, node);
-    const cached = nodeKey === undefined ? undefined : cache.get(nodeKey);
+    const cached = cache.get(node);
     if (cached !== undefined) {
       return cached ?? undefined;
     }
     if (!isDispatchMember(ast, node, isProjectDeclaration)) {
-      if (nodeKey !== undefined) {
-        cache.set(nodeKey, null);
-      }
+      cache.set(node, null);
       return undefined;
     }
     const classDeclaration = ast.parent(node);
@@ -40,16 +37,12 @@ export function createSourceMemberDispatchNavigation(
       sourceFile === undefined ||
       !isClassDefinition(ast, classDeclaration)
     ) {
-      if (nodeKey !== undefined) {
-        cache.set(nodeKey, null);
-      }
+      cache.set(node, null);
       return undefined;
     }
     const memberName = dispatchMemberName(ast, node);
     if (memberName === undefined) {
-      if (nodeKey !== undefined) {
-        cache.set(nodeKey, null);
-      }
+      cache.set(node, null);
       return undefined;
     }
     const result = {
@@ -72,9 +65,7 @@ export function createSourceMemberDispatchNavigation(
         isProjectDeclaration,
       ),
     };
-    if (nodeKey !== undefined) {
-      cache.set(nodeKey, result);
-    }
+    cache.set(node, result);
     return result;
   };
 

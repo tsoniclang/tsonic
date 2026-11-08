@@ -18,13 +18,12 @@ export function createSourceHeritageNavigation(
   source: CheckedSourceProgram,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceHeritageNavigation {
-  const cache = new Map<string, SourceDeclaredHeritageResult>();
+  const cache = new WeakMap<Node, SourceDeclaredHeritageResult>();
 
   const declaredHeritage = (
     declaration: Node,
   ): SourceDeclaredHeritageResult => {
-    const identity = sourceNodeIdentity(source.ast, declaration);
-    const cached = identity === undefined ? undefined : cache.get(identity);
+    const cached = cache.get(declaration);
     if (cached !== undefined) {
       return cached;
     }
@@ -51,9 +50,7 @@ export function createSourceHeritageNavigation(
           reason:
             "The checked source program did not provide one exact declaration for a declared heritage type.",
         });
-        if (identity !== undefined) {
-          cache.set(identity, unresolved);
-        }
+        cache.set(declaration, unresolved);
         return unresolved;
       }
       const sourceFile = source.ast.getSourceFile(clause.heritage);
@@ -82,9 +79,7 @@ export function createSourceHeritageNavigation(
           reason:
             "The checked source program did not provide one exact selected type for a declared heritage edge.",
         });
-        if (identity !== undefined) {
-          cache.set(identity, unresolved);
-        }
+        cache.set(declaration, unresolved);
         return unresolved;
       }
       edges.push(Object.freeze({
@@ -105,9 +100,7 @@ export function createSourceHeritageNavigation(
       kind: "resolved" as const,
       edges: Object.freeze(edges),
     });
-    if (identity !== undefined) {
-      cache.set(identity, resolved);
-    }
+    cache.set(declaration, resolved);
     return resolved;
   };
 
