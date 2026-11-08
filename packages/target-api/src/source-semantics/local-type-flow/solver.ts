@@ -211,7 +211,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       const selected = protocols.iteration(owner);
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value.element : undefined };
     } };
-  applicationProduction = { ...declarationProduction, profile: source.profile,
+  applicationProduction = { ...declarationProduction, objects: context.objects, profile: source.profile,
     component: (component, bindings, candidate) => produceSourceOriginalComponent(declarationProduction!, component, bindings, candidate),
     admits, proves };
   construction = createSourceConstructionProduction({ ...semantic(), value: node => value(node, []),
