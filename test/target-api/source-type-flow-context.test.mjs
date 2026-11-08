@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { sourceFlowOwnerFixture } from "./fixtures/source-flow-owner.mjs";
+import { sourceFlowOwnerFixture } from "../host/fixtures/source-flow-owner.mjs";
 
 test("source order uses exact authored starts and one preorder tie breaker", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
