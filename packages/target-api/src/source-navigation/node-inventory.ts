@@ -57,7 +57,7 @@ export function createSourceNodeInventory(
       selectedFiles.add(file);
     }
     const selected: Node[] = [];
-    for (let fileIndex = files.length - 1; fileIndex >= 0; fileIndex -= 1) {
+    for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
       const file = files[fileIndex]!;
       let entry = byFile.get(file);
       if (entry === undefined) {

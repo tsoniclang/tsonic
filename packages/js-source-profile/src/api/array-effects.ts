@@ -24,7 +24,7 @@ const effects: Readonly<Record<string, JsArrayMemberEffect>> = Object.freeze({
   findLastIndex: callback, flatMap: callback, reduce: reducing, reduceRight: reducing,
 });
 
-export function jsArrayMemberEffect(identity: {
+export function jsProfileArrayEffect(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): JsArrayMemberEffect | undefined {
