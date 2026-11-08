@@ -1,5 +1,6 @@
 import { readOriginalSignature, sourcePrimitiveFactKey, TypeFlagsUniqueESSymbol, type CheckedSourceProgram, type Node, type Signature, type SourceFileQueries, type Type, type TypeSignatureInfo } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputComponentPart, SourceInputEnumDeclaration, SourceInputMemberInventory, SourceInputSignature, SourceInputSignatureFacts, SourceInputSignatureShape, SourceInputTypeFacts } from "@tsonic/target-api/host";
+import { isTypeSyntaxNode } from "@tsonic/target-api/host";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
 import { createSourceInputMemberPublisher, sourceCheckedMember } from "./member-components.js";
 
@@ -45,7 +46,9 @@ export function createSourceDescriptorFacts(options: {
     const previous = syntaxCache.get(node);
     if (previous !== undefined) return previous;
     const { checker } = queries(node);
-    const annotation = ast.typeNode(node);
+    const annotation = ast.is.IsVariableDeclaration(node) || ast.is.IsParameter(node) ||
+      ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsTypeAliasDeclaration(node)
+      ? ast.typeNode(node) : isTypeSyntaxNode(ast, node) ? node : undefined;
     const classLike = ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node);
     const symbol = checker.getSymbolAtLocation(ast.name(node) ?? node) ?? (classLike
       ? checker.getTypeSymbol(checker.getTypeAtLocation(node)) : undefined);
@@ -71,7 +74,7 @@ export function createSourceDescriptorFacts(options: {
     const { checker, typeShape: types } = source;
     let publisher = memberPublishers.get(source);
     if (publisher === undefined) {
-      publisher = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode });
+      publisher = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode, originalSignature });
       memberPublishers.set(source, publisher);
     }
     const properties = types.getPropertyInfos(type).map(property => publisher(component, sourceCheckedMember(ast, checker, property, type)));
@@ -204,7 +207,9 @@ export function createSourceDescriptorFacts(options: {
       : last?.kind === "receiver" ? signatureShape?.receiver?.declaration
       : last?.kind === "result" ? signatureShape?.identity.declaration
       : component.path.length === 0 && (ast.is.IsVariableDeclaration(component.root) || ast.is.IsParameter(component.root) || ast.is.IsPropertyDeclaration(component.root) || ast.is.IsPropertySignatureDeclaration(component.root)) ? component.root : undefined;
-    const annotation = selectedDeclaration === undefined ? undefined : ast.typeNode(selectedDeclaration);
+    const methodHead = last?.kind === "member" && selectedDeclaration !== undefined &&
+      (ast.is.IsMethodDeclaration(selectedDeclaration) || ast.is.IsMethodSignatureDeclaration(selectedDeclaration));
+    const annotation = selectedDeclaration === undefined || methodHead ? undefined : ast.typeNode(selectedDeclaration);
     const authoredTypeNode = annotation ?? (component.path.length === 0 && selectedDeclaration === undefined ? component.root : undefined);
     const primitive = checked.sourceFacts.getFact(component.root, sourcePrimitiveFactKey) ??
       (type === undefined ? undefined : checked.sourceFacts.getFact(type, sourcePrimitiveFactKey));
@@ -245,8 +250,7 @@ export function createSourceDescriptorFacts(options: {
       result = { ...common, kind: "parameter", parameter: named, owner, index, captures: captures(named),
         constraint: original?.Constraint === undefined ? undefined : syntax(original.Constraint),
         defaultType: original?.DefaultType === undefined ? undefined : syntax(original.DefaultType) };
-    } else if (type === undefined || selectedDeclaration !== undefined && annotation === undefined &&
-      !(last?.kind === "member" && (ast.is.IsMethodDeclaration(selectedDeclaration) || ast.is.IsMethodSignatureDeclaration(selectedDeclaration)))) {
+    } else if (type === undefined || selectedDeclaration !== undefined && annotation === undefined && !methodHead) {
       result = { ...common, kind: "unavailable", reason: "missing-original-component" };
     } else if (primitive !== undefined) {
       const scalar = primitive.runtimeBase === "number" || primitive.runtimeBase === "bigint" || primitive.runtimeBase === "boolean" || primitive.runtimeBase === "string" ? primitive.runtimeBase : "object";

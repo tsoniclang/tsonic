@@ -201,6 +201,15 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   function read(facts: SourceInputTypeFacts, bindings: readonly SourceTypeBinding[], defining = false): SourceProductionResult<SourceTypeEvidence> {
+    const declaration = facts.declaration;
+    const last = facts.component.path.at(-1);
+    const methodHead = last?.kind === "member" && declaration !== undefined &&
+      (input.ast.is.IsMethodDeclaration(declaration) || input.ast.is.IsMethodSignatureDeclaration(declaration));
+    if (declaration !== undefined && input.ast.typeNode(declaration) === undefined && !methodHead &&
+      (last?.kind === "result" || last?.kind === "parameter" || last?.kind === "receiver" || last?.kind === "member" ||
+        facts.component.path.length === 0 && (input.ast.is.IsVariableDeclaration(declaration) || input.ast.is.IsParameter(declaration) ||
+          input.ast.is.IsPropertyDeclaration(declaration) || input.ast.is.IsPropertySignatureDeclaration(declaration))))
+      return hooks.declaredValue(facts.component, declaration, bindings);
     const definitionOwner = facts.definitionOwner;
     if (!defining && definitionOwner !== undefined && (input.ast.is.IsClassDeclaration(definitionOwner) ||
       input.ast.is.IsClassExpression(definitionOwner) || input.ast.is.IsInterfaceDeclaration(definitionOwner))) {

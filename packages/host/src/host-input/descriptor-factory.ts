@@ -20,6 +20,7 @@ export function createSourceDescriptorInput(options: {
     assertComponent: identities.assertComponent, assertSignature: identities.assertSignature,
     syntax: facts.syntax, describe: facts.describe, members: facts.members, describeSignature: facts.describeSignature, signatureComponent: facts.signatureComponent,
     application: calls.application, constraints: calls.constraints, enumDeclaration: facts.enumDeclaration });
-  const memberUse = createSourceMemberUseInput({ checked: options.checked, identities, assertNode: options.assertNode, syntax: input.syntax, describe: input.describe });
+  const memberUse = createSourceMemberUseInput({ checked: options.checked, identities, assertNode: options.assertNode,
+    syntax: input.syntax, describe: input.describe, originalSignature: facts.originalSignature });
   return Object.freeze({ input, identities, calls, facts, memberUse });
 }
