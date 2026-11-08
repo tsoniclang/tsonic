@@ -225,7 +225,7 @@ test("constraint-only and default-only captured binders remain lazy through subs
   local.builder.parameter(outer, outerOwner, 0, [], none, none);
   let forced = 0;
   const refusal: SourceRefusal = Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_SOURCE_FORM_UNSUPPORTED",
-    site: inner, message: "The authentic unsupported constraint child is forwarded unchanged." });
+    site: inner, message: "The controlled refusal remains identical through the lazy requirement contract." });
   const parameter = local.builder.parameter(inner, owner, 0, [outer], () => { forced++; return refusal; }, () => { forced++; return refusal; });
   const value = local.evidence(parameter.type, { kind: "parameter", declaration: inner });
   const identity = local.signature(owner, [inner]);

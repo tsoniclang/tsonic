@@ -7,6 +7,8 @@ export type { SourceDeclarationSnapshot } from "./program-options.js";
 export type { CreatedProgramOptions, CreateProgramOptionsInput } from "./program-options.js";
 export { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 export type { CollectedTargetSourceProfile, CollectTargetSourceProfileOptions, TargetSourceProfileFile } from "./target/source-profile.js";
+export { captureTargetCapabilityContributions } from "./target/extensions.js";
+export type { CaptureTargetCapabilityContributionsOptions } from "./target/extensions.js";
 export { parseTsonicProjectConfig } from "./project-config.js";
 export { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 export type { ProjectPathOptions, ProjectPaths } from "./project-paths.js";

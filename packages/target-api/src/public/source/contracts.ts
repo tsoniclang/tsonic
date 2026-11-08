@@ -224,6 +224,7 @@ export interface SourceApplication {
   readonly identity: SourceApplicationIdentity;
   readonly kind: "call" | "construct" | "function-value";
   readonly optionalCall: boolean;
+  readonly argumentDisposition: "skip" | "evaluate" | "dynamic";
   readonly callee: SourceValueOperand;
   readonly receiver: SourceApplicationReceiver;
   /** Authored evaluation order, including empty spreads. Emit each operand once from this vector only. */
@@ -236,7 +237,7 @@ export interface SourceApplication {
 export interface SourceAuthoredArgument {
   readonly occurrence: Node;
   readonly form: "value" | "spread";
-  readonly operand: SourceValueOperand;
+  readonly operand: SourceResult<SourceValueOperand>;
 }
 
 export interface SourceArgumentPlace {
@@ -270,10 +271,10 @@ export type SourceValueSelection = {
   readonly occurrence: Node;
   readonly result: SourceTypeEvidence;
 } & (
-  | { readonly kind: "conditional"; readonly disposition: "true" | "false" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: SourceValueOperand }
-  | { readonly kind: "and"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: "control-false" }
-  | { readonly kind: "or"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: "control-true"; readonly whenFalse: SourceValueOperand }
-  | { readonly kind: "coalesce"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenPresent: SourceTypeEvidence; readonly whenAbsent: SourceValueOperand }
+  | { readonly kind: "conditional"; readonly disposition: "true" | "false" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceResult<SourceValueOperand>; readonly whenFalse: SourceResult<SourceValueOperand> }
+  | { readonly kind: "and"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceResult<SourceValueOperand>; readonly whenFalse: "control-false" }
+  | { readonly kind: "or"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: "control-true"; readonly whenFalse: SourceResult<SourceValueOperand> }
+  | { readonly kind: "coalesce"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenPresent: SourceTypeEvidence; readonly whenAbsent: SourceResult<SourceValueOperand> }
   | { readonly kind: "await"; readonly operand: SourceValueOperand; readonly completion: SourceTypeEvidence }
 );
 

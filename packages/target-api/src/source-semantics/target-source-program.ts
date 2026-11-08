@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceFactProduction, SourceProgramInput } from "../host-input/program-input.js";
+import type { SourceProgramInput } from "../host-input/program-input.js";
 import type { SourceObjectProduction } from "./member-use.js";
 import type { SourceObjectProductionQueries } from "./object-production.js";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
@@ -20,6 +20,8 @@ import { createSourceAdmissionFacts } from "./admission.js";
 import { createSourcePropertyNameQuery } from "./property-names.js";
 import { createSourceAnalysisFacts } from "../target-analysis/source-protocol-production.js";
 import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
+import { createSourceNodeNavigationFacts } from "../source-navigation/facts.js";
+import { createSourcePointerFacts } from "../target-analysis/source-pointer-production.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
   const { ast, inventory } = input;
@@ -113,19 +115,13 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     return refusal;
   }
 
-  const production: SourceFactProduction = Object.freeze({ ast, sourceFiles, inventory, input: input.input, view: owner.view,
-    get values() { return requiredSolved().values; },
-    get applications() { return requiredSolved().applications; },
-    get solvedProtocols() { return requiredSolved().protocols; },
-    storage: occurrence => requiredProtocols().storage(occurrence),
-    assertNode,
-    assertApplication: application => requiredSolved().assertApplication(application),
-    originalComponent: owner.builder.originalComponent,
-    sourceOriginSubjects: owner.builder.sourceOriginSubjects,
-    publish, signature, unavailable });
-
-  const navigation = input.navigation(production);
-  const profile = input.profile(production);
+  const navigationOwner = createSourceNodeNavigationFacts({ ast, input: input.navigation, assertNode,
+    signature, publish, profileDeclaration: input.profileDeclaration });
+  const navigation = navigationOwner.facts;
+  const profile = input.apiFacts.kind === "none" ? input.apiFacts : Object.freeze({ kind: "present" as const,
+    value: input.apiFacts.value({ view: owner.view, assertNode,
+      assertApplication: application => requiredSolved().assertApplication(application),
+      profileDeclaration: input.profileDeclaration }) });
   const correspondence = createSourceMemberCorrespondenceQueries({ view: owner.view,
     inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode, domain: owner.builder.domain });
   solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
@@ -172,7 +168,10 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
     values: solved.values, navigation, memberPlace: completeMemberUses.place,
     inventory: { members: owner.builder.members, construction: owner.builder.construction },
-    signature, solved: solved.protocols, pointers: input.pointers(production), unavailable, settle });
+    signature, solved: solved.protocols, pointers: createSourcePointerFacts({ core: input.core,
+      applications: solved.applications, values: solved.values, view: owner.view, assertNode,
+      originalComponent: owner.builder.originalComponent, sourceOriginSubjects: owner.builder.sourceOriginSubjects,
+      syntax: input.input.syntax, publish, storage: occurrence => requiredProtocols().storage(occurrence), unavailable }), unavailable, settle });
   const facts: SourceProgramFacts = Object.freeze({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
     descriptors: owner.view, values: solved.values, applications: solved.applications,
     enums: solved.enums, navigation, profile, objects, protocols, refusals: owner.refusals });

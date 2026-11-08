@@ -1,24 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkTargetSourceFiles, collectTargetSourceProfileContributions } from "../../packages/host/dist/index.js";
+import { getTargetCompilationPaths, resolveProjectPaths } from "../../packages/host/dist/index.js";
 import { sourceObjectLiteralDestinationMember } from "../../packages/target-api/dist/public/source.js";
 import { createCsharpTargetPack } from "../../../tsonic-csharp/dist/public/index.js";
+import { checkSourceProgramFixture } from "./source-program-fixture.mjs";
 
 test("optional union literal members retain exact selected destination declarations", () => {
   const targetPack = createCsharpTargetPack();
   const target = { id: "csharp", options: { outputType: "Library" } };
   const project = { entryPoint: "index.ts", rootDir: ".", targets: [target] };
-  const paths = { projectFilePath: "/src/tsonic.json", projectRoot: "/src", outputRoot: "/out",
-    targetOutputRoot: "/out/csharp", cacheRoot: "/out/cache" };
-  const session = targetPack.createCompilationSession({ project, projectDirectory: "/src", target, paths,
-    selectedSurfaceIds: [], capabilities: [] });
-  let checked;
-  try {
-    const sourceProfile = collectTargetSourceProfileContributions({ project, projectDirectory: "/src", projectRoot: "/src",
-      target, targetPackId: targetPack.id, selectedCapabilities: [], selectedSurfaces: [],
-      targetContributions: session.sourceProfileContributions() });
-    checked = checkTargetSourceFiles({ project, projectDirectory: "/src", currentDirectory: "/src", target, targetPack,
-      selectedCapabilities: [], selectedSurfaces: [], targetContributions: session.sourceCompilerContributions(), sourceProfile,
+  const paths = getTargetCompilationPaths(resolveProjectPaths({ projectFilePath: "/src/tsonic.json", project }), target);
+  const checked = checkSourceProgramFixture({ project, projectDirectory: "/src", currentDirectory: "/src", target, targetPack, paths,
+      selectedCapabilities: [], selectedSurfaces: [],
       compilerOptions: { strict: true, noLib: true, target: "es2022", module: "esnext" },
       files: { "/src/index.ts": `
         interface Count { readonly count: number; readonly note?: string; }
@@ -29,7 +22,6 @@ test("optional union literal members retain exact selected destination declarati
         const sample: Count = { count: 1 };
         requireCount(sample);
       ` } });
-  } finally { session.close(); }
   assert.equal(checked.kind, "resolved", checked.diagnostics.map(issue => issue.message).join("\n"));
   assert.equal(checked.diagnostics.length, 0, "the original program has no checker, extension, or Source-composition diagnostic");
   const source = checked.value;

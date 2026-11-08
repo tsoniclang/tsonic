@@ -46,8 +46,10 @@ export function createSourceDescriptorFacts(options: {
     if (previous !== undefined) return previous;
     const { checker } = queries(node);
     const annotation = ast.typeNode(node);
-    const symbol = checker.getSymbolAtLocation(ast.name(node) ?? node);
-    const selected = ast.is.IsTypeParameterDeclaration(node) || ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node)
+    const classLike = ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node);
+    const symbol = checker.getSymbolAtLocation(ast.name(node) ?? node) ?? (classLike
+      ? checker.getTypeSymbol(checker.getTypeAtLocation(node)) : undefined);
+    const selected = ast.is.IsTypeParameterDeclaration(node) || classLike || ast.is.IsInterfaceDeclaration(node)
       ? checker.getDeclaredTypeOfSymbol(symbol)
       : annotation === undefined ? checker.getTypeAtLocation(node) : checker.getTypeFromTypeNode(annotation);
     const result = identities.component(node, [], selected);
@@ -221,7 +223,7 @@ export function createSourceDescriptorFacts(options: {
     const named = type === undefined ? undefined : declaration(type, source);
     const defining = named !== undefined && (component.root === named || ast.typeNode(named) === component.root);
     let definitionParameters: readonly Node[] | undefined;
-    if (defining && type !== undefined && named !== undefined && (ast.is.IsClassDeclaration(named) || ast.is.IsInterfaceDeclaration(named))) {
+    if (defining && type !== undefined && named !== undefined && (ast.is.IsClassDeclaration(named) || ast.is.IsClassExpression(named) || ast.is.IsInterfaceDeclaration(named))) {
       const original = types.getTypeReferenceArgumentInfos(type);
       const parameters = original?.map(binding => declaration(binding.parameter, source));
       if (parameters !== undefined && parameters.every((parameter): parameter is Node => parameter !== undefined))
