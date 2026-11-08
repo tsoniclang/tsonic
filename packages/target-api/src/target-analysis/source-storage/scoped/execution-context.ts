@@ -1,4 +1,4 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
 
@@ -13,7 +13,6 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { sourceStorageExecutionDemands, walkSourceStorageExecution,
   type createSourceStorageExecutionReachability } from "./execution-reachability.js";
-import { Node_Expression } from "../../../source-navigation/index.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations } from "../model/construction.js";
 import { sourceInstanceInitializers, sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
@@ -22,7 +21,7 @@ export function createSourceStorageExecutionContext(source: SourceStorageProgram
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const passiveMember = (declaration: Node): boolean => (sourceStorageIsDataMember(declaration, ast) ||
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration)) &&
     transport.memberAccessorsFor(declaration)?.size === 0;
@@ -86,15 +85,24 @@ export function createSourceStorageExecutionContext(source: SourceStorageProgram
   };
   const dispatchDependencies = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] => {
     if (transport.invocationEffects.get(invocation)?.kind === "result-alias") return [];
-    const call = semantics.forNode(invocation).operations.call(invocation);
-    const property = ast.is.IsPropertyAccessExpression(invocation) ? semantics.forNode(invocation).operations.propertyAccess(invocation) : undefined;
-    const nodes = [Node_Expression(ast, invocation), call?.sourceReceiver?.expression ??
-      call?.sourceCalleeAccess?.receiver.expression ?? property?.receiver.expression];
+    const nodes: Node[] = [];
+    if (ast.is.IsPropertyAccessExpression(invocation) || ast.is.IsElementAccessExpression(invocation)) {
+      const member = sourceStorageValue(source.facts.objects.use(invocation));
+      nodes.push(member.receiver.occurrence);
+    } else {
+      const call = sourceStorageValue(source.facts.applications.application(invocation));
+      nodes.push(call.callee.occurrence);
+      if (call.receiver.kind === "value") nodes.push(call.receiver.occurrence);
+    }
     const selected: SourceStorageTerm[] = [];
+    const subjects = new Set<SourceStorageSubject>();
     for (const node of nodes) {
       if (!budget.step()) break;
       const subject = transport.subjectFor(node);
-      if (subject !== undefined && subject.node !== invocation) selected.push(sourceStorageReference(subject, scope));
+      if (subject !== undefined && subject.node !== invocation && !subjects.has(subject)) {
+        subjects.add(subject);
+        selected.push(sourceStorageReference(subject, scope));
+      }
     }
     return selected;
   };

@@ -1,7 +1,7 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
-import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
+import type { SourceTypedLocationOperation } from "../../../source-model/pointers.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection } from "../../../source-model/storage.js";
@@ -24,10 +24,14 @@ interface SourceStoragePointerQueries {
 
 export function createSourceStoragePointerValues(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerQueries) {
+  const typedOperation = (occurrence: Node): SourceTypedLocationOperation | undefined => {
+    const selected = sourceStorageValue(source.facts.protocols.pointerOperation(occurrence));
+    return selected.kind === "present" && selected.value.family === "typed-location" ? selected.value : undefined;
+  };
   const stores: SourceStorageStore[] = [];
   for (const invocation of transport.invocations) {
     if (!budget.step()) break;
-    if (source.sourceFacts.getFact(invocation, pointerOperationFactKey)?.operation !== "store") continue;
+    if (typedOperation(invocation)?.operation !== "store") continue;
     const location = transport.subject(invocation);
     for (const store of location === undefined ? [] : transport.storesFor(location) ?? []) {
       if (!budget.step() || !budget.row()) break;
@@ -56,7 +60,7 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
     projection: readonly SourceStorageProjection[], invocation: Node): readonly SourceStorageTerm[] | undefined => {
     const result: SourceStorageTerm[] = [];
     sourceStorageProjectComponents(value.subject.projection, from, to, projection,
-      source.semantics.forNode(invocation), source.ast, budget, selected => {
+      source, budget, selected => {
         const subject = transport.subject(value.subject.node, value.subject.kind, selected);
         if (subject !== undefined) result.push(sourceStorageReference(subject, value.scope));
       });
@@ -65,11 +69,11 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
   const writes = (destination: SourceStorageReference, store: SourceStorageStore,
     projection: readonly SourceStorageProjection[], invocation: Node,
     context: SourceStorageScope): readonly SourceStorageTerm[] | undefined => {
-    const operation = source.sourceFacts.getFact(store.reference, pointerOperationFactKey);
+    const operation = typedOperation(store.reference);
     if (operation?.operation !== "store") return undefined;
     const result: SourceStorageTerm[] = [];
-    const target = transport.subjectFor(operation.pointerExpression);
-    const value = transport.subjectFor(operation.valueExpression);
+    const target = transport.subjectFor(operation.pointer.occurrence);
+    const value = transport.subjectFor(operation.value.occurrence);
     if (target === undefined || value === undefined) return undefined;
     for (const effect of queries.readEffects(store, { kind: "general" }, queries.deferred(context), context)) {
       if (!budget.step()) return undefined;
@@ -78,21 +82,21 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
       const originals = queries.read(sourceStorageReference(target, effect.scope));
       if (originals === undefined) return undefined;
       const pending: { readonly pointer: SourceStorageTerm; readonly value: SourceStorageTerm; readonly type: SourceTypeEvidence }[] =
-        [...originals].map(pointer => ({ pointer, value: sourceStorageReference(value, effect.scope), type: operation.valueType }));
+        [...originals].map(pointer => ({ pointer, value: sourceStorageReference(value, effect.scope), type: operation.value.value }));
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;
         const entry = pending.pop()!;
         if (entry.pointer.kind === "unresolved" || entry.pointer.kind === "empty") { result.push(entry.pointer); continue; }
         if (entry.pointer.kind !== "leaf") return undefined;
-        const selected = source.sourceFacts.getFact(entry.pointer.subject.node, pointerOperationFactKey);
+        const selected = typedOperation(entry.pointer.subject.node);
         if (selected?.operation === "bind-pointer") continue;
         if (selected?.operation === "project-pointer") {
-          const converted = accessor(selected.toSourceExpression, operation.call, effect.scope,
+          const converted = accessor(selected.toSource.occurrence, operation.occurrence, effect.scope,
             entry.pointer.scope, entry.value, { mode: "value" });
-          const next = transport.subjectFor(selected.pointerExpression);
+          const next = transport.subjectFor(selected.pointer.occurrence);
           const targets = next === undefined ? undefined : queries.read(sourceStorageReference(next, entry.pointer.scope));
           if (converted === undefined || targets === undefined) return undefined;
-          for (const pointer of targets) pending.push({ pointer, value: converted, type: selected.sourcePointeeType });
+          for (const pointer of targets) pending.push({ pointer, value: converted, type: selected.sourcePointee });
           continue;
         }
         const identities = locations.identities(entry.pointer);
@@ -106,7 +110,7 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
             destination.subject.projection.slice(0, receiver.subject.projection.length));
           if (root !== receiver.subject) continue;
           const remaining = [...destination.subject.projection.slice(receiver.subject.projection.length), ...projection];
-          const contract = selected?.operation === "allocate" ? selected.pointeeType : sourceStorageSubjectType(source, root);
+          const contract = selected?.operation === "allocate" ? selected.pointee : sourceStorageSubjectType(source, root);
           if (contract === undefined) return undefined;
           for (const value of values) {
             if (!budget.step()) return undefined;
@@ -123,10 +127,10 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
   };
   const execution = (invocation: Node, scope: SourceStorageScope, demand: Node,
     deferred = false, mode: "execution" | "throw" = "execution"): readonly SourceStorageTerm[] | undefined => {
-    const selected = source.sourceFacts.getFact(invocation, pointerOperationFactKey);
+    const selected = typedOperation(invocation);
     if (selected?.operation !== "load" && selected?.operation !== "store") return selected === undefined ? undefined : [];
-    const target = transport.subjectFor(selected.pointerExpression);
-    const input = selected.operation === "store" ? transport.subjectFor(selected.valueExpression) : undefined;
+    const target = transport.subjectFor(selected.pointer.occurrence);
+    const input = selected.operation === "store" ? transport.subjectFor(selected.value.occurrence) : undefined;
     if (target === undefined || selected.operation === "store" && input === undefined) return undefined;
     return [pointer(invocation, sourceStorageReference(target, scope), input === undefined ? undefined
       : sourceStorageReference(input, scope), scope, mode === "throw" ? { mode } : { mode, demand, deferred })];
@@ -139,11 +143,11 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
       value.kind === "empty" ? [value] : [value === term.pointer ? term : Object.freeze({ ...term, pointer: value })] };
     const original = term.pointer;
     const selected = original.subject.kind === "value" && original.subject.projection.length === 0
-      ? source.sourceFacts.getFact(original.subject.node, pointerOperationFactKey) : undefined;
+      ? typedOperation(original.subject.node) : undefined;
     if (selected?.operation === "allocate" || selected?.operation === "address-of") {
       if (term.mode !== "value") return { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: undefined })] };
-      const subject = transport.subjectFor(selected.operation === "allocate" ? selected.initialExpression : selected.storageExpression);
-      const type = selected.pointeeType;
+      const subject = transport.subjectFor((selected.operation === "allocate" ? selected.initial : selected.storage).occurrence);
+      const type = selected.pointee;
       if (subject === undefined) return undefined;
       const terms = projected(sourceStorageReference(subject, original.scope), type, type, term.projection, term.invocation);
       if (terms === undefined) return undefined;
@@ -157,16 +161,16 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
       return { kind: "replace", terms: result };
     }
     if (selected?.operation === "bind-pointer") {
-      const called = accessor(term.input === undefined ? selected.readExpression : selected.writeExpression,
+      const called = accessor((term.input === undefined ? selected.read : selected.write).occurrence,
         term.invocation, term.scope, original.scope, term.input, term, term.projection);
       return called === undefined ? undefined : { kind: "replace", terms: [called] };
     }
     if (selected?.operation === "project-pointer") {
-      const target = transport.subjectFor(selected.pointerExpression);
+      const target = transport.subjectFor(selected.pointer.occurrence);
       if (target === undefined) return undefined;
       const underlying = sourceStorageReference(target, original.scope);
       const argument = term.input ?? pointer(term.invocation, underlying, undefined, term.scope, { mode: "value" });
-      const expression = term.input === undefined ? selected.fromSourceExpression : selected.toSourceExpression;
+      const expression = (term.input === undefined ? selected.fromSource : selected.toSource).occurrence;
       const called = accessor(expression, term.invocation, term.scope, original.scope, argument, term,
         term.mode === "value" ? term.projection : []);
       if (called === undefined) return undefined;
@@ -181,14 +185,14 @@ export function createSourceStoragePointerValues(source: SourceStorageProgram, b
   };
   const reduce = (term: SourceStorageReference): SourceStorageReduction | undefined => {
     if (term.subject.kind !== "value") return undefined;
-    const selected = source.sourceFacts.getFact(term.subject.node, pointerOperationFactKey);
+    const selected = typedOperation(term.subject.node);
     if (selected?.operation === "allocate" || selected?.operation === "address-of" ||
       selected?.operation === "bind-pointer" || selected?.operation === "project-pointer")
       return { kind: "replace", terms: [Object.freeze({ kind: "leaf",
-        subject: term.subject, scope: queries.creatorScope(selected.call, term.scope) })] };
+        subject: term.subject, scope: queries.creatorScope(selected.occurrence, term.scope) })] };
     if (selected?.operation !== "load") return undefined;
-    const target = transport.subjectFor(selected.pointerExpression);
-    return target === undefined ? undefined : { kind: "replace", terms: [pointer(selected.call,
+    const target = transport.subjectFor(selected.pointer.occurrence);
+    return target === undefined ? undefined : { kind: "replace", terms: [pointer(selected.occurrence,
       sourceStorageReference(target, term.scope), undefined, term.scope, { mode: "value" }, term.subject.projection)] };
   };
   return Object.freeze({ reduce, operation, writes, locations, execution });
