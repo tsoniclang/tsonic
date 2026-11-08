@@ -153,7 +153,10 @@ export function createSourceMemberCorrespondenceQueries(input: {
     if (readType.kind !== "resolved") return readType;
     const writeType = purpose === "read" ? resolved(undefined) : component(() => row.writeType());
     if (writeType.kind !== "resolved") return writeType;
-    const selected = Object.freeze({ ...row, receiver, readType: readType.value, writeType: writeType.value });
+    const selected: SourceCorrespondenceMember = Object.freeze({ receiver, key: row.key, name: row.name,
+      declarations: row.declarations, origins: row.origins, readOrigins: row.readOrigins, writeOrigins: row.writeOrigins,
+      getters: row.getters, setters: row.setters, read: row.read, optional: row.optional, readonly: row.readonly,
+      readType: readType.value, writeType: writeType.value });
     if (byRow === undefined) { byRow = new WeakMap(); members.set(receiver, byRow); }
     if (byPurpose === undefined) { byPurpose = new Map(); byRow.set(row, byPurpose); }
     byPurpose.set(purpose, selected);
@@ -219,13 +222,14 @@ export function createSourceMemberCorrespondenceQueries(input: {
     destinations.set(destinationKey, result);
     return resolved(result);
   };
-  const index = (receiver: SourceTypeEvidence, row: SourceIndexInventoryRow): SourceProductionResult<SourceCorrespondenceIndex> => {
+  const index = (receiver: SourceTypeEvidence, row: SourceIndexInventoryRow,
+    purpose: "correspondence" | "read"): SourceProductionResult<SourceCorrespondenceIndex> => {
     const keyType = row.keyType();
     if (keyType.kind !== "resolved") return keyType;
     view.assertEvidence(keyType.value);
     const readType = component(() => row.readType());
     if (readType.kind !== "resolved") return readType;
-    const writeType = component(() => row.writeType());
+    const writeType = purpose === "read" ? resolved(undefined) : component(() => row.writeType());
     return writeType.kind !== "resolved" ? writeType : resolved(Object.freeze({ receiver, declarations: row.declarations,
       keyType: keyType.value, readType: readType.value, writeType: writeType.value, readonly: row.readonly }));
   };
@@ -279,11 +283,11 @@ export function createSourceMemberCorrespondenceQueries(input: {
       if (from.value.kind !== "complete" || to.value.kind !== "complete") return resolved(unavailable("unresolved-shape"));
       const indexes: SourceIndexPair[] = [];
       for (const target of to.value.indexes) {
-        const destinationIndex = index(destination, target);
+        const destinationIndex = index(destination, target, purpose);
         if (destinationIndex.kind !== "resolved") return destinationIndex;
         const candidates: SourceIndexPair["sources"][number][] = [];
         for (const actual of from.value.indexes) {
-          const sourceIndex = index(source, actual);
+          const sourceIndex = index(source, actual, purpose);
           if (sourceIndex.kind !== "resolved") return sourceIndex;
           const coverage = keyContains(destinationIndex.value.keyType, sourceIndex.value.keyType);
           if (coverage.kind !== "resolved") return coverage;
