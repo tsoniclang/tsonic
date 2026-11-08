@@ -92,6 +92,7 @@ export function produceSourceCallableCompletion(production: SourceDeclarationPro
   const { ast, builder, reader } = production;
   const annotation = ast.typeNode(declaration);
   if (annotation !== undefined) return reader.describeSyntax(annotation, bindings);
+  if (ast.is.IsSetAccessorDeclaration(declaration)) return { kind: "resolved", value: voidCompletion() };
   if (ast.body(declaration) === undefined) return sourceSemanticRefusal(declaration,
     "An original bodyless callable requires its authored return component or an authenticated original target signature.", "TSONIC_LOCAL_TYPE_SIGNATURE");
   const returned = sourceTypeFlowCallableReturns(production.context.source, declaration);
@@ -100,11 +101,15 @@ export function produceSourceCallableCompletion(production: SourceDeclarationPro
   const values = sourceProductionValues(returned.returned.map(node => production.value(node, bindings)));
   if (values.kind !== "resolved") return values;
   const roles = [...values.value];
-  if (returned.absent || returned.canFallThrough) roles.push(builder.evidence({ type: builder.intrinsic("void"),
-    component: builder.componentIdentity(declaration, []), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
-  [], undefined, { kind: "finite", values: [{ kind: "absence" }] },
-  { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [declaration] } }));
+  if (returned.absent || returned.canFallThrough) roles.push(voidCompletion());
   return builder.join(builder.componentIdentity(declaration, []), "inferred", roles, undefined);
+
+  function voidCompletion(): SourceTypeEvidence {
+    return builder.evidence({ type: builder.intrinsic("void"), component: builder.componentIdentity(declaration, []),
+      category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
+    [], undefined, { kind: "finite", values: [{ kind: "absence" }] },
+    { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [declaration] } });
+  }
 }
 
 export function produceSourceMemberDestination(production: SourceDeclarationProduction, occurrence: Node,
