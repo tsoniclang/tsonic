@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
+import { createSourceEnclosingQuery, sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/roles.ts": `
@@ -80,4 +80,21 @@ test("enclosing is exclusive, signature-only syntax never creates execution, and
   const cyclic = { ...ast, parent: () => outer };
   assert.throws(() => sourceEnclosing(cyclic, outer, "execution"), /acyclic original parent chain/u);
   assert.equal(Object.isFrozen(sourceCallableRoles(ast, outer)), true, "role facts are immutable");
+});
+
+test("one enclosing owner memo accounts actual traversal and never publishes a budget-stopped prefix", () => {
+  const { ast, outer, call, file } = fixture();
+  const select = createSourceEnclosingQuery(ast);
+  let visits = 0;
+  const original = call("computed");
+  assert.equal(select(original, "execution", () => ++visits < 2) === undefined, true, "a stopped walk publishes no owner");
+  assert.equal(visits, 2, "each visited parent edge is charged before selection");
+  visits = 0;
+  assert.equal(select(original, "execution", () => { visits += 1; return true; }) === outer, true,
+    "an interrupted prefix was not cached as absence");
+  assert.equal(visits > 1, true, "the complete uncached path accounts actual work");
+  visits = 0;
+  assert.equal(select(original, "execution", () => { visits += 1; return true; }) === outer, true);
+  assert.equal(visits, 1, "a warm exact query costs one lookup rather than another ancestry scan");
+  assert.equal(select(outer, "execution") === file, true, "a cached inner suffix never changes exclusive ownership");
 });

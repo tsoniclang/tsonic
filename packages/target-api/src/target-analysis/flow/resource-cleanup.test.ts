@@ -30,7 +30,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   visit(file!);
   const owner = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "run");
   assert.equal(owner !== undefined, true, "resource fixture callable exists");
-  const selection = createSourceControlFlowQueries(source).declaration(owner!, { domain: { kind: "source" } });
+  const selection = flowQueries.declaration(owner!, { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "checked cleanup graph");
   if (selection.kind !== "resolved") throw new Error("Expected the checked resource flow graph.");
   const named = (name: string): Node => {

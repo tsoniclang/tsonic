@@ -1,5 +1,6 @@
 import type { Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
 import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
+import type { SourceCallableRole, SourceCallableRoles } from "./callable-boundaries.js";
 
 export interface SourceProjectReference {
   readonly symbol: Symbol;
@@ -259,6 +260,8 @@ export type SourceHeritagePathResult =
 export interface SourceProgramNavigation {
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];
+  callableRoles(node: Node): SourceCallableRoles;
+  enclosing(node: Node | undefined, role: SourceCallableRole, visit?: (node: Node) => boolean): Node | undefined;
   nodesForFiles(sourceFiles: readonly SourceFile[]): readonly Node[];
   readonly referenceIndexStatistics: SourceReferenceIndexStatistics;
   declarationSymbol(declaration: Node, sourceFile: SourceFile): Symbol | undefined;

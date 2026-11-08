@@ -121,4 +121,3 @@ function firstDirectWriteEnd(
   }
   return first?.end ?? Number.POSITIVE_INFINITY;
 }
-
