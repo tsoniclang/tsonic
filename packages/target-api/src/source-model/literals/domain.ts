@@ -114,6 +114,14 @@ export function sourceLiteralDomainIncludes(domain: SourceLiteralDomain, value: 
     : domain.kind === "finite" && domain.values.some(candidate => sourceLiteralUnitsEqual(candidate, value));
 }
 
+export function sourceLiteralDomainsEqual(left: SourceLiteralDomain, right: SourceLiteralDomain): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "open") return right.kind === "open" && left.presence === right.presence;
+  if (left.kind === "unreachable") return true;
+  return right.kind === "finite" && left.values.every(value => right.values.some(candidate => sourceLiteralUnitsEqual(value, candidate))) &&
+    right.values.every(value => left.values.some(candidate => sourceLiteralUnitsEqual(value, candidate)));
+}
+
 export function sourceBooleanLiteralDisposition(domain: SourceLiteralDomain): "true" | "false" | "dynamic" {
   if (domain.kind !== "finite" || domain.values.length === 0) return "dynamic";
   if (domain.values.every(value => value.kind === "boolean" && value.value)) return "true";
