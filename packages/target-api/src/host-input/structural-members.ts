@@ -1,13 +1,9 @@
 import type { AstReader, Node, Signature, Symbol, Type, TypeCheckerQueries, TypeIndexInfo, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
-
-export interface SourceStructuralMember {
-  readonly receiverType: Type;
-  readonly property: TypePropertyInfo;
-  readonly declarations: readonly Node[];
-  readonly getters: readonly Node[];
-  readonly setters: readonly Node[];
-  readonly read: "property" | "accessor" | "method" | "unavailable";
-}
+import type { SourceInputComponent } from "./identities.js";
+import type { SourceInputIdentityOwner } from "./identity-owner.js";
+import { createSourceInputMemberPublisher, sourceCheckedMember, type SourceInputCorrespondenceMember,
+  type SourceStructuralMember } from "./member-components.js";
+export type { SourceInputCorrespondenceMember, SourceStructuralMember } from "./member-components.js";
 
 export type SourceStructuralMemberPair =
   | {
@@ -67,25 +63,7 @@ export function createSourceStructuralMemberQueries(
       types.isNullish(shape) || types.isVoidLike(shape) || types.isUnion(shape);
   };
   const describe = (property: TypePropertyInfo, receiverType: Type): SourceStructuralMember => {
-    const symbols = [property.symbol, ...property.rootSymbols];
-    const declarations = Object.freeze([...new Set(symbols
-      .flatMap((symbol) => checker.getSymbolDeclarations(symbol))
-      .filter((node): node is Node => node !== undefined))]);
-    const getters = Object.freeze(declarations.filter(ast.is.IsGetAccessorDeclaration));
-    const setters = Object.freeze(declarations.filter(ast.is.IsSetAccessorDeclaration));
-    return Object.freeze({
-      receiverType,
-      property: Object.freeze({
-        ...property,
-        rootSymbols: Object.freeze([...property.rootSymbols]),
-      }),
-      declarations,
-      getters,
-      setters,
-      read: getters.length > 0 ? "accessor" : setters.length > 0 ? "unavailable" :
-        declarations.some((node) => ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node))
-          ? "method" : "property",
-    });
+    return sourceCheckedMember(ast, checker, property, receiverType);
   };
   const inventory = (type: Type): SourceStructuralTypeMembers => Object.freeze({
     type,
@@ -211,6 +189,65 @@ export function createSourceStructuralMemberQueries(
         selected = member;
       }
       return selected;
+    },
+  });
+}
+
+export type SourceInputMemberPair =
+  | { readonly kind: "present"; readonly source: SourceInputCorrespondenceMember; readonly destination: SourceInputCorrespondenceMember }
+  | { readonly kind: "absent"; readonly destination: SourceInputCorrespondenceMember };
+
+export type SourceInputMemberCorrespondence =
+  | { readonly kind: "available"; readonly members: readonly SourceInputMemberPair[] }
+  | Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }>;
+
+export interface SourceMemberCorrespondenceInput {
+  correspondence(source: SourceInputComponent, destination: SourceInputComponent,
+    purpose: "correspondence" | "read"): SourceInputMemberCorrespondence;
+  correspondingMember(source: SourceInputComponent, destination: SourceInputComponent, declaration: Node,
+    purpose: "correspondence" | "read"): SourceInputMemberPair | undefined;
+}
+
+export function createSourceMemberCorrespondenceInput(input: {
+  readonly ast: AstReader;
+  readonly checker: TypeCheckerQueries;
+  readonly types: TypeShapeQueries;
+  readonly identities: SourceInputIdentityOwner;
+  readonly assertNode: (node: Node) => void;
+}): SourceMemberCorrespondenceInput {
+  const { ast, checker, types, identities, assertNode } = input;
+  const queries = createSourceStructuralMemberQueries(ast, checker, types);
+  const member = createSourceInputMemberPublisher(input);
+  const pair = (source: SourceInputComponent, destination: SourceInputComponent,
+    selected: SourceStructuralMemberPair): SourceInputMemberPair | undefined => {
+    const target = member(destination, selected.destination);
+    if (target === undefined) return undefined;
+    if (selected.kind === "absent") return Object.freeze({ kind: "absent", destination: target });
+    const origin = member(source, selected.source);
+    return origin === undefined ? undefined : Object.freeze({ kind: "present", source: origin, destination: target });
+  };
+  return Object.freeze({
+    correspondence(source: SourceInputComponent, destination: SourceInputComponent,
+      purpose: "correspondence" | "read"): SourceInputMemberCorrespondence {
+      const from = identities.checkedComponent(source);
+      const to = identities.checkedComponent(destination);
+      const selected = queries.structuralMembers(from, to, purpose);
+      if (selected.kind === "unavailable") return selected;
+      const result: SourceInputMemberPair[] = [];
+      for (const selectedMember of selected.members) {
+        const published = pair(source, destination, selectedMember);
+        if (published === undefined) return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+        result.push(published);
+      }
+      return Object.freeze({ kind: "available", members: Object.freeze(result) });
+    },
+    correspondingMember(source: SourceInputComponent, destination: SourceInputComponent, declaration: Node,
+      purpose: "correspondence" | "read"): SourceInputMemberPair | undefined {
+      const from = identities.checkedComponent(source);
+      const to = identities.checkedComponent(destination);
+      assertNode(declaration);
+      const selected = queries.structuralMember(from, to, declaration, purpose);
+      return selected === undefined ? undefined : pair(source, destination, selected);
     },
   });
 }

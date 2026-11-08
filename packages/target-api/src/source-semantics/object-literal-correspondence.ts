@@ -1,6 +1,6 @@
 import type { ResolvedSourceObjectLiteralElementInfo, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "./types.js";
-import type { SourceStructuralMember } from "./structural-members.js";
+import type { SourceStructuralMember } from "../host-input/structural-members.js";
 
 export function sourceObjectLiteralDestinationMember(
   element: ResolvedSourceObjectLiteralElementInfo,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import test from "node:test";
 
-import { createSourceStructuralMemberQueries } from "./structural-members.js";
+import { createSourceStructuralMemberQueries } from "../host-input/structural-members.js";
 
 import { inspect, memberDeclaration } from "../../../../test/target-api/fixtures/source-semantics/structural-members-fixtures.mjs";
 
