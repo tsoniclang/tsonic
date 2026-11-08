@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceJsApiFactsInput } from "@tsonic/target-api/host";
 import type { SourceApplication, SourceJsApiFacts, SourceJsApiMember, SourceJsCallStorage,
-  SourceJsCollectionFacts, SourceResult, SourceTypeEvidence } from "@tsonic/target-api/source";
+  SourceJsCollectionFacts, SourcePresence, SourceResult, SourceTypeEvidence } from "@tsonic/target-api/source";
 import { jsTypedArrayElementKinds } from "../declarations/typed-arrays.js";
 import { jsSourceSemanticsIdentity } from "../identities/source.js";
 import { createJsProfileIdentityQuery } from "./identity.js";
@@ -25,7 +25,7 @@ export function createJsSourceApiFacts(input: SourceJsApiFactsInput): SourceJsAp
   const { view, assertApplication } = input;
   const scoped = createJsProfileIdentityQuery(input);
   const members = new WeakMap<Node, SourceJsApiMember | null>();
-  const collections = new WeakMap<SourceTypeEvidence, SourceResult<SourceJsCollectionFacts | undefined>>();
+  const collections = new WeakMap<SourceTypeEvidence, SourceResult<SourcePresence<SourceJsCollectionFacts>>>();
   const storage = new WeakMap<SourceApplication, SourceJsCallStorage | null>();
   const identity: SourceJsApiFacts["identity"] = declaration => {
     const selected = scoped(declaration);
@@ -95,7 +95,10 @@ export function createJsSourceApiFacts(input: SourceJsApiFactsInput): SourceJsAp
     view.assertEvidence(value);
     const existing = collections.get(value);
     if (existing !== undefined) return existing;
-    const selected = selectCollection(value);
+    const original = selectCollection(value);
+    const selected: SourceResult<SourcePresence<SourceJsCollectionFacts>> = original.kind === "refused" ? original
+      : resolved(original.value === undefined ? Object.freeze({ kind: "none" })
+        : Object.freeze({ kind: "present", value: original.value }));
     collections.set(value, selected);
     return selected;
   };
