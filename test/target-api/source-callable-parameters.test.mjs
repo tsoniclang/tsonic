@@ -22,52 +22,48 @@ function resolved(result, label) {
 
 function assertOriginalParameterInputs() {
   const current = sourceDescriptorInputFixture({ "/src/index.ts": program });
-  try {
-    const file = current.checked.getSourceFile("/src/index.ts");
-    assert.equal(file !== undefined, true);
-    const queries = current.checked.getSourceFileQueries(file);
-    const declarations = current.ast.statements(file).filter(node => node !== undefined && current.ast.is.IsFunctionDeclaration(node));
-    assert.equal(declarations.length, 6);
-    const expected = [
-      [{ parameterKind: "required", acceptsOmission: true, initializer: false }],
-      [{ parameterKind: "required", acceptsOmission: false, initializer: false }],
-      [{ parameterKind: "required", acceptsOmission: false, initializer: false }],
-      [{ parameterKind: "required", acceptsOmission: false, initializer: true },
-        { parameterKind: "required", acceptsOmission: false, initializer: false }],
-      [{ parameterKind: "optional", acceptsOmission: true, initializer: false }],
-      [{ parameterKind: "required", acceptsOmission: true, initializer: false },
-        { parameterKind: "optional", acceptsOmission: true, initializer: false }],
-    ];
-    for (const [index, declaration] of declarations.entries()) {
-      const label = current.ast.text(current.ast.name(declaration));
-      const component = current.input.syntax(declaration);
-      const description = current.input.describe(component);
-      assert.equal(description.kind === "structure" && description.calls.length === 1, true, label);
-      const original = queries.typeShape.getSignatureInfos(current.identities.checkedComponent(component), "call")[0];
-      assert.equal(original !== undefined, true, label);
-      const parameters = queries.typeShape.getSignatureParameterInfos(original.signature);
-      assert.equal(parameters.length, expected[index].length, label);
-      assert.equal(Object.isFrozen(original.parameters) && original.parameters.every(Object.isFrozen), true, label);
-      assert.equal(Object.isFrozen(description.calls[0].parameters) && description.calls[0].parameters.every(Object.isFrozen), true, label);
-      for (const [position, parameter] of parameters.entries()) {
-        const observed = original.parameters[position];
-        const retained = description.calls[0].parameters[position];
-        assert.equal(observed !== undefined && retained !== undefined, true, label);
-        assert.equal(parameter.sourceSymbol === observed.sourceSymbol && parameter.type === observed.type &&
-          parameter.declaration === observed.declaration, true, `${label}: exact original source symbol, type and declaration`);
-        assert.equal(retained.declaration === observed.declaration &&
-          current.identities.checkedComponent(retained.value) === observed.type, true,
-        `${label}: the private gateway retains the actual observed child, not a synthetic omission answer`);
-        assert.equal(parameter.parameterKind, expected[index][position].parameterKind, label);
-        assert.equal(parameter.acceptsOmission, expected[index][position].acceptsOmission, label);
-        const initializer = parameter.declaration !== undefined && current.ast.is.IsParameterDeclaration(parameter.declaration)
-          ? current.ast.as.AsParameterDeclaration(parameter.declaration)?.Initializer : undefined;
-        assert.equal(initializer !== undefined, expected[index][position].initializer,
-          `${label}: initializer syntax is independent of kind and factual omission availability`);
-      }
+  const file = current.checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true);
+  const queries = current.checked.getSourceFileQueries(file);
+  const declarations = current.ast.statements(file).filter(node => node !== undefined && current.ast.is.IsFunctionDeclaration(node));
+  assert.equal(declarations.length, 6);
+  const expected = [
+    [{ parameterKind: "required", acceptsOmission: true, initializer: false }],
+    [{ parameterKind: "required", acceptsOmission: false, initializer: false }],
+    [{ parameterKind: "required", acceptsOmission: false, initializer: false }],
+    [{ parameterKind: "required", acceptsOmission: false, initializer: true },
+      { parameterKind: "required", acceptsOmission: false, initializer: false }],
+    [{ parameterKind: "optional", acceptsOmission: true, initializer: false }],
+    [{ parameterKind: "required", acceptsOmission: true, initializer: false },
+      { parameterKind: "optional", acceptsOmission: true, initializer: false }],
+  ];
+  for (const [index, declaration] of declarations.entries()) {
+    const label = current.ast.text(current.ast.name(declaration));
+    const component = current.input.syntax(declaration);
+    const description = current.input.describe(component);
+    assert.equal(description.kind === "structure" && description.calls.length === 1, true, label);
+    const original = queries.typeShape.getSignatureInfos(current.identities.checkedComponent(component), "call")[0];
+    assert.equal(original !== undefined, true, label);
+    const parameters = queries.typeShape.getSignatureParameterInfos(original.signature);
+    assert.equal(parameters.length, expected[index].length, label);
+    assert.equal(Object.isFrozen(original.parameters) && original.parameters.every(Object.isFrozen), true, label);
+    assert.equal(Object.isFrozen(description.calls[0].parameters) && description.calls[0].parameters.every(Object.isFrozen), true, label);
+    for (const [position, parameter] of parameters.entries()) {
+      const observed = original.parameters[position];
+      const retained = description.calls[0].parameters[position];
+      assert.equal(observed !== undefined && retained !== undefined, true, label);
+      assert.equal(parameter.sourceSymbol === observed.sourceSymbol && parameter.type === observed.type &&
+        parameter.declaration === observed.declaration, true, `${label}: exact original source symbol, type and declaration`);
+      assert.equal(retained.declaration === observed.declaration &&
+        current.identities.checkedComponent(retained.value) === observed.type, true,
+      `${label}: the private gateway retains the actual observed child, not a synthetic omission answer`);
+      assert.equal(parameter.parameterKind, expected[index][position].parameterKind, label);
+      assert.equal(parameter.acceptsOmission, expected[index][position].acceptsOmission, label);
+      const initializer = parameter.declaration !== undefined && current.ast.is.IsParameterDeclaration(parameter.declaration)
+        ? current.ast.as.AsParameterDeclaration(parameter.declaration)?.Initializer : undefined;
+      assert.equal(initializer !== undefined, expected[index][position].initializer,
+        `${label}: initializer syntax is independent of kind and factual omission availability`);
     }
-  } finally {
-    current.session.close();
   }
 }
 
