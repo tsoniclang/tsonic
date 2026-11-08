@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
@@ -28,7 +29,7 @@ export type SourceStorageEffectSelection =
 
 /** The scoped-successor values the member reductions read; built once by createSourceStorageScopedSuccessors. */
 export interface SourceStorageMemberSuccessorContext {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly scopes: SourceStorageScopes;
@@ -322,7 +323,7 @@ export function createSourceStorageMemberSuccessors(context: SourceStorageMember
         absence: sourceStorageReference(term.receiver.subject, term.receiver.scope) }));
       const opaqueResult = sourceStorageIsDataMember(original, ast) && term.receiver.subject.kind === "value" &&
         ast.is.IsCallExpression(term.receiver.subject.node) && transport.isOpaque(term.receiver.subject.node) &&
-        transport.invocationEffects.get(term.receiver.subject.node)?.resultAlias === undefined;
+        transport.invocationEffects.get(term.receiver.subject.node)?.kind !== "result-alias";
       if (term.receiver.kind === "input-frontier" || scopes.isSymbolic(term.receiver) || opaqueResult) {
         if (prototype) continue;
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,

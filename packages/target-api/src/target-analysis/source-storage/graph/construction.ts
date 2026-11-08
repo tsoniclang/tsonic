@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
+
 import { sourceStorageAllocations, sourceStorageClassLineages } from "../model/construction.js";
 import { sourceConstructionExpression, sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
@@ -10,7 +11,7 @@ type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForIn
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;
 type Construction = Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number];
 
-export function createSourceStorageConstructionQuery(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageConstructionQuery(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: ConstructionQueries, nativeConstructorsFor: (subject: SourceStorageSubject) => readonly Node[] | undefined):
   (invocation: Node, bindings: SourceStorageBindings) => SourceStorageConstructionSelection {
   const cache = new Map<Node, Map<SourceStorageBindings, SourceStorageConstructionSelection>>();

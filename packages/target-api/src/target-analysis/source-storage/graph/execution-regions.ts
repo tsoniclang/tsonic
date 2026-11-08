@@ -1,7 +1,9 @@
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -10,7 +12,7 @@ import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "..
 import { sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-inputs.js";
 
-export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageExecutionRegions(source: SourceStorageProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
   }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery, subject: SourceStorageSubjectQuery) {
@@ -20,7 +22,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
   const invocations = new Map<Node, Set<Node>>();
   const invocationRows = budget.createRows();
   let sealed = false;
-  const typeMayBeAbsent = (type: Type, owner: Node): boolean => {
+  const typeMayBeAbsent = (type: SourceTypeEvidence, owner: Node): boolean => {
     const types = semantics.forNode(owner).types;
     if (!step()) return true;
     if (types.isAny(type) || types.isUnknown(type) || types.isNullish(type) || types.isVoidLike(type)) return true;
@@ -28,8 +30,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     return present === undefined || !types.isIdentical(type, present);
   };
   const callable = (declaration: Node, invocation: Node | undefined,
-    argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry,
-    actualTypes?: readonly (readonly Type[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
+    argumentTypes?: (expression: Node) => readonly SourceTypeEvidence[] | undefined, callback?: SourceStorageCallbackEntry,
+    actualTypes?: readonly (readonly SourceTypeEvidence[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
     const regions = phase === "active" || semantics.forNode(declaration).operations.generator(declaration) === undefined ? [body] : [];

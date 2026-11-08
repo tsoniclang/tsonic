@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageStoredProjection } from "../graph/store-projections.js";
@@ -116,7 +117,7 @@ export function createSourceStorageBindingInputs(ast: AstReader,
   };
 }
 
-export function sourceStorageInputBinding(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageInputBinding(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
   const owner = sourceStorageFormalOwner(term.subject, source);
@@ -173,7 +174,7 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
     select: value => sourceStorageInitializedValue(source, budget, scopes, term, defaultValue, value) };
 }
 
-export function sourceStorageInitializedValue(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageInitializedValue(source: SourceStorageProgram, budget: SourceStorageBudget,
   scopes: SourceStorageScopes, input: SourceStorageReference, fallback: SourceStorageReference,
   value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm,
     { readonly kind: "empty" | "input-frontier" }>):

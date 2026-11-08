@@ -1,7 +1,8 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { createSourceStorageScopeFrames } from "./scope-frames.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -32,7 +33,7 @@ function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: numb
   };
 }
 
-export function createSourceStorageScopes(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopes(source: SourceStorageProgram, budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined,

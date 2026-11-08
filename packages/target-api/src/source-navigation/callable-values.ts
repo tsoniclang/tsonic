@@ -120,7 +120,7 @@ export function createSourceCallableValueQuery(source: SourceNavigationQueryCont
       if (use.kind === "refused") return use;
       const access = use.value;
       const declaration = access.selectedDeclaration.kind === "present" ? access.selectedDeclaration.value : undefined;
-      if (access.optionalChain || declaration === undefined ||
+      if (access.optionalChain || access.chainContinuation || declaration === undefined ||
         ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration) ||
         navigation.expressionValueFlow(expression).memberWritten) return none;
       const receiver = resolve(access.receiver.occurrence, depth + 1);

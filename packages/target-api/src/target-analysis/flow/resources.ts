@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import type { SourceRefusal } from "../../public/source/contracts.js";
 import type { SourceFlowLimits, SourceFlowUnresolved } from "./model.js";
 
 export const defaultSourceFlowLimits: SourceFlowLimits = Object.freeze({
@@ -15,6 +16,12 @@ export class SourceFlowFailure extends Error {
     resource?: NonNullable<SourceFlowUnresolved["resource"]>) {
     super(message);
     this.resource = resource === undefined ? undefined : Object.freeze(resource);
+  }
+}
+
+export class SourceFlowRefusal extends Error {
+  constructor(readonly refusal: SourceRefusal) {
+    super(refusal.message);
   }
 }
 

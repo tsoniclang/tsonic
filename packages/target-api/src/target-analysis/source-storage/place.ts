@@ -80,14 +80,14 @@ export function createSourceStoragePlaceQueries(input: SourceStoragePlaceInput):
     const selected = member(storage);
     if (selected.kind !== "resolved") return selected;
     if (selected.value.occurrence !== storage) throw new Error("A Source place requires the same canonical member-use occurrence.");
-    if (selected.value.optionalChain) return resolved(none);
+    if (selected.value.optionalChain || selected.value.chainContinuation) return resolved(none);
     const value: SourceTypeEvidence | undefined = selected.value.writeType ?? selected.value.readType;
     if (value === undefined) return unavailable(occurrence, "The original Source member has no available storage component.");
     view.assertEvidence(value);
     const writable = selected.value.writeType !== undefined && selected.value.arms.every(arm =>
       arm.writeType !== undefined && (arm.kind !== "index" || !arm.readonly));
     const receiver = Object.freeze({ occurrence: selected.value.receiver.occurrence, value: selected.value.receiver.value });
-    if (selected.value.key.kind === "present") return resolved(present({ kind: "element", occurrence, storage,
+    if (selected.value.key.kind === "present" && selected.value.arms.some(arm => arm.kind === "index")) return resolved(present({ kind: "element", occurrence, storage,
       value, writable, receiver, key: selected.value.key.value }));
     return resolved(present({ kind: "member", occurrence, storage, value, writable, receiver,
       declarations: selected.value.selectedDeclarations }));

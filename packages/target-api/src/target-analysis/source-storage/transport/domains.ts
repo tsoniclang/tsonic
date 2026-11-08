@@ -1,7 +1,9 @@
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { createSourceStorageDomainInitialization } from "./domain-initialization.js";
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
@@ -19,11 +21,12 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { createSourceStoragePublicationDemands } from "./publication-demands.js";
 
 export function createSourceStorageDomains(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   transport: ReturnType<typeof createSourceStorageTransport>,
   budget: SourceStorageBudget,
 ) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, transport.substitutions.empty);
   const publicationDemands = createSourceStoragePublicationDemands(source, transport, budget,
@@ -198,7 +201,7 @@ export function createSourceStorageDomains(
     return budget.withRows(rows => {
       const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageScope }[] = [];
       const pending = bound.map(input => ({ ...input, type }));
-      const visited = new Map<SourceStorageScope, Map<SourceStorageSubject, Set<Type>>>();
+      const visited = new Map<SourceStorageScope, Map<SourceStorageSubject, Set<SourceTypeEvidence>>>();
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;
         const current = pending.pop()!;
@@ -206,8 +209,8 @@ export function createSourceStorageDomains(
         const subjects = states?.get(current.subject);
         if (subjects?.has(current.type)) continue;
         if (!rows.add(1 + (states === undefined ? 1 : 0) + (subjects === undefined ? 1 : 0))) return undefined;
-        const selected = states ?? new Map<SourceStorageSubject, Set<Type>>();
-        const types = subjects ?? new Set<Type>();
+        const selected = states ?? new Map<SourceStorageSubject, Set<SourceTypeEvidence>>();
+        const types = subjects ?? new Set<SourceTypeEvidence>();
         types.add(current.type); selected.set(current.subject, types); visited.set(current.bindings, selected);
         const file = transport.sourceFileFor(current.subject);
         if (file === undefined) continue;

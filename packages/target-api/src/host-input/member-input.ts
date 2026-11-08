@@ -35,6 +35,7 @@ export interface SourceInputMemberUse {
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
+  readonly chainContinuation: boolean;
   readonly selectedDeclaration: Node | undefined;
   readonly selectedDeclarations: readonly Node[];
   readonly readDeclarations: readonly Node[];

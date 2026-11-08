@@ -1,5 +1,7 @@
-import type { Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageScope, SourceStorageProjectionView } from "../graph/scoped-model.js";
@@ -11,7 +13,7 @@ import { sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export type SourceStorageOriginViews = ReadonlyMap<SourceStorageSubject, ReadonlySet<readonly SourceStorageProjectionView[]>>;
 
-export function createSourceStorageDomainSelection(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageDomainSelection(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: ReturnType<typeof createSourceStorageTransport>, domains: ReturnType<typeof createSourceStorageDomains>,
   bindingStates: WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>,
   bindingView: (states: Iterable<SourceStorageScope>) => SourceStorageBindings | undefined,
@@ -23,7 +25,7 @@ export function createSourceStorageDomainSelection(source: TargetSourceProgram, 
       if (!budget.step()) return unresolved(budget.failure()!);
       const sourceFile = transport.sourceFileFor(origin);
       const views = qualified.get(origin);
-      const types = new Set<Type>();
+      const types = new Set<SourceTypeEvidence>();
       for (const view of views === undefined ? [undefined] : views) {
         if (!budget.step()) return unresolved(budget.failure()!);
         const type = sourceStorageProjectionType(source, origin, view, sourceFile);

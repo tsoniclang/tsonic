@@ -3,7 +3,7 @@ import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
 import type { SourceDeclarationFlowExecutionRegion } from "./model.js";
-import { SourceFlowFailure } from "./resources.js";
+import { SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 
 export interface SourceFlowEntry<Region = SourceDeclarationFlowExecutionRegion> {
   readonly body: Node | undefined;
@@ -23,7 +23,8 @@ export interface SourceFlowInitializer<Region = SourceDeclarationFlowExecutionRe
 
 export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declaration: Node,
   step: (node?: Node) => void): SourceFlowEntry<SourceDeclarationFlowExecutionRegion> {
-  const { ast, navigation } = source;
+  const { ast } = source;
+  const { navigation, values, descriptors } = source.facts;
   const rootExecutions = new Map<Node, SourceDeclarationFlowExecutionRegion>();
   const syntaxRoots: Node[] = [];
   const region = (owner: Node, root: Node, role: SourceDeclarationFlowExecutionRegion["role"]): SourceDeclarationFlowExecutionRegion => {
@@ -67,16 +68,19 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
       if (!navigation.isProjectDeclaration(owner))
         throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
       if (!ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner)) {
-        const semantics = source.semantics.forNode(owner);
-        const type = semantics.declarations.declaredValueType(owner);
-        const signatures = type === undefined ? [] : semantics.types.constructSignatures(type);
+        const slot = values.declaredSlot(owner);
+        if (slot.kind === "refused") throw new SourceFlowRefusal(slot);
+        const selected = descriptors.definition(slot.value.type);
+        if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+        const type = selected.value.type;
+        const signatures = type.kind === "shape" || type.kind === "callable" ? type.constructs : [];
         if (signatures.length === 0)
           throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
         for (const signature of signatures) {
-          const contract = semantics.declarations.signatureDeclaration(signature);
+          const contract = signature.identity.declaration;
           step(contract);
           const file = ast.getSourceFile(contract);
-          if (contract === undefined || file === undefined || !source.semantics.includes(file) ||
+          if (contract === undefined || file === undefined || !source.sourceFiles.includes(file) ||
             !ast.is.IsConstructorTypeNode(contract) && !ast.is.IsConstructSignatureDeclaration(contract))
             throw new SourceFlowFailure("Declaration construction requires its selected native contract when the base has no checked source class body.", owner);
         }
@@ -84,8 +88,9 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
       }
       classes.push(owner);
       const constructors = navigation.classConstructors(owner);
-      if (constructors.kind !== "resolved") throw new SourceFlowFailure(constructors.reason, owner);
-      if (!constructors.implicit) {
+      if (constructors.kind === "refused") throw new SourceFlowRefusal(constructors);
+      if (constructors.value.kind !== "resolved") throw new SourceFlowFailure(constructors.value.reason, owner);
+      if (constructors.value.witness !== "implicit") {
         const bodies = ast.members(owner).filter((member): member is Node => member !== undefined &&
           ast.is.IsConstructorDeclaration(member) && ast.body(member) !== undefined);
         if (bodies.length !== 1) throw new SourceFlowFailure("Declaration construction requires one original checked constructor implementation.", owner);
@@ -93,8 +98,9 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
         break;
       }
       const heritage = navigation.declaredHeritage(owner);
-      if (heritage.kind !== "resolved") throw new SourceFlowFailure(heritage.reason, owner);
-      const bases = heritage.edges.filter(edge => edge.kind === "extends");
+      if (heritage.kind === "refused") throw new SourceFlowRefusal(heritage);
+      if (heritage.value.kind !== "resolved") throw new SourceFlowFailure(heritage.value.reason, owner);
+      const bases = heritage.value.edges.filter(edge => edge.kind === "extends");
       if (bases.length > 1) throw new SourceFlowFailure("Declaration construction requires one exact checked base declaration.", owner);
       owner = bases[0]?.target.declaration;
     }
@@ -121,8 +127,9 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
   const owner = classes[classes.length - 1] ?? (ast.is.IsConstructorDeclaration(declaration) ? ast.parent(declaration) : undefined);
   const initializers = owner === undefined ? [] : fields(owner);
   const heritage = owner === undefined ? undefined : navigation.declaredHeritage(owner);
-  if (heritage?.kind === "unresolved") throw new SourceFlowFailure(heritage.reason, owner);
-  const derived = body !== undefined && (heritage?.edges.some(edge => edge.kind === "extends") ?? false);
+  if (heritage?.kind === "refused") throw new SourceFlowRefusal(heritage);
+  if (heritage?.value.kind === "unresolved") throw new SourceFlowFailure(heritage.value.reason, owner);
+  const derived = body !== undefined && (heritage?.value.edges.some(edge => edge.kind === "extends") ?? false);
   const completionInitializers = classes.slice(0, -1).reverse().flatMap(fields);
   return { body, parameters, bodyExecution,
     entryInitializers: derived ? [] : initializers, superInitializers: derived ? initializers : [],

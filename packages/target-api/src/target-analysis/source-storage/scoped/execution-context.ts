@@ -1,5 +1,7 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { Node } from "@tsonic/tsts";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
 import { sourceStorageIsDataMember } from "../model/subjects.js";
@@ -16,7 +18,7 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations } from "../model/construction.js";
 import { sourceInstanceInitializers, sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 
-export function createSourceStorageExecutionContext(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageExecutionContext(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
@@ -83,7 +85,7 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
       callee: sourceStorageReference(target, caller), scope: caller, projection, ...operation });
   };
   const dispatchDependencies = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] => {
-    if (transport.invocationEffects.get(invocation)?.resultAlias !== undefined) return [];
+    if (transport.invocationEffects.get(invocation)?.kind === "result-alias") return [];
     const call = semantics.forNode(invocation).operations.call(invocation);
     const property = ast.is.IsPropertyAccessExpression(invocation) ? semantics.forNode(invocation).operations.propertyAccess(invocation) : undefined;
     const nodes = [Node_Expression(ast, invocation), call?.sourceReceiver?.expression ??
@@ -98,7 +100,7 @@ export function createSourceStorageExecutionContext(source: TargetSourceProgram,
   };
   const regionsFor = (candidate: Node, invocation: Node, scope: SourceStorageScope, demand: Node,
     construction?: { readonly caller: SourceStorageScope; readonly classes: readonly SourceStorageScopedSubject[] }, deferred = false,
-    actualTypes?: readonly (readonly Type[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
+    actualTypes?: readonly (readonly SourceTypeEvidence[] | undefined)[]): readonly SourceStorageTerm[] | undefined => {
     const terms: SourceStorageTerm[] = [];
     const frame = scope.kind === "substitution" ? scope.scope : scope;
     const callback = frame.kind === "frame" ? frame.callback : undefined;

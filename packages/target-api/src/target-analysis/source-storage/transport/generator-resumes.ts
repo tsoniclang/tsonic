@@ -1,10 +1,11 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageCallEffect } from "../model/types.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 
-export function createSourceStorageGeneratorResumes(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageGeneratorResumes(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationEffects: ReadonlyMap<Node, SourceStorageCallEffect>;
     subjectFor(node: Node): SourceStorageSubject | undefined;
@@ -13,7 +14,7 @@ export function createSourceStorageGeneratorResumes(source: TargetSourceProgram,
   }) {
   return (invocation: Node): ReadonlySet<Node> | undefined => budget.withRows(rows => {
     const result = new Set<Node>();
-    if (queries.invocationEffects.get(invocation)?.resumeReceiver !== true) return result;
+    if (queries.invocationEffects.get(invocation)?.kind !== "receiver-resume") return result;
     const receiver = source.semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
     const selected = receiver === undefined ? undefined : queries.subjectFor(receiver);
     const origins = selected === undefined ? undefined : queries.originsFor(selected);

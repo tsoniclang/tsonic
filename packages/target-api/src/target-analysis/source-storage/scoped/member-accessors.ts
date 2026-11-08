@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceStorageSelectedInputSlots, type SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import type { SourceStorageIncomingQuery } from "../graph/edges.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
@@ -23,7 +24,7 @@ interface SourceStorageAccessorQueries {
   readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
 }
 
-export function createSourceStorageMemberAccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageMemberAccessors(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: SourceStorageAccessorQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
   const { ast, semantics } = source;
   const noInputs: ReadonlySet<SourceStorageSubject> = new Set();
@@ -59,7 +60,7 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
       if (read || !ast.is.IsGetAccessorDeclaration(accessor)) continue;
       const file = ast.getSourceFile(accessor);
       if (file === undefined || !semantics.includes(file)) continue;
-      const symbol = source.navigation.declarationSymbol(accessor, file);
+      const symbol = source.facts.navigation.declarationSymbol(accessor, file);
       if (symbol === undefined) continue;
       for (const candidate of semantics.forFile(file).declarations.symbolDeclarations(symbol)) {
         if (!budget.step()) return;

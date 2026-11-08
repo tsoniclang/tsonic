@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -35,7 +36,7 @@ function sourceStorageIsProjectedInput(frontier: SourceStorageInputFrontier): bo
 type SourceStorageWalkBoundary = SourceStorageInputWalkBoundary |
   ((subject: SourceStorageScopedSubject & { readonly original: boolean }) => boolean);
 
-export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageSubstitutions(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
   const { invocationInputs } = transport;

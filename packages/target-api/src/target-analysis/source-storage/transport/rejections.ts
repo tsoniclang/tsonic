@@ -1,7 +1,8 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
@@ -31,9 +32,10 @@ interface SourceStorageRejectionQueries {
   recordUnresolvedThrow(region: Node, reason: string): void;
 }
 
-export function createSourceStorageRejections(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageRejections(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: SourceStorageRejectionQueries) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const forOperand = (operand: Node): ReadonlySet<SourceStorageSubject | SourceStorageUnresolved> => budget.withRows(rows => {
     const origins = new Set<SourceStorageSubject | SourceStorageUnresolved>();
     let reason: string | undefined;

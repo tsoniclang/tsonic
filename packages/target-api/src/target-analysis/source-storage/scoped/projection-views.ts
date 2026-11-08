@@ -1,5 +1,7 @@
-import type { SourceFile, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { SourceFile } from "@tsonic/tsts";
+
 import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -21,15 +23,15 @@ function selectedView(subject: SourceStorageSubject, views: readonly SourceStora
   return undefined;
 }
 
-export function sourceStorageProjectionType(source: TargetSourceProgram, subject: SourceStorageSubject,
-  views: readonly SourceStorageProjectionView[] | undefined, sourceFile?: SourceFile): Type | undefined {
+export function sourceStorageProjectionType(source: SourceStorageProgram, subject: SourceStorageSubject,
+  views: readonly SourceStorageProjectionView[] | undefined, sourceFile?: SourceFile): SourceTypeEvidence | undefined {
   const view = selectedView(subject, views);
   if (view === undefined) return sourceStorageSubjectType(source, subject, sourceFile);
-  let type: Type | undefined = view.type;
-  const semantics = sourceFile === undefined ? source.semantics.forNode(view.source.node) : source.semantics.forFile(sourceFile);
+  source.facts.descriptors.assertEvidence(view.type);
+  let type: SourceTypeEvidence | undefined = view.type;
   for (const component of subject.projection.slice(view.receiver.projection.length)) {
     if (type === undefined) return undefined;
-    type = sourceStorageComponentType(type, component, semantics, source.ast);
+    type = sourceStorageComponentType(type, component, source);
   }
   return type;
 }
@@ -42,7 +44,7 @@ export function sourceStorageProjectionSubject(subject: SourceStorageSubject,
 }
 
 export function sourceStorageWithProjectionView(views: readonly SourceStorageProjectionView[] | undefined,
-  receiver: SourceStorageSubject, checked: SourceStorageSubject, type: Type): readonly SourceStorageProjectionView[] {
+  receiver: SourceStorageSubject, checked: SourceStorageSubject, type: SourceTypeEvidence): readonly SourceStorageProjectionView[] {
   const previous = views?.find(view => view.receiver === receiver);
   if (previous?.source === checked && previous.type === type) return views!;
   return Object.freeze([...(views ?? []).filter(view => view.receiver !== receiver),

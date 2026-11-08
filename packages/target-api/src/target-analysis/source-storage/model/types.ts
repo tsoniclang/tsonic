@@ -1,7 +1,9 @@
-import type { Node, Signature, SourceFile, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceArgumentPlace, SourceRefusal, SourceSignatureIdentity, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
+import type { SourceNodeWriteValue } from "../../../source-model/navigation.js";
+import type { SourceJsCallbackEffect, SourceJsCallStorageEffect } from "../../source-profile.js";
 
 export interface SourceStorageLimits {
   readonly maximumNodes: number;
@@ -11,31 +13,23 @@ export interface SourceStorageLimits {
   readonly maximumSteps: number;
 }
 
-export interface SourceStorageCallEffect {
-  readonly resultAlias?: Node;
-  readonly resultAllocation?: Node;
-  readonly resumeReceiver?: true;
+export type SourceStorageCallEffect = SourceJsCallStorageEffect | { readonly kind: "no-result-storage" };
+
+export interface SourceStorageNativeConstructorPremise {
+  readonly binding: Node;
+  readonly constructors: readonly SourceSignatureIdentity[];
 }
 
-export interface SourceStorageEffects {
-  readonly call?: (node: Node, selected: ResolvedSourceCallInfo) => SourceStorageCallEffect | undefined;
-  readonly nativeConstructorsFor?: (declaration: Node, context: SourceFileSemantics) => readonly Node[] | undefined;
-  readonly callbackEntries?: (node: Node, selected: ResolvedSourceCallInfo) => readonly {
-    readonly parameterIndex: number;
-    readonly timing: "synchronous" | "deferred";
-    readonly rejection?: number;
-    readonly inputs?: readonly {
-      readonly parameterIndex: number;
-      readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
-      readonly sourceParameterIndex?: number;
-    }[];
-  }[] | undefined;
+export interface SourceStorageAnalysisOptions {
+  readonly sourceFiles: readonly SourceFile[];
+  readonly limits: SourceStorageLimits;
+  readonly nativeClassConstructors: readonly SourceStorageNativeConstructorPremise[];
 }
 
-export interface SourceStorageUnresolved {
+export type SourceStorageUnresolved = SourceRefusal | {
   readonly kind: "unresolved";
   readonly reason: string;
-}
+};
 
 export type SourceStorageSubjectSelection =
   | { readonly kind: "resolved"; readonly subject: SourceStorageSubject }
@@ -47,12 +41,12 @@ export type SourceStorageSubjectsSelection =
 
 export interface SourceStorageTypedSubject {
   readonly subject: SourceStorageSubject;
-  readonly type: Type;
+  readonly type: SourceTypeEvidence;
   readonly sourceFile: SourceFile;
 }
 
 export interface SourceStorageWrittenValue {
-  readonly source: SourceBindingWriteValue | undefined;
+  readonly source: SourceNodeWriteValue | undefined;
   readonly subjects: readonly SourceStorageSubject[];
   readonly reason: string | undefined;
 }
@@ -89,7 +83,7 @@ export interface SourceStorageProducer extends SourceStorageTypedSubject {
 }
 
 export type SourceStorageTypeSelection =
-  | { readonly kind: "resolved"; readonly type: Type; readonly sourceFile: SourceFile }
+  | { readonly kind: "resolved"; readonly type: SourceTypeEvidence; readonly sourceFile: SourceFile }
   | SourceStorageUnresolved;
 
 export type SourceStorageOriginsSelection =
@@ -138,7 +132,7 @@ export type SourceStorageInputSlotsSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageInvocationInputSlots = {
-  readonly signature: Signature | undefined;
+  readonly signature: SourceSignatureIdentity | undefined;
   readonly selectedDeclaration: Node | undefined;
   readonly selected: SourceStorageInputSlotsSelection;
   readonly implementation: { readonly kind: "resolved" } | SourceStorageUnresolved;
@@ -157,7 +151,7 @@ export interface SourceStorageArgumentTransport {
   readonly actual: SourceStorageSubject;
   readonly formal: SourceStorageSubject;
   readonly selectedParameterDeclaration: Node;
-  readonly binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number];
+  readonly binding: SourceArgumentPlace;
 }
 
 export interface SourceStorageCallbackEntry {
@@ -166,7 +160,7 @@ export interface SourceStorageCallbackEntry {
   readonly argument: SourceStorageArgumentTransport;
   readonly timing: "synchronous" | "deferred" | "unknown";
   readonly rejection?: number;
-  readonly inputs?: NonNullable<ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>>>[number]["inputs"];
+  readonly inputs?: SourceJsCallbackEffect["inputs"];
 }
 
 export type SourceStorageArgumentsSelection =

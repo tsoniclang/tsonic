@@ -1,5 +1,7 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { Node } from "@tsonic/tsts";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -8,7 +10,7 @@ import type { SourceStorageOperation, SourceStorageReduction, SourceStorageRefer
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageExecutionDemands, walkSourceStorageExecution, type createSourceStorageExecutionReachability } from "./execution-reachability.js";
 
-export function createSourceStorageScopedRejections(source: TargetSourceProgram, budget: SourceStorageBudget, transport: SourceStorageScopedTransport,
+export function createSourceStorageScopedRejections(source: SourceStorageProgram, budget: SourceStorageBudget, transport: SourceStorageScopedTransport,
   scopes: SourceStorageScopes, reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
@@ -37,7 +39,7 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
   };
   const invocationThrows = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined => {
     if (transport.pointerInvocations.has(invocation)) return queries.pointerThrows(invocation, scope);
-    if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
+    if (transport.invocationEffects.get(invocation)?.kind === "receiver-resume") {
       const receiver = transport.subjectFor(source.semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression);
       if (receiver === undefined) return undefined;
       const terms: SourceStorageTerm[] = [queries.application(invocation, receiver, scope, [], { mode: "throw" })];
@@ -47,7 +49,7 @@ export function createSourceStorageScopedRejections(source: TargetSourceProgram,
     return target === undefined ? undefined : [queries.application(invocation, target, scope, [], { mode: "throw" })];
   };
   const callableThrows = (subject: SourceStorageSubject, candidate: Node, invocation: Node, scope: SourceStorageScope,
-    actualTypes?: readonly (readonly Type[] | undefined)[], phase: "call" | "active" = "call"): readonly SourceStorageTerm[] | undefined => {
+    actualTypes?: readonly (readonly SourceTypeEvidence[] | undefined)[], phase: "call" | "active" = "call"): readonly SourceStorageTerm[] | undefined => {
     if (budget.failure() !== undefined) return undefined;
     if (phase === "call" && source.ast.hasModifierKind(candidate, "async"))
       return [Object.freeze({ kind: "empty", absence: undefined })];

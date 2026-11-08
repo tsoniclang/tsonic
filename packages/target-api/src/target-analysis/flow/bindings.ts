@@ -4,13 +4,13 @@ import { SourceFlowFailure } from "./resources.js";
 import { sourceFlowUnwrap } from "./syntax.js";
 import type { SourceFlowOperation } from "./model.js";
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
-import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
+import type { SourceNodeWriteValue } from "../../source-model/navigation.js";
 
 const bindingKinds: ReadonlySet<string> = new Set(["KindVariableDeclaration", "KindBindingElement", "KindParameter",
   "KindFunctionDeclaration", "KindFunctionExpression", "KindClassDeclaration", "KindClassExpression", "KindEnumDeclaration"]);
 
 export function sourceFlowBinding(build: SourceFlowConstruction, reference: Node): Node | undefined {
-  const selected = build.source.navigation.sourceReferenceFor(reference)?.declaration;
+  const selected = build.source.facts.navigation.sourceReferenceFor(reference)?.declaration;
   return selected !== undefined && bindingKinds.has(build.source.ast.kindName(selected)) ? selected : undefined;
 }
 
@@ -143,11 +143,11 @@ export function sourceFlowPattern(build: SourceFlowConstruction, node: Node, nex
 }
 
 export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
-  value: SourceBindingWriteValue): SourceBindingWriteValue;
+  value: SourceNodeWriteValue): SourceNodeWriteValue;
 export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
-  value: SourceBindingWriteValue | undefined): SourceBindingWriteValue | undefined;
+  value: SourceNodeWriteValue | undefined): SourceNodeWriteValue | undefined;
 export function sourceFlowWriteValue(build: SourceFlowConstruction, reference: Node,
-  value: SourceBindingWriteValue | undefined): SourceBindingWriteValue | undefined {
+  value: SourceNodeWriteValue | undefined): SourceNodeWriteValue | undefined {
   if (value === undefined) return undefined;
   const selected = sourceBindingWriteAtReference(build.source.ast, reference)?.values.find(candidate =>
     candidate.kind === value.kind && candidate.expression === value.expression &&

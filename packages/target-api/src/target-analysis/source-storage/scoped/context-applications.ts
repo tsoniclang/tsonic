@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
@@ -32,7 +33,7 @@ interface ContextBinding {
 type ContextSubject = SourceStorageSubject | ContextBinding;
 type ContextSelection = SourceStorageForwardSelection<ContextSubject, SourceStorageSubject>;
 
-export function createSourceStorageContextApplications(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageContextApplications(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: ContextApplicationQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
   const rows = budget.createRows();
   const bindings = new Map<SourceStorageSubject, Map<Node, Map<Node, ContextBinding>>>();

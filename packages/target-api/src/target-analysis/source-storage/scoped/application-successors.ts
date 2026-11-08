@@ -1,4 +1,5 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+
 import { Node_Expression } from "../../../source-navigation/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
@@ -14,7 +15,7 @@ import type { SourceStorageChildContext, SourceStoragePendingReduction } from ".
 
 interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>,
   "dispatchDependencies" | "independentCalleeFor" | "regionsFor" | "classLineages" | "leaf"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly scopes: SourceStorageScopes;
@@ -30,9 +31,10 @@ interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeo
 export function createSourceStorageApplicationSuccessors(context: SourceStorageApplicationSuccessorContext) {
   const { source, budget, transport, scopes, equations, absent, nativeInputExecutions, conditionalExecutions,
     rejections, replaceChild, dispatchDependencies, independentCalleeFor, regionsFor, classLineages, leaf } = context;
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   return (term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStoragePendingReduction | undefined => {
-    const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.resumeReceiver === true;
+    const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.kind === "receiver-resume";
     const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
     if (term.callee.kind !== "leaf" && term.callee.kind !== "input-frontier") {
       return replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {

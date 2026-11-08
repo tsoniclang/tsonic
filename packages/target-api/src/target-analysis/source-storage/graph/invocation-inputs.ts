@@ -1,8 +1,10 @@
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence, SourceSignatureIdentity } from "../../../public/source/contracts.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
-import type { Node, Signature, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
-import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { ResolvedSourceCallInfo, SourceFileSemantics } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -13,12 +15,12 @@ import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
 
 export function sourceStorageInvocationActual(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   selected: ResolvedSourceCallInfo,
   binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
-): { readonly subject: SourceStorageSubject; readonly sourceType: Type; readonly targetType: Type } | undefined {
+): { readonly subject: SourceStorageSubject; readonly sourceType: SourceTypeEvidence; readonly targetType: SourceTypeEvidence } | undefined {
   const argument = selected.sourceArguments[binding.sourceArgumentIndex];
   if (argument === undefined) return undefined;
   const { ast, semantics } = source;
@@ -53,7 +55,7 @@ export function sourceStorageInvocationActual(
 }
 
 export function sourceStorageInvocationArgumentAbsence(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   selected: ResolvedSourceCallInfo,
   binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
 ): "absent" | "present" | "possible" {
@@ -75,10 +77,10 @@ export function sourceStorageInvocationArgumentAbsence(
 
 type SourceStorageCallableInputEvidence = {
   readonly kind: "selected-signature" | "source-implementation";
-  readonly signature: Signature | undefined;
+  readonly signature: SourceSignatureIdentity | undefined;
 };
 
-export function sourceStorageCallableInputSlots(source: TargetSourceProgram, declaration: Node,
+export function sourceStorageCallableInputSlots(source: SourceStorageProgram, declaration: Node,
   semantics: SourceFileSemantics, evidence: SourceStorageCallableInputEvidence,
   step: () => boolean): readonly SourceStorageCallableInputSlot[] | undefined {
   const { ast } = source;
@@ -139,7 +141,7 @@ export function sourceStorageSelectedInputSlots(selection: SourceStorageInvocati
     ? selection.selected.slots : undefined;
 }
 
-export function sourceStorageInvocationInputSelection(source: TargetSourceProgram, key: SourceStorageInvocationSelectionKey,
+export function sourceStorageInvocationInputSelection(source: SourceStorageProgram, key: SourceStorageInvocationSelectionKey,
   nodes: ReadonlySet<Node>, exact: boolean, step: () => boolean, retain: (cost: number) => boolean,
   read: (declaration: Node) => SourceStorageInvocationInputSlots | undefined): SourceStorageInvocationInputSlots | undefined {
   const { ast, semantics } = source;
@@ -210,13 +212,13 @@ export function sourceStorageInvocationInputSelection(source: TargetSourceProgra
 
 export interface SourceStorageNativeInputSlot {
   readonly parameterIndex: number;
-  readonly type: Type | undefined;
+  readonly type: SourceTypeEvidence | undefined;
   readonly absent: boolean;
   readonly acceptsOmission: boolean;
   readonly projection: readonly SourceStorageProjection[];
 }
 
-export function sourceStorageNativeInputSlots(source: TargetSourceProgram, declaration: Node,
+export function sourceStorageNativeInputSlots(source: SourceStorageProgram, declaration: Node,
   formal: SourceStorageSubject, selection: SourceStorageInvocationInputSlots | undefined, semantics: SourceFileSemantics,
   step: () => boolean): readonly SourceStorageNativeInputSlot[] | undefined {
   const signature = selection?.kind === "native-callback" ? selection.signature : undefined;
@@ -257,7 +259,7 @@ export function sourceStorageNativeInputSlots(source: TargetSourceProgram, decla
   return selected.length === 0 ? undefined : Object.freeze(selected);
 }
 
-export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageNativeCallablePayloads<Bindings>(source: SourceStorageProgram, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings, queries: {
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
     inputsFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
@@ -386,7 +388,7 @@ export type SourceStorageInvocationInputQuery = (
   callback?: SourceStorageCallbackEntry,
 ) => SourceStorageInvocationInputs;
 
-export function createSourceStorageInvocationOrigins(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageInvocationOrigins(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: {
     readonly invocationInputs: SourceStorageInvocationInputQuery;
     readonly inputSlotsFor: SourceStorageInvocationInputSelectionQuery;
@@ -440,7 +442,7 @@ export function createSourceStorageInvocationOrigins(source: TargetSourceProgram
 }
 
 export function createSourceStorageInvocationInputs(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,

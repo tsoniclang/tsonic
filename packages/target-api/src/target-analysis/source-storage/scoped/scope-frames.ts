@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -11,7 +12,7 @@ import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageReference, SourceStorageInputFrontier, SourceStorageReduction, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";
 
 export function createSourceStorageScopeFrames(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
   readonly rows: SourceStorageRows;
   readonly subject: SourceStorageSubjectQuery;

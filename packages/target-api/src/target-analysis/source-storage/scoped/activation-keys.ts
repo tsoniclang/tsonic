@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageActivation, SourceStorageFrame, SourceStorageScope, SourceStorageScopeParameter, SourceStorageVariable } from "../graph/scoped-model.js";
@@ -13,7 +14,7 @@ export interface SourceStorageCreationContext {
   ownerFor(subject: SourceStorageSubject): Node | undefined;
 }
 
-export function sourceStorageActivationOwner(source: TargetSourceProgram,
+export function sourceStorageActivationOwner(source: SourceStorageProgram,
   enclosing: (node: Node) => Node | undefined, subject: SourceStorageSubject): Node | undefined {
   if (subject.kind === "input" && source.ast.is.IsParameterDeclaration(subject.node)) return sourceStorageFormalOwner(subject, source);
   const region = enclosing(subject.node);

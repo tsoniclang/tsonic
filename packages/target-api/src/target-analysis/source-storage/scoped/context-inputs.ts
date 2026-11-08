@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -24,7 +25,7 @@ interface SourceStorageContextInputQueries {
 }
 
 export function createSourceStorageContextInputs(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   queries: SourceStorageContextInputQueries,
   graph: ReturnType<typeof createSourceStorageGraphQueries>,
@@ -34,7 +35,8 @@ export function createSourceStorageContextInputs(
     if (!budget.step()) return undefined;
     const cached = selections.get(origin);
     if (cached !== undefined) return cached;
-    const { ast, navigation, semantics } = source;
+    const { ast, semantics } = source;
+    const { navigation } = source.facts;
     const node = origin.node;
     if ((origin.kind === "input" || origin.kind === "receiver") && origin.projection.length !== 0) {
       const owner = queries.subject(node, origin.kind);

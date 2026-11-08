@@ -1,10 +1,11 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
 import { sourceCallableRoles } from "../../../source-navigation/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
@@ -23,7 +24,7 @@ import type { createSourceStorageMemberAccessors } from "../scoped/member-access
 
 /** The transport state and helpers the per-node collection pass records into; built by createSourceStorageTransport. */
 export interface SourceStorageSyntaxCollectionContext {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
   readonly effects: SourceStorageEffects;
   readonly mutationOwners: Map<Node, SourceStorageSubject>;
@@ -64,7 +65,8 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
     callableDeclarations, callableDeclarationRows,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor, locationFor, connect, projections,
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const visit = (node: Node): void => {
     if (sourceCallableRoles(ast, node).body) {
       if (!callableDeclarationRows.add(1)) return;

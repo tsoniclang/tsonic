@@ -1,14 +1,16 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { Node } from "@tsonic/tsts";
+
 import type { SourceStorageSubject } from "../model/subjects.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import type { createSourceStorageMemberFlow } from "../graph/member-flow.js";
 
-export function createSourceStorageMutationDestinations<Bindings>(source: TargetSourceProgram,
+export function createSourceStorageMutationDestinations<Bindings>(source: SourceStorageProgram,
   budget: SourceStorageBudget, memberFlow: ReturnType<typeof createSourceStorageMemberFlow>,
   lineagesFor: (origin: SourceStorageSubject) => readonly SourceStorageClassLineage<Bindings>[] | undefined) {
-  return (origin: SourceStorageSubject, declarations: readonly Node[], receiverType: Type): ReadonlySet<Node> | undefined => {
+  return (origin: SourceStorageSubject, declarations: readonly Node[], receiverType: SourceTypeEvidence): ReadonlySet<Node> | undefined => {
     const destinations = new Set<Node>();
     const ordinary = (): boolean => {
       if (memberFlow.excludes(origin, receiverType)) return true;

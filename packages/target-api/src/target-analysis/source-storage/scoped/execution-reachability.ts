@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
@@ -61,7 +62,7 @@ export function sourceStorageExecutionDemands(transport: SourceStorageScopedTran
   return selected;
 }
 
-export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageExecutionReachability(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
   let index: { readonly callers: ReadonlyMap<Node, ReadonlySet<Node>>;
     readonly callees: ReadonlyMap<Node, ReadonlySet<Node>>;
@@ -117,7 +118,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
             for (const child of transport.regions.callable(candidate, undefined)) if (!add(child)) return undefined;
           }
         }
-        if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
+        if (transport.invocationEffects.get(invocation)?.kind === "receiver-resume") {
           const resumed = transport.resumedImplementations(invocation);
           if (resumed === undefined) return undefined;
           for (const candidate of resumed) {
@@ -220,7 +221,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
   });
 }
 
-export function createSourceStorageInputExecutions(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageInputExecutions(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {

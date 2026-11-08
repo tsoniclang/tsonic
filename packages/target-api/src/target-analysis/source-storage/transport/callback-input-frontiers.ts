@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
@@ -10,7 +11,7 @@ import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 
 export function createSourceStorageCallbackInputFrontiers(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   host: {

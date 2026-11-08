@@ -1,94 +1,100 @@
-import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
+import type { SourceApplication, SourceSignatureIdentity } from "../../../public/source/contracts.js";
 import { createSourceCallableValueQuery } from "../../../source-navigation/callable-values.js";
-import type { ResolvedSourceCallInfo } from "../../../source-semantics/call-result-selection.js";
-import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/types.js";
-import type { SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
+import type { SourceJsCallStorage } from "../../source-profile.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
+import type { SourceStorageNativeConstructorPremise } from "./types.js";
+import type { SourceStorageProgram } from "./program.js";
+import { sourceStorageValue } from "./program.js";
 
-interface SourceGlobalStorageBinding {
-  readonly name: string;
-  readonly providerId: string;
-}
-
-export type SourceGlobalCallStorageEffect = {
-  readonly declaration: Node;
-  readonly effect: SourceStorageCallEffect;
-} & ({ readonly form: "member" | "value"; readonly binding: SourceGlobalStorageBinding }
-  | { readonly form: "receiver" });
-
-export function createSourceGlobalCallStorageEffects(
-  source: TargetSourceProgram,
-  select: (node: Node, call: ResolvedSourceCallInfo) => SourceGlobalCallStorageEffect | undefined,
-  selectConstructor: (declaration: Node, context: SourceFileSemantics) =>
-    { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding } | undefined,
-): SourceStorageEffects {
+export function createSourceStorageProfileEffects(source: SourceStorageProgram, budget: SourceStorageBudget,
+  premises: readonly SourceStorageNativeConstructorPremise[]) {
+  const { ast } = source;
+  const { navigation, values, descriptors, profile } = source.facts;
   const selectValue = createSourceCallableValueQuery(source);
-  const matchesBinding = (binding: Node | undefined,
-    operation: { readonly declaration: Node; readonly binding: SourceGlobalStorageBinding }): boolean => {
-    const file = binding === undefined ? undefined : source.ast.getSourceFile(binding);
-    if (binding === undefined || file === undefined || !source.ast.is.IsVariableDeclaration(binding) ||
-      source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
-      source.navigation.declarationUseSummary(binding).bindingWritten) return false;
-    const declaration = source.sourceFacts.getFact(operation.declaration, providerVirtualDeclarationFactKey);
-    if (declaration === undefined) {
-      // Without provider facts, only the global the operation names in its own declaring file is that operation's receiver;
-      // another binding of the same type is an unknown receiver.
-      if (file !== source.ast.getSourceFile(operation.declaration) ||
-        source.ast.text(source.ast.name(binding)) !== operation.binding.name) return false;
-      const semantics = source.semantics.forNode(binding);
-      const type = semantics.declarations.declaredValueType(binding);
-      if (type === undefined) return false;
-      if ([...semantics.types.callSignatures(type), ...semantics.types.constructSignatures(type)]
-        .some(signature => semantics.declarations.signatureDeclaration(signature) === operation.declaration)) return true;
-      return semantics.types.propertyInfos(type).some(property => [property.symbol, ...property.rootSymbols]
-        .some(symbol => semantics.declarations.symbolDeclarations(symbol).includes(operation.declaration)));
+  const native = new Map<Node, readonly SourceSignatureIdentity[]>();
+  for (const premise of premises) {
+    navigation.callableRoles(premise.binding);
+    if (native.has(premise.binding)) throw new Error("Native constructor premises require one exact binding owner.");
+    const slot = sourceStorageValue(values.declaredSlot(premise.binding));
+    const definition = sourceStorageValue(descriptors.definition(slot.type));
+    const type = definition.type;
+    const signatures = type.kind === "callable" || type.kind === "shape" ? type.constructs : [];
+    if (premise.constructors.length === 0 || premise.constructors.some(identity =>
+      identity.kind !== "construct" || !signatures.some(signature => signature.identity === identity)))
+      throw new Error("Native constructor premises require every identical original Source constructor signature.");
+    native.set(premise.binding, Object.freeze([...premise.constructors]));
+  }
+  const matchesBinding = (binding: Node | undefined, operation:
+    { readonly declaration: Node; readonly binding: { readonly name: string; readonly providerId: string } }): boolean => {
+    if (binding === undefined || !ast.is.IsVariableDeclaration(binding) ||
+      ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
+      navigation.declarationUseSummary(binding).bindingWritten) return false;
+    const declared = navigation.providerDeclaration(operation.declaration);
+    const actual = navigation.providerDeclaration(binding);
+    if (declared.kind === "present") {
+      if (actual.kind !== "present") return false;
+      const expected = declared.value, selected = actual.value;
+      return selected.providerId === operation.binding.providerId && selected.providerId === expected.providerId &&
+        selected.providerVersion === expected.providerVersion && selected.providerModuleId === expected.providerModuleId &&
+        selected.moduleSpecifier === expected.moduleSpecifier && selected.artifactFileName === expected.artifactFileName &&
+        selected.exportName === operation.binding.name && selected.memberName === undefined && selected.memberKey === undefined &&
+        selected.memberId === undefined && selected.signatureId === undefined;
     }
-    const global = source.sourceFacts.getFact(binding, providerVirtualDeclarationFactKey);
-    return global?.providerId === operation.binding.providerId && global.providerId === declaration.providerId &&
-      global.providerVersion === declaration.providerVersion && global.providerModuleId === declaration.providerModuleId &&
-      global.moduleSpecifier === declaration.moduleSpecifier && global.artifactFileName === declaration.artifactFileName &&
-      global.exportName === operation.binding.name && global.memberName === undefined && global.memberKey === undefined &&
-      global.memberId === undefined && global.signatureId === undefined;
+    if (actual.kind === "present" || ast.getSourceFile(binding) !== ast.getSourceFile(operation.declaration) ||
+      ast.text(ast.name(binding)) !== operation.binding.name) return false;
+    const selected = sourceStorageValue(values.declaredSlot(binding));
+    const original = sourceStorageValue(descriptors.definition(selected.type));
+    const type = original.type;
+    if ((type.kind === "callable" || type.kind === "shape") &&
+      [...type.calls, ...type.constructs].some(signature => signature.identity.declaration === operation.declaration)) return true;
+    const rows = sourceStorageValue(source.analysis.settle(source.analysis.inventory.members(selected.type)));
+    return rows.kind === "complete" && rows.members.some(row => row.declarations.includes(operation.declaration));
+  };
+  const select = (application: SourceApplication): SourceJsCallStorage | undefined => {
+    if (profile.kind === "none" || application.argumentDisposition === "skip") return undefined;
+    const operation = profile.value.callStorage(application);
+    if (operation === undefined) return undefined;
+    if (operation.declaration !== application.identity.signature.declaration)
+      throw new Error("Profile storage effects require the identical selected Source signature declaration.");
+    if (operation.form === "receiver") return application.receiver.kind === "value" ? operation : undefined;
+    const selected = sourceStorageValue(selectValue(application.callee.occurrence));
+    if (selected.kind === "none") return undefined;
+    const value = selected.value;
+    if ((value.member.kind === "none") !== (operation.form === "value")) return undefined;
+    const binding = value.member.kind === "none" ? value.selectedDeclaration : value.receiverDeclaration;
+    if (!matchesBinding(binding, operation)) return undefined;
+    if (value.member.kind === "present" && !value.member.value.selectedDeclarations.includes(operation.declaration)) return undefined;
+    return operation;
   };
   return Object.freeze({
-    nativeConstructorsFor(binding, context) {
-      if (!source.semantics.includes(context.sourceFile) || !source.ast.is.IsVariableDeclaration(binding) ||
-        source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
-        source.navigation.declarationUseSummary(binding).bindingWritten) return undefined;
-      const type = context.declarations.declaredValueType(binding);
-      const signatures = type === undefined ? [] : context.types.constructSignatures(type);
-      if (signatures.length === 0) return undefined;
-      const declarations = new Set<Node>();
-      for (const signature of signatures) {
-        const declaration = context.declarations.signatureDeclaration(signature);
-        if (declaration === undefined || !source.ast.is.IsConstructSignatureDeclaration(declaration)) return undefined;
-        const operation = selectConstructor(declaration, context);
-        if (operation?.declaration !== declaration || !matchesBinding(binding, operation)) return undefined;
-        declarations.add(declaration);
-      }
-      return Object.freeze([...declarations]);
+    call(application: SourceApplication) {
+      return select(application)?.effect;
     },
-    call(node, call) {
-      if (call.sourceSelectedSignatureKind !== "resolved") return undefined;
-      const operation = select(node, call);
-      if (operation === undefined) return undefined;
-      if (source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature) !== operation.declaration)
-        return undefined;
-      if (operation.form === "receiver")
-        return call.sourceReceiver === undefined || call.sourceCalleeAccess === undefined ? undefined : operation.effect;
-      const value = selectValue(call.sourceCallee.expression);
-      if (value === undefined) return undefined;
-      const access = value.property ?? value.element;
-      if ((access === undefined) !== (operation.form === "value")) return undefined;
-      const binding = access === undefined ? value.selectedDeclaration : value.receiverDeclaration;
-      if (!matchesBinding(binding, operation)) return undefined;
-      if (access !== undefined) {
-        const symbol = access.selectedSymbol;
-        const declarations = symbol === undefined ? [value.selectedDeclaration]
-          : source.semantics.forNode(value.expression).declarations.symbolDeclarations(symbol);
-        if (!declarations.includes(operation.declaration)) return undefined;
-      }
-      return operation.effect;
+    callbacks(application: SourceApplication) {
+      return profile.kind === "none" || application.argumentDisposition === "skip"
+        ? undefined : profile.value.callbackEffects(application);
     },
-  } satisfies SourceStorageEffects);
+    constructors(binding: Node): readonly SourceSignatureIdentity[] | undefined {
+      navigation.callableRoles(binding);
+      const supplied = native.get(binding);
+      if (supplied !== undefined) return supplied;
+      if (profile.kind === "none" || !ast.is.IsVariableDeclaration(binding) ||
+        ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
+        navigation.declarationUseSummary(binding).bindingWritten) return undefined;
+      const slot = sourceStorageValue(values.declaredSlot(binding));
+      const definition = sourceStorageValue(descriptors.definition(slot.type));
+      const type = definition.type;
+      if (type.kind !== "callable" && type.kind !== "shape" || type.constructs.length === 0) return undefined;
+      const selected: SourceSignatureIdentity[] = [];
+      for (const signature of type.constructs) {
+        if (!budget.step()) return undefined;
+        const declaration = signature.identity.declaration;
+        const operation = declaration === undefined ? undefined : profile.value.nativeConstructorStorage(declaration);
+        if (operation === undefined || !matchesBinding(binding, operation)) return undefined;
+        selected.push(signature.identity);
+      }
+      return Object.freeze(selected);
+    },
+  });
 }

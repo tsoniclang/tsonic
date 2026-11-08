@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
@@ -9,7 +10,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopedRecursion } from "./scoped-recursion.js";
 
-export function createSourceStorageEquations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageEquations(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, recursion: SourceStorageScopedRecursion,
   keyFor: (term: Extract<SourceStorageTerm, { readonly kind: "application" }>) => string | undefined) {
   const rows = budget.createRows();
@@ -90,7 +91,7 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       for (const supplier of supplierValues) {
         if (!budget.step()) return undefined;
         const selected = supplier.kind === "leaf" && sourceStorageHasOriginalCallableValue(supplier.subject, source.ast)
-          ? source.navigation.callableImplementation(supplier.subject.node) : undefined;
+          ? source.facts.navigation.callableImplementation(supplier.subject.node) : undefined;
         if (selected?.kind !== "resolved" || (site.callback === undefined
           ? selected.implementation.declaration === owner : source.ast.body(selected.implementation.declaration) === undefined)) {
           excluded = false;

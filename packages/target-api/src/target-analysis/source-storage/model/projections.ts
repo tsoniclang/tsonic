@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "./program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageArrayLiteralType } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
@@ -15,7 +16,7 @@ export interface SourceStorageWriteProjection {
 }
 
 export function createSourceStorageProjectionFlow(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,

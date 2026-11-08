@@ -3,7 +3,6 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
-import { createSourceControlFlowQueries } from "../flow/graph.js";
 import { sourceCallableRoles } from "../../source-navigation/index.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
@@ -38,7 +37,7 @@ export function createSourceDeclarationOwnershipValues(input: {
   readonly limits: Partial<SourceFlowLimits>;
 }) {
   const { source, budget } = input;
-  const flow = createSourceControlFlowQueries(source);
+  const flow = source.facts.protocols.controlFlow;
   const domain = flow.domain(input.sourceNodes);
   const checkedNodes: ReadonlySet<Node> = new Set(input.nodes);
   const runtimeSubset = domain.kind === "resolved" && domain.domain.nodes.reduce(

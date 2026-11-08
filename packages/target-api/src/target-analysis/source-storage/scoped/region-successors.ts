@@ -1,4 +1,5 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageReference, type SourceStorageTerm, type SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -7,7 +8,7 @@ import type { createSourceStorageExecutionContext } from "./execution-context.js
 import type { createSourceStoragePointerValues } from "./pointer-values.js";
 
 interface SourceStorageRegionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "application" | "leaf"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
   readonly transport: SourceStorageScopedTransport;
   readonly reachability: ReturnType<typeof createSourceStorageExecutionReachability>;
@@ -42,7 +43,7 @@ export function createSourceStorageRegionSuccessors(context: SourceStorageRegion
         if (pointerExecution === undefined) return undefined;
         terms.push(...pointerExecution); continue;
       }
-      if (transport.invocationEffects.get(invocation)?.resumeReceiver === true) {
+      if (transport.invocationEffects.get(invocation)?.kind === "receiver-resume") {
         const receiver = semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression;
         const subject = transport.subjectFor(receiver);
         if (subject === undefined) return undefined;

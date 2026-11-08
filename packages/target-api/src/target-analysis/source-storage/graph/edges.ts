@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -15,7 +16,7 @@ interface SourceStorageDestinationEdges {
 }
 
 export function createSourceStorageEdges(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
@@ -56,7 +57,7 @@ export function createSourceStorageEdges(
       const from = types?.from ?? sourceStorageSubjectType(source, origin, fromFile);
       const to = types?.to ?? sourceStorageSubjectType(source, destination, toFile);
       if (from === undefined || to === undefined || fromFile === undefined) continue;
-      sourceStorageProjectComponents(origin.projection, from, to, remaining, source.semantics.forFile(fromFile), source.ast, budget, projection => {
+      sourceStorageProjectComponents(origin.projection, from, to, remaining, source, budget, projection => {
         const projected = subject(origin.node, origin.kind, projection);
         if (projected !== undefined) collect(projected);
       });
