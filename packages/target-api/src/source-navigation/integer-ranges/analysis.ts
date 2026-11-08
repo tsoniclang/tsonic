@@ -298,7 +298,7 @@ class CallableIntegerRanges {
     if (this.declaration(condition.Left) !== counter) {
       const square = ast.is.IsBinaryExpression(condition.Left) ? ast.as.AsBinaryExpression(condition.Left) : undefined;
       if (square === undefined || ast.operatorKindName(condition.Left) !== "KindAsteriskToken" ||
-        this.declaration(square.Left) !== counter || this.declaration(square.Right) !== counter || maximum > 2_147_483_647n || maximum < 0n) return;
+        this.declaration(square.Left) !== counter || this.declaration(square.Right) !== counter || maximum < 0n) return;
       maximum = integerSquareRoot(maximum);
       const followingSquare = integerRange((maximum + 1n) * (maximum + 1n));
       if (followingSquare === undefined || this.retain(condition.Left, followingSquare) === undefined) return;
