@@ -21,6 +21,7 @@ export interface SourceJsApiMember {
 export type SourceJsApiResultPresence =
   | { readonly kind: "declaration" }
   | { readonly kind: "serialization"; readonly valueParameterIndex: 0; readonly replacerParameterIndex: 1;
+      readonly conversionMember: "toJSON"; readonly conversionOrder: "before-replacer";
       readonly replacerAppliesTo: "root-and-descendants"; readonly proof: "present-serializable-root" };
 
 export interface SourceJsCallbackEffect {
