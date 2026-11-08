@@ -279,17 +279,18 @@ export function createSourceMemberCorrespondenceQueries(input: {
             if (named.length !== 0) return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-key" }));
           }
           let matched = false;
-          let deferred = false;
+          const deferred: SourceTypeEvidence[] = [];
           for (const candidate of original.value.indexes) {
             const indexKey = candidate.keyType();
             if (indexKey.kind !== "resolved") return indexKey;
             view.assertEvidence(indexKey.value);
             const coverage = keyContains(keyArm, indexKey.value);
             if (coverage.kind !== "resolved") return coverage;
-            if (coverage.value === "deferred") deferred = true;
+            if (coverage.value === "deferred") deferred.push(indexKey.value);
             else if (coverage.value === "yes") { selectedIndexes.add(candidate); matched = true; }
           }
-          if (deferred) return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-key" }));
+          if (deferred.length !== 0) return Object.freeze({ kind: "pending",
+            dependencies: Object.freeze([keyArm.component, ...deferred.map(value => value.component)]) });
           if (!matched) return resolved(Object.freeze({ kind: "unavailable", reason: "missing-member" }));
         }
       }
