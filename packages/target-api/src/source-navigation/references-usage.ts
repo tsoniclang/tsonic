@@ -1,6 +1,6 @@
-import type { AstReader, Node, Symbol } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression } from "./ast.js";
-import type { SourceBindingWrite, SourceBindingWriteValue } from "./types.js";
+import type { SourceNodeWrite, SourceNodeWriteValue } from "../source-model/navigation.js";
 
 const assignmentOperatorKinds = new Set([
   "KindEqualsToken",
@@ -28,45 +28,45 @@ const updateOperatorKinds = new Set([
 
 export function sourceBindingWritesWithin(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   root: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
-): readonly SourceBindingWrite[] {
+  referencesToDeclaration: (declaration: Node) => readonly Node[],
+): readonly SourceNodeWrite[] {
   return Object.freeze(
-    sourceSymbolReferencesWithin(ast, symbol, root, referencesForSymbol)
+    sourceReferencesWithin(ast, declaration, root, referencesToDeclaration)
       .map((reference) => sourceBindingWriteAtReference(ast, reference))
-      .filter((write): write is SourceBindingWrite => write !== undefined && write.kind !== "initialization"),
+      .filter((write): write is SourceNodeWrite => write !== undefined && write.kind !== "initialization"),
   );
 }
 
-export function sourceSymbolReferencesWithin(
+export function sourceReferencesWithin(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   root: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
+  referencesToDeclaration: (declaration: Node) => readonly Node[],
 ): readonly Node[] {
   return Object.freeze(
-    referencesForSymbol(symbol).filter((reference) =>
+    referencesToDeclaration(declaration).filter((reference) =>
       sourceNodeIsWithin(ast, reference, root)),
   );
 }
 
-export function sourceSymbolHasReferenceOutside(
+export function sourceHasReferenceOutside(
   ast: AstReader,
-  symbol: Symbol,
+  declaration: Node,
   excludedNode: Node,
-  referencesForSymbol: (symbol: Symbol) => readonly Node[],
+  referencesToDeclaration: (declaration: Node) => readonly Node[],
 ): boolean {
-  return referencesForSymbol(symbol).some((reference) =>
+  return referencesToDeclaration(declaration).some((reference) =>
     !sourceNodeIsWithin(ast, reference, excludedNode));
 }
 
 export function sourceBindingWriteAtReference(
   ast: AstReader,
   reference: Node,
-): SourceBindingWrite | undefined {
+): SourceNodeWrite | undefined {
   let current = reference;
-  let selected: SourceBindingWrite | undefined;
+  let selected: SourceNodeWrite | undefined;
   let declaration: Node | undefined;
   const projection: Node[] = [];
   for (;;) {
@@ -137,21 +137,24 @@ export function sourceBindingWriteAtReference(
     current = parent;
   }
 
-  function value(expression: Node, projection: readonly Node[]): SourceBindingWriteValue {
+  function value(expression: Node, projection: readonly Node[]): SourceNodeWriteValue {
     return Object.freeze({ kind: "value", expression, projection: Object.freeze([...projection]) });
   }
 }
 
-function sourceNodeIsWithin(
+export function sourceNodeIsWithin(
   ast: AstReader,
   node: Node,
   root: Node,
 ): boolean {
   let current: Node | undefined = node;
+  const visited = new Set<Node>();
   while (current !== undefined) {
     if (current === root) {
       return true;
     }
+    if (visited.has(current)) throw new Error("Original Source reference ancestry must be acyclic.");
+    visited.add(current);
     current = ast.parent(current);
   }
   return false;
@@ -160,9 +163,9 @@ function sourceNodeIsWithin(
 function bindingWrite(
   reference: Node,
   operation: Node,
-  kind: SourceBindingWrite["kind"],
-  values: readonly SourceBindingWriteValue[],
-): SourceBindingWrite {
+  kind: SourceNodeWrite["kind"],
+  values: readonly SourceNodeWriteValue[],
+): SourceNodeWrite {
   return Object.freeze({ reference, operation, kind, values: Object.freeze([...values]) });
 }
 

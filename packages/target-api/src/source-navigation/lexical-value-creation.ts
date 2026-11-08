@@ -1,14 +1,14 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDeclarationUse } from "./types.js";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceNodeUse } from "../source-model/navigation.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceLexicalCaptures, type SourceNodeDomain } from "./lexical-captures.js";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
 
 export function sourceLexicalFunctionValueOrder(
   declarations: readonly Node[], ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary">,
+  navigation: Pick<SourceNodeNavigationFacts, "sourceReferenceFor" | "declarationUseSummary">,
   domain: SourceNodeDomain,
-  isRuntimeUse: (use: SourceDeclarationUse, declaration: Node) => boolean = () => true,
+  isRuntimeUse: (use: SourceNodeUse, declaration: Node) => boolean = () => true,
 ): { readonly kind: "resolved"; readonly declarations: readonly Node[] } |
   { readonly kind: "unresolved"; readonly reason: string } {
   if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {

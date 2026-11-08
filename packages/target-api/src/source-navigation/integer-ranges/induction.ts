@@ -1,5 +1,5 @@
 import { argumentPassingFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, type AstReader, type Node, type ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { SourceCountedLoop, SourceProgramNavigation } from "../types.js";
+import type { SourceNodeCountedLoop, SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceNavigationFileQueries } from "../query-context.js";
 
 interface IntegerUseEvidence {
@@ -10,9 +10,9 @@ interface IntegerUseEvidence {
 export function sourceIntegerInduction(
   declaration: Node,
   ast: AstReader,
-  navigation: SourceProgramNavigation,
+  navigation: SourceNodeNavigationFacts,
   evidence: IntegerUseEvidence,
-): SourceCountedLoop | undefined {
+): SourceNodeCountedLoop | undefined {
   if (!ast.is.IsVariableDeclaration(declaration) || ast.typeNode(declaration) !== undefined) return undefined;
   const list = ast.parent(declaration);
   const statement = list === undefined ? undefined : ast.parent(list);
@@ -45,7 +45,7 @@ export function sourceIntegerInduction(
 }
 
 function isIntegerValueArgument(
-  call: Node, expression: Node, ast: AstReader, navigation: SourceProgramNavigation, evidence: IntegerUseEvidence,
+  call: Node, expression: Node, ast: AstReader, navigation: SourceNodeNavigationFacts, evidence: IntegerUseEvidence,
 ): boolean {
   const facts = evidence.sourceFacts;
   if (facts === undefined || facts.getFact(call, sourceMarkerFactKey) !== undefined) return false;

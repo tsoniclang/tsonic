@@ -1,9 +1,9 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceMemberOwner, sourceParameterIsProperty } from "./class-members.js";
 import { Node_Expression } from "./ast.js";
-import type { SourceDeclarationUse, SourceDeclarationUseSummary, SourceParameterUseSummary, SourceValueEscapeKind } from "./types.js";
+import type { SourceNodeUse, SourceNodeUseSummary, SourceNodeParameterUseSummary, SourceNodeEscapeKind } from "../source-model/navigation.js";
 
-const escapeOrder: readonly SourceValueEscapeKind[] = Object.freeze([
+const escapeOrder: readonly SourceNodeEscapeKind[] = Object.freeze([
   "argument",
   "capture",
   "export",
@@ -12,7 +12,7 @@ const escapeOrder: readonly SourceValueEscapeKind[] = Object.freeze([
   "yield",
 ]);
 
-export function sourceDeclarationHasOnlyTypeUses(summary: SourceDeclarationUseSummary): boolean {
+export function sourceDeclarationHasOnlyTypeUses(summary: SourceNodeUseSummary): boolean {
   return !summary.exported && !summary.bindingWritten && !summary.memberWritten &&
     !summary.captured && summary.escapeKinds.length === 0 && summary.uses.length !== 0 &&
     summary.uses.every(use => use.kind === "type-only" && use.role === "type-only" &&
@@ -22,8 +22,8 @@ export function sourceDeclarationHasOnlyTypeUses(summary: SourceDeclarationUseSu
 export function sourceDeclarationUseSummary(
   ast: AstReader,
   declaration: Node,
-  uses: readonly SourceDeclarationUse[],
-): SourceDeclarationUseSummary {
+  uses: readonly SourceNodeUse[],
+): SourceNodeUseSummary {
   const captured = uses.some((use) => use.captured);
   const declarationOwner = ast.parent(declaration);
   const declaredClassMember = declarationOwner !== undefined &&
@@ -33,7 +33,7 @@ export function sourceDeclarationUseSummary(
       sourceLinkageKind(ast, use.reference) === "export" ||
       sourceReferenceIsExportedValue(ast, use.reference));
   const parameterProperty = sourceParameterIsProperty(ast, declaration);
-  const isMemberUse = (use: SourceDeclarationUse): boolean =>
+  const isMemberUse = (use: SourceNodeUse): boolean =>
     use.throughMember || declaredClassMember || parameterProperty &&
       use.memberReceiver !== undefined;
   const memberWrites = uses.filter((use) => use.role === "write" && isMemberUse(use));
@@ -41,7 +41,7 @@ export function sourceDeclarationUseSummary(
     sourceMemberWriteIsConstructorInitialization(ast, declaration, use.reference));
   const mutatedAfterInitialization = memberWrites.some((use) =>
     !sourceMemberWriteIsConstructorInitialization(ast, declaration, use.reference));
-  const escapeKinds = new Set<SourceValueEscapeKind>();
+  const escapeKinds = new Set<SourceNodeEscapeKind>();
   if (parameterProperty) {
     escapeKinds.add("storage");
   }
@@ -146,8 +146,8 @@ function sourceMemberWriteIsConstructorInitialization(
 export function sourceParameterUseSummary(
   ast: AstReader,
   parameter: Node,
-  uses: readonly SourceDeclarationUse[],
-): SourceParameterUseSummary | undefined {
+  uses: readonly SourceNodeUse[],
+): SourceNodeParameterUseSummary | undefined {
   if (!ast.is.IsParameterDeclaration(parameter)) {
     return undefined;
   }

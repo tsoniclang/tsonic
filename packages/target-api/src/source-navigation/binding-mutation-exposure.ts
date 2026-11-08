@@ -1,27 +1,30 @@
-import { argumentPassingFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { SourceDeclarationUseSummary } from "./types.js";
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceNodeUseSummary } from "../source-model/navigation.js";
+import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
+import type { SourceResult } from "../public/source/contracts.js";
 
 export function sourceBindingHasMutableExposure(
-  input: { readonly ast: AstReader; readonly sourceFacts?: Pick<ReadonlySourceFactResolver, "getFact"> },
-  summary: SourceDeclarationUseSummary,
+  input: { readonly ast: AstReader; readonly protocols: Pick<SourceAnalysisFacts, "argumentPassing" | "pointerOperation"> },
+  summary: SourceNodeUseSummary,
   enter: (node: Node) => boolean,
-): boolean {
+): SourceResult<boolean> {
+  const resolved = (value: boolean): SourceResult<boolean> => Object.freeze({ kind: "resolved", value });
   for (const use of summary.uses) {
-    if (!enter(use.reference)) return true;
+    if (!enter(use.reference)) return resolved(true);
     const visited = new Set<Node>();
     for (let node: Node | undefined = use.reference; node !== undefined; node = input.ast.parent(node)) {
-      if (!enter(node) || visited.has(node)) return true;
+      if (!enter(node) || visited.has(node)) return resolved(true);
       visited.add(node);
-      const passing = input.sourceFacts?.getFact(node, argumentPassingFactKey);
-      if (passing !== undefined && !immutablePassingModes.has(passing.mode)) return true;
-      const pointer = input.sourceFacts?.getFact(node, pointerOperationFactKey);
-      if (pointer?.operation === "address-of") return true;
+      const passing = input.protocols.argumentPassing(node);
+      if (passing.kind === "present" && !immutablePassingModes.has(passing.value.mode)) return resolved(true);
+      const pointer = input.protocols.pointerOperation(node);
+      if (pointer.kind === "refused") return pointer;
+      if (pointer.value.kind === "present" && pointer.value.value.operation === "address-of") return resolved(true);
       const kind = input.ast.kindName(node);
       if (kind.endsWith("Statement") || sourceBindingCallableKinds.has(kind)) break;
     }
   }
-  return false;
+  return resolved(false);
 }
 
 export const sourceBindingCallableKinds: ReadonlySet<string> = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",

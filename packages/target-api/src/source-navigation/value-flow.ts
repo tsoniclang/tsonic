@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDeclarationReference, SourceDeclarationUse, SourceDeclarationUseSummary, SourceExpressionValueFlowSummary } from "./types.js";
+import type { SourceNodeReference, SourceNodeUse, SourceNodeUseSummary, SourceNodeValueFlow } from "../source-model/navigation.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceNodesEqual } from "./identity.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
@@ -8,13 +8,13 @@ import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 export function sourceExpressionValueFlow(
   ast: AstReader,
   expression: Node,
-  sourceReferenceFor: (node: Node | undefined) => SourceDeclarationReference | undefined,
-  declarationUses: (declaration: Node) => readonly SourceDeclarationUse[],
-  declarationUseSummary: (declaration: Node) => SourceDeclarationUseSummary,
-): SourceExpressionValueFlowSummary {
+  sourceReferenceFor: (node: Node | undefined) => Pick<SourceNodeReference, "declaration" | "project" | "sourceFile"> | undefined,
+  declarationUses: (declaration: Node) => readonly SourceNodeUse[],
+  declarationUseSummary: (declaration: Node) => SourceNodeUseSummary,
+): SourceNodeValueFlow {
   const aliases: Node[] = [];
   const queued = new Set<Node>();
-  const uses: SourceDeclarationUse[] = [];
+  const uses: SourceNodeUse[] = [];
   let memberWritten = false;
   let receiverUsed = false;
   let identityCompared = false;
@@ -35,7 +35,7 @@ export function sourceExpressionValueFlow(
     aliases.push(declaration);
   };
 
-  const consumeUse = (use: SourceDeclarationUse): void => {
+  const consumeUse = (use: SourceNodeUse): void => {
     uses.push(use);
     captured ||= use.captured;
     memberWritten ||= use.role === "write" && use.throughMember;
@@ -110,7 +110,7 @@ export function sourceExpressionValueFlow(
 function exactBindingAliasDestination(
   ast: AstReader,
   expression: Node,
-  sourceReferenceFor: (node: Node | undefined) => SourceDeclarationReference | undefined,
+  sourceReferenceFor: (node: Node | undefined) => Pick<SourceNodeReference, "declaration" | "project" | "sourceFile"> | undefined,
 ): Node | undefined {
   let current = expression;
   for (;;) {

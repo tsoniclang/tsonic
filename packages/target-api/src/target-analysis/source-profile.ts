@@ -1,0 +1,86 @@
+import type { Node } from "@tsonic/tsts";
+import type { SourceApplication, SourceDescriptorView, SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceProfileDeclarationIdentity } from "./source-profile-identity.js";
+
+export type SourceJsCollectionFacts =
+  | { readonly kind: "string" }
+  | { readonly kind: "array" | "readonly-array" | "typed-array" | "set" | "weak-set"; readonly element: SourceTypeEvidence }
+  | { readonly kind: "map" | "weak-map"; readonly key: SourceTypeEvidence; readonly value: SourceTypeEvidence };
+
+export interface SourceJsApiMember {
+  readonly declaration: Node;
+  readonly owner: "array" | "readonly-array" | "typed-array" | "set" | "weak-set" | "map" | "weak-map"
+    | "string" | "promise" | "regexp" | "number" | "math" | "json" | "object" | "global" | "date"
+    | "symbol" | "bigint" | "error" | "binary" | "intl";
+  readonly name: string;
+  readonly receiver: "readonly" | "mutating" | "static";
+  readonly parameters: readonly ("value" | "callback" | "index" | "count" | "key" | "options" | "rest")[];
+  readonly resultPresence: SourceJsApiResultPresence;
+}
+
+export type SourceJsApiResultPresence =
+  | { readonly kind: "declaration" }
+  | { readonly kind: "serialization"; readonly valueParameterIndex: 0; readonly replacerParameterIndex: 1;
+      readonly conversionMember: "toJSON"; readonly conversionOrder: "before-replacer";
+      readonly replacerAppliesTo: "root-and-descendants"; readonly proof: "present-serializable-root" };
+
+export interface SourceJsCallbackEffect {
+  readonly parameterIndex: number;
+  readonly timing: "synchronous" | "deferred";
+  readonly rejection?: number;
+  readonly inputs?: readonly {
+    readonly parameterIndex: number;
+    readonly from: "receiver-element" | "argument-element" | "receiver-rejection";
+    readonly sourceParameterIndex?: number;
+  }[];
+}
+
+export interface SourceJsGlobalBinding {
+  readonly name: string;
+  readonly providerId: string;
+}
+
+export type SourceJsCallStorageEffect =
+  | { readonly kind: "result-alias"; readonly argument: Node }
+  | { readonly kind: "result-allocation"; readonly allocation: Node }
+  | { readonly kind: "receiver-resume" };
+
+export type SourceJsCallStorage = {
+  readonly declaration: Node;
+  readonly effect: SourceJsCallStorageEffect;
+} & (
+  | { readonly form: "member" | "value"; readonly binding: SourceJsGlobalBinding }
+  | { readonly form: "receiver" }
+);
+
+export interface SourceJsNativeConstructorStorage {
+  readonly declaration: Node;
+  readonly binding: SourceJsGlobalBinding;
+}
+
+export interface SourceJsArrayMemberEffect {
+  readonly kind: "length" | "copy" | "entries" | "method";
+  readonly mayShrink?: boolean;
+  readonly callbackReceiverIndex?: number;
+}
+
+export interface SourceJsApiFactsInput {
+  readonly view: SourceDescriptorView;
+  readonly assertNode: (node: Node) => void;
+  readonly assertApplication: (application: SourceApplication) => void;
+  readonly profileDeclaration: (node: Node) => SourcePresence<SourceProfileDeclarationIdentity>;
+}
+
+export interface SourceJsApiFacts {
+  identity(declaration: Node): SourceProfileDeclarationIdentity | undefined;
+  member(declaration: Node): SourceJsApiMember | undefined;
+  collection(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceJsCollectionFacts>>;
+  arrayMemberEffect(declaration: Node): SourceJsArrayMemberEffect | undefined;
+  callStorage(application: SourceApplication): SourceJsCallStorage | undefined;
+  callbackEffects(application: SourceApplication): readonly SourceJsCallbackEffect[] | undefined;
+  invocationOnlyParameters(declaration: Node): readonly number[];
+  nativeConstructorStorage(declaration: Node): SourceJsNativeConstructorStorage | undefined;
+  callRefusal(declaration: Node): { readonly code: string; readonly message: string } | undefined;
+}
+
+export type SourceJsApiFactsFactory = (input: SourceJsApiFactsInput) => SourceJsApiFacts;

@@ -1,12 +1,12 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "../types.js";
+import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { Node_Expression, Node_Initializer } from "../ast.js";
 import { binaryIntegerRange, integerRange, joinIntegerRanges } from "./domain.js";
 import type { SourceIntegerRange } from "./domain.js";
 
 export interface SourceIntegerRangeOptions {
   readonly ast: AstReader;
-  readonly navigation: SourceProgramNavigation;
+  readonly navigation: SourceNodeNavigationFacts;
   readonly sourceFiles: readonly SourceFile[];
   isNumber(expression: Node): boolean;
 }

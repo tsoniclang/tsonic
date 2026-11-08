@@ -1,3 +1,5 @@
+import type { SourceJsApiFactsFactory } from "./target-analysis/source-profile.js";
+
 export const tsonicSourceProfileVirtualDirectory = ".tsonic/source-profiles";
 
 export interface TargetSourceProfileDeclaration {
@@ -13,6 +15,7 @@ export interface TargetSourceDeclarationPolicy {
 export interface TargetSourceProfileContributions {
   readonly declarations?: readonly TargetSourceProfileDeclaration[];
   readonly declarationPolicy?: TargetSourceDeclarationPolicy;
+  readonly apiFacts?: SourceJsApiFactsFactory;
 }
 
 export function targetSourceProfileDeclaration(fileName: string, text: string): TargetSourceProfileDeclaration {

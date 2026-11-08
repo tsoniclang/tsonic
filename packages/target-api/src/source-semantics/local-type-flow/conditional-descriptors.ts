@@ -1,198 +1,195 @@
-import type { Node, Type, TypeAliasApplicationInfo } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "../types.js";
-import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual, sourceTypeDescriptorUnion } from "./terms.js";
-import { sourceTypeDescriptorMemberKey, sourceTypeDescriptorMemberKeysEqual } from "./member-origins.js";
-import type { SourceTypeDescriptor, SourceTypeFlowSource } from "./types.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceProductionResult } from "../descriptor-contracts.js";
+import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
+import { sourceEvidenceExtends, type SourceEvidenceRelation } from "./evidence-relations.js";
+import { sourceProductionValues, sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
 
-type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
-
-export function sourceTypeDescriptorConditionalDefinition(
-  source: SourceTypeFlowSource,
-  queries: SourceFileSemantics,
-  application: TypeAliasApplicationInfo,
-  bindings: Bindings,
-  read: (node: Node, bindings: Bindings, checked: ReadonlyMap<Node, Type>) => SourceTypeDescriptor | undefined,
-): SourceTypeDescriptor | undefined {
-  const { ast } = source;
-  const results: SourceTypeDescriptor[] = [];
-  const retained = new Map<Node, { readonly values: Bindings; readonly types: ReadonlyMap<Node, Type> }>();
-  const original = { values: bindings, types: new Map(application.bindings.map(binding => [binding.declaration, binding.argument])) };
-  for (const [index, step] of application.conditionalSteps.entries()) {
-    if (step.branch === "deferred" || step.selectedNode === undefined || step.selectedType === undefined) return undefined;
-    const base = retained.get(step.conditional) ?? original;
-    const selected = new Map(base.values);
-    const checked = new Map(base.types);
-    const inferred = new Map<Node, SourceTypeDescriptor>();
-    const conditional = ast.as.AsConditionalTypeNode(step.conditional);
-    if (conditional?.CheckType === undefined || conditional.ExtendsType === undefined) return undefined;
-    const input = read(conditional.CheckType, selected, checked);
-    if (step.branch === "true" && input !== undefined && !project(conditional.ExtendsType, input, inferred)) return undefined;
-    for (const binding of step.bindings) {
-      if (step.branch === "false" && binding.declarations.every(declaration => {
-        let selected = ast.parent(declaration);
-        if (selected === undefined || !ast.is.IsInferTypeNode(selected)) return false;
-        while (selected !== undefined && selected !== step.conditional) {
-          if (selected === conditional.ExtendsType) return true;
-          selected = ast.parent(selected);
-        }
-        return false;
-      })) continue;
-      const parameter = application.bindings.find(candidate => candidate.parameter === binding.applicationParameter);
-      const checkedArgument = parameter === undefined ? undefined : base.types.get(parameter.declaration);
-      const retainedArgument = parameter === undefined ? undefined : base.values.get(parameter.declaration);
-      const argument = checkedArgument === undefined || retainedArgument === undefined ? undefined
-        : selectedBinding(checkedArgument, retainedArgument, binding.argument);
-      if (checkedArgument !== undefined && argument === undefined) return undefined;
-      for (const declaration of binding.declarations) {
-        const previous = checked.get(declaration);
-        const retainedValue = selected.get(declaration);
-        const value = argument ?? inferred.get(declaration) ?? (previous !== undefined && retainedValue !== undefined
-          ? selectedBinding(previous, retainedValue, binding.argument) : undefined);
-        if (value === undefined) return undefined;
-        selected.set(declaration, value);
-        checked.set(declaration, binding.argument);
-      }
-    }
-    let selectedNode = step.selectedNode;
-    while (ast.is.IsParenthesizedTypeNode(selectedNode)) {
-      const inner = ast.as.AsParenthesizedTypeNode(selectedNode)?.Type;
-      if (inner === undefined) return undefined;
-      selectedNode = inner;
-    }
-    if (ast.is.IsConditionalTypeNode(selectedNode)) {
-      retained.set(selectedNode, { values: selected, types: checked });
-      continue;
-    }
-    if (ast.is.IsTypeReferenceNode(selectedNode) || ast.is.IsImportTypeNode(selectedNode)) {
-      const declaration = queries.declarations.authoredTypeDeclaration(selectedNode);
-      const body = declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration) ? undefined : ast.typeNode(declaration);
-      const next = application.conditionalSteps[index + 1];
-      if (body !== undefined && ast.is.IsConditionalTypeNode(body) && next?.conditional === body) {
-        const parameters = ast.typeParameters(declaration);
-        const arguments_ = ast.typeArguments(selectedNode);
-        if (parameters.length !== arguments_.length) return undefined;
-        const values = new Map(selected);
-        const types = new Map(checked);
-        for (const [argumentIndex, parameter] of parameters.entries()) {
-          const argument = arguments_[argumentIndex];
-          const value = argument === undefined ? undefined : read(argument, selected, checked);
-          const binding = next.bindings.find(binding => parameter !== undefined && binding.declarations.includes(parameter));
-          if (parameter === undefined || value === undefined || binding === undefined) return undefined;
-          values.set(parameter, value);
-          types.set(parameter, binding.argument);
-        }
-        retained.set(body, { values, types });
-        continue;
-      }
-    }
-    const result = read(step.selectedNode, selected, checked);
-    if (result === undefined) return undefined;
-    results.push(result);
+export function produceSourceConditionalType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
+  const { ast, builder, input, reader, syntax } = context;
+  if (!ast.is.IsConditionalTypeNode(syntax)) throw new Error("A Source conditional producer requires its original conditional TypeNode.");
+  const conditional = ast.as.AsConditionalTypeNode(syntax);
+  if (conditional?.CheckType === undefined || conditional.ExtendsType === undefined ||
+    conditional.TrueType === undefined || conditional.FalseType === undefined) {
+    return sourceSemanticRefusal(syntax, "An original conditional type is missing a required component.");
   }
-  const inhabited = results.filter(result => {
-    const structure = sourceTypeDescriptorStructure(result);
-    return structure.kind !== "intrinsic" || structure.intrinsic !== "never";
-  });
-  return results.length === 0 ? undefined : sourceTypeDescriptorUnion(inhabited.length === 0 ? results : inhabited);
+  const checkNode = conditional.CheckType, patternNode = conditional.ExtendsType;
+  const trueNode = conditional.TrueType, falseNode = conditional.FalseType;
+  const check = reader.describeSyntax(checkNode, context.bindings);
+  if (check.kind !== "resolved") return check;
+  const inferred = new Map<Node, SourceTypeEvidence>();
+  const bindings = (): readonly SourceTypeBinding[] => [...context.bindings.filter(binding => !inferred.has(binding.declaration)),
+    ...[...inferred].map(([declaration, value]) => ({ declaration, value }))];
+  const resolved = (value: SourceEvidenceRelation): SourceProductionResult<SourceEvidenceRelation> => ({ kind: "resolved", value });
 
-  function selectedBinding(previous: Type, value: SourceTypeDescriptor, selected: Type): SourceTypeDescriptor | undefined {
-    if (queries.types.isIdentical(previous, selected)) return value;
-    const structure = sourceTypeDescriptorStructure(value);
-    if (structure.kind !== "optional" || !queries.types.isUnion(previous)) return undefined;
-    if (queries.types.isNullish(selected) && queries.types.unionOrIntersectionTypes(previous).some(member =>
-      queries.types.isIdentical(member, selected))) return { kind: "intrinsic", intrinsic: "absence" };
-    const present = queries.types.nonNullableType(previous);
-    return present !== undefined && queries.types.isIdentical(present, selected) ? structure.value : undefined;
+  function combine(values: readonly SourceProductionResult<SourceEvidenceRelation>[]): SourceProductionResult<SourceEvidenceRelation> {
+    const selected = sourceProductionValues(values);
+    if (selected.kind !== "resolved") return selected;
+    return resolved(selected.value.includes("no") ? "no" : selected.value.includes("deferred") ? "deferred" : "yes");
   }
 
-  function project(pattern: Node, actual: SourceTypeDescriptor, inferred: Map<Node, SourceTypeDescriptor>): boolean {
+  function match(pattern: Node, actual: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
     if (ast.is.IsInferTypeNode(pattern)) {
       const declaration = ast.as.AsInferTypeNode(pattern)?.TypeParameter;
-      if (declaration === undefined) return false;
+      if (declaration === undefined || !ast.is.IsTypeParameterDeclaration(declaration)) return sourceSemanticRefusal(pattern,
+        "An infer component requires its actual original type parameter declaration.");
+      const annotation = ast.as.AsTypeParameterDeclaration(declaration)?.Constraint;
+      if (annotation !== undefined) {
+        const constraint = reader.describeSyntax(annotation, bindings());
+        if (constraint.kind !== "resolved") return constraint;
+        const fit = sourceEvidenceExtends(builder, actual, constraint.value);
+        if (fit.kind === "refused" || fit.value !== "yes") return fit;
+      }
       const previous = inferred.get(declaration);
-      if (previous !== undefined && !sourceTypeDescriptorsEqual(previous, actual)) return false;
-      inferred.set(declaration, actual);
-      return true;
+      const joined = previous === undefined ? { kind: "resolved" as const, value: actual }
+        : builder.join(builder.componentIdentity(declaration, []), "inferred", [previous, actual], undefined);
+      if (joined.kind === "refused") return joined;
+      inferred.set(declaration, joined.value);
+      return resolved("yes");
     }
     if (ast.is.IsParenthesizedTypeNode(pattern)) {
-      const inner = ast.as.AsParenthesizedTypeNode(pattern)?.Type;
-      return inner !== undefined && project(inner, actual, inferred);
+      const selected = ast.as.AsParenthesizedTypeNode(pattern)?.Type;
+      return selected === undefined ? sourceSemanticRefusal(pattern, "An original parenthesized conditional component is missing.") : match(selected, actual);
     }
-    if (ast.is.IsIntersectionTypeNode(pattern)) {
-      return ast.children(pattern).every(part => part !== undefined && project(part, actual, inferred));
-    }
-    let structure = sourceTypeDescriptorStructure(actual);
-    if (ast.is.IsTypeLiteralNode(pattern)) {
-      if (structure.kind !== "shape") return false;
-      for (const property of ast.members(pattern)) {
-        if (property === undefined) return false;
-        const nameNode = ast.name(property);
-        const name = nameNode === undefined ? undefined : queries.operations.propertyName(nameNode);
-        const key = name === undefined ? undefined : sourceTypeDescriptorMemberKey(name.type, queries);
-        if (key === undefined) return false;
-        const matching = structure.members.filter(member => {
-          const origin = member.origin;
-          const selectedNode = origin.kind === "declared" ? ast.name(origin.declaration) : undefined;
-          const selectedName = selectedNode === undefined ? undefined : queries.operations.propertyName(selectedNode);
-          const selectedKey = origin.kind === "mapped" ? origin.key
-            : selectedName === undefined ? undefined : sourceTypeDescriptorMemberKey(selectedName.type, queries);
-          return selectedKey !== undefined && sourceTypeDescriptorMemberKeysEqual(key, selectedKey);
-        });
-        if (matching.length !== 1) return false;
-        const member = matching[0]!;
-        const annotation = ast.is.IsMethodSignatureDeclaration(property) ? property : ast.typeNode(property);
-        if (annotation === undefined || !project(annotation, member.type, inferred)) return false;
+    if (actual.type.kind === "parameter" || actual.type.kind === "projection") return resolved("deferred");
+    if (ast.is.IsIntersectionTypeNode(pattern)) return combine(ast.children(pattern).map(child => child === undefined
+      ? sourceSemanticRefusal(pattern, "An original intersection pattern component is missing.") : match(child, actual)));
+    if (ast.is.IsTypeReferenceNode(pattern) && actual.type.kind === "declared") {
+      const declaration = actual.type.declaration;
+      if (input.describe(input.syntax(pattern)).declaration === declaration) {
+        const arguments_ = ast.typeArguments(pattern);
+        if (arguments_.length !== actual.type.typeArguments.length) return resolved("no");
+        return combine(arguments_.map((argument, index) => {
+          if (argument === undefined) return sourceSemanticRefusal(pattern, "An original conditional type argument is missing.");
+          const selected = builder.component(actual, { kind: "type-argument", declaration, index });
+          return selected.kind === "refused" ? selected : match(argument, selected.value);
+        }));
       }
-      return true;
     }
-    if (ast.is.IsFunctionTypeNode(pattern) || ast.is.IsConstructorTypeNode(pattern) || ast.is.IsMethodSignatureDeclaration(pattern)) {
-      while (structure.kind === "optional") structure = sourceTypeDescriptorStructure(structure.value);
-      if (structure.kind !== "callable" && structure.kind !== "shape") return false;
-      const signatures = ast.is.IsConstructorTypeNode(pattern) ? structure.constructs : structure.calls;
-      if (signatures.length !== 1) return false;
-      const signature = signatures[0]!;
-      for (const [index, parameter] of ast.parameters(pattern).entries()) {
-        if (parameter === undefined) return false;
-        const annotation = ast.typeNode(parameter);
-        if (annotation === undefined) return false;
-        const rest = ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined;
-        const remaining = signature.parameters.slice(index);
-        const value: SourceTypeDescriptor | undefined = rest
-          ? remaining.length === 1 && remaining[0]!.kind === "rest" ? remaining[0]!.type
-            : { kind: "tuple", readonly: false, elements: remaining.map(parameter => parameter.kind !== "optional" ||
-              parameter.type.kind === "optional" ? parameter : { ...parameter, type: { kind: "optional", value: parameter.type } }) }
-          : signature.parameters[index]?.type;
-        if (value === undefined || !project(annotation, value, inferred)) return false;
-      }
-      const result = ast.typeNode(pattern);
-      return result !== undefined && project(result, signature.result, inferred);
-    }
+    const definition = builder.definition(actual);
+    if (definition.kind === "refused") return definition;
+    const selected = definition.value, type = selected.type;
     if (ast.is.IsArrayTypeNode(pattern)) {
       const element = ast.as.AsArrayTypeNode(pattern)?.ElementType;
-      if (element === undefined) return false;
-      if (structure.kind === "array") return project(element, structure.element, inferred);
-      return structure.kind !== "tuple" || structure.elements.every(selected => project(element, selected.type, inferred));
-    }
-    if (ast.is.IsTupleTypeNode(pattern) && structure.kind === "tuple") {
-      for (const [index, member] of ast.elements(pattern).entries()) {
-        if (member === undefined) return false;
-        const annotation = ast.is.IsNamedTupleMember(member) ? ast.as.AsNamedTupleMember(member)?.Type : member;
-        if (annotation === undefined) return false;
-        const rest = ast.is.IsRestTypeNode(annotation) ? ast.as.AsRestTypeNode(annotation)?.Type : undefined;
-        const selected = structure.elements[index];
-        if (rest !== undefined) return project(rest,
-          { kind: "tuple", readonly: structure.readonly, elements: structure.elements.slice(index) }, inferred);
-        const value = ast.is.IsOptionalTypeNode(annotation) ? ast.as.AsOptionalTypeNode(annotation)?.Type : annotation;
-        if (value === undefined || selected === undefined || !project(value, selected.type, inferred)) return false;
+      if (element === undefined) return sourceSemanticRefusal(pattern, "An original array pattern element is missing.");
+      if (type.kind === "array") {
+        if (type.readonly) return resolved("no");
+        const value = builder.component(selected, { kind: "array-element" });
+        return value.kind === "refused" ? value : match(element, value.value);
       }
+      if (type.kind !== "tuple" || type.readonly) return resolved("no");
+      return combine(type.elements.map((_, index) => {
+        const value = builder.component(selected, { kind: "tuple-element", index });
+        return value.kind === "refused" ? value : match(element, value.value);
+      }));
     }
-    if (ast.is.IsTypeReferenceNode(pattern) && actual.kind === "declared") {
-      const reference = ast.as.AsTypeReferenceNode(pattern)?.TypeName;
-      if (source.navigation.sourceReferenceFor(reference)?.declaration !== actual.declaration) return true;
-      const arguments_ = ast.typeArguments(pattern);
-      if (arguments_.length !== actual.typeArguments.length) return false;
-      return arguments_.every((argument, index) => argument !== undefined && project(argument, actual.typeArguments[index]!, inferred));
+    if (ast.is.IsTypeOperatorNode(pattern) && ast.operatorKindName(pattern) === "KindReadonlyKeyword") {
+      const inner = ast.as.AsTypeOperatorNode(pattern)?.Type;
+      if (inner === undefined) return sourceSemanticRefusal(pattern, "An original readonly pattern component is missing.");
+      if (ast.is.IsArrayTypeNode(inner) && (type.kind === "array" || type.kind === "tuple")) {
+        const element = ast.as.AsArrayTypeNode(inner)?.ElementType;
+        if (element === undefined) return sourceSemanticRefusal(inner, "An original readonly array pattern element is missing.");
+        const values = type.kind === "array" ? [builder.component(selected, { kind: "array-element" })]
+          : type.elements.map((_, index) => builder.component(selected, { kind: "tuple-element", index }));
+        return combine(values.map(value => value.kind === "refused" ? value : match(element, value.value)));
+      }
+      if (ast.is.IsTupleTypeNode(inner)) return tuple(inner, selected, true);
     }
-    return true;
+    if (ast.is.IsTupleTypeNode(pattern)) return tuple(pattern, selected, false);
+    if (ast.is.IsFunctionTypeNode(pattern) || ast.is.IsConstructorTypeNode(pattern) || ast.is.IsMethodSignatureDeclaration(pattern)) {
+      if (type.kind !== "shape" && type.kind !== "callable") return resolved("no");
+      const signatures = ast.is.IsConstructorTypeNode(pattern) ? type.constructs : type.calls;
+      if (signatures.length === 0) return resolved("no");
+      const signature = signatures[signatures.length - 1]!;
+      const matches: SourceProductionResult<SourceEvidenceRelation>[] = [];
+      for (const [index, parameter] of ast.parameters(pattern).entries()) {
+        if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter)) return sourceSemanticRefusal(pattern,
+          "An original conditional callable parameter is missing.");
+        const annotation = ast.typeNode(parameter);
+        if (annotation === undefined) return sourceSemanticRefusal(parameter, "An original conditional parameter requires its type component.");
+        const rest = ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined;
+        if (!rest && signature.parameters[index] === undefined) return resolved("no");
+        const value = rest ? builder.component(selected, { kind: "signature-tail", signature: signature.identity, start: index, readonly: false })
+          : builder.component(selected, { kind: "parameter", signature: signature.identity, index });
+        matches.push(value.kind === "refused" ? value : match(annotation, value.value));
+      }
+      const resultNode = ast.typeNode(pattern);
+      if (resultNode === undefined) return sourceSemanticRefusal(pattern, "An original conditional callable result is missing.");
+      const result = builder.component(selected, { kind: "result", signature: signature.identity });
+      matches.push(result.kind === "refused" ? result : match(resultNode, result.value));
+      return combine(matches);
+    }
+    if (ast.is.IsTypeLiteralNode(pattern)) {
+      if (type.kind !== "shape") return resolved("no");
+      const matches: SourceProductionResult<SourceEvidenceRelation>[] = [];
+      for (const member of ast.members(pattern)) {
+        if (member === undefined) return sourceSemanticRefusal(pattern, "An original conditional member is missing.");
+        const name = ast.name(member);
+        if (name === undefined) return sourceSemanticRefusal(member, "An original conditional member name is missing.");
+        const memberName = ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name) ? ast.text(name) : undefined;
+        if (memberName === undefined) return sourceSemanticRefusal(name, "This conditional member requires its canonical original key.");
+        const matching = type.members.filter(candidate => candidate.name === memberName);
+        const optional = ast.questionToken(member) !== undefined;
+        if (matching.length === 0 && optional) continue;
+        if (matching.length !== 1 || matching[0]!.optional && !optional) return resolved("no");
+        const annotation = ast.is.IsMethodSignatureDeclaration(member) ? member : ast.typeNode(member);
+        if (annotation === undefined) return sourceSemanticRefusal(member, "An original conditional member type is missing.");
+        const value = builder.component(selected, { kind: "member", origin: matching[0]!.origin });
+        matches.push(value.kind === "refused" ? value : match(annotation, value.value));
+      }
+      return combine(matches);
+    }
+    const expected = reader.describeSyntax(pattern, bindings());
+    return expected.kind !== "resolved" ? expected : sourceEvidenceExtends(builder, actual, expected.value);
   }
+
+  function tuple(pattern: Node, actual: SourceTypeEvidence, readonlyPattern: boolean): SourceProductionResult<SourceEvidenceRelation> {
+    if (actual.type.kind !== "tuple" || actual.type.readonly && !readonlyPattern) return resolved("no");
+    const parts = ast.elements(pattern).map(member => {
+      if (member === undefined) return undefined;
+      const named = ast.is.IsNamedTupleMember(member) ? ast.as.AsNamedTupleMember(member) : undefined;
+      const annotation = named?.Type ?? member;
+      const rest = named?.DotDotDotToken !== undefined || ast.is.IsRestTypeNode(annotation);
+      const optional = named?.QuestionToken !== undefined || ast.is.IsOptionalTypeNode(annotation);
+      const value = ast.is.IsRestTypeNode(annotation) ? ast.as.AsRestTypeNode(annotation)?.Type
+        : ast.is.IsOptionalTypeNode(annotation) ? ast.as.AsOptionalTypeNode(annotation)?.Type : annotation;
+      return value === undefined ? undefined : { value, rest, optional };
+    });
+    if (parts.some(part => part === undefined)) return sourceSemanticRefusal(pattern, "An original tuple pattern component is missing.");
+    const restIndex = parts.findIndex(part => part?.rest);
+    if (parts.filter(part => part?.rest).length > 1) return sourceSemanticRefusal(pattern, "A tuple conditional requires one original rest place.");
+    if (restIndex < 0 && actual.type.elements.length > parts.length || actual.type.elements.length < parts.filter(part => !part!.optional && !part!.rest).length) return resolved("no");
+    const matches: SourceProductionResult<SourceEvidenceRelation>[] = [];
+    for (const [index, part] of parts.entries()) {
+      const current = part!;
+      const suffix = restIndex < 0 ? 0 : parts.length - restIndex - 1;
+      const actualIndex = restIndex >= 0 && index > restIndex ? actual.type.elements.length - (parts.length - index) : index;
+      if (!current.rest && actual.type.elements[actualIndex] === undefined) {
+        if (current.optional) continue;
+        return resolved("no");
+      }
+      const value = current.rest ? builder.component(actual, { kind: "tuple-slice", start: index, endCount: suffix, readonly: false })
+        : builder.component(actual, { kind: "tuple-element", index: actualIndex });
+      matches.push(value.kind === "refused" ? value : match(current.value, value.value));
+    }
+    return combine(matches);
+  }
+
+  function branch(actual: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {
+    inferred.clear();
+    if (actual.type.kind === "intrinsic" && actual.type.intrinsic === "never") return { kind: "resolved", value: actual };
+    const matched = match(patternNode, actual);
+    if (matched.kind !== "resolved") return matched;
+    if (matched.value === "deferred") {
+      const component = builder.componentIdentity(syntax, []);
+      return { kind: "resolved", value: builder.evidence({ type: builder.projection(actual.type, { kind: "component", component }),
+        component, category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
+      [{ selector: { kind: "projection-source" }, value: actual }], context.component, sourceOpenLiteralDomain) };
+    }
+    return reader.describeSyntax(matched.value === "yes" ? trueNode : falseNode, matched.value === "yes" ? bindings() : context.bindings);
+  }
+  const originalCheck = input.describe(input.syntax(checkNode));
+  const results = check.value.sum !== undefined && originalCheck.kind === "parameter"
+    ? sourceProductionValues(check.value.sum.arms.map(arm => branch(arm))) : sourceProductionValues([branch(check.value)]);
+  return results.kind !== "resolved" ? results : builder.join(builder.componentIdentity(syntax, []), "authored", results.value, context.component);
 }

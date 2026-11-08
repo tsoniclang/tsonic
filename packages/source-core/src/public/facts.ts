@@ -43,8 +43,6 @@ export type {
 } from "../safety/facts.js";
 export { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 export type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
-export { selectTsonicFixedArray, selectTsonicFixedArrayFromSource } from "../fixed-arrays/selection.js";
-export type { TsonicFixedArraySelection, TsonicFixedArraySyntax } from "../fixed-arrays/selection.js";
 export { tsonicCompileTimeFactKey } from "../compile-time/facts.js";
 export type { TsonicCompileTimeFact } from "../compile-time/facts.js";
 export {
