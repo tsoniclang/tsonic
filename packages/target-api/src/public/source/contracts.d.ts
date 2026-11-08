@@ -118,8 +118,8 @@ export type SourceComponentSelector =
   | { readonly kind: "member"; readonly origin: SourceMemberOrigin }
   | { readonly kind: "parameter"; readonly signature: SourceSignatureIdentity; readonly index: number }
   | { readonly kind: "receiver"; readonly signature: SourceSignatureIdentity }
-  | { readonly kind: "signature-tail"; readonly signature: SourceSignatureIdentity; readonly start: number }
-  | { readonly kind: "tuple-slice"; readonly start: number }
+  | { readonly kind: "signature-tail"; readonly signature: SourceSignatureIdentity; readonly start: number; readonly readonly: boolean }
+  | { readonly kind: "tuple-slice"; readonly start: number; readonly readonly: boolean }
   | { readonly kind: "result"; readonly signature: SourceSignatureIdentity }
   | { readonly kind: "type-argument"; readonly declaration: Node; readonly index: number }
   | { readonly kind: "sum-arm"; readonly family: SourceSumFamily; readonly index: number }
