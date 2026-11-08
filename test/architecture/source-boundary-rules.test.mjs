@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readArchitectureTypeScript } from "./tooling/typescript-source.mjs";
+import { checkerImportFindings, moduleLifetimeFindings, sourceForwardingFindings } from "./tooling/source-boundaries.mjs";
+
+function findings(text, file = "packages/target-api/src/source-semantics/example.ts") {
+  const source = readArchitectureTypeScript(new Map([[file, text]]));
+  return source.sourceFiles.flatMap(input => [
+    ...checkerImportFindings(source, input), ...moduleLifetimeFindings(source, input), ...sourceForwardingFindings(source, input),
+  ]);
+}
+
+test("checker vocabulary belongs only to the actual Host input adapter, not merely a similarly named directory", () => {
+  const text = 'import type { Type as Input, CheckedSourceProgram } from "@tsonic/tsts";';
+  for (const file of ["packages/host/src/host-input/reader.ts", "packages/source-core/src/host-input/reader.ts"]) assert.deepEqual(findings(text, file), []);
+  for (const file of ["packages/target-api/src/host-input/reader.ts", "packages/target-api/src/source-semantics/host-input/reader.ts", "packages/source-core/src/reader.ts", "src/host-input/reader.ts"]) {
+    assert.equal(findings(text, file).some(row => row.rule === "checker-type-or-query-import"), true, file);
+  }
+});
+
+test("module-owned WeakMap/WeakSet and mutated Map/Set caches cannot hold per-program Source identities", () => {
+  for (const text of ["const cache = new WeakMap();", "export const identities = new WeakSet();",
+    "const cache = new Map(); export function retain(node) { cache.set(node, 1); }",
+    "const cache = new Set(); export function retain(node) { cache.add(node); }"]) {
+    assert.equal(findings(text).some(row => row.rule === "module-owned-mutable-cache"), true);
+  }
+});
+
+test("one per-view factory and immutable metadata do not become module ownership violations", () => {
+  assert.deepEqual(findings(`
+    const labels = new Map([["kind", "value"]]);
+    export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
+    function unrelated() { const labels = new Map(); labels.set("local", 1); }
+  `), []);
+});
+
+test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
+  assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
+    message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);
+  for (const text of [
+    'const issue = { code: "TSONIC_LOCAL_TYPE_NEW", source: "tsonic", message: "new", sourceNode: node };',
+    'function forward(refusal) { return { code: refusal.code, source: "tsonic", message: "changed", sourceNode: refusal.site }; }',
+    'function forward(refusal, foreign) { return { code: refusal.code, source: "tsonic", message: foreign.message, sourceNode: refusal.site }; }',
+    'function forward(refusal) { return { code: refusal.code, source: "tsonic", message: refusal.message, sourceNode: foreign }; }',
+  ]) assert.equal(findings(text, "src/analysis/program/source-facts.ts").length > 0, true);
+});
+
+test("Native-owned failures and the exact resource infrastructure code stay independent", () => {
+  assert.deepEqual(findings('const issue = { code: "CSHARP_NATIVE_REPRESENTATION", source: "tsonic-csharp", message: "native", sourceNode: node };', "src/analysis/example.ts"), []);
+  assert.deepEqual(findings('const code = "TSONIC_COMPILER_RESOURCE_LIMIT";', "src/analysis/example.ts"), []);
+  assert.equal(findings('const code = "TSONIC_COMPILER_RESOURCE_LIMIT_OTHER";', "src/analysis/example.ts").length, 1);
+});

@@ -2,152 +2,68 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import test from "node:test";
+import { schemaCastFindings } from "./tooling/schema-casts.mjs";
 
 const repoRoot = process.cwd();
 const hostSourceRoot = resolve(repoRoot, "packages/host/src");
 const targetApiSourceRoot = resolve(repoRoot, "packages/target-api/src");
 
-const expectedCastCounts = Object.freeze({
-  "packages/target-api/src/module-reference.ts": 3,
-  "packages/target-api/src/source-navigation/array-density.ts": 3,
-  "packages/target-api/src/source-navigation/ast.ts": 81,
-  "packages/target-api/src/source-navigation/callable-aliases.ts": 2,
-  "packages/target-api/src/source-navigation/callable-arguments.ts": 3,
-  "packages/target-api/src/source-navigation/callable-values.test.ts": 1,
-  "packages/target-api/src/source-navigation/callable-values.ts": 3,
-  "packages/target-api/src/source-navigation/checked-casts.ts": 70,
-  "packages/target-api/src/source-navigation/constructors.ts": 1,
-  "packages/target-api/src/source-navigation/counted-loops.ts": 6,
-  "packages/target-api/src/source-navigation/declaration-uses.ts": 22,
-  "packages/target-api/src/source-navigation/deferred-captures.ts": 2,
-  "packages/target-api/src/source-navigation/expression-effects.ts": 2,
-  "packages/target-api/src/source-navigation/expression-use.test.ts": 4,
-  "packages/target-api/src/source-navigation/expression-use.ts": 46,
-  "packages/target-api/src/source-navigation/heritage.ts": 1,
-  "packages/target-api/src/source-navigation/immediate-evaluation.ts": 4,
-  "packages/target-api/src/source-navigation/initialization-uses.ts": 1,
-  "packages/target-api/src/source-navigation/integer-ranges/analysis.ts": 17,
-  "packages/target-api/src/source-navigation/integer-ranges/guards.test.ts": 1,
-  "packages/target-api/src/source-navigation/integer-ranges/guards.ts": 8,
-  "packages/target-api/src/source-navigation/integer-ranges/induction.ts": 2,
-  "packages/target-api/src/source-navigation/lexical-captures.test.ts": 1,
-  "packages/target-api/src/source-navigation/lexical-captures.ts": 2,
-  "packages/target-api/src/source-navigation/lexical-environments.test.ts": 2,
-  "packages/target-api/src/source-navigation/lexical-environments.ts": 1,
-  "packages/target-api/src/source-navigation/member-contract-boundaries.test.ts": 1,
-  "packages/target-api/src/source-navigation/member-dispatch.ts": 1,
-  "packages/target-api/src/source-navigation/modules.ts": 1,
-  "packages/target-api/src/source-navigation/navigation.ts": 1,
-  "packages/target-api/src/source-navigation/reference-meaning.test.ts": 2,
-  "packages/target-api/src/source-navigation/reference-selection.ts": 3,
-  "packages/target-api/src/source-navigation/references-usage.ts": 17,
-  "packages/target-api/src/source-navigation/sequence-inputs.ts": 3,
-  "packages/target-api/src/source-navigation/syntax.ts": 9,
-  "packages/target-api/src/source-navigation/value-flow.ts": 3,
-  "packages/target-api/src/source-semantics/authored-type-facts.ts": 2,
-  "packages/target-api/src/source-semantics/authored-type-selection.ts": 1,
-  "packages/target-api/src/source-semantics/boolean-short-circuit.test.ts": 1,
-  "packages/target-api/src/source-semantics/boolean-short-circuit.ts": 5,
-  "packages/target-api/src/source-semantics/callable-parameters.test.ts": 1,
-  "packages/target-api/src/source-semantics/callable-parameters.ts": 1,
-  "packages/target-api/src/source-semantics/captured-value-guards.test.ts": 1,
-  "packages/target-api/src/source-semantics/enum-constants.ts": 5,
-  "packages/target-api/src/source-semantics/enum-numeric-uses-part-2.test.ts": 4,
-  "packages/target-api/src/source-semantics/enum-numeric-uses.ts": 15,
-  "packages/target-api/src/source-semantics/expression-sequence.test.ts": 1,
-  "packages/target-api/src/source-semantics/expression-sequence.ts": 2,
-  "packages/target-api/src/source-semantics/flow-conditions.ts": 4,
-  "packages/target-api/src/source-semantics/guard-preservation.ts": 4,
-  "packages/target-api/src/source-semantics/integer-constant.ts": 3,
-  "packages/target-api/src/source-semantics/integer-literal.ts": 2,
-  "packages/target-api/src/source-semantics/literal-values.ts": 2,
-  "packages/target-api/src/source-semantics/native-control-flow.test.ts": 2,
-  "packages/target-api/src/source-semantics/native-control-flow.ts": 2,
-  "packages/target-api/src/source-semantics/property-names-part-1.test.ts": 1,
-  "packages/target-api/src/source-semantics/property-names.ts": 30,
-  "packages/target-api/src/source-semantics/selected-indexed-declarations.test.ts": 1,
-  "packages/target-api/src/source-semantics/standard-type-transformations.ts": 1,
-  "packages/target-api/src/source-semantics/type-component-evidence.ts": 1,
-  "packages/target-api/src/source-semantics/type-syntax.ts": 7,
-  "packages/target-api/src/source-semantics/value-flow-conditions.ts": 3,
-  "packages/target-api/src/target-analysis/entry-validation.ts": 1,
-  "packages/target-api/src/target-analysis/error-storage/error-storage-demands.ts": 1,
-  "packages/target-api/src/target-analysis/flow/bindings.ts": 10,
-  "packages/target-api/src/target-analysis/flow/expressions.ts": 25,
-  "packages/target-api/src/target-analysis/flow/loops.ts": 8,
-  "packages/target-api/src/target-analysis/flow/resource-cleanup.test.ts": 2,
-  "packages/target-api/src/target-analysis/flow/resource-scopes.ts": 4,
-  "packages/target-api/src/target-analysis/flow/statement-exits.ts": 1,
-  "packages/target-api/src/target-analysis/flow/statements.ts": 10,
-  "packages/target-api/src/target-analysis/ownership/flow.ts": 1,
-  "packages/target-api/src/target-analysis/ownership/receiver-occurrences.ts": 2,
-  "packages/target-api/src/target-analysis/ownership/recursive-retention-part-1.test.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/graph/invocation-inputs.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/graph/lexical-regions.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/graph/member-flow.ts": 3,
-  "packages/target-api/src/target-analysis/source-storage/graph/stored-values.ts": 4,
-  "packages/target-api/src/target-analysis/source-storage/model/global-call-effects.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/model/projections.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/model/subjects.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/queries.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/scoped/scoped-keys.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/scoped/scoped-member-successors.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/scoped/scope-frames.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/scoped/scoped-successors.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/transport/syntax-collection.ts": 2,
+test("every generated shared source-processing AST cast has an exact controlling kind predicate", async () => {
+  const files = [...await collectTypeScriptFiles(hostSourceRoot), ...await collectTypeScriptFiles(targetApiSourceRoot)].sort();
+  const sources = new Map(await Promise.all(files.map(async file => [relative(repoRoot, file), await readFile(file, "utf8")])));
+  assert.equal(sources.size > 0, true, "the complete shared source-processing inventory is present");
+  assert.deepEqual(schemaCastFindings(sources), []);
 });
 
-test("every generated shared source-processing AST cast has an exact local kind predicate", async () => {
-  const files = [
-    ...await collectTypeScriptFiles(hostSourceRoot),
-    ...await collectTypeScriptFiles(targetApiSourceRoot),
-  ].sort();
-  const castPattern = /ast\.as\.As([A-Za-z0-9_]+)\(\s*([A-Za-z0-9_.]+)\s*,?\s*\)/gu;
-  const audited = [];
+for (const [label, body] of [
+  ["positive branch", "if (ast.is.IsVariableDeclaration(node)) return ast.as.AsVariableDeclaration(node);"],
+  ["negative early exit", "if (!ast.is.IsVariableDeclaration(node)) return; return ast.as.AsVariableDeclaration(node);"],
+  ["conditional expression", "return node !== undefined && ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node) : undefined;"],
+  ["lazy conjunction", "return ast.is.IsVariableDeclaration(node) && ast.as.AsVariableDeclaration(node);"],
+  ["union predicate", "return ast.is.IsArrayBindingPattern(node) || ast.is.IsObjectBindingPattern(node) ? ast.as.AsBindingPattern(node) : undefined;"],
+  ["long protected body", `if (ast.is.IsVariableDeclaration(node)) { ${"void 0;\n".repeat(24)} return ast.as.AsVariableDeclaration(node); }`],
+]) {
+  test(`schema cast accepts ${label} for the identical reader and original subject`, () => {
+    const source = `function example(ast, node) { ${body} }`;
+    assert.deepEqual(schemaCastFindings(new Map([["example.ts", source]])), []);
+  });
+}
 
-  for (const file of files) {
-    const source = await readFile(file, "utf8");
-    for (const match of source.matchAll(castPattern)) {
-      const castKind = match[1];
-      const subject = match[2];
-      const line = source.slice(0, match.index).split("\n").length;
-      const localContext = source.slice(0, match.index).split("\n").slice(-18).join("\n");
-      const escapedSubject = subject.replaceAll(".", "\\.");
-      const exactPredicate = castKind === "BindingPattern"
-        ? new RegExp(`ast\\.is\\.Is(?:Array|Object)BindingPattern\\(${escapedSubject}\\)`, "u")
-        : castKind === "ForInOrOfStatement"
-        ? new RegExp(`ast\\.is\\.Is(?:ForIn|ForOf)Statement\\(${escapedSubject}\\)`, "u")
-        : castKind === "CaseOrDefaultClause"
-          ? new RegExp(`ast\\.is\\.Is(?:Case|Default)Clause\\(${escapedSubject}\\)`, "u")
-        : new RegExp(`ast\\.is\\.Is${castKind}\\(${escapedSubject}\\)`, "u");
-      assert.match(
-        localContext,
-        exactPredicate,
-        `${relative(repoRoot, file)}:${line}: As${castKind}(${subject}) has no exact preceding kind predicate`,
-      );
-      audited.push(`${relative(repoRoot, file)}:As${castKind}`);
-    }
-  }
+for (const [label, body] of [
+  ["missing predicate", "return ast.as.AsVariableDeclaration(node);"],
+  ["predicate in a string", 'const message = "ast.is.IsVariableDeclaration(node)"; return ast.as.AsVariableDeclaration(node);'],
+  ["predicate in a comment", "/* ast.is.IsVariableDeclaration(node) */ return ast.as.AsVariableDeclaration(node);"],
+  ["wrong subject", "if (ast.is.IsVariableDeclaration(other)) return ast.as.AsVariableDeclaration(node);"],
+  ["wrong reader", "if (other.is.IsVariableDeclaration(node)) return ast.as.AsVariableDeclaration(node);"],
+  ["opposite branch", "if (!ast.is.IsVariableDeclaration(node)) return ast.as.AsVariableDeclaration(node);"],
+  ["unguarded fallthrough", "if (ast.is.IsVariableDeclaration(node)) {} return ast.as.AsVariableDeclaration(node);"],
+  ["intervening assignment", "if (!ast.is.IsVariableDeclaration(node)) return; node = other; return ast.as.AsVariableDeclaration(node);"],
+  ["comma assignment", "if (ast.is.IsVariableDeclaration(node)) return (node = other, ast.as.AsVariableDeclaration(node));"],
+  ["reader reassignment", "if (!ast.is.IsVariableDeclaration(node)) return; ast = other; return ast.as.AsVariableDeclaration(node);"],
+  ["later condition assignment", "if (ast.is.IsVariableDeclaration(node) && (node = other)) return ast.as.AsVariableDeclaration(node);"],
+  ["earlier call argument assignment", "if (ast.is.IsVariableDeclaration(node)) return use(node = other, ast.as.AsVariableDeclaration(node));"],
+  ["earlier array element assignment", "if (ast.is.IsVariableDeclaration(node)) return [node = other, ast.as.AsVariableDeclaration(node)];"],
+  ["different shadowed binding", "if (ast.is.IsVariableDeclaration(node)) { const work = (node) => ast.as.AsVariableDeclaration(node); }"],
+  ["effectful subject recomputation", "if (ast.is.IsVariableDeclaration(next())) return ast.as.AsVariableDeclaration(next());"],
+]) {
+  test(`schema cast rejects ${label}`, () => {
+    const rows = schemaCastFindings(new Map([["example.ts", `function example(ast, node, other, next) { ${body} }`]]));
+    assert.equal(rows.some(row => row.rule === "unguarded-schema-cast"), true);
+  });
+}
 
-  const actualCastCounts = Object.fromEntries(
-    Object.entries(Object.groupBy(audited, (entry) => entry.slice(0, entry.lastIndexOf(":"))))
-      .map(([file, entries]) => [file, entries.length])
-      .sort(([left], [right]) => left.localeCompare(right)),
-  );
-  assert.deepEqual(actualCastCounts, expectedCastCounts);
+test("schema cast inventory ignores authored example text and type queries", () => {
+  const source = 'const sample = "ast.as.AsVariableDeclaration(node)"; type Result = ReturnType<typeof ast.as.AsVariableDeclaration>;';
+  assert.deepEqual(schemaCastFindings(new Map([["example.ts", source]])), []);
 });
 
 test("host module classification has one shared implementation", async () => {
   const moduleReference = await readFile(resolve(targetApiSourceRoot, "module-reference.ts"), "utf8");
   const projectModules = await readFile(resolve(targetApiSourceRoot, "source-navigation/modules.ts"), "utf8");
   const capabilityActivation = await readFile(resolve(hostSourceRoot, "target/capability-activation.ts"), "utf8");
-  const productFiles = [
-    ...await collectTypeScriptFiles(hostSourceRoot),
-    ...await collectTypeScriptFiles(targetApiSourceRoot),
-  ];
-  const productSource = (await Promise.all(productFiles.map((file) => readFile(file, "utf8")))).join("\n");
+  const productFiles = [...await collectTypeScriptFiles(hostSourceRoot), ...await collectTypeScriptFiles(targetApiSourceRoot)];
+  const productSource = (await Promise.all(productFiles.map(file => readFile(file, "utf8")))).join("\n");
   const consumerSource = `${projectModules}\n${capabilityActivation}`;
-
   assert.match(moduleReference, /export function getStaticModuleReference/u);
   assert.match(projectModules, /getStaticModuleReference/u);
   assert.match(capabilityActivation, /getStaticModuleReference/u);
@@ -161,11 +77,8 @@ async function collectTypeScriptFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await collectTypeScriptFiles(path));
-    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
-      files.push(path);
-    }
+    if (entry.isDirectory()) files.push(...await collectTypeScriptFiles(path));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(path);
   }
   return files.sort();
 }

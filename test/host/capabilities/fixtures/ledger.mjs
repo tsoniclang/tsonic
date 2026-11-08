@@ -8317,7 +8317,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed proof: typed boundaries between any and typed target carriers are never emitted from backend inference. Assertions, assignments, initializers, and returns require finalized target conversion facts; any-to-typed boundaries lower through TsValue.CastDynamic<T> or TsUnion.CastDynamic<T...>, typed-to-any boundaries lower through TsValue.from, backend conversion tests require the finalized generic method fact, runtime tests prove successful scalar/union casts and deterministic mismatch/nullish failures, and CLI/toolchain proof builds the conversions without reflection, dynamic dispatch, or source-name fallback.",
+      "Required proof: typed boundaries between any and typed target carriers are never emitted from backend inference. Assertions, assignments, initializers, and returns require finalized target conversion facts; any-to-typed boundaries lower through TsValue.CastDynamic<T> or TsUnion.CastDynamic<T...>, typed Source values crossing to any retain their published category through TsValue.fromsource, while handwritten native payloads use TsValue.fromnative. Backend conversion tests must check the finalized method and category evidence, runtime tests must prove successful scalar/union casts and deterministic mismatch/nullish failures, and CLI/toolchain proof must build the conversions without reflection, dynamic dispatch, or source-name fallback.",
   }),
   "dynamic-value.object.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([

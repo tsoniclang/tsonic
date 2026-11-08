@@ -48,3 +48,26 @@ export function run(): void {
 }
 `;
 }
+
+export function opaqueErrorConstructorFixture() {
+  return {
+    sourceText: `
+import { OpaqueError } from "opaque-error-provider";
+export function run(): void {
+  const original = new OpaqueError("original");
+  class Base extends OpaqueError { initialized = (() => original.message)(); }
+  const created = new Base("derived");
+}
+`,
+    files: {
+      "/providers/opaque-error-provider.d.ts": `
+declare module "opaque-error-provider" {
+  export class OpaqueError {
+    constructor(message: string);
+    readonly message: string;
+  }
+}
+`,
+    },
+  };
+}
