@@ -1,1 +1,0 @@
-{"version":3,"file":"syntax.d.ts","sourceRoot":"","sources":["../../../src/target-analysis/flow/syntax.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AAEzC,OAAO,KAAK,EAAE,sBAAsB,EAAE,MAAM,mBAAmB,CAAC;AAEhE,wBAAgB,gBAAgB,CAAC,KAAK,EAAE,sBAAsB,EAAE,IAAI,EAAE,IAAI,GAAG,IAAI,CAQhF"}

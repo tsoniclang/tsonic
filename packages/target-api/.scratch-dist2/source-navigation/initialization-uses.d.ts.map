@@ -1,1 +1,0 @@
-{"version":3,"file":"initialization-uses.d.ts","sourceRoot":"","sources":["../../src/source-navigation/initialization-uses.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AACpD,OAAO,KAAK,EAAE,uBAAuB,EAAE,MAAM,YAAY,CAAC;AAI1D,wBAAgB,iCAAiC,CAC/C,WAAW,EAAE,IAAI,EACjB,GAAG,EAAE,SAAS,EACd,UAAU,EAAE,uBAAuB,GAClC,OAAO,CA+CT"}

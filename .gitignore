@@ -16,6 +16,7 @@ out/
 **/obj/
 
 # Local scratch and reports
+.scratch-dist*/
 .temp/
 .tests/
 .analysis/

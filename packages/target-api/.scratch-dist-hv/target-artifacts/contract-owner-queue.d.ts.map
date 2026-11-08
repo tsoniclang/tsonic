@@ -1,1 +1,0 @@
-{"version":3,"file":"contract-owner-queue.d.ts","sourceRoot":"","sources":["../../src/target-artifacts/contract-owner-queue.ts"],"names":[],"mappings":"AAAA,qBAAa,uBAAuB;;IAIlC,IAAI,IAAI,IAAI,MAAM,CAEjB;IAED,IAAI,CAAC,KAAK,EAAE,MAAM,GAAG,IAAI,CAOxB;IAED,GAAG,IAAI,MAAM,GAAG,SAAS,CASxB;IAED,OAAO,CAAC,KAAK,EAAE,MAAM,GAAG,IAAI,CAE3B;CAuDF"}

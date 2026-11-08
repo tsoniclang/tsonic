@@ -1,1 +1,0 @@
-{"version":3,"file":"refusals.d.ts","sourceRoot":"","sources":["../../../src/source-semantics/local-type-flow/refusals.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AACzC,OAAO,KAAK,EAAE,qBAAqB,EAAE,yBAAyB,EAAE,MAAM,YAAY,CAAC;AAqBnF,wBAAgB,2BAA2B,CACzC,IAAI,EAAE,yBAAyB,EAC/B,IAAI,EAAE,IAAI,EACV,OAAO,CAAC,EAAE,IAAI,GACb,qBAAqB,CAGvB"}
