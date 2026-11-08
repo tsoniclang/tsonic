@@ -1,5 +1,5 @@
 import type { SourceStorageProgram } from "../model/program.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalParameters, sourceStorageOriginalSignature } from "../model/callable-heads.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
@@ -45,8 +45,8 @@ export function createSourceStorageScopeFrames(input: {
       entries, parents: Object.freeze([captured]) });
     const slots = sourceStorageSelectedInputSlots(inputSlotsFor(candidate, undefined), candidate);
     if (slots === undefined) return undefined;
-    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
-      { kind: "declaration" });
+    const parameters = sourceStorageOriginalParameters(source, candidate,
+      source.facts.navigation.callableRoles(candidate).body ? "body" : "signature");
     if (parameters === undefined) return undefined;
     for (const parameter of parameters) {
       if (!budget.step()) return undefined;
@@ -98,7 +98,8 @@ export function createSourceStorageScopeFrames(input: {
     const cached = retained?.get(parent);
     if (cached !== undefined) return cached;
     const parameters = source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ? []
-      : sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner), { kind: "declaration" });
+      : sourceStorageOriginalParameters(source, owner,
+        source.facts.navigation.callableRoles(owner).body ? "body" : "signature");
     if (parameters === undefined) return undefined;
     if (!rows.add(3 + (parameters.length + 1) * 2 + (retained === undefined ? 1 : 0))) return undefined;
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
@@ -128,8 +129,9 @@ export function createSourceStorageScopeFrames(input: {
     const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, callback, entries,
       parents: Object.freeze([captured]) });
-    const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? []
-      : sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate), { kind: "declaration" });
+    const classOwner = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate);
+    const role = source.facts.navigation.callableRoles(candidate).body ? "body" : "signature";
+    const parameters = classOwner ? [] : sourceStorageOriginalParameters(source, candidate, role);
     if (parameters === undefined) return undefined;
     const formals = new Set<SourceStorageSubject>();
     for (const parameter of [...parameters, candidate]) {
@@ -139,8 +141,7 @@ export function createSourceStorageScopeFrames(input: {
       if (formal === undefined) return undefined;
       formals.add(formal);
     }
-    if (parameters.some(parameter => source.ast.is.IsParameterDeclaration(parameter) &&
-      source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined)) {
+    if (!classOwner && sourceStorageOriginalSignature(source, candidate, role)?.signature.parameters.some(parameter => parameter.kind === "rest")) {
       const slots = sourceStorageSelectedInputSlots(inputSlotsFor(candidate, invocation, callback), candidate);
       if (slots === undefined) return undefined;
       for (const slot of slots) {

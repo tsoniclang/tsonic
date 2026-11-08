@@ -1,6 +1,6 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import { sourceStorageValue } from "../model/program.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalParameters } from "../model/callable-heads.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -44,8 +44,8 @@ export function createSourceStorageCallbackInputFrontiers(
         for (const invocation of invocations) for (const callback of callbackEntriesFor(invocation))
           for (const candidate of callbackImplementationsFor(callback)) {
             if (!step()) return undefined;
-            const selectedParameters = sourceStorageValue(sourceCallableValueParameters(source, candidate, undefined));
-            const parameters = selectedParameters.kind === "present" ? selectedParameters.value : undefined;
+            const parameters = sourceStorageOriginalParameters(source, candidate,
+              source.facts.navigation.callableRoles(candidate).body ? "body" : "signature");
             if (parameters === undefined) {
               budget.reject("Source storage native callback frontiers require their exact checked value parameters.");
               return undefined;

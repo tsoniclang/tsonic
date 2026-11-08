@@ -2,7 +2,7 @@ import type { SourceStorageProgram } from "../model/program.js";
 import { sourceStorageValue } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalParameters } from "../model/callable-heads.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 
@@ -42,8 +42,7 @@ export function createSourceStorageExecutionRegions(source: SourceStorageProgram
     const regions = phase === "active" || generator.kind === "none" ? [body] : [];
     const inputs = inputSlotsFor(declaration, invocation, callback);
     const slots = sourceStorageSelectedInputSlots(inputs, declaration);
-    const selectedParameters = sourceStorageValue(sourceCallableValueParameters(source, declaration, undefined));
-    const parameters = selectedParameters.kind === "present" ? selectedParameters.value : undefined;
+    const parameters = sourceStorageOriginalParameters(source, declaration, "body");
     if (parameters === undefined) {
       budget.reject("Source storage callable regions require their exact checked value parameters.");
       return [];
