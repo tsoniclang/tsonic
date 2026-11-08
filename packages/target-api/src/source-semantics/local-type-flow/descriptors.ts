@@ -1,10 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput, SourceInputSignatureFacts, SourceInputTypeFacts } from "../../host-input/descriptor-input.js";
 import type { SourceInputComponent, SourceInputComponentPart, SourceInputSignature } from "../../host-input/identities.js";
-import type { SourceCategoryDomain, SourceComponentSelector, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeEvidence, SourceTypeParameterRequirement } from "../../public/source/contracts.js";
+import type { SourceCategoryDomain, SourceComponentSelector, SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeEvidence, SourceTypeParameterRequirement } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 
 export interface SourceDescriptorReaderInput {
   readonly input: SourceDescriptorInput;
@@ -13,6 +14,14 @@ export interface SourceDescriptorReaderInput {
   scalarDomain(original: Node, facts: SourceInputTypeFacts): SourceLiteralDomain;
   syntaxProduction(component: SourceInputComponent, syntax: Node, bindings: readonly SourceTypeBinding[], reader: SourceDescriptorReader): SourceProductionResult<SourceTypeEvidence>;
   observe<Value>(result: SourceResult<Value>): SourceResult<Value>;
+}
+
+function memberPart(component: SourceInputComponent): Extract<SourceInputComponentPart, { readonly kind: "member" }> | undefined {
+  for (let index = component.path.length - 1; index >= 0; index--) {
+    const part = component.path[index];
+    if (part?.kind === "member") return part;
+  }
+  return undefined;
 }
 
 export function createSourceTypeDescriptorReader(options: SourceDescriptorReaderInput): SourceDescriptorReader {
@@ -100,12 +109,66 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   function publish(facts: SourceInputTypeFacts, type: SourceTypeDescriptor, children: readonly SourceEvidenceComponent[],
-    domain: SourceLiteralDomain = sourceOpenLiteralDomain): SourceTypeEvidence {
+    domain: SourceLiteralDomain = sourceOpenLiteralDomain, details: SourceEvidenceDetails = {
+      members: { kind: "definition" }, origins: { kind: "complete", nodes: [facts.component.root] },
+    }): SourceTypeEvidence {
     const selectedCategory = category(facts);
     return builder.evidence({ type, component: component(facts.component), category: selectedCategory,
       numeric: selectedCategory.kind === "known" && (selectedCategory.category === "number" || selectedCategory.category === "bigint")
         ? { producer: facts.authoredTypeNode ?? facts.component.root, category: selectedCategory, kind: facts.literal === undefined ? "declared" : "literal" } : undefined,
-      sum: undefined }, children, facts.component, domain);
+      sum: undefined }, children, facts.component, domain, details);
+  }
+
+  function describeMembers(original: SourceInputComponent, bindings: readonly SourceTypeBinding[], receiver?: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory> {
+    input.assertComponent(original);
+    const facts = input.members(original);
+    if (facts.kind === "unavailable") return { kind: "resolved", value: facts };
+    const inherited = hooks.inheritedBindings(original, bindings);
+    if (inherited.kind !== "resolved") return inherited;
+    const selectedBindings = new Map(inherited.value.map(binding => [binding.declaration, binding]));
+    if (receiver?.type.kind === "array" && facts.elementBinders.length > 0) {
+      const element = builder.component(receiver, { kind: "array-element" });
+      if (element.kind === "refused") return element;
+      for (const declaration of facts.elementBinders) {
+        register(declaration);
+        selectedBindings.set(declaration, { declaration, value: element.value });
+      }
+    }
+    const activeBindings = Object.freeze([...selectedBindings.values()]);
+    function memberOrigin(component: SourceInputComponent | undefined): readonly SourceMemberOrigin[] {
+      if (component === undefined) return Object.freeze([]);
+      const part = memberPart(component);
+      if (part?.kind !== "member") throw new Error("A factual member component requires its exact original member declaration.");
+      return Object.freeze([{ kind: "declared", declaration: part.declaration }]);
+    }
+    function lazy(component: SourceInputComponent | undefined): {
+      produce(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+      domain(): SourcePresence<SourceLiteralDomain>;
+    } {
+      let observed: SourceTypeEvidence | undefined;
+      return {
+        produce() {
+          if (component === undefined) return { kind: "resolved", value: { kind: "none" } };
+          const selected = describeComponent(component, activeBindings);
+          if (selected.kind !== "resolved") return selected;
+          observed = selected.value;
+          return { kind: "resolved", value: { kind: "present", value: observed } };
+        },
+        domain: () => observed === undefined ? { kind: "none" } : { kind: "present", value: builder.domain(observed) },
+      };
+    }
+    const members: SourceMemberInventoryRow[] = facts.members.map(member => {
+      const read = lazy(member.read), write = lazy(member.write);
+      return { key: member.key, name: member.name, declarations: member.declarations, getters: member.getters, setters: member.setters,
+        origins: member.declarations.map(declaration => ({ kind: "declared", declaration })),
+        readOrigins: memberOrigin(member.read), writeOrigins: memberOrigin(member.write),
+        read: member.readKind, optional: member.optional, readonly: member.readonly,
+        readType: read.produce, writeType: write.produce, readDomain: read.domain };
+    });
+    const indexes: SourceIndexInventoryRow[] = facts.indexes.map(index => ({ declarations: [index.declaration], readonly: index.readonly,
+      keyType: () => describeComponent(index.key, activeBindings), readType: lazy(index.value).produce,
+      writeType: lazy(index.readonly ? undefined : index.value).produce }));
+    return { kind: "resolved", value: { kind: "complete", members, indexes } };
   }
 
   function readSignature(facts: SourceInputSignatureFacts, bindings: readonly SourceTypeBinding[], children: SourceEvidenceComponent[]): SourceProductionResult<SourceTypeDescriptorSignature> {
@@ -134,12 +197,29 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     return { kind: "resolved", value: { identity: selectedIdentity, ...(receiver === undefined ? {} : { receiver }), parameters, result: result.value.type } };
   }
 
-  function read(facts: SourceInputTypeFacts, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
+  function read(facts: SourceInputTypeFacts, bindings: readonly SourceTypeBinding[], defining = false): SourceProductionResult<SourceTypeEvidence> {
+    const definitionOwner = facts.definitionOwner;
+    if (!defining && definitionOwner !== undefined && (input.ast.is.IsClassDeclaration(definitionOwner) ||
+      input.ast.is.IsClassExpression(definitionOwner) || input.ast.is.IsInterfaceDeclaration(definitionOwner))) {
+      const parameters = input.ast.typeParameters(definitionOwner).filter((value): value is Node => value !== undefined);
+      parameters.forEach(register);
+      builder.define(definitionOwner, parameters, () => read(facts, [], true), () => describeMembers(facts.component, []));
+      const children: SourceEvidenceComponent[] = [];
+      const arguments_: SourceTypeDescriptor[] = [];
+      for (const [index, declaration] of parameters.entries()) {
+        const selected = describeComponent(input.syntax(declaration), bindings);
+        if (selected.kind !== "resolved") return selected;
+        arguments_.push(selected.value.type);
+        children.push({ selector: { kind: "type-argument", declaration: definitionOwner, index }, value: selected.value });
+      }
+      return { kind: "resolved", value: publish(facts, builder.declared({ declaration: definitionOwner, typeArguments: arguments_ }), children) };
+    }
     const syntax = facts.authoredTypeNode;
     if (syntax !== undefined && (input.ast.is.IsConditionalTypeNode(syntax) || input.ast.is.IsMappedTypeNode(syntax) || input.ast.is.IsTemplateLiteralTypeNode(syntax) || input.ast.is.IsIntersectionTypeNode(syntax) ||
       input.ast.is.IsIndexedAccessTypeNode(syntax) || input.ast.is.IsTypeOperatorNode(syntax) && input.ast.operatorKindName(syntax) === "KindKeyOfKeyword"))
       return options.syntaxProduction(facts.component, syntax, bindings, reader);
     if (facts.kind === "unavailable") return facts.declaration === undefined ? unsupported(facts.component) : hooks.declaredValue(facts.component, facts.declaration, bindings);
+    if (facts.kind === "enum") return hooks.declaredValue(facts.component, facts.declaration, bindings);
     if (facts.kind === "parameter") {
       register(facts.parameter);
       return builder.substitute(publish(facts, builder.typeParameter(facts.parameter).type, []), bindings);
@@ -159,14 +239,25 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       facts.parameters.forEach(register);
       if (facts.parameters.length !== facts.arguments.length) throw new Error("A declared Source application must retain its complete original binder vector.");
       const arguments_: SourceTypeDescriptor[] = [];
+      const applicationBindings: SourceTypeBinding[] = [];
       for (const [index, argument] of facts.arguments.entries()) {
         const selected = describeComponent(argument, bindings);
         if (selected.kind !== "resolved") return selected;
         arguments_.push(selected.value.type);
+        applicationBindings.push({ declaration: facts.parameters[index]!, value: selected.value });
         children.push({ selector: { kind: "type-argument", declaration: facts.declaration, index }, value: selected.value });
       }
+      if (input.ast.is.IsTypeAliasDeclaration(facts.declaration)) {
+        const body = input.ast.typeNode(facts.declaration);
+        if (body === undefined) return unsupported(facts.component);
+        const values = new Map(bindings.map(binding => [binding.declaration, binding]));
+        for (const binding of applicationBindings) values.set(binding.declaration, binding);
+        const selected = describeComponent(input.syntax(body), [...values.values()]);
+        return selected.kind !== "resolved" ? selected : builder.join(component(facts.component), "authored", [selected.value], facts.component);
+      }
       builder.define(facts.declaration, facts.parameters, () => facts.definition === undefined
-        ? hooks.declaredValue(facts.component, facts.declaration, []) : describeComponent(facts.definition, []));
+        ? hooks.declaredValue(facts.component, facts.declaration, []) : describeComponent(facts.definition, []),
+      () => describeMembers(facts.definition ?? facts.component, []));
       return { kind: "resolved", value: publish(facts, builder.declared({ declaration: facts.declaration, typeArguments: arguments_,
         ...(facts.extent === undefined ? {} : { extent: facts.extent }) }), children) };
     }
@@ -189,13 +280,22 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     const members: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>["members"][number][] = [];
     for (const member of facts.members) {
       const original = member.read ?? member.write;
-      const declaration = member.declarations[0];
-      if (original === undefined || declaration === undefined || member.declarations.some(value => value !== declaration)) return unsupported(facts.component);
+      const part = original === undefined ? undefined : memberPart(original);
+      const declaration = part?.kind === "member" ? part.declaration : undefined;
+      if (original === undefined || declaration === undefined) return unsupported(facts.component);
       const selected = describeComponent(original, bindings);
       if (selected.kind !== "resolved") return selected;
       const origin = { kind: "declared" as const, declaration };
       members.push({ name: member.name, origin, optional: member.optional, readonly: member.readonly, type: selected.value.type });
       children.push({ selector: { kind: "member", origin }, value: selected.value });
+      if (member.read !== undefined && member.write !== undefined && member.read !== member.write) {
+        const written = describeComponent(member.write, bindings);
+        if (written.kind !== "resolved") return written;
+        const writePart = memberPart(member.write);
+        if (writePart?.kind !== "member") throw new Error("A writable member must retain its exact original write declaration.");
+        const writeOrigin = { kind: "declared" as const, declaration: writePart.declaration };
+        if (writePart.declaration !== declaration) children.push({ selector: { kind: "member", origin: writeOrigin }, value: written.value });
+      }
     }
     const indexes: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>["indexes"][number][] = [];
     for (const index of facts.indexes) {
@@ -245,6 +345,8 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   const reader: SourceDescriptorReader = Object.freeze({
+    componentIdentity: component,
+    describeMembers,
     describeSyntax(node: Node, bindings: readonly SourceTypeBinding[]) {
       input.assertNode(node);
       return describeComponent(input.syntax(node), bindings);
@@ -252,18 +354,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     describeComponent,
     inheritedBindings(original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]> {
       input.assertComponent(original);
-      const facts = input.describe(original);
-      if (facts.kind !== "declared") return { kind: "resolved", value: Object.freeze([...bindings]) };
-      const result = new Map(bindings.map(binding => [binding.declaration, binding]));
-      for (const [index, declaration] of facts.parameters.entries()) {
-        if (result.has(declaration)) continue;
-        const argument = facts.arguments[index];
-        if (argument === undefined) throw new Error("A declared inherited binding requires its exact original argument.");
-        const value = describeComponent(argument, bindings);
-        if (value.kind !== "resolved") return value;
-        result.set(declaration, { declaration, value: value.value });
-      }
-      return { kind: "resolved", value: Object.freeze([...result.values()]) };
+      return hooks.inheritedBindings(original, bindings);
     },
   });
   return reader;

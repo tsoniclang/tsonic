@@ -1,400 +1,153 @@
-import type { CheckedSourceProgram, Node, Signature, SourceFile, Symbol, Type } from "@tsonic/tsts";
-import { createSourceProgramNavigation } from "../source-navigation/index.js";
-import { aliasedSymbol, referenceDeclarationForMeaning, symbolAtReferenceNode } from "../source-navigation/syntax.js";
-import { authoredSourceTypeFactDependencies, authoredSourceTypeFactNodes } from "./authored-type-facts.js";
-import { selectAuthoredSourceType } from "./authored-type-selection.js";
-import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
-import { selectSourceCallResult } from "./call-result-selection.js";
-import { selectSourceProviderSignature, type SourceProviderSignatureSelection } from "./provider-signature.js";
-import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
-import { selectSourceContextualType, selectSourceContextualValueType } from "./contextual-type-selection.js";
-import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceFactProduction, SourceObjectProduction, SourceObjectProductionQueries, SourceProgramInput } from "../host-input/program-input.js";
+import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
+import type { SourcePropertyName, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceDescriptorReader, SourceProductionResult } from "./descriptor-contracts.js";
+import { createSourceDescriptorOwner } from "./descriptor-owner.js";
+import { createSourceTypeDescriptorReader } from "./local-type-flow/descriptors.js";
+import { produceSourceScalarLiteralDomain } from "./local-type-flow/literal-domains.js";
+import { produceSourceProjection } from "./local-type-flow/projections.js";
+import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js";
+import { sourceEvidenceExtends } from "./local-type-flow/evidence-relations.js";
+import { analyzeSourceTypeFlow } from "./local-type-flow/solver.js";
+import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
+import { createSourceMemberUseQuery } from "./member-use.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
-import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
-import { getSourceTypeArgumentBindings } from "./type-arguments.js";
-import { getEffectiveSourceTypeArguments } from "../source-navigation/type-arguments.js";
-import { selectSourceTypeRefinement } from "./type-refinement.js";
-import { resolveSourceFlowConditions } from "./flow-conditions.js";
-import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
-import { normalizeSourcePropertyAccessDeclarations } from "./selected-property-declarations.js";
-import { sourceTypeRelationship } from "./type-relationship.js";
-import { createSourceStructuralMemberQueries } from "./structural-members.js";
-import { analyzeSourcePropertyNames } from "./property-names.js";
-import { analyzeSourceEnumConstants } from "./enum-constants.js";
-import { analyzeSourceEffectiveTypes } from "./local-type-flow/solver.js";
-import type { ResolvedSourceCallInfo } from "./call-result-selection.js";
-import type { SourceFileSemantics, SourceFinalTypeQueries, SourceProgramSemantics, SourceValueTypeRefinementSelection, TargetSourceProgram } from "./types.js";
+import type { SourceObjectFacts, SourceProgramFacts, TargetSourceProgram } from "./types.js";
+import { createSourceAdmissionFacts } from "./admission.js";
 
+export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
+  const { ast, inventory } = input;
+  const sourceFiles = Object.freeze([...input.sourceFiles]);
+  let reader: SourceDescriptorReader | undefined;
+  let propertyName: ((node: Node) => SourceProductionResult<SourcePropertyName>) | undefined;
+  let objectProduction: SourceObjectProduction | undefined;
+  let solved: ReturnType<typeof analyzeSourceTypeFlow> | undefined;
+  const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
+  const unavailableRefusals = new WeakMap<Node, Map<string, SourceRefusal>>();
 
-export function createTargetSourceProgram(
-  source: CheckedSourceProgram,
-): TargetSourceProgram {
-  // One checked type identity per expression node for this program. The checker builds a new anonymous Type for an
-  // object literal on every getTypeAtLocation call; every consumer that keys or compares checked types by identity
-  // (shape caches, member correspondence, native construction) needs the same Type object for the same node.
-  const expressionTypes = new WeakMap<Node, Type>();
-  const sourceFiles = Object.freeze(
-    source.sourceFiles.filter(
-      (sourceFile): sourceFile is SourceFile => sourceFile !== undefined,
-    ),
-  );
-  const sourceFileSet = new Set(sourceFiles);
-  const documents = createSourceProgramDocuments(source.ast, sourceFiles);
-  const navigation = createSourceProgramNavigation(source);
-  const enumConstants = analyzeSourceEnumConstants(source, navigation);
-  const cache = new WeakMap<SourceFile, SourceFileSemantics>();
-  const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
-  const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
-    if (declaration === undefined) return undefined;
-    const existing = providerSignatures.get(declaration);
-    if (existing !== undefined) return existing ?? undefined;
-    const selected = selectSourceProviderSignature(source.sourceFacts, declaration);
-    providerSignatures.set(declaration, selected ?? null);
+  function assertNode(node: Node): void {
+    if (!inventory.contains(node)) throw new Error("Source facts require the exact original node from this program.");
+  }
+  function requiredReader(): SourceDescriptorReader {
+    if (reader === undefined) throw new Error("The Source reader must be installed once before original component production.");
+    return reader;
+  }
+  function requiredSolved(): ReturnType<typeof analyzeSourceTypeFlow> {
+    if (solved === undefined) throw new Error("Final Source value queries require completion of the original solve.");
+    return solved;
+  }
+  function requiredObjects(): SourceObjectProduction {
+    if (objectProduction === undefined) throw new Error("Original Source semantic production requires its single member owner before graph collection.");
+    return objectProduction;
+  }
+  function settle<Value>(result: SourceProductionResult<Value>): SourceResult<Value> {
+    if (result.kind === "pending") throw new Error("A final Source query cannot publish an unsolved original dependency.");
+    return owner.observe(result);
+  }
+
+  const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
+    members: (value, original, bindings) => requiredReader().describeMembers(original, bindings, value),
+    project(originalSource, source, projection, bindings) {
+      return produceSourceProjection({ ast, input: input.input, builder: owner.builder,
+        reader: requiredReader(), objects: requiredObjects(), originalSource, source, projection, bindings });
+    } });
+
+  function signature(original: SourceInputSignature): SourceSignatureIdentity {
+    input.input.assertSignature(original);
+    const previous = signatures.get(original);
+    if (previous !== undefined) return previous;
+    for (const declaration of original.typeParameters) {
+      const selected = settle(requiredReader().describeSyntax(declaration, []));
+      if (selected.kind === "refused") throw new Error("An original callable binder must be registered before its signature identity is published.");
+    }
+    const selected = owner.builder.signature(original.owner, original.signatureKind, original, original.declaration, original.typeParameters);
+    signatures.set(original, selected);
     return selected;
-  };
-
-  function createFileView(sourceFile: SourceFile) {
-    const queries = source.getSourceFileQueries(sourceFile);
-    const flowConditions = new WeakMap<Node, import("@tsonic/tsts").ResolvedSourceFlowConditionInfo | null>();
-    const operations = Object.freeze({
-      call: queries.checker.getResolvedCallInfo,
-      propertyName: queries.checker.getEffectivePropertyName,
-      propertyAccess(node: Node) {
-        const checked = queries.checker.getResolvedPropertyAccessInfo(node);
-        const selected = checked === undefined ? undefined :
-          normalizeSourcePropertyAccessDeclarations(source.ast, forFile(sourceFile), checked);
-        return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
-          ? selected
-          : selectRefinedSourcePropertyAccess(selected,
-            selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts, source.ast);
-      },
-      elementAccess: queries.checker.getResolvedElementAccessInfo,
-      flowConditions(node: Node) {
-        const cached = flowConditions.get(node);
-        if (cached !== undefined) return cached ?? undefined;
-        const selected = resolveSourceFlowConditions({ ast: source.ast, navigation, sourceFacts: source.sourceFacts }, node, queries.checker.getResolvedFlowConditionInfo(node));
-        flowConditions.set(node, selected ?? null);
-        return selected;
-      },
-      iteration: queries.checker.getResolvedIterationInfo,
-      objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
-      storage: queries.checker.getResolvedStorageInfo,
-      callableCompletion: queries.checker.getResolvedCallableCompletionInfo,
-      generator: queries.checker.getResolvedGeneratorInfo,
-      yield: queries.checker.getResolvedYieldInfo,
-      wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
-      resourceManagement: queries.checker.getResolvedResourceManagementInfo,
-      callResult(call: ResolvedSourceCallInfo) {
-        return selectSourceCallResult(source.ast, queries.checker, call, providerSignature);
-      },
-      callParameterSlots(call: ResolvedSourceCallInfo) {
-        return selectSourceCallParameterSlots(call, queries.typeShape);
-      },
-    });
-    const declarations = Object.freeze({
-      authoredTypeDeclaration(node: Node) {
-        const reference = source.ast.is.IsTypeReferenceNode(node) ? source.ast.as.AsTypeReferenceNode(node)?.TypeName
-          : source.ast.is.IsImportTypeNode(node) ? source.ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
-        const symbol = reference === undefined ? undefined : symbolAtReferenceNode(source.ast, queries.checker, reference);
-        return referenceDeclarationForMeaning(source.ast, queries.checker,
-          aliasedSymbol(source.ast, queries.checker, symbol) ?? symbol, "type");
-      },
-      isDefaultLibraryDeclaration: queries.checker.isDefaultLibraryDeclaration,
-      declaredValueType(declaration: Node) {
-        if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
-        return queries.checker.getTypeOfSymbol(navigation.declarationSymbol(declaration, sourceFile));
-      },
-      declaredType(declaration: Node) {
-        const symbol = source.ast.is.IsClassExpression(declaration)
-          ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
-          : navigation.declarationSymbol(declaration, sourceFile);
-        return queries.checker.getDeclaredTypeOfSymbol(symbol);
-      },
-      typeSymbol: queries.checker.getTypeSymbol,
-      typeAliasSymbol: queries.checker.getTypeAliasSymbol,
-      aliasedSymbol: queries.checker.getAliasedSymbol,
-      symbolName: queries.checker.getSymbolName,
-      symbolDeclarations(symbol: Symbol) {
-        return definedValues(queries.checker.getSymbolDeclarations(symbol));
-      },
-      primarySymbolDeclaration: queries.checker.getPrimarySymbolDeclaration,
-      rootSymbols(symbol: Symbol) {
-        return definedValues(queries.checker.getRootSymbols(symbol));
-      },
-      declarationSignature: queries.checker.getSignatureFromDeclaration,
-      signatureDeclaration: queries.checker.getSignatureDeclaration,
-      signatureParameters(signature: Signature) {
-        return definedValues(queries.checker.getSignatureParameters(signature));
-      },
-    });
-    const facts = Object.freeze({
-      authoredTypeSubjects(node: Node) {
-        return authoredSourceTypeFactDependencies(
-          source.ast,
-          navigation,
-          source.sourceFacts,
-          queries.checker,
-          node,
-        );
-      },
-      authoredTypeNodes(node: Node) {
-        return authoredSourceTypeFactNodes(
-          source.ast,
-          navigation,
-          source.sourceFacts,
-          queries.checker,
-          node,
-        );
-      },
-      selectedSubjects(symbol: Symbol | undefined, declaration: Node | undefined) {
-        return sourceSelectedFactSubjects(queries.checker, symbol, declaration);
-      },
-      typeSubjects(type: Type) {
-        return sourceTypeFactSubjects(queries.checker, type);
-      },
-    });
-    const types: SourceFinalTypeQueries = Object.freeze({
-      expressionType(node: Node): Type | undefined {
-        const known = expressionTypes.get(node);
-        if (known !== undefined) return known;
-        const selected = queries.checker.getTypeAtLocation(node);
-        if (selected !== undefined) expressionTypes.set(node, selected);
-        return selected;
-      },
-      awaitedType: queries.checker.getAwaitedType,
-      authoredType: queries.checker.getTypeFromTypeNode,
-      contextualType(node: Node) {
-        return selectSourceContextualType(source.ast, queries.checker, forFile(sourceFile), node);
-      },
-      typeOfSymbol: queries.checker.getTypeOfSymbol,
-      declaredSymbolType: queries.checker.getDeclaredTypeOfSymbol,
-      writeSymbolType: queries.checker.getWriteTypeOfSymbol,
-      effectiveTypeArguments(type: Type) {
-        return getEffectiveSourceTypeArguments(source.ast, queries, type);
-      },
-      typeArgumentBindings(type: Type) {
-        return getSourceTypeArgumentBindings(source.ast, queries, type);
-      },
-      instantiatedBaseTypes: queries.typeShape.getInstantiatedBaseTypes,
-      instantiateAlias: queries.typeShape.instantiateTypeAlias,
-      aliasApplication: queries.typeShape.getTypeAliasApplication,
-      typeArguments(type: Type) {
-        return definedValues(queries.typeShape.getTypeArguments(type));
-      },
-      substitutionBaseType: queries.typeShape.getSubstitutionBaseType,
-      typeReferenceTarget: queries.typeShape.getTypeReferenceTarget,
-      tupleElementTypes(type: Type) {
-        return definedValues(queries.typeShape.getTupleElementTypes(type));
-      },
-      tupleElementInfos: queries.typeShape.getTupleElementInfos,
-      unionOrIntersectionTypes(type: Type) {
-        return definedValues(queries.typeShape.getUnionOrIntersectionTypes(type));
-      },
-      propertyInfos: queries.typeShape.getPropertyInfos,
-      ...createSourceStructuralMemberQueries(source.ast, queries.checker, queries.typeShape),
-      indexInfos: queries.typeShape.getIndexInfos,
-      indexedAccessComponents: queries.typeShape.getIndexedAccessComponents,
-      selectIndexedAccess: queries.typeShape.selectIndexedAccess,
-      callSignatures(type: Type) {
-        return definedValues(queries.typeShape.getCallSignatures(type));
-      },
-      constructSignatures(type: Type) {
-        return definedValues(queries.typeShape.getConstructSignatures(type));
-      },
-      signatureInfos: queries.typeShape.getSignatureInfos,
-      declarationSignatureInfo: queries.typeShape.getDeclarationSignatureInfo,
-      returnType: queries.typeShape.getReturnTypeOfSignature,
-      signatureParameterInfos: queries.typeShape.getSignatureParameterInfos,
-      signatureThisParameterInfo: queries.typeShape.getSignatureThisParameterInfo,
-      apparentType: queries.typeShape.getApparentType,
-      widenedType: queries.typeShape.getWidenedType,
-      literalBaseType: queries.typeShape.getBaseTypeOfLiteralType,
-      withoutMissingOrUndefined: queries.typeShape.removeMissingOrUndefined,
-      nonNullableType: queries.typeShape.getNonNullableType,
-      constantValue: queries.typeShape.getConstantValue,
-      numericLiteralValue: queries.typeShape.getNumericLiteralTypeValue,
-      stringLiteralValue: queries.typeShape.getStringLiteralTypeValue,
-      booleanLiteralValue: queries.typeShape.getBooleanLiteralTypeValue,
-      isAny: queries.typeShape.isAny,
-      isUnknown: queries.typeShape.isUnknown,
-      isNever: queries.typeShape.isNever,
-      isNonPrimitive: queries.typeShape.isNonPrimitive,
-      isVoidLike: queries.typeShape.isVoidLike,
-      isNullish: queries.typeShape.isNullish,
-      isStringLike: queries.typeShape.isStringLike,
-      isNumberLike: queries.typeShape.isNumberLike,
-      isBooleanLike: queries.typeShape.isBooleanLike,
-      isBigIntLike: queries.typeShape.isBigIntLike,
-      isSymbolLike: queries.typeShape.isSymbolLike,
-      isUnion: queries.typeShape.isUnion,
-      isIntersection: queries.typeShape.isIntersection,
-      isTypeReference: queries.typeShape.isTypeReference,
-      isTuple: queries.typeShape.isTuple,
-      isArrayLike: queries.typeShape.isArrayLike,
-      isIdentical: queries.typeShape.isTypeIdenticalTo,
-      couldContainTypeVariables: queries.typeShape.couldContainTypeVariables,
-      authoredSelection(authoredTypeNode: Node, selectedType: Type) {
-        return selectAuthoredSourceType(
-          source.ast,
-          queries.typeShape,
-          queries.checker,
-          source.sourceFacts,
-          authoredTypeNode,
-          selectedType,
-          forFile(sourceFile),
-        );
-      },
-      contextualValueSelection(node: Node) {
-        return selectSourceContextualValueType(
-          source.ast,
-          queries.typeShape,
-          queries.checker,
-          forFile(sourceFile),
-          node,
-        );
-      },
-      contextualTupleSelection(node: Node, presentElementCount: number) {
-        return selectSourceContextualTupleLiteral(types, node, presentElementCount);
-      },
-      refinement(declaredType: Type, selectedType: Type) {
-        return selectSourceTypeRefinement(
-          queries.typeShape,
-          queries.checker,
-          source.sourceFacts,
-          declaredType,
-          selectedType,
-        );
-      },
-      relationship(left: Type, right: Type) {
-        return sourceTypeRelationship(
-          queries.typeShape,
-          queries.checker,
-          source.sourceFacts,
-          left,
-          right,
-        );
-      },
-      standardTransformation(authoredTypeNode: Node | undefined, selectedType: Type) {
-        return selectStandardSourceTypeTransformation(
-          { ast: source.ast, navigation, semantics: forFile(sourceFile), semanticsFor: forNode },
-          authoredTypeNode,
-          selectedType,
-        );
-      },
-      callable(type: Type) {
-        return selectSourceCallableTypeEvidence(
-          type,
-          Object.freeze({
-            ...types,
-            signatureDeclaration: declarations.signatureDeclaration,
-          }),
-          source.ast,
-        );
-      },
-    });
-    return Object.freeze({
-      sourceFile,
-      propertyNameOperations: Object.freeze({
-        propertyName: queries.checker.getEffectivePropertyName,
-        objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
-        propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
-        elementAccess: queries.checker.getResolvedElementAccessInfo,
-        wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
-        call: queries.checker.getResolvedCallInfo,
-        callResult: operations.callResult,
-      }),
-      operations,
-      types,
-      declarations,
-      facts,
-    });
+  }
+  function publish(component: SourceInputComponent, receiver?: SourceTypeEvidence): SourceResult<SourceTypeEvidence> {
+    const bindings: SourceTypeBinding[] = [];
+    if (receiver !== undefined) {
+      owner.view.assertEvidence(receiver);
+      if (receiver.type.kind === "declared") {
+        for (const [index, declaration] of ast.typeParameters(receiver.type.declaration).entries()) {
+          if (declaration === undefined) throw new Error("An original declared receiver requires its complete binder vector.");
+          const value = owner.view.component(receiver, { kind: "type-argument", declaration: receiver.type.declaration, index });
+          if (value.kind === "refused") return owner.observe(value);
+          bindings.push({ declaration, value: value.value });
+        }
+      }
+    }
+    return settle(requiredReader().describeComponent(component, bindings));
+  }
+  function unavailable(node: Node, reason: string): SourceRefusal {
+    assertNode(node);
+    let records = unavailableRefusals.get(node);
+    const previous = records?.get(reason);
+    if (previous !== undefined) return previous;
+    if (records === undefined) { records = new Map(); unavailableRefusals.set(node, records); }
+    const refusal: SourceRefusal = Object.freeze({ kind: "refused", source: "tsonic", code: "TSONIC_SOURCE_FORM_UNSUPPORTED",
+      site: node, message: reason });
+    records.set(reason, refusal);
+    owner.observe(refusal);
+    return refusal;
   }
 
-  function publishFileViews(fileViews: readonly ReturnType<typeof createFileView>[]): void {
-    const propertyNames = analyzeSourcePropertyNames(source.ast, fileViews.map(view => ({
-      sourceFile: view.sourceFile,
-      semantics: { operations: view.propertyNameOperations, types: view.types, declarations: view.declarations },
-    })), navigation, enumConstants);
-    for (const [index, view] of fileViews.entries()) {
-      cache.set(view.sourceFile, Object.freeze({ sourceFile: view.sourceFile,
-        propertyNames: propertyNames[index]!.propertyNames, operations: view.operations,
-        types: view.types, declarations: view.declarations, facts: view.facts }));
-    }
-  }
+  const production: SourceFactProduction = Object.freeze({ ast, sourceFiles, inventory, input: input.input, view: owner.view,
+    get values() { return requiredSolved().values; },
+    get applications() { return requiredSolved().applications; },
+    get solvedProtocols() { return requiredSolved().protocols; },
+    assertNode,
+    assertApplication: application => requiredSolved().assertApplication(application),
+    originalComponent: owner.builder.originalComponent,
+    sourceOriginSubjects: owner.builder.sourceOriginSubjects,
+    publish, signature, unavailable,
+    literalDomain: node => settle(requiredSolved().literalDomain(node)),
+    syntaxDomain: node => settle(requiredSolved().syntaxDomain(node)) });
 
-  publishFileViews(sourceFiles.map(createFileView));
-
-  function forFile(sourceFile: SourceFile): SourceFileSemantics {
-    if (!source.containsSourceFile(sourceFile)) throw new Error("Source semantics require an exact source file from the checked program.");
-    if (!cache.has(sourceFile)) publishFileViews([createFileView(sourceFile)]);
-    const selected = cache.get(sourceFile);
-    return selected!;
-  }
-
-  const forNode = (node: Node): SourceFileSemantics => {
-    const sourceFile = source.ast.getSourceFile(node);
-    if (sourceFile === undefined) {
-      throw new Error("Source semantics require every source node to belong to the checked program.");
-    }
-    return forFile(sourceFile);
-  };
-
-  const selectValueTypeRefinement = (
-    node: Node,
-  ): SourceValueTypeRefinementSelection => {
-    const reference = navigation.referenceFor(node);
-    if (reference === undefined) {
-      return Object.freeze({ kind: "not-project-reference" });
-    }
-    const selectedSemantics = forNode(node);
-    const declaredType = selectedSemantics.declarations.declaredValueType(reference.declaration);
-    if (declaredType === undefined) {
-      return Object.freeze({
-        kind: "unresolved",
-        reference,
-        missing: "declared-type",
-      });
-    }
-    const selectedType = selectedSemantics.types.expressionType(node);
-    if (selectedType === undefined) {
-      return Object.freeze({
-        kind: "unresolved",
-        reference,
-        missing: "selected-type",
-      });
-    }
-    return Object.freeze({
-      kind: "resolved",
-      reference,
-      declaredType,
-      selectedType,
-      refinement: selectedSemantics.types.refinement(declaredType, selectedType),
-    });
-  };
-
-  const semantics: SourceProgramSemantics = Object.freeze({
-    enumConstants,
-    includes(sourceFile: SourceFile) {
-      return sourceFileSet.has(sourceFile);
+  const navigation = input.navigation(production);
+  const profile = input.profile(production);
+  const correspondence = createSourceMemberCorrespondenceQueries({ view: owner.view,
+    inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode, domain: owner.builder.domain });
+  solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
+    createDescriptorReader(hooks) {
+      if (reader !== undefined) throw new Error("A Source solve must create exactly one descriptor reader for its view.");
+      reader = createSourceTypeDescriptorReader({ input: input.input, builder: owner.builder, hooks, observe: owner.observe,
+        scalarDomain: (original, facts) => produceSourceScalarLiteralDomain(ast, original, facts),
+        syntaxProduction: (component, syntax, bindings, currentReader) => produceSourceSyntaxType({ ast,
+          input: input.input, builder: owner.builder, reader: currentReader, objects: requiredObjects(), component, syntax, bindings }) });
+      return reader;
     },
-    forFile,
-    forNode,
-    selectValueTypeRefinement,
-  });
-
-  const program = Object.freeze({
-    ast: source.ast,
-    sourceFiles,
-    documents,
-    sourceFacts: source.sourceFacts,
-    navigation,
-    semantics,
-  });
-  const effectiveTypes = analyzeSourceEffectiveTypes(program);
-  return Object.freeze({ ...program, effectiveTypes });
+    createPropertyNameQuery(queries) {
+      if (propertyName !== undefined) throw new Error("A Source solve must retain one property-name owner before collection.");
+      propertyName = input.propertyName(queries);
+      return propertyName;
+    },
+    createObjects(queries: SourceObjectProductionQueries) {
+      if (objectProduction !== undefined) throw new Error("A Source solve must retain one member-use and correspondence owner.");
+      const use = createSourceMemberUseQuery({ view: owner.view,
+        inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode,
+        select: input.memberUse, value: occurrence => queries.value(occurrence, []), compose: queries.memberValue,
+        destination: queries.memberDestination, unavailable });
+      objectProduction = Object.freeze({ ...correspondence, use });
+      return objectProduction;
+    } });
+  input.discharge(solved.dischargedDiagnostics);
+  for (const refusal of solved.refusals) owner.observe(refusal);
+  const completeObjects = objectProduction;
+  const completePropertyName = propertyName;
+  if (completeObjects === undefined || completePropertyName === undefined)
+    throw new Error("A Source solve must establish its required object and property-name owners before publication.");
+  const keyContains = (destination: SourceTypeEvidence, source: SourceTypeEvidence) => sourceEvidenceExtends(
+    { builder: owner.builder, objects: completeObjects }, destination, source);
+  const objects: SourceObjectFacts = Object.freeze({
+    correspondence: (source, destination, purpose) => settle(completeObjects.correspondence(source, destination, purpose, keyContains)),
+    correspondingMember: (source, destination, declaration, purpose) => settle(completeObjects.correspondingMember(source, destination, declaration, purpose, keyContains)),
+    use: occurrence => settle(completeObjects.use(occurrence)),
+    propertyName: name => settle(completePropertyName(name)) });
+  const protocols = input.protocols(production, navigation, objects);
+  const facts: SourceProgramFacts = Object.freeze({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
+    descriptors: owner.view, values: solved.values, applications: solved.applications,
+    enums: solved.enums, navigation, profile, objects, protocols, refusals: owner.refusals });
+  return Object.freeze({ ast, sourceFiles, documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
 }
-
-function definedValues<T>(values: readonly (T | undefined)[]): readonly T[] {
-  return Object.freeze(values.filter((value): value is T => value !== undefined));
-}
-
