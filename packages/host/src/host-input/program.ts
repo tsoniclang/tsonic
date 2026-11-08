@@ -1,6 +1,7 @@
 import { providerVirtualDeclarationFactKey, type CheckedSourceProgram, type Diagnostic, type Node, type SourceFile } from "@tsonic/tsts";
 import { createSourceProfileDeclarationQuery, createTargetSourceProgram, createSourceNodeInventory } from "@tsonic/target-api/host";
 import type { SourceJsApiFactsFactory, SourceProgramInput } from "@tsonic/target-api/host";
+import type { TargetSourceSafetyProvider } from "@tsonic/target-api";
 import { createSourceCoreInput, selectTsonicFixedArray } from "@tsonic/source-core/host";
 import type { TargetSourceProfileFile } from "../target/source-profile.js";
 import { createSourceDescriptorInput } from "./descriptor-factory.js";
@@ -13,6 +14,7 @@ export function createHostSourceProgramInput(options: {
   readonly checked: CheckedSourceProgram;
   readonly apiFacts: SourceJsApiFactsFactory | undefined;
   readonly profileFiles: readonly TargetSourceProfileFile[];
+  readonly safetyProviders: readonly TargetSourceSafetyProvider[];
 }) {
   const { checked } = options;
   void checked.diagnostics;
@@ -39,7 +41,8 @@ export function createHostSourceProgramInput(options: {
       if (selected.kind === "invalid") throw new Error(selected.reason);
       return Object.freeze({ length: selected.fact.length, runtimeBase: selected.fact.lengthRuntimeBase });
     } });
-  const core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent, syntax: raw.input.syntax });
+  const core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent,
+    syntax: raw.input.syntax, safetyProviders: options.safetyProviders });
   const navigation = createSourceNodeNavigationInput({ checked, sourceFiles, inventory, assertNode,
     identities: raw.identities, originalSignature: raw.facts.originalSignature });
   const none = Object.freeze({ kind: "none" } as const);

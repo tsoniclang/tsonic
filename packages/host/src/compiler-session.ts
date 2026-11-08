@@ -7,6 +7,7 @@ import type {
   TargetPack,
   TargetSelection,
   TargetSourceCompilerContributions,
+  TargetSourceSafetyProvider,
   TargetSourcePackageGraph,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
@@ -55,15 +56,16 @@ export interface CheckTargetSourceFilesOptions extends Omit<CheckTargetSourceOpt
 export function checkTargetSource(
   options: CheckTargetSourceOptions,
 ): CheckedTargetSource {
+  const composition = sourceCompilerComposition(options);
   const compiler = createCompilerSession({
     programOptions: options.programOptions,
-    extensionHostOptions: extensionHostOptions(options),
+    extensionHostOptions: composition.extensionHostOptions,
   });
   const source = compiler.checkSource();
   return Object.freeze({
     source,
     sourcePackages: options.sourcePackages,
-    adjudicated: adjudicateCheckedSource(source, options.currentDirectory, options.sourceProfile, options.targetPack.id),
+    adjudicated: adjudicateCheckedSource(source, options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders),
   });
 }
 
@@ -72,18 +74,19 @@ export function checkTargetSourceFiles(options: CheckTargetSourceFilesOptions): 
     return rejectedTargetStage(options.sourceProfile.diagnostics);
   const files = options.files instanceof Map ? new Map(options.files) : new Map(Object.entries(options.files));
   for (const file of options.sourceProfile.files) files.set(file.path, file.text);
+  const composition = sourceCompilerComposition(options);
   const compiler = createCompilerSessionFromFiles({
     currentDirectory: options.currentDirectory,
     files,
     ...(options.rootFiles === undefined ? {} : { rootFiles: options.rootFiles }),
     ...(options.configFileName === undefined ? {} : { configFileName: options.configFileName }),
     ...(options.compilerOptions === undefined ? {} : { compilerOptions: { ...options.compilerOptions } }),
-    extensionHostOptions: extensionHostOptions(options),
+    extensionHostOptions: composition.extensionHostOptions,
   });
-  return adjudicateCheckedSource(compiler.checkSource(), options.currentDirectory, options.sourceProfile, options.targetPack.id);
+  return adjudicateCheckedSource(compiler.checkSource(), options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders);
 }
 
-function extensionHostOptions(options: Omit<CheckTargetSourceOptions, "programOptions" | "sourcePackages">) {
+function sourceCompilerComposition(options: Omit<CheckTargetSourceOptions, "programOptions" | "sourcePackages">) {
   const composition = createTargetSourceCompilerComposition({
     project: options.project,
     projectDirectory: options.projectDirectory,
@@ -94,16 +97,20 @@ function extensionHostOptions(options: Omit<CheckTargetSourceOptions, "programOp
     targetContributions: options.targetContributions,
   });
   return Object.freeze({
-    extensions: composition.extensions,
-    requiredProviderModules: getTargetRequiredProviderModules(options.target, options.targetPack.provider, options.selectedCapabilities),
+    safetyProviders: composition.safetyProviders,
+    extensionHostOptions: Object.freeze({
+      extensions: composition.extensions,
+      requiredProviderModules: getTargetRequiredProviderModules(options.target, options.targetPack.provider, options.selectedCapabilities),
+    }),
   });
 }
 
 function adjudicateCheckedSource(checked: CheckedSourceProgram, currentDirectory: string,
-  profile: CollectedTargetSourceProfile, targetId: string): TargetStageResult<TargetSourceProgram> {
+  profile: CollectedTargetSourceProfile, targetId: string,
+  safetyProviders: readonly TargetSourceSafetyProvider[]): TargetStageResult<TargetSourceProgram> {
   void checked.diagnostics;
   try {
-    const assembled = createHostSourceProgram({ checked, apiFacts: profile.apiFacts, profileFiles: profile.files });
+    const assembled = createHostSourceProgram({ checked, apiFacts: profile.apiFacts, profileFiles: profile.files, safetyProviders });
     const diagnostics = Object.freeze([...profile.diagnostics,
       ...collectTstsDiagnostics(checked, currentDirectory, assembled.dischargedDiagnostics)]);
     return diagnostics.some(diagnostic => diagnostic.category === "error")

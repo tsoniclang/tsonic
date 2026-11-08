@@ -35,6 +35,7 @@ export type {
   TargetCompositionContext,
   TargetProviderDescriptor,
   TargetSourceCompilerContributions,
+  TargetSourceSafetyProvider,
   TargetSurfaceImplementation,
 } from "../target/composition.js";
 export type {

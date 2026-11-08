@@ -4,6 +4,7 @@ import {
 import type {
   CompilerExtension,
   RequiredProviderModuleSpec,
+  SourceDeclarationProvider,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
 import {
@@ -17,6 +18,7 @@ import type {
   TargetProviderDescriptor,
   TargetSelection,
   TargetSourceCompilerContributions,
+  TargetSourceSafetyProvider,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
@@ -39,6 +41,7 @@ export interface CreateTargetSourceCompilerCompositionOptions {
 export interface TargetSourceCompilerComposition {
   readonly semanticsModules: readonly SourceSemanticsModule[];
   readonly extensions: readonly CompilerExtension[];
+  readonly safetyProviders: readonly TargetSourceSafetyProvider[];
 }
 
 export interface CaptureTargetCapabilityContributionsOptions {
@@ -104,26 +107,39 @@ export function createTargetSourceCompilerComposition(
       surface,
     })) ?? {},
   );
+  const contributions = [options.targetContributions, ...capabilityContributions, ...surfaceContributions];
+  for (const contribution of contributions) {
+    for (const key of Reflect.ownKeys(contribution)) {
+      const field = Object.getOwnPropertyDescriptor(contribution, key);
+      if (typeof key !== "string" || !["semanticsModules", "declarationProviders", "safetyProviders", "dataLayouts"].includes(key) ||
+        field === undefined || !("value" in field) || field.value !== undefined && !Array.isArray(field.value))
+        throw new Error("Target Source compiler contributions require only their declared provider, safety, semantics and layout data vectors.");
+    }
+  }
   const semanticsModules = Object.freeze([
     ...tsonicCoreSourceSemanticsModules(),
-    ...(options.targetContributions.semanticsModules ?? []),
-    ...capabilityContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
-    ...surfaceContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
+    ...contributions.flatMap(contribution => contribution.semanticsModules ?? []),
   ]);
+  const declarationProviders = Object.freeze(contributions.flatMap(contribution => contribution.declarationProviders ?? []));
+  const safetyProviders = Object.freeze(contributions.flatMap(contribution => contribution.safetyProviders ?? [])
+    .map(provider => Object.freeze({ ...provider, names: Object.freeze({ ...provider.names }) })));
   const extensions = Object.freeze([
     createSourceSemanticsExtension({ modules: semanticsModules }),
     createTsonicCoreSourceExtension({
-      dataLayouts: [
-        ...(options.targetContributions.dataLayouts ?? []),
-        ...capabilityContributions.flatMap((contribution) => contribution.dataLayouts ?? []),
-        ...surfaceContributions.flatMap((contribution) => contribution.dataLayouts ?? []),
-      ],
+      dataLayouts: contributions.flatMap(contribution => contribution.dataLayouts ?? []),
     }),
-    ...(options.targetContributions.extensions ?? []),
-    ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
-    ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),
+    ...(declarationProviders.length === 0 ? [] : [createDeclarationProviderRegistration(declarationProviders)]),
   ]);
-  return Object.freeze({ semanticsModules, extensions });
+  return Object.freeze({ semanticsModules, extensions, safetyProviders });
+}
+
+function createDeclarationProviderRegistration(providers: readonly SourceDeclarationProvider[]): CompilerExtension {
+  return Object.freeze<CompilerExtension>({
+    identity: Object.freeze({ id: "tsonic.source-declarations", version: "1" }),
+    initialize(context) {
+      for (const provider of providers) context.registerSourceDeclarationProvider(provider);
+    },
+  });
 }
 
 export function getTargetRequiredProviderModules(

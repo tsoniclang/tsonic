@@ -29,6 +29,7 @@ export type {
   TargetRuntimeContributionContext,
   TargetSurfaceCompositionContext,
   TargetSourceCompilerContributions,
+  TargetSourceSafetyProvider,
   TargetSurfaceImplementation,
   TsonicTargetCapabilityPlugin,
 } from "../target/composition.js";

@@ -7,6 +7,7 @@ export type { SourceProfileDeclarationIdentity } from "../source-model/profile-i
 export type * from "../source-model/protocols.js";
 export type * from "../source-model/pointers.js";
 export type * from "../source-model/markers.js";
+export type * from "../source-model/safety.js";
 export type * from "../source-model/navigation.js";
 export type * from "../source-model/member-use.js";
 export type { SourceLiteralUnit } from "../source-model/literals/domain.js";

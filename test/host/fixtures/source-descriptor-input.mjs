@@ -27,6 +27,7 @@ export function sourceDescriptorInputFixture(files) {
       if (selected?.kind === "invalid") throw new Error(selected.reason);
       return selected === undefined ? undefined : { length: selected.fact.length, runtimeBase: selected.fact.lengthRuntimeBase };
     } });
-  core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent, syntax: raw.input.syntax });
+  core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent,
+    syntax: raw.input.syntax, safetyProviders: [] });
   return { session, checked, ast, inventory, assertNode, ...raw };
 }

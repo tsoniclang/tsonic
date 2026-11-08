@@ -1,4 +1,4 @@
-import type { CompilerExtension, SourceSemanticsModule } from "@tsonic/tsts";
+import type { SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 import type { TsonicDataLayoutRegistration } from "./data-layout.js";
 import type { TargetRuntimeContributions } from "../artifacts.js";
 import type { TargetSelection, TargetSurfaceId, TsonicProjectConfig } from "../config.js";
@@ -13,9 +13,23 @@ export interface TargetCompositionContext {
   readonly selectedSurfaceIds: readonly TargetSurfaceId[];
 }
 
+export interface TargetSourceSafetyProvider {
+  readonly providerId: string;
+  readonly providerVersion: string;
+  readonly providerModuleId: string;
+  readonly names: {
+    readonly moduleSpecifier: string;
+    readonly unsafeContextExport: string;
+    readonly safetyExport: string;
+    readonly safetyBuilderExport: string;
+    readonly safetyMemberBuilderExport: string;
+  };
+}
+
 export interface TargetSourceCompilerContributions {
   readonly semanticsModules?: readonly SourceSemanticsModule[];
-  readonly extensions?: readonly CompilerExtension[];
+  readonly declarationProviders?: readonly SourceDeclarationProvider[];
+  readonly safetyProviders?: readonly TargetSourceSafetyProvider[];
   readonly dataLayouts?: readonly TsonicDataLayoutRegistration[];
 }
 

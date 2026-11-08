@@ -26,6 +26,7 @@ import { createSourceControlFlowQueries } from "../target-analysis/flow/graph.js
 import { createSourceIntegerFacts } from "../source-navigation/integer-ranges/index.js";
 import { createSourceStorageAnalysis } from "../target-analysis/source-storage/analysis.js";
 import type { SourceStorageAnalysisInputs } from "../target-analysis/source-storage/model/program.js";
+import { createSourceSafetyFacts } from "../target-analysis/source-safety-production.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
   return composeSourceProgram(input).program;
@@ -198,6 +199,10 @@ export function composeSourceProgram(input: SourceProgramInput) {
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
     values: solved.values, navigation, memberPlace: completeMemberUses.place,
     inventory: memberInventory, storageAnalysis: options => createSourceStorageAnalysis(program, storageInputs, options),
+    safety: createSourceSafetyFacts({ ast, input: input.core, assertNode, observe(refusal) {
+      owner.observe(refusal);
+      return refusal;
+    } }),
     signature, solved: solved.protocols, controlFlow, pointers: createSourcePointerFacts({ core: input.core,
       applications: solved.applications, values: solved.values, view: owner.view, assertNode,
       originalComponent: owner.builder.originalComponent, sourceOriginSubjects: owner.builder.sourceOriginSubjects,
