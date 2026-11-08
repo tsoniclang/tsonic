@@ -1,25 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createSourceCoreInput } from "@tsonic/source-core/host";
-import { createSourceNodeInventory } from "@tsonic/target-api/host";
-import { createSourceDescriptorInput } from "../../packages/host/dist/host-input/descriptor-factory.js";
+import { sourceDescriptorInputFixture } from "../host/fixtures/source-descriptor-input.mjs";
 import { produceSourceDefinitionParameters } from "../../packages/target-api/dist/source-semantics/local-type-flow/definition-parameters.js";
 
 for (const unavailable of ["missing", "foreign"]) test(`a ${unavailable} checked this-owner binding vector cannot be reconstructed from syntax`, () => {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+  const raw = sourceDescriptorInputFixture({
     "/src/index.ts": `export function wrap<Outer>(first: Outer) {
       class Local<Inner> { first: Outer; value: Inner;
         constructor(first: Outer, value: Inner) { this.first = first; this.value = value; } }
       return new Local<string>(first, "value"); }`,
-  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  });
+  const { checked } = raw;
   assert.equal(checked.diagnostics.length, 0, "the original Source fixture checks without diagnostics");
-  const inventory = createSourceNodeInventory(checked, checked.programSourceFiles);
-  const assertNode = node => {
-    if (!inventory.contains(node)) throw new Error("The factual input requires an original node of this checked program.");
-  };
-  const raw = createSourceDescriptorInput({ checked, assertNode, markers: node => core.markers(node), extent: () => undefined });
-  const core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent, syntax: raw.input.syntax });
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
   const pending = [file];
