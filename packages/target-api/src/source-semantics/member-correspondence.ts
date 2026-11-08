@@ -3,7 +3,7 @@ import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceRe
 import { sourceLiteralUnitsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
-import type { SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
+import type { SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow, SourceMemberSubject } from "./member-inventory.js";
 
 export interface SourceCorrespondenceMember {
   readonly receiver: SourceTypeEvidence;
@@ -31,9 +31,11 @@ export interface SourceCorrespondenceIndex {
   readonly readonly: boolean;
 }
 
-export type SourceMemberPair =
-  | { readonly kind: "present"; readonly source: SourceCorrespondenceMember; readonly destination: SourceCorrespondenceMember }
-  | { readonly kind: "absent"; readonly destination: SourceCorrespondenceMember };
+export type SourceCorrespondenceMemberIdentity = Omit<SourceCorrespondenceMember, "receiver" | "readType" | "writeType">;
+
+export type SourceMemberPair<Member extends SourceCorrespondenceMemberIdentity = SourceCorrespondenceMember> =
+  | { readonly kind: "present"; readonly source: Member; readonly destination: Member }
+  | { readonly kind: "absent"; readonly destination: Member };
 
 export interface SourceIndexPair {
   readonly destination: SourceCorrespondenceIndex;
@@ -64,6 +66,8 @@ export interface SourceMemberCorrespondenceProduction {
     keyContains: SourceIndexKeyContains): SourceProductionResult<SourceMemberCorrespondence>;
   correspondingMember(source: SourceTypeEvidence, destination: SourceTypeEvidence, declaration: Node,
     purpose: "correspondence" | "read", keyContains: SourceIndexKeyContains): SourceProductionResult<SourcePresence<SourceMemberPair>>;
+  correspondingDeclarations(source: SourceMemberSubject, destination: SourceMemberSubject, role: "source" | "destination",
+    declaration: Node): SourceProductionResult<SourcePresence<SourceMemberPair<SourceMemberInventoryRow>> | { readonly kind: "unavailable" }>;
 }
 
 export function createSourceMemberCorrespondenceQueries(input: {
@@ -74,17 +78,24 @@ export function createSourceMemberCorrespondenceQueries(input: {
 }): SourceMemberCorrespondenceProduction {
   const { view, inventory, assertNode, domain } = input;
   type Unavailable = Extract<SourceMemberCorrespondence, { readonly kind: "unavailable" }>;
+  type IdentityPair = SourceMemberPair<SourceMemberInventoryRow>;
   interface Selection {
-    readonly members: readonly SourceMemberPair[];
-    readonly correspondence: SourceMemberCorrespondence;
-    readonly readable: SourceMemberCorrespondence;
+    readonly members: readonly IdentityPair[];
+    readonly failure: Unavailable | undefined;
   }
-  const selections = new WeakMap<SourceTypeEvidence, WeakMap<SourceTypeEvidence, Selection>>();
-  const inventories = new WeakMap<SourceTypeEvidence, SourceMemberInventory>();
+  const selections = new WeakMap<Node | SourceTypeEvidence, WeakMap<Node | SourceTypeEvidence, Selection>>();
+  const inventories = new WeakMap<Node | SourceTypeEvidence, Extract<SourceMemberInventory, { readonly kind: "complete" }>>();
+  const rowIndexes = new WeakMap<Node | SourceTypeEvidence, ReadonlyMap<string | Node, readonly SourceMemberInventoryRow[]>>();
+  const members = new WeakMap<SourceTypeEvidence, WeakMap<SourceMemberInventoryRow, SourceCorrespondenceMember>>();
   const unavailable = (reason: Unavailable["reason"]): Unavailable => Object.freeze({ kind: "unavailable", reason });
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
-  const sameKey = (left: SourceLiteralKey, right: SourceLiteralKey): boolean => left.kind === "name"
-    ? right.kind === "name" && left.name === right.name : right.kind === "symbol" && left.declaration === right.declaration;
+  const key = (value: SourceLiteralKey): string | Node => value.kind === "name" ? value.name : value.declaration;
+  const evidence = (value: SourceTypeEvidence): SourceMemberSubject => ({ kind: "evidence", value });
+  const subjectKey = (subject: SourceMemberSubject): Node | SourceTypeEvidence => {
+    if (subject.kind === "evidence") { view.assertEvidence(subject.value); return subject.value; }
+    assertNode(subject.occurrence);
+    return subject.occurrence;
+  };
   const authenticateOrigins = (origins: readonly SourceMemberOrigin[]): void => {
     for (const origin of origins) {
       if (origin.kind === "declared") assertNode(origin.declaration);
@@ -94,160 +105,197 @@ export function createSourceMemberCorrespondenceQueries(input: {
       }
     }
   };
-  const authenticateMember = (member: SourceMemberInventoryRow): void => {
-    if (member.key.kind === "symbol") assertNode(member.key.declaration);
-    else if (member.key.name !== member.name) throw new Error("A Source member name must retain its canonical property key.");
-    for (const declaration of [...member.declarations, ...member.getters, ...member.setters]) assertNode(declaration);
-    authenticateOrigins(member.origins);
-    authenticateOrigins(member.readOrigins);
-    authenticateOrigins(member.writeOrigins);
-    if (member.readType !== undefined) view.assertEvidence(member.readType);
-    if (member.writeType !== undefined) view.assertEvidence(member.writeType);
-  };
-  const authenticateIndex = (index: SourceIndexInventoryRow): void => {
-    for (const declaration of index.declarations) assertNode(declaration);
-    view.assertEvidence(index.keyType);
-    if (index.readType !== undefined) view.assertEvidence(index.readType);
-    if (index.writeType !== undefined) view.assertEvidence(index.writeType);
-  };
-  const membersFor = (value: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory> => {
-    view.assertEvidence(value);
+  const membersFor = (subject: SourceMemberSubject): SourceProductionResult<SourceMemberInventory> => {
+    const value = subjectKey(subject);
     const retained = inventories.get(value);
     if (retained !== undefined) return resolved(retained);
-    const selected = inventory.members(value);
+    const selected = subject.kind === "evidence" ? inventory.members(subject.value) : inventory.construction(subject.occurrence);
     if (selected.kind !== "resolved") return selected;
-    if (selected.value.kind === "complete") {
-      for (const member of selected.value.members) authenticateMember(member);
-      for (const index of selected.value.indexes) authenticateIndex(index);
+    if (selected.value.kind !== "complete") return selected;
+    for (const member of selected.value.members) {
+      if (member.key.kind === "symbol") assertNode(member.key.declaration);
+      else if (member.key.name !== member.name) throw new Error("A Source member name must retain its canonical property key.");
+      for (const declaration of [...member.declarations, ...member.getters, ...member.setters]) assertNode(declaration);
+      authenticateOrigins(member.origins);
+      authenticateOrigins(member.readOrigins);
+      authenticateOrigins(member.writeOrigins);
     }
+    for (const index of selected.value.indexes) for (const declaration of index.declarations) assertNode(declaration);
+    const indexed = new Map<string | Node, SourceMemberInventoryRow[]>();
+    for (const member of selected.value.members) {
+      const identity = key(member.key);
+      const previous = indexed.get(identity);
+      if (previous === undefined) indexed.set(identity, [member]);
+      else previous.push(member);
+    }
+    rowIndexes.set(value, indexed);
     inventories.set(value, selected.value);
     return selected;
   };
-  const disjoint = (pair: SourceMemberPair): boolean => {
-    if (pair.kind !== "present" || pair.source.optional || pair.destination.optional ||
-      pair.source.readType === undefined || pair.destination.readType === undefined) return false;
-    const from = domain(pair.source.readType), to = domain(pair.destination.readType);
+  const component = (produce: () => SourceProductionResult<SourcePresence<SourceTypeEvidence>>):
+    SourceProductionResult<SourceTypeEvidence | undefined> => {
+    const selected = produce();
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "none") return resolved(undefined);
+    view.assertEvidence(selected.value.value);
+    return resolved(selected.value.value);
+  };
+  const member = (receiver: SourceTypeEvidence, row: SourceMemberInventoryRow): SourceProductionResult<SourceCorrespondenceMember> => {
+    view.assertEvidence(receiver);
+    let byRow = members.get(receiver);
+    const retained = byRow?.get(row);
+    if (retained !== undefined) return resolved(retained);
+    const readType = component(() => row.readType());
+    if (readType.kind !== "resolved") return readType;
+    const writeType = component(() => row.writeType());
+    if (writeType.kind !== "resolved") return writeType;
+    const selected = Object.freeze({ ...row, receiver, readType: readType.value, writeType: writeType.value });
+    if (byRow === undefined) { byRow = new WeakMap(); members.set(receiver, byRow); }
+    byRow.set(row, selected);
+    return resolved(selected);
+  };
+  const pair = (source: SourceTypeEvidence, target: SourceTypeEvidence, original: IdentityPair): SourceProductionResult<SourceMemberPair> => {
+    const destination = member(target, original.destination);
+    if (destination.kind !== "resolved") return destination;
+    if (original.kind === "absent") return resolved(Object.freeze({ kind: "absent", destination: destination.value }));
+    const actual = member(source, original.source);
+    return actual.kind !== "resolved" ? actual : resolved(Object.freeze({ kind: "present", source: actual.value, destination: destination.value }));
+  };
+  const disjoint = (selected: SourceMemberPair): boolean => {
+    if (selected.kind !== "present" || selected.source.optional || selected.destination.optional ||
+      selected.source.readType === undefined || selected.destination.readType === undefined) return false;
+    const from = domain(selected.source.readType), to = domain(selected.destination.readType);
     return from.kind === "finite" && to.kind === "finite" &&
       !from.values.some(origin => to.values.some(target => sourceLiteralUnitsEqual(origin, target)));
   };
-  const select = (source: SourceTypeEvidence, destination: SourceTypeEvidence): SourceProductionResult<Selection> => {
-    view.assertEvidence(source);
-    view.assertEvidence(destination);
-    const retained = selections.get(source)?.get(destination);
+  const select = (source: SourceMemberSubject, destination: SourceMemberSubject): SourceProductionResult<Selection> => {
+    const sourceKey = subjectKey(source), destinationKey = subjectKey(destination);
+    const retained = selections.get(sourceKey)?.get(destinationKey);
     if (retained !== undefined) return resolved(retained);
     const from = membersFor(source);
     if (from.kind !== "resolved") return from;
     const to = membersFor(destination);
     if (to.kind !== "resolved") return to;
-    if (from.value.kind !== "complete" || to.value.kind !== "complete") {
-      const result = unavailable("unresolved-shape");
-      return resolved(Object.freeze({ members: Object.freeze([]), correspondence: result, readable: result }));
-    }
+    if (from.value.kind !== "complete" || to.value.kind !== "complete")
+      return resolved(Object.freeze({ members: Object.freeze([]), failure: unavailable("unresolved-shape") }));
     const arms: Extract<SourceMemberInventory, { readonly kind: "complete" }>[] = [];
-    if (source.sum !== undefined) {
-      for (const arm of source.sum.arms) {
-        const selected = membersFor(arm);
-        if (selected.kind !== "resolved") return selected;
-        if (selected.value.kind !== "complete") {
-          const result = unavailable("unresolved-shape");
-          return resolved(Object.freeze({ members: Object.freeze([]), correspondence: result, readable: result }));
-        }
-        arms.push(selected.value);
-      }
+    if (source.kind === "evidence" && source.value.sum !== undefined) for (const arm of source.value.sum.arms) {
+      const selected = membersFor(evidence(arm));
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.kind !== "complete")
+        return resolved(Object.freeze({ members: Object.freeze([]), failure: unavailable("unresolved-shape") }));
+      arms.push(selected.value);
     }
     let failure: Unavailable | undefined;
-    let readFailure: Unavailable | undefined;
     let ambiguous = false;
-    const pairs: SourceMemberPair[] = [];
-    for (const rows of [from.value.members, to.value.members]) {
-      for (let index = 0; index < rows.length; index++) {
-        if (!rows.slice(0, index).some(previous => sameKey(previous.key, rows[index]!.key))) continue;
-        failure = unavailable("inconsistent-member");
-        readFailure = failure;
-        ambiguous = true;
-      }
+    const pairs: IdentityPair[] = [];
+    for (const subject of [source, destination]) for (const values of rowIndexes.get(subjectKey(subject))!.values()) {
+      if (values.length <= 1) continue;
+      failure = unavailable("inconsistent-member");
+      ambiguous = true;
     }
-    for (const member of to.value.members) {
-      const required: SourceCorrespondenceMember = Object.freeze({ ...member, receiver: destination });
-      const candidates = from.value.members.filter(candidate => sameKey(candidate.key, member.key));
-      const presence = arms.map(arm => arm.members.filter(candidate => sameKey(candidate.key, member.key)).length);
-      if (presence.some(count => count !== 0) && presence.some(count => count !== 1)) {
+    for (const target of to.value.members) {
+      const candidates = rowIndexes.get(sourceKey)!.get(key(target.key)) ?? [];
+      const presence = arms.map(arm => arm.members.filter(candidate => key(candidate.key) === key(target.key)).length);
+      if (candidates.length > 1 || presence.some(count => count !== 0) && presence.some(count => count !== 1)) {
         failure ??= unavailable("inconsistent-member");
-        readFailure ??= failure;
         continue;
       }
-      if (candidates.length > 1) continue;
       if (candidates.length === 0) {
-        pairs.push(Object.freeze({ kind: "absent", destination: required }));
-        if (!member.optional) {
-          failure ??= unavailable("missing-required-member");
-          readFailure ??= failure;
-        }
-        continue;
-      }
-      if (presence.some(count => count !== 1)) {
-        failure ??= unavailable("inconsistent-member");
-        readFailure ??= failure;
-        continue;
-      }
-      const actual: SourceCorrespondenceMember = Object.freeze({ ...candidates[0]!, receiver: source });
-      if (actual.read === "unavailable" || actual.readType === undefined) readFailure ??= unavailable("unreadable-member");
-      pairs.push(Object.freeze({ kind: "present", source: actual, destination: required }));
+        pairs.push(Object.freeze({ kind: "absent", destination: target }));
+        if (!target.optional) failure ??= unavailable("missing-required-member");
+      } else if (presence.some(count => count !== 1)) failure ??= unavailable("inconsistent-member");
+      else pairs.push(Object.freeze({ kind: "present", source: candidates[0]!, destination: target }));
     }
-    const literalDisjoint = pairs.some(disjoint);
-    if (literalDisjoint) { failure = unavailable("disjoint-shape"); readFailure = failure; }
-    const members = Object.freeze(pairs);
-    const available: SourceMemberCorrespondence = Object.freeze({ kind: "available", source, destination,
-      members, indexes: Object.freeze([]) });
-    const result: Selection = Object.freeze({ members: ambiguous || literalDisjoint ? Object.freeze([]) : members,
-      correspondence: failure ?? available, readable: readFailure ?? failure ?? available });
-    let destinations = selections.get(source);
-    if (destinations === undefined) { destinations = new WeakMap(); selections.set(source, destinations); }
-    destinations.set(destination, result);
+    const result: Selection = Object.freeze({ members: ambiguous ? Object.freeze([]) : Object.freeze(pairs), failure });
+    let destinations = selections.get(sourceKey);
+    if (destinations === undefined) { destinations = new WeakMap(); selections.set(sourceKey, destinations); }
+    destinations.set(destinationKey, result);
     return resolved(result);
+  };
+  const index = (receiver: SourceTypeEvidence, row: SourceIndexInventoryRow): SourceProductionResult<SourceCorrespondenceIndex> => {
+    const keyType = row.keyType();
+    if (keyType.kind !== "resolved") return keyType;
+    view.assertEvidence(keyType.value);
+    const readType = component(() => row.readType());
+    if (readType.kind !== "resolved") return readType;
+    const writeType = component(() => row.writeType());
+    return writeType.kind !== "resolved" ? writeType : resolved(Object.freeze({ receiver, declarations: row.declarations,
+      keyType: keyType.value, readType: readType.value, writeType: writeType.value, readonly: row.readonly }));
   };
   const assertPurpose = (purpose: "correspondence" | "read"): void => {
     if (purpose !== "correspondence" && purpose !== "read")
       throw new TypeError("Source member correspondence requires an explicit correspondence or read purpose.");
   };
-  return Object.freeze({
+  const queries: SourceMemberCorrespondenceProduction = Object.freeze({
+    correspondingDeclarations(source: SourceMemberSubject, destination: SourceMemberSubject, role: "source" | "destination",
+      declaration: Node): SourceProductionResult<SourcePresence<IdentityPair> | { readonly kind: "unavailable" }> {
+      if (role !== "source" && role !== "destination") throw new TypeError("Source declaration correspondence requires its explicit source or destination role.");
+      assertNode(declaration);
+      const selected = select(source, destination);
+      if (selected.kind !== "resolved") return selected;
+      const matches = selected.value.members.filter(value => role === "destination" ? value.destination.declarations.includes(declaration)
+        : value.kind === "present" && value.source.declarations.includes(declaration));
+      if (matches.length === 1) return resolved(Object.freeze({ kind: "present", value: matches[0]! }));
+      return resolved(selected.value.failure?.reason === "unresolved-shape" || selected.value.failure?.reason === "inconsistent-member"
+        ? Object.freeze({ kind: "unavailable" }) : Object.freeze({ kind: "none" }));
+    },
     correspondence(source: SourceTypeEvidence, destination: SourceTypeEvidence, purpose: "correspondence" | "read",
       keyContains: SourceIndexKeyContains): SourceProductionResult<SourceMemberCorrespondence> {
       assertPurpose(purpose);
-      const selected = select(source, destination);
+      const selected = select(evidence(source), evidence(destination));
       if (selected.kind !== "resolved") return selected;
-      const result = purpose === "read" ? selected.value.readable : selected.value.correspondence;
-      if (result.kind !== "available") return resolved(result);
-      const from = membersFor(source), to = membersFor(destination);
+      const published: SourceMemberPair[] = [];
+      let failure = selected.value.failure;
+      for (const original of selected.value.members) {
+        const current = pair(source, destination, original);
+        if (current.kind !== "resolved") return current;
+        if (purpose === "read" && current.value.kind === "present" &&
+          (current.value.source.read === "unavailable" || current.value.source.readType === undefined)) failure ??= unavailable("unreadable-member");
+        published.push(current.value);
+      }
+      if (published.some(disjoint)) return resolved(unavailable("disjoint-shape"));
+      if (failure !== undefined) return resolved(failure);
+      const from = membersFor(evidence(source)), to = membersFor(evidence(destination));
       if (from.kind !== "resolved") return from;
       if (to.kind !== "resolved") return to;
       if (from.value.kind !== "complete" || to.value.kind !== "complete") return resolved(unavailable("unresolved-shape"));
       const indexes: SourceIndexPair[] = [];
       for (const target of to.value.indexes) {
+        const destinationIndex = index(destination, target);
+        if (destinationIndex.kind !== "resolved") return destinationIndex;
         const candidates: SourceIndexPair["sources"][number][] = [];
         for (const actual of from.value.indexes) {
-          const coverage = keyContains(target.keyType, actual.keyType);
+          const sourceIndex = index(source, actual);
+          if (sourceIndex.kind !== "resolved") return sourceIndex;
+          const coverage = keyContains(destinationIndex.value.keyType, sourceIndex.value.keyType);
           if (coverage.kind !== "resolved") return coverage;
-          if (coverage.value !== "no") candidates.push(Object.freeze({
-            source: Object.freeze({ ...actual, receiver: source }), coverage: coverage.value }));
+          if (coverage.value !== "no") candidates.push(Object.freeze({ source: sourceIndex.value, coverage: coverage.value }));
         }
-        indexes.push(Object.freeze({ destination: Object.freeze({ ...target, receiver: destination }), sources: Object.freeze(candidates) }));
+        indexes.push(Object.freeze({ destination: destinationIndex.value, sources: Object.freeze(candidates) }));
       }
-      return resolved(Object.freeze({ ...result, indexes: Object.freeze(indexes) }));
+      return resolved(Object.freeze({ kind: "available", source, destination, members: Object.freeze(published), indexes: Object.freeze(indexes) }));
     },
     correspondingMember(source: SourceTypeEvidence, destination: SourceTypeEvidence, declaration: Node,
       purpose: "correspondence" | "read", _keyContains: SourceIndexKeyContains): SourceProductionResult<SourcePresence<SourceMemberPair>> {
       assertPurpose(purpose);
-      assertNode(declaration);
-      const selected = select(source, destination);
+      const selected = queries.correspondingDeclarations(evidence(source), evidence(destination), "destination", declaration);
       if (selected.kind !== "resolved") return selected;
-      const matches = selected.value.members.filter(member => member.destination.declarations.includes(declaration));
-      if (matches.length !== 1) return resolved(Object.freeze({ kind: "none" }));
-      const member = matches[0]!;
-      if (member.kind === "present" && (member.source.declarations.length === 0 ||
-        purpose === "read" && (member.source.read === "unavailable" || member.source.readType === undefined)))
+      if (selected.value.kind !== "present") return resolved(Object.freeze({ kind: "none" }));
+      const all = select(evidence(source), evidence(destination));
+      if (all.kind !== "resolved") return all;
+      for (const original of all.value.members) {
+        const current = pair(source, destination, original);
+        if (current.kind !== "resolved") return current;
+        if (disjoint(current.value)) return resolved(Object.freeze({ kind: "none" }));
+      }
+      const current = pair(source, destination, selected.value.value);
+      if (current.kind !== "resolved") return current;
+      if (current.value.kind === "present" && (current.value.source.declarations.length === 0 ||
+        purpose === "read" && (current.value.source.read === "unavailable" || current.value.source.readType === undefined)))
         return resolved(Object.freeze({ kind: "none" }));
-      return resolved(Object.freeze({ kind: "present", value: member }));
+      return resolved(Object.freeze({ kind: "present", value: current.value }));
     },
   });
+  return queries;
 }
