@@ -1,7 +1,7 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import { sourceStorageValue } from "../model/program.js";
 import type { SourceApplication, SourceArgumentPlace, SourceTypeEvidence, SourceSignatureIdentity, SourceTypeDescriptorSignature } from "../../../public/source/contracts.js";
-import { sourceCallableSignatures, sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
@@ -12,7 +12,7 @@ import type { SourceStorageProjection, SourceStorageSubject } from "../../../sou
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
-import { sourceStorageOriginalSignature } from "../model/callable-heads.js";
+import { sourceStorageOriginalParameters, sourceStorageOriginalSignature } from "../model/callable-heads.js";
 import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../../../source-model/storage.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
@@ -417,10 +417,11 @@ export function createSourceStorageInvocationOrigins(source: SourceStorageProgra
   }) {
   return (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
     if (queries.isUnresolved(invocation)) return undefined;
-    const selected = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? undefined
-      : sourceStorageValue(sourceCallableValueParameters(source, candidate, undefined));
-    const parameters = selected === undefined ? [] : selected.kind === "present" ? selected.value : undefined;
+    const classOwner = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate);
+    const role = source.facts.navigation.callableRoles(candidate).body ? "body" : "signature";
+    const parameters = classOwner ? [] : sourceStorageOriginalParameters(source, candidate, role);
     if (parameters === undefined) return undefined;
+    const signature = classOwner ? undefined : sourceStorageOriginalSignature(source, candidate, role)?.signature;
     const slots = sourceStorageSelectedInputSlots(queries.inputSlotsFor(candidate, invocation), candidate);
     return budget.withRows(rows => {
       const origins = new Set<SourceStorageSubject>();
@@ -433,8 +434,8 @@ export function createSourceStorageInvocationOrigins(source: SourceStorageProgra
         if (!rows.add(1)) return undefined;
         visited.add(current);
         if (source.ast.body(candidate) === undefined && current.projection.length === 0 &&
-          source.ast.is.IsParameterDeclaration(current.node) && parameters.includes(current.node) &&
-          source.ast.as.AsParameterDeclaration(current.node)?.DotDotDotToken !== undefined) {
+          parameters.includes(current.node) && signature?.parameters.some(parameter =>
+            parameter.declaration === current.node && parameter.kind === "rest")) {
           origins.add(current);
           continue;
         }

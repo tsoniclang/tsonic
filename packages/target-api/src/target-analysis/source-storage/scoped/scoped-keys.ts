@@ -1,5 +1,6 @@
 import type { SourceStorageProgram } from "../model/program.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageValue } from "../model/program.js";
+import { sourceStorageOriginalParameters } from "../model/callable-heads.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -231,7 +232,8 @@ export function createSourceStorageScopedKeys(source: SourceStorageProgram, budg
         const callable = owner === undefined ? undefined : transport.subject(owner);
         const captures = owner === undefined ? null : callable === undefined ? undefined : (yield encodeScope(callable, selected.scope));
         const parameters = owner === undefined || source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)
-          ? [] : sourceCallableValueParameters(source.ast, owner, source.semantics.forNode(owner), { kind: "declaration" });
+          ? [] : sourceStorageOriginalParameters(source, owner,
+            source.facts.navigation.callableRoles(owner).body ? "body" : "signature");
         if (parameters === undefined) return undefined;
         if (owner !== undefined) for (const parameter of [...parameters, owner]) {
           if (parameter === undefined || !budget.step()) continue;
@@ -273,13 +275,13 @@ export function createSourceStorageScopedKeys(source: SourceStorageProgram, budg
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;
         const callee = (yield encodeBinding(selected.callee));
-        const call = source.semantics.forNode(selected.invocation).operations.call(selected.invocation);
-        const receiverExpression = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-          ?? source.semantics.forNode(selected.invocation).operations.propertyAccess(selected.invocation)?.receiver.expression;
+        const accessor = transport.accessorTargets.has(selected.invocation);
+        const call = accessor ? undefined : sourceStorageValue(source.facts.applications.application(selected.invocation));
+        const member = accessor ? sourceStorageValue(source.facts.objects.use(selected.invocation)) : undefined;
+        const receiverExpression = member?.receiver.occurrence ?? (call?.receiver.kind === "value" ? call.receiver.occurrence : undefined);
         const receiverSubject = transport.subjectFor(receiverExpression);
         const selectedReceiver = selected.callee.kind === "member" && selected.callee.selection.kind === "access" &&
-          selected.callee.selection.node === call?.sourceCalleeAccess?.expression &&
-          call?.sourceCalleeAccess?.receiver.expression === receiverExpression ? selected.callee.receiver
+          selected.callee.selection.node === (call?.callee.occurrence ?? selected.invocation) && receiverExpression !== undefined ? selected.callee.receiver
           : receiverSubject === undefined ? undefined : sourceStorageReference(receiverSubject, selected.scope);
         const receiver = selectedReceiver === undefined ? null : (yield encodeBinding(selectedReceiver));
         const subject = transport.subject(selected.invocation, "value", selected.projection);
@@ -290,8 +292,9 @@ export function createSourceStorageScopedKeys(source: SourceStorageProgram, budg
           ? activationKey(selected.scope) : null;
         if (callee === undefined || receiver === undefined || activation === undefined) return undefined;
         const arguments_: Encoded[] = [];
-        for (const argument of call?.sourceArguments ?? []) {
-          const subject = transport.subjectFor(argument.expression);
+        for (const argument of call?.argumentDisposition === "skip" ? [] : call?.sourceArguments ?? []) {
+          if (!budget.step()) return undefined;
+          const subject = transport.subjectFor(sourceStorageValue(argument.operand).occurrence);
           const encoded = subject === undefined ? undefined : (yield encodeBinding(sourceStorageReference(subject, selected.scope)));
           if (encoded === undefined) return undefined;
           arguments_.push(encoded);

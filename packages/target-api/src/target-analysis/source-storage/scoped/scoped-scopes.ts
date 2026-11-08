@@ -1,6 +1,7 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import { createSourceStorageScopeFrames } from "./scope-frames.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalParameters } from "../model/callable-heads.js";
+import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -53,7 +54,7 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
   identity(empty);
   const variables = new Map<string, SourceStorageVariable>();
   const callbackKey = (callback: SourceStorageCallbackEntry | undefined): string => callback === undefined ? "" :
-    `${identity(callback.argument.actual)}:${identity(callback.argument.formal)}:${callback.argument.binding.sourceArgumentIndex}:${callback.argument.binding.sourceParameterIndex}:${callback.timing}:${(callback.inputs ?? []).map(input => `${input.parameterIndex}/${input.from}/${input.sourceParameterIndex ?? ""}`).join(";")}`;
+    `${identity(callback.argument.actual)}:${identity(callback.argument.formal)}:${callback.argument.binding.sourceArgumentIndex}:${callback.argument.binding.parameter.index}:${callback.timing}:${(callback.inputs ?? []).map(input => `${input.parameterIndex}/${input.from}/${input.sourceParameterIndex ?? ""}`).join(";")}`;
   const variable = (equation: SourceStorageEquation, owner: Node, capture?: Node, callback?: SourceStorageCallbackEntry): SourceStorageVariable | undefined => {
     if (!budget.step()) return undefined;
     const key = `${equation.identity}:${identity(owner)}:${capture === undefined ? "" : identity(capture)}:${callbackKey(callback)}`;
@@ -261,8 +262,7 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
     if (origin.projection.length === 0) return retain(1) ? [entry] : undefined;
     const from = sourceStorageProjectionType(source, entry.subject, entry.views);
     if (from === undefined) return undefined;
-    const context = source.semantics.forNode(entry.subject.node);
-    if (context.types.isNullish(from) || context.types.isVoidLike(from))
+    if (sourcePresenceLiteralDisposition(source.analysis.literalDomain(from)) === "absent")
       return retain(1) ? [Object.freeze({ kind: "empty", absence: sourceStorageReference(entry.subject, entry.scope) })] : undefined;
     const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
@@ -280,7 +280,7 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
       const contract = root === undefined ? undefined : subject(root.node, root.kind, [...root.projection, ...prefix]);
       if (component === undefined || !sourceStorageIsMemberProjection(component) || contract === undefined) return undefined;
       sourceStorageProjectComponents(entry.subject.projection, from, to, prefix,
-        source.semantics.forNode(entry.subject.node), source.ast, budget, projection => {
+        source, budget, projection => {
           const receiver = subject(entry.subject.node, entry.subject.kind, projection);
           if (receiver === undefined || !retain(1)) return;
           selected.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "projection", subject: contract,
@@ -477,8 +477,8 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
       visited.add(current);
       if (current.kind === "variable") {
         const parameters = source.ast.is.IsClassDeclaration(current.owner) || source.ast.is.IsClassExpression(current.owner)
-          ? [] : sourceCallableValueParameters(source.ast, current.owner, source.semantics.forNode(current.owner),
-            { kind: "declaration" });
+          ? [] : sourceStorageOriginalParameters(source, current.owner,
+            source.facts.navigation.callableRoles(current.owner).body ? "body" : "signature");
         if (parameters === undefined) return undefined;
         for (const parameter of [...parameters, current.owner]) {
           if (parameter === undefined || !budget.step()) continue;
