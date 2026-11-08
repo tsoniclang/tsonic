@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceControlFlowQueries } from "./graph.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
 import type { SourceControlFlowGraph, SourceFlowPoint } from "../../source-model/control-flow.js";
@@ -19,7 +18,7 @@ function fixture(body: string, declaration = "function run(flag: boolean): void"
   }, compilerOptions: { strict: true, target: "esnext", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, "resource fixture is a checked source program");
   const source = createTargetSourceProgram(checked);
-  const flowQueries = createSourceControlFlowQueries(source);
+  const flowQueries = source.facts.protocols.controlFlow;
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true, "resource fixture source exists");
   const nodes: Node[] = [];

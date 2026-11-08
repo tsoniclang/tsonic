@@ -4,6 +4,7 @@ import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureI
 import type { SourcePointerFacts } from "./pointers.js";
 import type { SourceMarkerFacts } from "./markers.js";
 import type { SourceControlFlowQueries } from "./control-flow.js";
+import type { SourceStorageAnalysisOptions, SourceStorageAnalysisSelection } from "./storage.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;
@@ -109,6 +110,7 @@ export type SourceArgumentPassing =
 
 export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts {
   readonly controlFlow: SourceControlFlowQueries;
+  storageAnalysis(options: SourceStorageAnalysisOptions): SourceStorageAnalysisSelection;
   iteration(occurrence: Node): SourceResult<SourcePresence<SourceIteration>>;
   generator(declaration: Node): SourceResult<SourcePresence<SourceGenerator>>;
   yield(occurrence: Node): SourceResult<SourcePresence<SourceYield>>;

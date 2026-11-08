@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceStorageQuery } from "../source-storage/queries.js";
+import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
 
 function fixture(text: string, files: Readonly<Record<string, string>> = {}) {
@@ -13,7 +13,11 @@ function fixture(text: string, files: Readonly<Record<string, string>> = {}) {
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
   const source = createTargetSourceProgram(checked);
-  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const storageSelection = source.facts.protocols.storageAnalysis({ sourceFiles: source.sourceFiles,
+    limits: defaultSourceStorageLimits, nativeClassConstructors: [] });
+  assert.equal(storageSelection.kind === "resolved", true, "the identical Source owner creates the storage query");
+  if (storageSelection.kind !== "resolved") throw new Error("Expected the original Source storage inventory.");
+  const storage = storageSelection.queries;
   const selected = analyzeSourceReceiverOccurrences(storage);
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "resolved source inventory");
   const declaration = (name: string): Node => {

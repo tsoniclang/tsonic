@@ -2,12 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../source-semantics/target-source-program.js";
-import { createSourceStorageQuery } from "../source-storage/queries.js";
 import { defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
   createSourceDeclarationParameterUseQuery } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
-import { createSourceControlFlowQueries } from "../flow/graph.js";
 import { createSourceDeclarationOwnershipValues } from "./flow.js";
 import { createSourceDeclarationRetentionQuery } from "./retention.js";
 import { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
@@ -40,13 +38,11 @@ function fixture(kind: "input-duration" | "type-argument",
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
   const source = createTargetSourceProgram(checked);
   const nodes = source.navigation.nodes;
-  const storage = createSourceStorageQuery(source, source.sourceFiles, defaultSourceStorageLimits, {
-    call(node, selected) {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
-      return declaration !== undefined && source.ast.is.IsFunctionDeclaration(declaration) && source.ast.body(declaration) === undefined
-        ? { resultAllocation: node } : undefined;
-    },
-  });
+  const storageSelection = source.facts.protocols.storageAnalysis({ sourceFiles: source.sourceFiles,
+    limits: defaultSourceStorageLimits, nativeClassConstructors: [] });
+  assert.equal(storageSelection.kind === "resolved", true, "the same Source owner creates the storage inventory");
+  if (storageSelection.kind !== "resolved") throw new Error("Expected the original Source storage inventory.");
+  const storage = storageSelection.queries;
   const budget = createSourceDeclarationOwnershipBudget(nodes[0]!, defaultSourceDeclarationOwnershipLimits);
   const context = createSourceDeclarationOwnershipValues({ source, sourceNodes: nodes, nodes, budget, limits: {} });
   const parameterUses = createSourceDeclarationParameterUseQuery({ source, budget });
@@ -130,7 +126,7 @@ test("native read erasure omits only its selected callee and preserves the real 
   } };
   const source = createSourceDeclarationOwnershipQuery({ ...current, premises });
   assert.equal(source.continuationFor(current.calls[1]!).kind, "unresolved", "the source domain still requires the callee read");
-  const selected = createSourceControlFlowQueries(current.source).domain(current.storage.nodes.filter(node => !erased.has(node)));
+  const selected = current.source.facts.protocols.controlFlow.domain(current.storage.nodes.filter(node => !erased.has(node)));
   assert.equal(selected.kind, "resolved", "the native read inventory retains original checked parent and child identities");
   if (selected.kind !== "resolved") return;
   const runtime = createSourceDeclarationOwnershipQuery({ ...current, premises, nodes: current.nodes.filter(node => !erased.has(node)) });

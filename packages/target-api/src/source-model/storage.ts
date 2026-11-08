@@ -38,6 +38,10 @@ export interface SourceStorageAnalysisOptions {
   readonly nativeClassConstructors: readonly SourceStorageNativeConstructorPremise[];
 }
 
+export type SourceStorageAnalysisSelection =
+  | { readonly kind: "resolved"; readonly queries: SourceStorageQueries }
+  | SourceStorageUnresolved;
+
 export type SourceStorageUnresolved = SourceRefusal | {
   readonly kind: "unresolved";
   readonly reason: string;

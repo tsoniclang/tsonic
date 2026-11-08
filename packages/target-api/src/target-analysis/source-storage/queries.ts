@@ -1,8 +1,10 @@
 import type { SourceStorageProgram } from "./model/program.js";
+import { SourceStorageRefusal, sourceStorageOutcome, sourceStorageValue } from "./model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 
 import { sourceStorageSubjectType } from "./model/components.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
+import type { SourceStorageBudget } from "./model/resource-budget.js";
+import type { createSourceStorageProfileEffects } from "./model/global-call-effects.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
 import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
@@ -15,15 +17,14 @@ import { sourceStorageMissingProducerReason } from "./scoped/substitutions.js";
 import { createSourceStorageAncestorQuery } from "./graph/ancestors.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
-import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "../../source-model/storage.js";
+import type { SourceStorageBindings, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "../../source-model/storage.js";
 
-export function createSourceStorageQuery(
+export function createSourceStorageQueries(
   source: SourceStorageProgram,
   sourceFiles: readonly SourceFile[],
-  limits: SourceStorageLimits = defaultSourceStorageLimits,
-  effects: SourceStorageEffects = {},
+  budget: SourceStorageBudget,
+  effects: ReturnType<typeof createSourceStorageProfileEffects>,
 ): SourceStorageQueries {
-  const budget = createSourceStorageBudget(limits);
   const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
   const domains = createSourceStorageDomains(source, transport, budget);
   const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>();
@@ -36,7 +37,7 @@ export function createSourceStorageQuery(
     if (!budget.step()) return false;
     if (!transport.hasNode(node)) return false;
     const file = source.ast.getSourceFile(node);
-    return file !== undefined && source.semantics.includes(file);
+    return file !== undefined && source.facts.navigation.includes(file);
   };
   const checkedProjection = (component: SourceStorageProjection): boolean =>
     !sourceStorageIsMemberProjection(component) || checkedNode(component.declaration);
@@ -179,13 +180,13 @@ export function createSourceStorageQuery(
     bindingStates, bindingView, subjectReason, unresolved);
   const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
     const selected = selectDomain(subject, bindings, "values");
-    return selected.kind === "unresolved" ? selected : selected.kind === "complete"
+    return selected.kind === "unresolved" || selected.kind === "refused" ? selected : selected.kind === "complete"
       ? Object.freeze({ kind: "complete", origins: selected.origins })
       : Object.freeze({ kind: "open", origins: selected.origins, boundaries: selected.boundaries });
   };
   const producersFor = (subject: SourceStorageSubject, bindings: SourceStorageBindings) => budget.withRows(rows => {
     const selected = selectDomain(subject, bindings, "storage-producers");
-    if (selected.kind === "unresolved") return selected;
+    if (selected.kind === "unresolved" || selected.kind === "refused") return selected;
     const producers: SourceStorageProducer[] = [];
     for (const origin of selected.origins) {
       const states = selected.producerStates.get(origin.subject);
@@ -203,7 +204,7 @@ export function createSourceStorageQuery(
           includesAbsence: selected.includesAbsence });
   });
   const query: SourceStorageQueries = Object.freeze({
-    source,
+    source: source.program,
     sourceFiles: Object.freeze([...sourceFiles]),
     nodes: Object.freeze([...transport.visitedNodes]),
     subjects: Object.freeze([...transport.identities]),
@@ -304,7 +305,7 @@ export function createSourceStorageQuery(
     originSubjectsFor,
     originsFor(subject) {
       const selected = originSubjectsFor(subject);
-      if (selected.kind === "unresolved") return selected;
+      if (selected.kind !== "resolved") return selected;
       return typedOrigins(selected.subjects, unqualified);
     },
     closedOriginsFor,
@@ -315,7 +316,7 @@ export function createSourceStorageQuery(
       const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;
       if (subject === undefined) return unresolved(budget.failure() ?? "Callable creation requires its exact checked expression.");
       const origins = closedOriginsFor(subject);
-      if (origins.kind !== "complete") return origins.kind === "unresolved" ? origins
+      if (origins.kind !== "complete") return origins.kind === "unresolved" || origins.kind === "refused" ? origins
         : unresolved("An open callable domain cannot prove local creation.");
       const nodes: Node[] = [];
       for (const origin of origins.origins) {
@@ -354,7 +355,7 @@ export function createSourceStorageQuery(
         const target = transport.invocationTargets.get(invocation);
         if (target === undefined) return unresolved("A scoped invocation requires its exact checked callable operand.");
         const selected = selectDomain(target, bindings ?? emptyBindings, "storage-producers");
-        if (selected.kind === "unresolved") return selected;
+        if (selected.kind === "unresolved" || selected.kind === "refused") return selected;
         const nodes = new Set<Node>();
         let exact = selected.kind === "complete";
         for (const origin of selected.origins) {
@@ -501,7 +502,7 @@ export function createSourceStorageQuery(
         const generator = !callable && callback.kind === "value" && callback.projection.length === 0 &&
           source.ast.is.IsCallExpression(callback.node)
           ? [...transport.invocationImplementations(callback.node)].filter(candidate =>
-            source.semantics.forNode(candidate).operations.generator(candidate) !== undefined &&
+            sourceStorageValue(source.facts.protocols.generator(candidate)).kind === "present" &&
             transport.substitutions.boundActivation(states[0]!, candidate)?.invocation === callback.node) : [];
         if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
           !callable && generator.length !== 1)
@@ -554,7 +555,7 @@ export function createSourceStorageQuery(
       const unknown = entries.filter(entry => entry.timing === "unknown");
       if (unknown.length === 0) return Object.freeze({ kind: "resolved", arguments: arguments_ });
       const lexical = query.bindingsForLexicalOwner(invocation);
-      return lexical.kind === "unresolved" ? lexical : Object.freeze({ kind: "open", arguments: arguments_, boundaries: Object.freeze(unknown.map(entry =>
+      return lexical.kind !== "resolved" ? lexical : Object.freeze({ kind: "open", arguments: arguments_, boundaries: Object.freeze(unknown.map(entry =>
         Object.freeze({ kind: "unclassified-exposure" as const, subject: entry.argument.actual, exposure: invocation, bindings: lexical.bindings }))) });
     },
     boundValueFrontierFor(subject, bindings, boundaries, position = "value") {
@@ -621,7 +622,7 @@ export function createSourceStorageQuery(
         return unresolved(budget.failure() ?? "An execution region requires exact checked callable ownership.");
       if (invocation !== undefined) {
         const selected = query.bindingsForInvocation(candidate, invocation, callerBindings);
-        if (selected.kind === "unresolved") return selected;
+        if (selected.kind !== "resolved") return selected;
       }
       let failure: string | undefined;
       const nodes = transport.regions.callable(candidate, invocation, expression => {
@@ -631,7 +632,8 @@ export function createSourceStorageQuery(
           return undefined;
         }
         const selected = boundOrigins(subject, callerBindings);
-        const typed = selected.kind === "unresolved" ? selected : typedOrigins(selected.subjects, unqualified);
+        const typed = selected.kind !== "resolved" ? selected : typedOrigins(selected.subjects, unqualified);
+        if (typed.kind === "refused") throw new SourceStorageRefusal(typed);
         if (typed.kind === "unresolved") { failure = typed.reason; return undefined; }
         return typed.origins.map(origin => origin.type);
       });
@@ -642,7 +644,7 @@ export function createSourceStorageQuery(
       if (!checkedInvocation(invocation) || !source.ast.is.IsNewExpression(invocation))
         return unresolved(budget.failure() ?? "Instance execution requires its exact checked constructor invocation.");
       const selected = construction(invocation, emptyBindings);
-      if (selected.kind === "unresolved") return selected;
+      if (selected.kind !== "resolved") return selected;
       const regions = new Map<Node, { readonly owner: Node; readonly node: Node }>();
       for (const alternative of selected.alternatives) for (const entry of alternative.classes) for (const region of entry.regions) {
         if (!budget.step()) return unresolved(budget.failure()!);
@@ -658,5 +660,39 @@ export function createSourceStorageQuery(
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
   const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
-  return query;
+  return Object.freeze({
+    ...query,
+    subject: sourceStorageOutcome(query.subject),
+    subjectFor: sourceStorageOutcome(query.subjectFor),
+    memberSubjectFor: sourceStorageOutcome(query.memberSubjectFor),
+    storageSubjectFor: sourceStorageOutcome(query.storageSubjectFor),
+    writeAt: sourceStorageOutcome(query.writeAt),
+    memberWritesFor: sourceStorageOutcome(query.memberWritesFor),
+    formalMemberWriteDemand: sourceStorageOutcome(query.formalMemberWriteDemand),
+    typeFor: sourceStorageOutcome(query.typeFor),
+    incomingFor: sourceStorageOutcome(query.incomingFor),
+    ancestorsFor: sourceStorageOutcome(query.ancestorsFor),
+    originSubjectsFor: sourceStorageOutcome(query.originSubjectsFor),
+    originsFor: sourceStorageOutcome(query.originsFor),
+    closedOriginsFor: sourceStorageOutcome(query.closedOriginsFor),
+    storageProducersFor: sourceStorageOutcome(query.storageProducersFor),
+    localCallableCreationsFor: sourceStorageOutcome(query.localCallableCreationsFor),
+    invocationImplementationsFor: sourceStorageOutcome(query.invocationImplementationsFor),
+    invocationOriginsFor: sourceStorageOutcome(query.invocationOriginsFor),
+    bindingsForDeclaration: sourceStorageOutcome(query.bindingsForDeclaration),
+    bindingsForLexicalOwner: sourceStorageOutcome(query.bindingsForLexicalOwner),
+    bindingsForInvocation: sourceStorageOutcome(query.bindingsForInvocation),
+    invocationContextKeyFor: sourceStorageOutcome(query.invocationContextKeyFor),
+    contextKeyFor: sourceStorageOutcome(query.contextKeyFor),
+    boundOriginsFor: sourceStorageOutcome(query.boundOriginsFor),
+    boundActivationsFor: sourceStorageOutcome(query.boundActivationsFor),
+    contributingExecutionsFor: sourceStorageOutcome(query.contributingExecutionsFor),
+    nativeCallbackArgumentsFor: sourceStorageOutcome(query.nativeCallbackArgumentsFor),
+    boundValueFrontierFor: sourceStorageOutcome(query.boundValueFrontierFor),
+    invocationArgumentsFor: sourceStorageOutcome(query.invocationArgumentsFor),
+    argumentTransportsFor: sourceStorageOutcome(query.argumentTransportsFor),
+    executionRegionsFor: sourceStorageOutcome(query.executionRegionsFor),
+    constructionFor: sourceStorageOutcome(query.constructionFor),
+    instanceRegionsFor: sourceStorageOutcome(query.instanceRegionsFor),
+  });
 }

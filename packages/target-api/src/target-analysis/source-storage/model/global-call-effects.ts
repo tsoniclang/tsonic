@@ -16,12 +16,18 @@ export function createSourceStorageProfileEffects(source: SourceStorageProgram, 
   for (const premise of premises) {
     navigation.callableRoles(premise.binding);
     if (native.has(premise.binding)) throw new Error("Native constructor premises require one exact binding owner.");
-    const slot = sourceStorageValue(values.declaredSlot(premise.binding));
-    const definition = sourceStorageValue(descriptors.definition(slot.type));
-    const type = definition.type;
-    const signatures = type.kind === "callable" || type.kind === "shape" ? type.constructs : [];
+    let signatures: readonly { readonly identity: SourceSignatureIdentity }[];
+    if (ast.is.IsClassDeclaration(premise.binding) || ast.is.IsClassExpression(premise.binding)) {
+      const constructors = sourceStorageValue(navigation.classConstructors(premise.binding));
+      signatures = constructors.kind === "resolved" ? constructors.signatures : [];
+    } else {
+      const slot = sourceStorageValue(values.declaredSlot(premise.binding));
+      const definition = sourceStorageValue(descriptors.definition(slot.type));
+      const type = definition.type;
+      signatures = type.kind === "callable" || type.kind === "shape" ? type.constructs : [];
+    }
     if (premise.constructors.length === 0 || premise.constructors.some(identity =>
-      identity.kind !== "construct" || !signatures.some(signature => signature.identity === identity)))
+      !signatures.some(signature => signature.identity === identity && signature.identity.kind === "construct")))
       throw new Error("Native constructor premises require every identical original Source constructor signature.");
     native.set(premise.binding, Object.freeze([...premise.constructors]));
   }

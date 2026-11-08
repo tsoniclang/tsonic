@@ -26,11 +26,12 @@ export function createSourceAnalysisFacts(options: {
   readonly solved: Pick<SourceAnalysisFacts, "iteration" | "generator" | "yield">;
   readonly pointers: SourcePointerFacts & SourceMarkerFacts;
   readonly controlFlow: SourceControlFlowQueries;
+  readonly storageAnalysis: SourceAnalysisFacts["storageAnalysis"];
   readonly unavailable: (node: Node, reason: string) => SourceRefusal;
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;
 }): SourceAnalysisFacts {
   const { ast, input, view, assertNode, values, navigation, memberPlace, inventory, signature,
-    solved, pointers, controlFlow, unavailable, settle } = options;
+    solved, pointers, controlFlow, storageAnalysis, unavailable, settle } = options;
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
   const present = <Value>(value: Value): SourcePresence<Value> => Object.freeze({ kind: "present", value });
   const none = Object.freeze({ kind: "none" } as const);
@@ -129,6 +130,7 @@ export function createSourceAnalysisFacts(options: {
   };
   const facts: SourceAnalysisFacts = Object.freeze({
     controlFlow,
+    storageAnalysis,
     iteration(occurrence: Node) { assertNode(occurrence); return solved.iteration(occurrence); },
     generator(declaration: Node) { assertNode(declaration); return solved.generator(declaration); },
     yield(occurrence: Node) { assertNode(occurrence); return solved.yield(occurrence); },
