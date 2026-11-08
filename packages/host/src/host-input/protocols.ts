@@ -43,7 +43,7 @@ export function createSourceProtocolInput(input: {
     });
     if (candidates.length !== 1) return undefined;
     const selectedMember = sourceCheckedMember(ast, checker, candidates[0]!, selected.sourceIterableType);
-    const member = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode })(receiver, selectedMember);
+    const member = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode, originalSignature })(receiver, selectedMember);
     if (member?.read === undefined) return undefined;
     const signatures = types.getCallSignatures(candidates[0]!.type);
     if (signatures.length === 0 || signatures.some(signature => signature === undefined)) return undefined;

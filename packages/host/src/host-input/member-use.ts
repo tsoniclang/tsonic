@@ -1,6 +1,6 @@
-import type { CheckedSourceProgram, Node, Symbol, Type } from "@tsonic/tsts";
+import type { CheckedSourceProgram, Node, Signature, Symbol, Type } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputTypeFacts, SourceInputMemberUse, SourceInputMemberUseArm,
-  SourceInputMemberUseSelection } from "@tsonic/target-api/host";
+  SourceInputMemberUseSelection, SourceInputSignature } from "@tsonic/target-api/host";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
 import type { SourceIndexSelection } from "@tsonic/target-api/source";
 import { createSourceInputMemberPublisher, sourceCheckedMember } from "./member-components.js";
@@ -11,8 +11,9 @@ export function createSourceMemberUseInput(input: {
   readonly assertNode: (node: Node) => void;
   readonly syntax: (node: Node) => SourceInputComponent;
   readonly describe: (component: SourceInputComponent) => SourceInputTypeFacts;
+  readonly originalSignature: (kind: "call" | "construct", original: Signature) => SourceInputSignature;
 }): (occurrence: Node) => SourceInputMemberUseSelection {
-  const { checked, identities, assertNode, syntax, describe } = input;
+  const { checked, identities, assertNode, syntax, describe, originalSignature } = input;
   const { ast } = checked;
   const retained = new WeakMap<Node, SourceInputMemberUseSelection>();
   const unavailable = (reason: Extract<SourceInputMemberUseSelection, { readonly kind: "unavailable" }>["reason"]):
@@ -37,7 +38,7 @@ export function createSourceMemberUseInput(input: {
       ...checker.getRootSymbols(selected.selectedSymbol).filter((symbol): symbol is Symbol => symbol !== undefined)]);
     const allTypes = types.isUnion(selected.receiver.type) ? types.getUnionOrIntersectionTypes(selected.receiver.type) : [selected.receiver.type];
     if (allTypes.some(type => type === undefined)) return unavailable("missing-selected-member");
-    const publish = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode });
+    const publish = createSourceInputMemberPublisher({ ast, checker, types, identities, assertNode, originalSignature });
     const arms: SourceInputMemberUseArm[] = [];
     const selectedDeclarations = new Set<Node>();
     const readDeclarations = new Set<Node>();
