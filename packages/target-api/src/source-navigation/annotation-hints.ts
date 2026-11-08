@@ -1,14 +1,13 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo } from "./call-info.js";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceApplication, SourceResult } from "../public/source/contracts.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
-import { sourceEnclosing } from "./callable-boundaries.js";
 
 export interface SourceAnnotationHintBindings {
   readonly ast: AstReader;
-  readonly navigation: Pick<SourceProgramNavigation, "referenceFor">;
+  readonly navigation: Pick<SourceNodeNavigationFacts, "referenceFor" | "enclosing">;
   readonly annotationType?: string;
-  call(node: Node): ResolvedSourceCallInfo | undefined;
+  application(node: Node): SourceResult<SourceApplication> | undefined;
 }
 
 export function sourceAnnotationHint(
@@ -31,16 +30,16 @@ export function sourceAnnotationHint(
     annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     declaration = navigation.referenceFor(assignment.Left)?.declaration;
   } else if (ast.is.IsReturnStatement(parent)) {
-    const callable = sourceEnclosing(ast, parent, "body");
+    const callable = navigation.enclosing(parent, "body");
     annotation = callable === undefined ? undefined : ast.typeNode(callable);
   } else if (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) {
-    const call = bindings.call(parent);
-    const argumentIndex = call?.sourceArguments.findIndex(argument => argument.expression === current);
+    const selected = bindings.application(parent);
+    const call = selected?.kind === "resolved" ? selected.value : undefined;
+    const argumentIndex = call?.sourceArguments.findIndex(argument => argument.occurrence === expression);
     const arguments_ = argumentIndex === undefined || argumentIndex < 0 ? []
-      : call?.sourceArgumentBindings.filter(binding => binding.sourceArgumentIndex === argumentIndex) ?? [];
-    const parameters = new Set(arguments_.map(binding => binding.sourceParameterIndex));
-    const parameter = parameters.size === 1
-      ? call?.sourceSelectedSignatureParameters[arguments_[0]!.sourceParameterIndex]?.parameterDeclaration : undefined;
+      : call?.arguments.filter(binding => binding.sourceArgumentIndex === argumentIndex) ?? [];
+    const parameters = new Set(arguments_.map(binding => binding.parameter.index));
+    const parameter = parameters.size === 1 ? arguments_[0]?.parameter.declaration : undefined;
     annotation = parameter === undefined ? undefined : ast.typeNode(parameter);
   }
   if (declaration === undefined || annotation === undefined || !ast.is.IsVariableDeclaration(declaration) ||
