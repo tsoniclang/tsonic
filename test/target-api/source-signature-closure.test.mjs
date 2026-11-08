@@ -1,85 +1,56 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { Node_Initializer } from "../../source-navigation/ast.js";
-import { createTargetSourceProgram } from "../target-source-program.js";
-import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
-import { collectSourceTypeFlowEdges } from "./edges.js";
-import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms } from "./term-groups.js";
-import type {
-  SourceTypeFlowAnalysisContext,
-  SourceTypeFlowCall,
-  SourceTypeFlowDerived,
-  SourceTypeFlowGraph,
-  SourceTypeFlowLink,
-  SourceTypeFlowNode,
-  SourceTypeFlowPathPart,
-  SourceTypeFlowSignature,
-  SourceTypeFlowVariable,
-} from "./types.js";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { sourceFlowOwnerFixture } from "../host/fixtures/source-flow-owner.mjs";
+import { Node_Initializer } from "../../packages/target-api/dist/source-navigation/ast.js";
+import { collectSourceTypeFlowEdges } from "../../packages/target-api/dist/source-semantics/local-type-flow/edges.js";
+import { collectSourceTypeFlowSignatures } from "../../packages/target-api/dist/source-semantics/local-type-flow/signatures.js";
+import { createSourceTypeFlowTerms } from "../../packages/target-api/dist/source-semantics/local-type-flow/term-groups.js";
 
-function fixture(text: string) {
-  const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/src",
-    files: { "/src/index.ts": text },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
-  }).checkSource();
-  assert.equal(checked.diagnostics.length, 0,
-    formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
+function fixture(text) {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": text },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
   assert.equal(checked.extensionDiagnostics.length, 0, "the checked fixture has no extension refusal");
-  const source = createTargetSourceProgram(checked);
+  const { program: source, flow } = sourceFlowOwnerFixture({ checked, apiFacts: undefined, profileFiles: [] });
+  const { context } = flow;
   const file = checked.getSourceFile("/src/index.ts");
-  if (file === undefined) throw new Error("The original checked source file is required.");
-  const nodes: Node[] = [];
-  const preorder = new Map<Node, number>();
-  const visit = (node: Node): void => {
-    preorder.set(node, nodes.length);
-    nodes.push(node);
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
-  };
-  visit(file);
-  const context: SourceTypeFlowAnalysisContext = {
-    source,
-    authoredInheritedBindings: () => new Map(),
-    describe: () => undefined,
-    literal: () => undefined,
-    order: node => ({ start: source.ast.pos(node), preorder: preorder.get(node)! }),
-  };
-  const find = (kind: string, name?: string, occurrence = 0): Node => {
+  assert.equal(file !== undefined, true);
+  const nodes = context.nodes.filter(node => source.ast.getSourceFile(node) === file);
+  const find = (kind, name, occurrence = 0) => {
     const candidates = nodes.filter(node => source.ast.kindName(node) === kind &&
       (name === undefined || source.ast.text(source.ast.name(node) ?? node) === name));
     const selected = candidates[occurrence < 0 ? candidates.length + occurrence : occurrence];
-    if (selected === undefined) throw new Error(`The checked ${kind}/${name ?? ""}/${occurrence} is required.`);
+    assert.equal(selected !== undefined, true, `the original ${kind}/${name ?? ""}/${occurrence} is required`);
     return selected;
   };
   return { source, context, find, nodes };
 }
 
-function variable(node: Node, path: readonly SourceTypeFlowPathPart[] = []): SourceTypeFlowVariable {
+function variable(node, path = []) {
   return Object.freeze({ node, path: Object.freeze(path) });
 }
 
 function valueNode(
-  node: Node,
-  root: Node,
-  options: Partial<Pick<SourceTypeFlowNode, "variable" | "initializer" | "declaration" | "term" | "kind" | "publish">> = {},
-): SourceTypeFlowNode {
+  node,
+  root,
+  options = {},
+) {
   return Object.freeze({ node, root, variable: variable(node), kind: "value", publish: true, ...options });
 }
 
 function graph(
-  roots: readonly Node[],
-  nodes: readonly SourceTypeFlowNode[],
-  links: readonly SourceTypeFlowLink[] = [],
-  derived: readonly SourceTypeFlowDerived[] = [],
-  calls: readonly SourceTypeFlowCall[] = [],
-): SourceTypeFlowGraph {
+  roots,
+  nodes,
+  links = [],
+  derived = [],
+  calls = [],
+) {
   return Object.freeze({ roots: Object.freeze(roots), nodes: Object.freeze(nodes),
     links: Object.freeze(links), producerInputs: Object.freeze([]), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
 }
 
-function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariable): boolean {
+function sameVariable(left, right) {
   return left.node === right.node && left.path.length === right.path.length && left.path.every((part, index) => {
     const other = right.path[index];
     return part.kind === "element" ? other?.kind === "element"
@@ -90,21 +61,21 @@ function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariabl
   });
 }
 
-function includes(signatures: readonly SourceTypeFlowSignature[], selected: SourceTypeFlowVariable): boolean {
+function includes(signatures, selected) {
   return signatures.some(signature => sameVariable(signature.variable, selected));
 }
 
 function collectEligibleMetadata(
-  context: SourceTypeFlowAnalysisContext,
-  input: SourceTypeFlowGraph,
-): readonly SourceTypeFlowSignature[] {
+  context,
+  input,
+) {
   return collectSourceTypeFlowSignatures(context, input, () => true);
 }
 
 function collectInScope(
-  context: SourceTypeFlowAnalysisContext,
-  input: SourceTypeFlowGraph,
-): readonly SourceTypeFlowSignature[] {
+  context,
+  input,
+) {
   const terms = createSourceTypeFlowTerms(context.source.ast, input);
   return collectSourceTypeFlowSignatures(context, input, terms.isInference);
 }
@@ -120,7 +91,7 @@ for (const [label, text, ownerKind, ownerName, valueKind, valueName] of [
     "KindArrowFunction", undefined, "KindNumericLiteral", "1"],
   ["constructor", "class Holder { value = 1; constructor() { return this; } }",
     "KindConstructor", undefined, "KindThisKeyword", undefined],
-] as const) {
+]) {
   test(`signature ${label} retains its exact checked value, owner and site`, () => {
     const checked = fixture(text);
     const owner = checked.find(ownerKind, ownerName);
@@ -128,7 +99,7 @@ for (const [label, text, ownerKind, ownerName, valueKind, valueName] of [
     const selected = variable(value);
     const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner, { variable: selected })]));
     assert.equal(result.length, 1, `${label}: one original value is declaration-typed`);
-    assert.equal(result[0]!.owner === owner && result[0]!.variable === selected, true,
+    assert.equal(result[0].owner === owner && result[0].variable === selected, true,
       `${label}: the actual checked owner and original variable are retained`);
     assert.equal(Object.isFrozen(result) && Object.isFrozen(result[0]), true,
       `${label}: publication markers are immutable`);
@@ -139,7 +110,7 @@ for (const [label, text] of [
   ["ordinary", "function makeValue(): number { const sourceValue = 1; return sourceValue; }"],
   ["async awaited", "async function makeValue(): Promise<number> { const sourceValue = 1; return sourceValue; }"],
   ["generator", "function* makeValue(): Generator<number, void, unknown> { const sourceValue = 1; yield sourceValue; }"],
-] as const) {
+]) {
   test(`declared ${label} return remains a concrete use rather than an inferred signature`, () => {
     const checked = fixture(text);
     const owner = checked.find("KindFunctionDeclaration", "makeValue");
@@ -152,14 +123,14 @@ for (const [label, text] of [
 for (const [label, text] of [
   ["async awaited", "async function makeValue() { const sourceValue = 1; return await ((sourceValue)!); }"],
   ["generator yield", "function* makeValue() { const sourceValue = 1; yield sourceValue; }"],
-] as const) {
+]) {
   test(`inferred ${label} preserves the declaration type through transparent values`, () => {
     const checked = fixture(text);
     const owner = checked.find("KindFunctionDeclaration", "makeValue");
     const value = checked.find("KindIdentifier", "sourceValue", -1);
     const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner)]));
     assert.equal(result.length, 1, "the original inferred result cannot be changed by a local use");
-    assert.equal(result[0]!.owner === owner, true, "the original async or generator owner is retained");
+    assert.equal(result[0].owner === owner, true, "the original async or generator owner is retained");
   });
 }
 
@@ -168,7 +139,7 @@ test("inferred return ownership does not borrow an enclosing function's declared
   const owner = checked.find("KindFunctionDeclaration", "inner");
   const value = checked.find("KindIdentifier", "sourceValue", -1);
   const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(value, owner)]));
-  assert.equal(result.length === 1 && result[0]!.owner === owner, true,
+  assert.equal(result.length === 1 && result[0].owner === owner, true,
     "the nearest original callable owns its own inferred signature");
 });
 
@@ -192,7 +163,7 @@ for (const [label, statement] of [
   ["satisfies arrow", "consume(((sourceValue = 1) => sourceValue) satisfies ((value?: number) => number));"],
   ["asserted arrow", "consume(((sourceValue = 1) => sourceValue) as ((value?: number) => number));"],
   ["function expression", "consume(function(sourceValue = 1) { return sourceValue; });"],
-] as const) {
+]) {
   test(`direct-argument ${label} parameters and returns are not signatures`, () => {
     const checked = fixture(`declare function consume(callback: (value?: number) => number): void; function outer() { ${statement} }`);
     const owner = checked.find("KindFunctionDeclaration", "outer");
@@ -208,7 +179,7 @@ for (const [label, statement] of [
 for (const [label, statement] of [
   ["stored", "const callback = (sourceValue = 1) => sourceValue; void callback;"],
   ["returned", "return (sourceValue = 1) => sourceValue;"],
-] as const) {
+]) {
   test(`${label} closures do not acquire the direct-argument exemption`, () => {
     const checked = fixture(`function outer() { ${statement} }`);
     const owner = checked.find("KindArrowFunction");
@@ -224,12 +195,12 @@ for (const [label, statement] of [
 for (const [label, text] of [
   ["modifier", "export const sourceValue = 1;"],
   ["named export", "const sourceValue = 1; export { sourceValue };"],
-] as const) {
+]) {
   test(`${label} uses the actual Host export summary`, () => {
     const checked = fixture(text);
     const declaration = checked.find("KindVariableDeclaration", "sourceValue");
     const result = collectEligibleMetadata(checked.context, graph([], [valueNode(declaration, declaration)]));
-    assert.equal(result.length === 1 && result[0]!.owner === declaration, true,
+    assert.equal(result.length === 1 && result[0].owner === declaration, true,
       "the exact exported declaration keeps its own type even without a direct export modifier");
   });
 }
@@ -249,7 +220,7 @@ test("C24 closes inferred signatures transitively through arithmetic-derived loc
   const returnedValue = variable(returned);
   const links = [{ source: first, target: productResult, site: first.node },
     { source: second, target: additionResult, site: second.node }, { source: returnedValue, target: second, site: returned }];
-  const derived: SourceTypeFlowDerived[] = [
+  const derived = [
     { node: product, result: productResult, operator: "multiply", operands: [source, variable(checked.find("KindNumericLiteral", "2"))], required: true },
     { node: addition, result: additionResult, operator: "add", operands: [first, variable(checked.find("KindNumericLiteral", "3"))], required: true },
   ];
@@ -291,7 +262,7 @@ test("whole-container signatures close through shape and array terms to their or
   const arrayValue = variable(array);
   const element = variable(array, [{ kind: "element" }]);
   const result = collectEligibleMetadata(checked.context, graph([owner], [
-    valueNode(literal, owner, { term: { kind: "shape", site: literal, members: [{ name: "count", optional: false, variable: arrayValue }] } }),
+    valueNode(literal, owner, { term: { kind: "shape", site: literal, members: [{ name: "count", declaration: checked.find("KindPropertyAssignment", "count"), readonly: false, optional: false, variable: arrayValue }] } }),
     valueNode(array, owner, { variable: arrayValue, term: { kind: "array", site: array, element, readonly: false } }),
     valueNode(source.node, owner, { variable: source }),
   ], [{ source: element, target: source, site: array }]));
@@ -308,7 +279,7 @@ test("a returned member does not fix the parent structure or unrelated members",
   const returned = checked.find("KindPropertyAccessExpression");
   const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(declaration, owner, { term: { kind: "shape", site: declaration,
-      members: [{ name: "first", optional: false, variable: first }, { name: "second", optional: false, variable: second }] } }), valueNode(returned, owner),
+      members: [{ name: "first", declaration: checked.find("KindPropertyAssignment", "first"), readonly: false, optional: false, variable: first }, { name: "second", declaration: checked.find("KindPropertyAssignment", "second"), readonly: false, optional: false, variable: second }] } }), valueNode(returned, owner),
   ], [{ source: variable(returned), target: first, site: returned }]));
   assert.equal(includes(result, first), true, "the read's precise member group reaches the signature");
   assert.equal(includes(result, second) || includes(result, variable(declaration)), false,
@@ -342,10 +313,10 @@ test("a signature of a declared call result does not include its argument merely
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const argument = checked.find("KindIdentifier", "sourceValue", -1);
   const call = checked.find("KindCallExpression");
-  const receipt = checked.source.semantics.forNode(call).operations.call(call);
-  assert.equal(receipt !== undefined, true, "the original selected call is actual checked evidence");
+  const receipt = checked.context.source.input.application(call);
+  assert.equal(receipt.kind, "applicable", "the original selected call is actual checked evidence");
   const result = collectEligibleMetadata(checked.context, graph([owner], [valueNode(argument, owner)], [], [],
-    [{ node: call, source: receipt!, receiver: [], method: [], argumentPlaces: [], result: variable(call) }]));
+    [{ node: call, selection: receipt, result: variable(call) }]));
   assert.equal(includes(result, variable(call)), true, "the declared result occurrence reaches the signature");
   assert.equal(includes(result, variable(argument)), false, "no unrecorded argument-to-result dependency is invented");
 });
@@ -364,7 +335,7 @@ test("canonical variable paths and cyclic equality links are visited once withou
   const result = collectEligibleMetadata(checked.context, input);
   assert.equal(result.length, 2, "cloned records of the same checked variable path are one closure entry");
   assert.equal(includes(result, original) && includes(result, same), true, "node/path identity is structural without AST serialization");
-  assert.equal(input.links[0]!.target === original && input.links[1]!.source === same, true,
+  assert.equal(input.links[0].target === original && input.links[1].source === same, true,
     "all original immutable link records remain unchanged");
 });
 
@@ -377,7 +348,7 @@ test("multiple signature origins use checked source order and AST preorder, inde
   const nodes = [valueNode(first, owner), valueNode(last, owner)];
   const links = [{ source: variable(first), target: declaration, site: first }, { source: variable(last), target: declaration, site: last }];
   const order = checked.context.order;
-  const tied: SourceTypeFlowAnalysisContext = { ...checked.context, order: node => ({ ...order(node), start: 0 }) };
+  const tied = { ...checked.context, order: node => ({ ...order(node), start: 0 }) };
   const ordinary = collectEligibleMetadata(checked.context, graph([owner], nodes, links));
   const shuffled = collectEligibleMetadata(tied, graph([owner], [...nodes].reverse(), [...links].reverse()));
   assert.equal(ordinary.length === 3 && shuffled.length === ordinary.length, true, "shared dependencies are marked only once");
@@ -422,22 +393,22 @@ test("only result-dependent method binders are signature roots at a returned gen
   const checked = fixture("declare function selectResult<Argument, Result>(value: Argument): Result; function makeValue() { const sourceValue = 1; return selectResult<number, string>(sourceValue); }");
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const call = checked.find("KindCallExpression");
-  const receipt = checked.source.semantics.forNode(call).operations.call(call);
+  const receipt = checked.context.source.input.application(call);
   const argumentDeclaration = checked.find("KindTypeParameter", "Argument");
   const resultDeclaration = checked.find("KindTypeParameter", "Result");
   const argumentBinder = variable(call, [{ kind: "binder", declaration: argumentDeclaration }]);
   const resultBinder = variable(call, [{ kind: "binder", declaration: resultDeclaration }]);
   const argument = checked.find("KindIdentifier", "sourceValue", -1);
-  assert.equal(receipt !== undefined && receipt.sourceArgumentBindings[0] !== undefined &&
-    receipt.sourceSelectedSignatureParameters[0] !== undefined, true, "the original checked binder places are available");
+  assert.equal(receipt.kind === "applicable" && receipt.selection.arguments.kind === "available" &&
+    receipt.selection.arguments.values[0]?.parameterIndex === 0 && receipt.selection.parameters[0]?.index === 0 &&
+    receipt.selection.application.signature.typeParameters[0] === argumentDeclaration &&
+    receipt.selection.application.signature.typeParameters[1] === resultDeclaration, true,
+  "the original checked binder and effective formal places are available");
   const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(call, owner, { kind: "binder", variable: argumentBinder }),
     valueNode(call, owner, { kind: "binder", variable: resultBinder }), valueNode(argument, owner),
   ], [{ source: variable(call), target: resultBinder, site: call }], [], [{
-    node: call, source: receipt!, receiver: [], method: [
-      { declaration: argumentDeclaration, variable: argumentBinder }, { declaration: resultDeclaration, variable: resultBinder },
-    ], argumentPlaces: [{ binding: receipt!.sourceArgumentBindings[0]!, parameter: receipt!.sourceSelectedSignatureParameters[0]!,
-      binder: argumentDeclaration, value: variable(argument) }], result: variable(call),
+    node: call, selection: receipt, result: variable(call),
   }]));
   assert.equal(includes(result, resultBinder), true, "the actual result's binder reaches the signature");
   assert.equal(includes(result, argumentBinder) || includes(result, variable(argument)), false,
@@ -467,12 +438,12 @@ test("a returned declared optional result retains its actual value dependency", 
   const owner = checked.find("KindFunctionDeclaration", "makeValue");
   const call = checked.find("KindCallExpression");
   const declaration = checked.find("KindTypeParameter", "Result");
-  const component = checked.source.semantics.forNode(call).operations.call(call);
+  const component = checked.context.source.input.application(call);
   const binder = variable(call, [{ kind: "binder", declaration }]);
-  assert.equal(component !== undefined, true, "the actual selected declared result is retained");
+  assert.equal(component.kind, "applicable", "the actual selected declared result is retained");
   const result = collectEligibleMetadata(checked.context, graph([owner], [
     valueNode(call, owner, { term: { kind: "optional", site: call, value: binder,
-      source: { selectedType: component!.sourceResultType } } }),
+      source: component.selection.result } }),
     valueNode(call, owner, { kind: "binder", variable: binder, publish: false }),
   ]));
   assert.equal(result.length === 2 && includes(result, binder), true,
@@ -483,10 +454,10 @@ for (const [label, text] of [
   ["module shorthand", 'const foo = "bar"; export const record: Record<string, string> = { foo };'],
   ["module exports", "export const plain = 7 / 2; export const typed: number = 7 / 2;"],
   ["declared union", "function read(value: number | string) { return value; }"],
-] as const) {
+]) {
   test(`C29 ${label} never starts a signature closure without an inference group`, () => {
     const checked = fixture(text);
-    const root = checked.source.sourceFiles[0]!;
+    const root = checked.source.sourceFiles[0];
     const input = graph([root], checked.nodes.map(node => valueNode(node, root, { kind: "fixed" })));
     const terms = createSourceTypeFlowTerms(checked.source.ast, input);
     assert.equal(input.nodes.some(node => terms.isInference(node.variable)), false,
@@ -569,7 +540,7 @@ test("C2388 contextual authored results do not become inferred signatures", () =
       const read: () => number[] = () => { const values = [1]; return values; }; return read();
     }
     function inferred() { const values = [1]; take(values); return values; }`);
-  const { context } = createSourceTypeFlowAnalysisContext(current.source);
+  const { context } = current;
   const collected = collectSourceTypeFlowEdges(context);
   const terms = createSourceTypeFlowTerms(current.source.ast, collected);
   const signatures = collectSourceTypeFlowSignatures(context, collected, terms.isInference);
