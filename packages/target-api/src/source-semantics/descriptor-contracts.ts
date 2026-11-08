@@ -45,6 +45,8 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
     defaultType: () => SourceResult<SourceTypeParameterRequirement>): SourceTypeParameter;
   optional(value: SourceTypeDescriptor): SourceTypeDescriptor;
   union(values: readonly SourceTypeDescriptor[]): SourceTypeDescriptor;
+  intersection(component: SourceTypeComponent, parts: readonly SourceTypeEvidence[],
+    result: SourceTypeEvidence, original: SourceInputComponent | undefined): SourceTypeEvidence;
   array(element: SourceTypeDescriptor, isReadonly: boolean): SourceTypeDescriptor;
   tuple(elements: Extract<SourceTypeDescriptor, { readonly kind: "tuple" }>["elements"], isReadonly: boolean): SourceTypeDescriptor;
   shape(value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "shape" }>, "kind">): SourceTypeDescriptor;

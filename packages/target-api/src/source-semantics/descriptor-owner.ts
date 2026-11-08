@@ -41,6 +41,7 @@ export function createSourceDescriptorOwner(input: {
     active: boolean;
   }>();
   const definitionResults = new WeakMap<SourceTypeEvidence, SourceResult<SourceTypeEvidence>>();
+  const derivedComponents = new WeakMap<SourceTypeEvidence, Map<string, SourceTypeEvidence>>();
   const constructions = new WeakMap<Node, { readonly produce: () => SourceProductionResult<SourceMemberInventory>; result?: SourceMemberInventory }>();
   const components = createSourceComponentOwner({ assertNode: input.assertNode,
     assertSignature: value => interner.assertSignature(value), assertFamily: value => families.assertFamily(value) });
@@ -51,7 +52,7 @@ export function createSourceDescriptorOwner(input: {
     assertSum: value => families.assertApplication(value) });
   const parameters = createSourceParameterOwner({ assertNode: input.assertNode, evidence, interner, observe });
   const substitute = createSourceSubstitution({ components, evidence, interner, parameters,
-    applyFamily: reapplyFamily, materialize: materializeFamily, project });
+    applyFamily: reapplyFamily, materialize: materializeFamily, intersection, project });
   const families = createSourceFamilyOwner({ components, evidence, interner, parameters, substitute });
   const members = createSourceInventoryOwner({ evidence, definition: produceMemberDefinition,
     join: (component, values) => join(component, "inferred", values, undefined) });
@@ -184,6 +185,8 @@ export function createSourceDescriptorOwner(input: {
     const key = components.selectorKey(selector);
     const selected = record.components.get(key);
     if (selected !== undefined) return { kind: "resolved", value: selected.value };
+    const derived = derivedComponents.get(value)?.get(key);
+    if (derived !== undefined) return { kind: "resolved", value: derived };
     if (selector.kind === "sum-arm" && value.sum !== undefined) {
       families.assertFamily(selector.family);
       if (value.sum.family !== selector.family) throw new Error("A Source sum component requires its exact original family.");
@@ -202,8 +205,8 @@ export function createSourceDescriptorOwner(input: {
       const selected = evidence.create({ type: interner.tuple(value.type.elements.slice(selector.start, end), selector.readonly),
         component: components.identity(value.component.root, [...value.component.path, selector]),
         category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain, record.requirementBindings,
-      { members: { kind: "unavailable" }, origins: record.details.origins });
-      return { kind: "resolved", value: selected };
+      { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [] } });
+      return retainComponent(value, key, selected);
     }
     if (selector.kind === "signature-tail" && (value.type.kind === "callable" || value.type.kind === "shape")) {
       const signature = [...value.type.calls, ...value.type.constructs].find(candidate => candidate.identity === selector.signature);
@@ -216,10 +219,10 @@ export function createSourceDescriptorOwner(input: {
       const selected = evidence.create({ type: interner.tuple(signature.parameters.slice(selector.start), selector.readonly),
         component: components.identity(value.component.root, [...value.component.path, selector]),
         category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain, record.requirementBindings,
-      { members: { kind: "unavailable" }, origins: record.details.origins });
-      return { kind: "resolved", value: selected };
+      { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [] } });
+      return retainComponent(value, key, selected);
     }
-    if (value.type.kind === "declared" || value.type.kind === "projection") {
+    if (value.type.kind === "declared" || value.type.kind === "projection" || value.type.kind === "intersection") {
       const expanded = definition(value);
       if (expanded.kind === "refused") return expanded;
       if (expanded.value === value) throw new Error("A Source component requires a completed original definition, not an unresolved projection.");
@@ -228,8 +231,20 @@ export function createSourceDescriptorOwner(input: {
     throw new Error("A required Source component must be registered with its original evidence before publication.");
   }
 
+  function retainComponent(original: SourceTypeEvidence, key: string, value: SourceTypeEvidence): SourceResult<SourceTypeEvidence> {
+    let selected = derivedComponents.get(original);
+    if (selected === undefined) { selected = new Map(); derivedComponents.set(original, selected); }
+    selected.set(key, value);
+    return { kind: "resolved", value };
+  }
+
   function produceDefinition(value: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {
     const original = evidence.record(value);
+    if (value.type.kind === "intersection") {
+      const reduction = original.components.get(components.selectorKey({ kind: "intersection-result" }));
+      if (reduction === undefined) throw new Error("A Source conjunction must retain its exact canonical reduction evidence.");
+      return { kind: "resolved", value: reduction.value };
+    }
     if (value.type.kind !== "declared" && value.type.kind !== "projection") return { kind: "resolved", value };
     const previous = definitionResults.get(value);
     if (previous !== undefined) return previous;
@@ -273,6 +288,19 @@ export function createSourceDescriptorOwner(input: {
     return result;
   }
 
+  function intersection(component: SourceTypeComponent, parts: readonly SourceTypeEvidence[], result: SourceTypeEvidence,
+    original: SourceInputComponent | undefined): SourceTypeEvidence {
+    components.assert(component);
+    parts.forEach(evidence.assert);
+    const selected = evidence.record(result);
+    return evidence.create({ ...result, type: interner.intersection(parts.map(part => part.type)), component },
+      [...[...selected.components.values()].filter(child => child.selector.kind !== "intersection-member" &&
+        child.selector.kind !== "intersection-result"), ...parts.map((value, index) => ({
+        selector: { kind: "intersection-member" as const, index }, value })),
+      { selector: { kind: "intersection-result" }, value: result }],
+      original, selected.domain, selected.requirementBindings, selected.details);
+  }
+
   const view: SourceDescriptorView = Object.freeze({ assertEvidence: evidence.assert, assertDescriptor: interner.assertDescriptor,
     scalarLiteral(value: SourceTypeEvidence) {
       const domain = evidence.record(value).domain;
@@ -282,7 +310,7 @@ export function createSourceDescriptorOwner(input: {
     component, substitute: (value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]) => observe(substitute(value, bindings)), definition,
     freeParameters: parameters.free, typeParameter: parameters.get,
     constraint: parameters.constraint, defaultType: parameters.defaultType });
-  const builder: SourceDescriptorBuilder = Object.freeze({ ...view, primitive: interner.primitive, string: interner.string,
+  const builder: SourceDescriptorBuilder = Object.freeze({ ...view, intersection, primitive: interner.primitive, string: interner.string,
     assertDestination(value: SourceUseDestination): void {
       evidence.assert(value.declaration.type);
       evidence.assert(value.applied);

@@ -51,9 +51,9 @@ export function createSourceComponentOwner(input: {
 
   function selectorKey(value: SourceComponentSelector): string {
     switch (value.kind) {
-      case "optional-value": case "array-element": case "awaited": case "projection-source": return value.kind;
+      case "optional-value": case "array-element": case "awaited": case "projection-source": case "intersection-result": return value.kind;
       case "index-key": case "index-value": return JSON.stringify([value.kind, nodeKey(value.declaration)]);
-      case "tuple-element": case "union-member": case "argument-place": case "parameter-place": return JSON.stringify([value.kind, ordinal(value.index)]);
+      case "tuple-element": case "union-member": case "intersection-member": case "argument-place": case "parameter-place": return JSON.stringify([value.kind, ordinal(value.index)]);
       case "argument-tail": case "parameter-tail": return JSON.stringify([value.kind, ordinal(value.start)]);
       case "member": return JSON.stringify([value.kind, originKey(value.origin)]);
       case "parameter": return JSON.stringify([value.kind, signatureKey(value.signature), ordinal(value.index)]);

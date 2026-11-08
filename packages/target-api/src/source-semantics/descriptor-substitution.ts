@@ -17,6 +17,8 @@ export function createSourceSubstitution(input: {
   parameters: SourceParameterOwner;
   applyFamily(value: SourceSumApplication, bindings: readonly SourceTypeBinding[]): SourceResult<SourceSumApplication>;
   materialize(component: SourceTypeComponent, application: SourceSumApplication, original: SourceInputComponent | undefined): SourceTypeEvidence;
+  intersection(component: SourceTypeComponent, parts: readonly SourceTypeEvidence[], result: SourceTypeEvidence,
+    original: SourceInputComponent | undefined): SourceTypeEvidence;
   project(originalSource: SourceTypeEvidence, source: SourceTypeEvidence, projection: SourceDeferredProjection,
     bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence>;
 }): (value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]) => SourceResult<SourceTypeEvidence> {
@@ -38,7 +40,22 @@ export function createSourceSubstitution(input: {
     const previous = entries.get(identity);
     if (previous !== undefined) return previous;
     let result: SourceResult<SourceTypeEvidence>;
-    if (value.sum !== undefined) {
+    if (value.type.kind === "intersection") {
+      const parts: SourceTypeEvidence[] = [];
+      for (const [index, type] of value.type.types.entries()) {
+        const original = record.components.get(input.components.selectorKey({ kind: "intersection-member", index }));
+        if (original === undefined || original.value.type !== type)
+          throw new Error("A substituted Source conjunction requires every exact original part's evidence.");
+        const selected = substitute(original.value, selectedBindings);
+        if (selected.kind === "refused") { entries.set(identity, selected); return selected; }
+        parts.push(selected.value);
+      }
+      const reduction = record.components.get(input.components.selectorKey({ kind: "intersection-result" }));
+      if (reduction === undefined) throw new Error("A substituted Source conjunction requires its canonical reduction evidence.");
+      const selected = substitute(reduction.value, selectedBindings);
+      result = selected.kind === "refused" ? selected : { kind: "resolved",
+        value: input.intersection(value.component, parts, selected.value, record.original) };
+    } else if (value.sum !== undefined) {
       const selected = input.applyFamily(value.sum, selectedBindings);
       result = selected.kind === "refused" ? selected
         : { kind: "resolved", value: input.materialize(value.component, selected.value, record.original) };
@@ -145,6 +162,7 @@ function rebuild(type: SourceTypeDescriptor,
         value: child({ kind: "index-value", declaration: index.declaration }, index.value) })),
       calls: type.calls.map(signature), constructs: type.constructs.map(signature) });
     case "union": throw new Error("A substituted Source union must be rebuilt through its original family application.");
+    case "intersection": throw new Error("A substituted Source conjunction must retain its original parts and canonical reduction evidence.");
     case "projection": throw new Error("A Source projection must pass through its canonical projection producer.");
   }
 }
