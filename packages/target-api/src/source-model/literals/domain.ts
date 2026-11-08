@@ -18,14 +18,14 @@ export const sourceOpenLiteralDomain: SourceLiteralDomain = Object.freeze({ kind
 export const sourcePresentLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "open", presence: "present" });
 export const sourceUnreachableLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "unreachable" });
 
-interface NumericIdentity {
+export interface SourceNumericLiteralIdentity {
   readonly coefficient: bigint;
   readonly two: bigint;
   readonly five: bigint;
   readonly negative: boolean;
 }
 
-function numericIdentity(value: Extract<SourceLiteralUnit, { readonly kind: "number" }>["value"]): NumericIdentity | "nan" | "positive-infinity" | "negative-infinity" {
+export function sourceNumericLiteralIdentity(value: Extract<SourceLiteralUnit, { readonly kind: "number" }>["value"]): SourceNumericLiteralIdentity | "nan" | "positive-infinity" | "negative-infinity" {
   let coefficient: bigint;
   let two: bigint;
   let five: bigint;
@@ -71,7 +71,7 @@ export function sourceLiteralUnitsEqual(left: SourceLiteralUnit, right: SourceLi
     case "bigint": return right.kind === "bigint" && left.value === right.value;
     case "number": {
       if (right.kind !== "number") return false;
-      const first = numericIdentity(left.value), second = numericIdentity(right.value);
+      const first = sourceNumericLiteralIdentity(left.value), second = sourceNumericLiteralIdentity(right.value);
       if (typeof first === "string" || typeof second === "string") return first === second;
       return first.coefficient === second.coefficient && first.two === second.two && first.five === second.five && first.negative === second.negative;
     }
@@ -82,7 +82,7 @@ export function sourceFiniteLiteralDomain(values: readonly SourceLiteralUnit[]):
   if (values.length === 0) return sourceUnreachableLiteralDomain;
   const selected: SourceLiteralUnit[] = [];
   for (const value of values) {
-    if (value.kind === "number") numericIdentity(value.value);
+    if (value.kind === "number") sourceNumericLiteralIdentity(value.value);
     if (selected.some(previous => sourceLiteralUnitsEqual(previous, value))) continue;
     if (value.kind !== "number") selected.push(Object.freeze({ ...value }));
     else {
