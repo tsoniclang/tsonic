@@ -1,6 +1,7 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
 import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
+import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
   SourceCategoryDomain, SourceComponentSelector, SourceDeclaredDescriptor,
   SourceDeferredProjection, SourceDescriptorView, SourceResult, SourceSignatureIdentity,
@@ -9,7 +10,7 @@ import type {
 } from "../public/source/contracts.js";
 
 export interface SourceDescriptorProductionHooks {
-  declaredValue(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  declaredValue(component: SourceInputComponent, declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   signatureRefusal(signature: SourceSignatureIdentity): Extract<SourceResult<never>, { readonly kind: "refused" }> | undefined;
 }
 
@@ -23,12 +24,6 @@ export type SourceProductionResult<Value> = SourceResult<Value> | {
   readonly kind: "pending";
   readonly dependencies: readonly SourceTypeComponent[];
 };
-
-export declare function createSourceDescriptorReader(
-  input: SourceDescriptorInput,
-  builder: SourceDescriptorBuilder,
-  hooks: SourceDescriptorProductionHooks,
-): SourceDescriptorReader;
 
 export interface SourceEvidenceComponent {
   readonly selector: SourceComponentSelector;
@@ -51,7 +46,9 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
   declared(value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor;
   projection(source: SourceTypeDescriptor, projection: SourceDeferredProjection): SourceTypeDescriptor;
   componentIdentity(root: Node, path: readonly SourceComponentSelector[]): SourceTypeComponent;
-  evidence(value: SourceTypeEvidence, components: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined): SourceTypeEvidence;
+  evidence(value: SourceTypeEvidence, components: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain): SourceTypeEvidence;
+  domain(value: SourceTypeEvidence): SourceLiteralDomain;
+  join(component: SourceTypeComponent, origin: "authored" | "inferred", roles: readonly SourceTypeEvidence[], original: SourceInputComponent | undefined): SourceResult<SourceTypeEvidence>;
   originalComponent(value: SourceTypeEvidence): SourceInputComponent;
   signature(owner: Node, kind: "call" | "construct", original: SourceInputSignature, declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
   define(declaration: Node, parameters: readonly Node[], definition: () => SourceProductionResult<SourceTypeEvidence>): void;

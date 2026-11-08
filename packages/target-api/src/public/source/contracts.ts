@@ -116,6 +116,8 @@ export type SourceComponentSelector =
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
   | { readonly kind: "member"; readonly origin: SourceMemberOrigin }
+  | { readonly kind: "index-key" | "index-value"; readonly declaration: Node }
+  | { readonly kind: "projection-source" }
   | { readonly kind: "parameter"; readonly signature: SourceSignatureIdentity; readonly index: number }
   | { readonly kind: "receiver"; readonly signature: SourceSignatureIdentity }
   | { readonly kind: "signature-tail"; readonly signature: SourceSignatureIdentity; readonly start: number; readonly readonly: boolean }
@@ -205,8 +207,15 @@ export interface SourceApplication {
   readonly identity: SourceApplicationIdentity;
   readonly kind: "call" | "construct" | "function-value";
   readonly receiver: SourceApplicationReceiver;
+  readonly sourceArguments: readonly SourceAuthoredArgument[];
   readonly arguments: readonly SourceArgumentPlace[];
   readonly result: SourceTypeEvidence;
+}
+
+export interface SourceAuthoredArgument {
+  readonly occurrence: Node;
+  readonly form: "value" | "spread";
+  readonly operand: SourceValueOperand;
 }
 
 export interface SourceArgumentPlace {
@@ -235,10 +244,10 @@ export type SourceValueSelection = {
   readonly occurrence: Node;
   readonly result: SourceTypeEvidence;
 } & (
-  | { readonly kind: "conditional"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: SourceValueOperand }
-  | { readonly kind: "and"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: "control-false" }
-  | { readonly kind: "or"; readonly control: SourceValueOperand; readonly whenTrue: "control-true"; readonly whenFalse: SourceValueOperand }
-  | { readonly kind: "coalesce"; readonly control: SourceValueOperand; readonly whenPresent: SourceTypeEvidence; readonly whenAbsent: SourceValueOperand }
+  | { readonly kind: "conditional"; readonly disposition: "true" | "false" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: SourceValueOperand }
+  | { readonly kind: "and"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: "control-false" }
+  | { readonly kind: "or"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenTrue: "control-true"; readonly whenFalse: SourceValueOperand }
+  | { readonly kind: "coalesce"; readonly disposition: "left" | "right" | "dynamic"; readonly control: SourceValueOperand; readonly whenPresent: SourceTypeEvidence; readonly whenAbsent: SourceValueOperand }
   | { readonly kind: "await"; readonly operand: SourceValueOperand; readonly completion: SourceTypeEvidence }
 );
 
@@ -270,6 +279,7 @@ export interface SourceConstruction {
 }
 
 export interface SourceValueFacts {
+  occurrences(): readonly Node[];
   type(occurrence: Node): SourceResult<SourceTypeEvidence>;
   contextual(occurrence: Node): SourceResult<SourcePresence<SourceTypeEvidence>>;
   declaredSlot(declaration: Node): SourceResult<SourceDeclaredSlot>;
