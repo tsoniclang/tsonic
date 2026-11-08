@@ -85,6 +85,7 @@ export function createSourceFamilyOwner(input: {
     const freeParameters = new Map<Node, ReturnType<SourceParameterOwner["get"]>>();
 
     function append(value: SourceTypeEvidence, indexes: number[], unionContext = family.roles.length > 1): void {
+      value = input.evidence.reduction(value);
       if (value.type.kind === "intrinsic" && value.type.intrinsic === "never") return;
       if (value.sum !== undefined) {
         for (const arm of value.sum.arms) append(arm, indexes, unionContext || value.sum.arms.length > 1);

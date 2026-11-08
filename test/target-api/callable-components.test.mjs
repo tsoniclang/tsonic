@@ -28,7 +28,7 @@ function fixture(program) {
     assert.equal(selected.kind, "resolved", name);
     return selected.value.type;
   }
-  return { source, variable };
+  return { source, variable, nodes };
 }
 
 test("method heads and function-type aliases retain callable shape independently of their return annotations", () => {
@@ -72,5 +72,30 @@ test("inferred results, defaults and member values retain Source completion rath
     assert.equal(value.type.kind === "primitive" && value.type.primitive === "int64", true, name);
     assert.equal(value.category.kind === "known" && value.category.category === "number", true, name);
     source.facts.descriptors.assertEvidence(value);
+  }
+});
+
+test("optional and defaulted formal presence differs from the same original parameter's activation slot", () => {
+  const { source, nodes } = fixture(`
+    export function optional(value?: number) { return value; }
+    export function defaulted(value: number = 1) { return value; }
+  `);
+  for (const name of ["optional", "defaulted"]) {
+    const declaration = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+    assert.equal(declaration !== undefined, true);
+    const selected = source.facts.values.declaredSlot(declaration);
+    assert.equal(selected.kind === "resolved" && selected.value.type.type.kind === "callable", true);
+    const head = selected.value.type;
+    const signature = head.type.calls[0];
+    assert.equal(signature !== undefined && signature.parameters[0].kind === "optional", true);
+    const formal = source.facts.descriptors.component(head, { kind: "parameter", signature: signature.identity, index: 0 });
+    assert.equal(formal.kind === "resolved" && formal.value.type.kind === "optional", true,
+      `${name}: the actual formal accepts absence exactly once`);
+    const parameter = source.ast.parameters(declaration)[0];
+    const activation = source.facts.values.declaredSlot(parameter);
+    assert.equal(activation.kind, "resolved");
+    assert.equal(name === "optional" ? activation.value.type.type.kind === "optional"
+      : activation.value.type.type.kind === "primitive" && activation.value.type.type.primitive === "float64", true,
+    `${name}: the original activation slot keeps its own presence law`);
   }
 });

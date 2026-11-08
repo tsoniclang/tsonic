@@ -24,6 +24,7 @@ export interface SourceEvidenceOwner {
   details(value: SourceEvidenceDetails): SourceEvidenceDetails;
   assert(value: SourceTypeEvidence): void;
   record(value: SourceTypeEvidence): SourceEvidenceRecord;
+  reduction(value: SourceTypeEvidence): SourceTypeEvidence;
   create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[], details: SourceEvidenceDetails): SourceTypeEvidence;
   category(value: SourceCategoryDomain): SourceCategoryDomain;
   categoryKey(value: SourceCategoryDomain): string;
@@ -72,6 +73,16 @@ export function createSourceEvidenceOwner(input: {
     return selected;
   }
 
+  function reduction(value: SourceTypeEvidence): SourceTypeEvidence {
+    let selected = record(value);
+    while (selected.value.type.kind === "intersection") {
+      const child = selected.components.get(input.components.selectorKey({ kind: "intersection-result" }));
+      if (child === undefined) throw new Error("A Source conjunction requires its registered canonical reduction.");
+      selected = record(child.value);
+    }
+    return selected.value;
+  }
+
   function numeric(value: SourceNumericOrigin | undefined): SourceNumericOrigin | undefined {
     if (value === undefined) return undefined;
     input.assertNode(value.producer);
@@ -79,7 +90,9 @@ export function createSourceEvidenceOwner(input: {
   }
 
   function equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): boolean {
-    const from = record(left), to = record(right);
+    const from = record(reduction(left)), to = record(reduction(right));
+    left = from.value;
+    right = to.value;
     if (left === right) return true;
     if (left.type !== right.type || categoryKey(left.category) !== categoryKey(right.category) ||
       !sourceLiteralDomainsEqual(from.domain, to.domain) || from.components.size !== to.components.size ||
@@ -224,5 +237,5 @@ export function createSourceEvidenceOwner(input: {
     return selected;
   }
 
-  return Object.freeze({ details: freezeDetails, assert: (value: SourceTypeEvidence): void => { record(value); }, record, create, category, categoryKey, equivalent });
+  return Object.freeze({ details: freezeDetails, assert: (value: SourceTypeEvidence): void => { record(value); }, record, reduction, create, category, categoryKey, equivalent });
 }

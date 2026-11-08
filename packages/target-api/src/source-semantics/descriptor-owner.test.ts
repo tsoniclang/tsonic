@@ -643,3 +643,27 @@ test("synthetic tuple and formal tails retain exact children without borrowing t
     assert.equal(original.kind === "complete" && original.nodes[0] === declaration, true);
   }
 });
+
+test("family equivalence uses only the registered conjunction reduction and retains every original collapsed role", () => {
+  const current = fixture(), local = current.createView();
+  const component = local.builder.componentIdentity(current.file, []);
+  const scalar = local.evidence(local.builder.primitive("int32"), { kind: "known", category: "number" }, current.file,
+    sourceFiniteLiteralDomain([{ kind: "number", value: { kind: "integer", value: 7n } }]));
+  const other = local.evidence(local.builder.primitive("int32"), { kind: "known", category: "number" }, current.file,
+    sourceFiniteLiteralDomain([{ kind: "number", value: { kind: "integer", value: 8n } }]));
+  const brand = local.evidence(local.builder.shape({ members: [], indexes: [], calls: [], constructs: [] }),
+    { kind: "known", category: "object" });
+  const conjunction = local.builder.intersection(component, [scalar, brand], scalar, undefined);
+  const nested = local.builder.intersection(component, [brand, conjunction], conjunction, undefined);
+  const selected = resolved(local.builder.join(component, "authored", [conjunction, nested, scalar, other], undefined));
+  assert.equal(selected.sum !== undefined && selected.sum.arms.length === 2 && selected.sum.roles.length === 4, true);
+  const application = selected.sum;
+  if (application === undefined) throw new Error("The original family application is required.");
+  assert.equal(application.arms[0] === scalar && application.arms[1] === other, true,
+    "only the exact B-registered reductions are canonical semantic arms");
+  assert.equal(application.roles[0]?.role.template === conjunction && application.roles[0]?.value === conjunction &&
+    application.roles[1]?.role.template === nested && application.roles[1]?.value === nested, true,
+  "original roles retain all ordered conjunction provenance after collapse");
+  for (const role of application.roles.slice(0, 3)) assert.equal(role.armIndexes.length === 1 && role.armIndexes[0] === 0, true);
+  assert.equal(application.roles[3]?.armIndexes[0] === 1, true, "different literal domains never collapse by carrier");
+});
