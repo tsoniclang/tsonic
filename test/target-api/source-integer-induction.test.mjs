@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { argumentPassingFactKey, formatDiagnostics } from "@tsonic/tsts";
-import { createSourceProgramNavigation, createTargetSourceProgram, sourceIntegerInduction } from "../../packages/target-api/dist/public/source.js";
-import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
+import { getTargetCompilationPaths, resolveProjectPaths } from "../../packages/host/dist/index.js";
+import { createCsharpTargetPack } from "../../../tsonic-csharp/dist/public/index.js";
+import { checkSourceProgramFixture } from "./source-program-fixture.mjs";
 
 const profile = `
 interface Object {}
@@ -20,8 +20,42 @@ interface SymbolConstructor { readonly iterator: unique symbol; }
 declare var Symbol: SymbolConstructor;
 `;
 
-test("bounded induction proves only unchanged zero-based counters with representation-independent uses", async () => {
-  const source = await checkedSource("integer-induction", { "profile.d.ts": profile, "src/index.ts": `
+function fixture(text) {
+  const targetPack = createCsharpTargetPack();
+  const target = { id: "csharp", options: { outputType: "Library" } };
+  const project = { entryPoint: "index.ts", rootDir: ".", targets: [target] };
+  const paths = getTargetCompilationPaths(resolveProjectPaths({ projectFilePath: "/src/tsonic.json", project }), target);
+  const checked = checkSourceProgramFixture({ project, projectDirectory: "/src", currentDirectory: "/src", target, targetPack, paths,
+    selectedCapabilities: [], selectedSurfaces: [],
+    files: {
+      "/src/profile.d.ts": profile, "/src/index.ts": text,
+      "/src/node_modules/@tsonic/core/package.json": JSON.stringify({ name: "@tsonic/core", version: "1.0.0", type: "module",
+        exports: { "./types.js": "./types.d.ts", "./lang.js": "./lang.d.ts" } }),
+      "/src/node_modules/@tsonic/core/types.d.ts": "export type int32 = number; export type Pointer<T> = { readonly value: T };",
+      "/src/node_modules/@tsonic/core/lang.d.ts": `import type { Pointer } from './types.js';
+        export declare function addressof<T>(value: T): Pointer<T>; export declare function readwriteref<T>(value: T): T;`,
+    },
+    rootFiles: ["/src/profile.d.ts", "/src/index.ts"],
+    compilerOptions: { strict: true, noLib: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  });
+  assert.equal(checked.kind === "resolved", true, checked.diagnostics.map(issue => issue.message).join("\n").slice(0, 4096));
+  assert.equal(checked.diagnostics.length, 0, "the original full program retains checker, extension and Source diagnostics");
+  const source = checked.value;
+  const file = source.sourceFiles.find(node => source.ast.getFileName(node) === "/src/index.ts");
+  assert.equal(file !== undefined, true, "the original loop file exists");
+  const declarations = source.facts.navigation.nodesForFiles([file]).filter(node => source.ast.is.IsVariableDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "index");
+  const proof = declaration => {
+    const selected = source.facts.integers.induction(declaration);
+    assert.equal(selected.kind === "resolved", true, "the original counter has its exact completed Source outcome");
+    if (selected.value.kind === "present") assert.equal(selected.value.value.counterDeclaration === declaration, true);
+    return selected.value.kind === "present";
+  };
+  return { source, declarations, proof };
+}
+
+test("bounded induction proves only unchanged zero-based counters with representation-independent uses", () => {
+  const current = fixture(`
     declare function consume(value: number): void;
     function loops(values: { length: number; [index: number]: number }) {
       for (let index = 0; index < values.length; index++) consume(values[index]);
@@ -35,24 +69,13 @@ test("bounded induction proves only unchanged zero-based counters with represent
       for (let index = 0; index < values.length; index++) { const captured = () => index; consume(captured()); }
       for (let index = 0; index < values.length; index++) consume(index);
     }
-  ` });
-  assert.equal(formatDiagnostics(source.diagnostics.filter(value => value !== undefined)), "");
-  const navigation = createSourceProgramNavigation(source);
-  const program = createTargetSourceProgram(source);
-  const evidence = { sourceFacts: source.sourceFacts, semanticsFor: node => program.semantics.forFile(source.ast.getSourceFile(node)) };
-  const file = projectSourceFile(source, "src/index.ts");
-  const declarations = [];
-  const visit = node => {
-    if (source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "index") declarations.push(node);
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
-  };
-  visit(file);
-  assert.deepEqual(declarations.map(declaration => sourceIntegerInduction(declaration, source.ast, navigation, evidence) !== undefined),
+  `);
+  assert.deepEqual(current.declarations.map(current.proof),
     [true, true, false, false, false, false, false, false, false, false]);
 });
 
-test("integer call uses require exact project parameter and by-value evidence", async () => {
-  const checked = await checkedSource("integer-induction-calls", { "profile.d.ts": profile, "src/index.ts": `
+test("integer call uses require exact project parameter and by-value evidence", () => {
+  const original = `
     import type { int32 } from "@tsonic/core/types.js";
     import { addressof } from "@tsonic/core/lang.js";
     function copy(value: int32): int32 { value++; return value; }
@@ -64,24 +87,12 @@ test("integer call uses require exact project parameter and by-value evidence", 
       for (let index = 0; index < bound; index++) external(index);
       for (let index = 0; index < bound; index++) addressof(index);
     }
-  ` }, { sourceCore: true });
-  assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
-  assert.deepEqual(checked.extensionDiagnostics, []);
-  const source = createTargetSourceProgram(checked);
-  const declarations = [];
-  const visit = node => {
-    if (source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "index") declarations.push(node);
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
-  };
-  visit(projectSourceFile(source, "src/index.ts"));
-  const evidence = { sourceFacts: source.sourceFacts, semanticsFor: node => source.semantics.forNode(node) };
-  assert.deepEqual(declarations.map(declaration => sourceIntegerInduction(declaration, source.ast, source.navigation, evidence) !== undefined),
-    [true, false, false, false]);
-  assert.equal(sourceIntegerInduction(declarations[0], source.ast, source.navigation, { ...evidence, sourceFacts: undefined }), undefined);
-  const referencePassing = { ...evidence, sourceFacts: { ...source.sourceFacts,
-    getFact: (subject, key) => key === argumentPassingFactKey
-      ? { mode: "byref-readwrite", storageExpression: subject }
-      : source.sourceFacts.getFact(subject, key),
-  } };
-  assert.equal(sourceIntegerInduction(declarations[0], source.ast, source.navigation, referencePassing), undefined);
+  `;
+  const current = fixture(original);
+  assert.deepEqual(current.declarations.map(current.proof), [true, false, false, false]);
+  const referencePassing = fixture(`import { readwriteref } from "@tsonic/core/lang.js";\n${original.replace("copy(index);", "copy(readwriteref(index));")}`);
+  assert.deepEqual(referencePassing.declarations.map(referencePassing.proof), [false, false, false, false],
+    "the genuine configured reference marker replaces the detached fact override");
+  assert.throws(() => current.source.facts.integers.induction(referencePassing.declarations[0]), /exact original node/u,
+    "the mandatory same-program premise cannot be replaced by missing or foreign facts");
 });
