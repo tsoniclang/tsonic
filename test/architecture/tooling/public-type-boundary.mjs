@@ -160,8 +160,14 @@ export function auditPublicTypeBoundary({
       const privateDeclaration = symbols.flatMap(symbol => checker.getSymbolDeclarations(resolveSymbol(checker, symbol)))
         .find(declaration => {
           const file = ast.getFileName(ast.getSourceFile(declaration)).replaceAll("\\", "/");
+          const named = typeDeclarations.has(ast.kindName(declaration)) ? ast.text(ast.name(declaration)) : undefined;
           return file.includes("/packages/host/dist/host-input/") || file.includes("/packages/source-core/dist/host-input/") ||
-            file.includes("/packages/target-api/dist/source-semantics/descriptor-");
+            file.includes("/packages/target-api/dist/source-semantics/descriptor-") ||
+            file.endsWith("/packages/target-api/dist/source-semantics/member-use.d.ts") && named === "SourceObjectProduction" ||
+            file.endsWith("/packages/target-api/dist/host-input/program-input.d.ts") &&
+              ["SourceFactProduction", "SourceObjectProductionQueries"].includes(named) ||
+            file.endsWith("/packages/target-api/dist/source-model/literals/domain.d.ts") &&
+              named === "SourceLiteralDomain";
         });
       if (privateDeclaration !== undefined) {
         failure = { verdict: "private-host", detail: `${path}: private Source implementation ${ast.getFileName(ast.getSourceFile(privateDeclaration))}.` };
@@ -195,6 +201,10 @@ export function auditPublicTypeBoundary({
       for (const symbol of symbols) for (const declaration of checker.getSymbolDeclarations(symbol)) addConstraints(declaration);
       for (const arm of typeShape.getUnionOrIntersectionTypes(type)) add(arm, "arm");
       for (const argument of typeShape.getTypeArguments(type)) add(argument, "argument");
+      const application = typeShape.getTypeAliasApplication(type);
+      if (application !== undefined) {
+        for (const [index, binding] of application.bindings.entries()) add(binding.argument, `alias-argument${index}`);
+      }
       if (symbols.length > 0 && symbols.every(symbol => {
         const original = checker.getSymbolDeclarations(symbol);
         return original.length > 0 && original.every(declaration => checker.isDefaultLibraryDeclaration(declaration));

@@ -17,6 +17,19 @@ function audit(text, options = {}) {
       `],
       ["/probe/hidden.d.ts", `import type { Type } from './checker.js'; export interface Hidden { readonly cached: Type }`],
       ["/workspace/packages/host/dist/host-input/private.d.ts", `export interface Builder { define(value: string): object }`],
+      ["/workspace/packages/target-api/dist/source-semantics/member-use.d.ts", `
+        import type { Node } from '/probe/checker.js';
+        export interface SourceObjectProduction { member(original: Node): string }
+        export interface SourceMemberUse { readonly kind: "member"; readonly occurrence: Node }
+      `],
+      ["/workspace/packages/target-api/dist/host-input/program-input.d.ts", `
+        import type { Node } from '/probe/checker.js';
+        export interface SourceFactProduction { publish(original: Node): object }
+      `],
+      ["/workspace/packages/target-api/dist/source-model/literals/domain.d.ts", `
+        export type SourceLiteralUnit = { readonly kind: "string"; readonly value: string };
+        export type SourceLiteralDomain = { readonly kind: "finite"; readonly values: readonly SourceLiteralUnit[] };
+      `],
       ["/probe/entry.d.ts", `import type { Type, Signature, Symbol, CheckedSourceProgram, Node, SourceFile, ExtensionFactKey } from './checker.js'; ${text}`],
       ["/probe/index.d.ts", `export * from './entry.js'; export * as Nested from './hidden.js';`],
     ]),
@@ -168,4 +181,30 @@ test("a checker-free private Host builder is still forbidden in every public val
   `);
   assert.equal(row(rows, "Leaked").verdict, "private-host");
   assert.equal(row(rows, "StaticBuilder", "value").verdict, "private-host");
+});
+
+test("public Host factory closure cannot expose private Source producers or domain evaluators", () => {
+  const rows = audit(`
+    import type { SourceObjectProduction as OriginalProducer, SourceMemberUse } from '/workspace/packages/target-api/dist/source-semantics/member-use.js';
+    import type { SourceFactProduction } from '/workspace/packages/target-api/dist/host-input/program-input.js';
+    import type { SourceLiteralDomain as OriginalDomain, SourceLiteralUnit } from '/workspace/packages/target-api/dist/source-model/literals/domain.js';
+    interface SourceLiteralDomain { readonly value: string }
+    export interface ProducerLeak { readonly production: OriginalProducer }
+    export function evaluate(original: Node): OriginalDomain;
+    export function factory(create: (production: OriginalProducer) => void): void;
+    export interface AssemblyLeak { readonly build: (production: SourceFactProduction) => void }
+    type Presence<Value> = { readonly kind: "none" } | { readonly kind: "some"; readonly value: Value };
+    export function wrapped(original: Node): Presence<OriginalDomain>;
+    export interface PublishedMember { readonly use: SourceMemberUse }
+    export interface UnitOnly { readonly scalar: SourceLiteralUnit }
+    export interface CoincidentName { readonly data: SourceLiteralDomain }
+  `);
+  assert.equal(row(rows, "ProducerLeak").verdict, "private-host");
+  assert.equal(row(rows, "evaluate", "value").verdict, "private-host");
+  assert.equal(row(rows, "factory", "value").verdict, "private-host");
+  assert.equal(row(rows, "AssemblyLeak").verdict, "private-host");
+  assert.equal(row(rows, "wrapped", "value").verdict, "private-host");
+  assert.equal(row(rows, "PublishedMember").verdict, "clean", "the published member-use fact is not a producer merely because its original declaration shares a Source implementation module");
+  assert.equal(row(rows, "UnitOnly").verdict, "clean", "the approved scalar unit stays public even in the same declaration file as the private domain");
+  assert.equal(row(rows, "CoincidentName").verdict, "clean", "private Source identity is not inferred from another declaration's spelling");
 });

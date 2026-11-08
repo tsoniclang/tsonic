@@ -105,7 +105,7 @@ test("CLI finalizes interface-backed JSON shapes and dynamic-property typeof che
   assert.equal(generatedShapes.match(/public class TodoShape_[a-f0-9]{12} : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
   assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
   assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; set; \}\s*string title \{ get; set; \}\s*bool completed \{ get; set; \}\s*\}/u);
-  assert.equal(generatedShapes.match(/void __tsonicWriteJson\(/gu)?.length, 1);
+  assert.equal(generatedShapes.match(/bool __tsonicWriteJson\(/gu)?.length, 1);
   assert.match(generatedSource, /TsValue\.ApplyDynamicTypeof\(value\.ReadDynamicSlot\("title"\)\) != "string"/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedJsonInterfaceShapeFinalization.csproj"), "--nologo", "--v:minimal"]);
