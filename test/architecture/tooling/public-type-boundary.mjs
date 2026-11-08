@@ -138,6 +138,8 @@ export function auditPublicTypeBoundary({
     const pending = [{ type: root, path: subject, depth: 0 }];
     const seen = new Set();
     const declarations = new Set();
+    const constituents = candidate => typeShape.isUnion(candidate) || typeShape.isIntersection(candidate)
+      ? typeShape.getUnionOrIntersectionTypes(candidate) : [];
     let failure;
     while (pending.length > 0 && failure === undefined) {
       const { type, path, depth } = pending.pop();
@@ -199,7 +201,7 @@ export function auditPublicTypeBoundary({
         if (ast.kindName(declaration) === "KindTypeAliasDeclaration") addSyntax(ast.typeNode(declaration));
       };
       for (const symbol of symbols) for (const declaration of checker.getSymbolDeclarations(symbol)) addConstraints(declaration);
-      for (const arm of typeShape.getUnionOrIntersectionTypes(type)) add(arm, "arm");
+      for (const arm of constituents(type)) add(arm, "arm");
       for (const argument of typeShape.getTypeArguments(type)) add(argument, "argument");
       const application = typeShape.getTypeAliasApplication(type);
       if (application !== undefined) {
@@ -219,7 +221,7 @@ export function auditPublicTypeBoundary({
         add(indexed.indexType, "indexed-key");
       }
       const inheritedSites = new Set();
-      const ancestors = [...bases, ...typeShape.getUnionOrIntersectionTypes(type)];
+      const ancestors = [...bases, ...constituents(type)];
       const visitedAncestors = new Set();
       while (ancestors.length > 0) {
         const ancestor = ancestors.pop();
@@ -231,7 +233,7 @@ export function auditPublicTypeBoundary({
         }
         const site = siteProperties.find(original => typeShape.isTypeIdenticalTo(original.type, ancestor));
         if (site !== undefined) inheritedSites.add(site);
-        else ancestors.push(...(typeShape.getInstantiatedBaseTypes(ancestor) ?? []), ...typeShape.getUnionOrIntersectionTypes(ancestor));
+        else ancestors.push(...(typeShape.getInstantiatedBaseTypes(ancestor) ?? []), ...constituents(ancestor));
       }
       if (failure !== undefined) break;
       for (const property of typeShape.getPropertyInfos(type)) {

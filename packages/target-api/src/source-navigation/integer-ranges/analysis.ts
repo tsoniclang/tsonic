@@ -1,13 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceBooleanLiteralDisposition } from "../../source-model/literals/domain.js";
-import type { SourceOperation, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceIntegerRange, SourceOperation, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
 import type { SourceGuardContext } from "../../source-semantics/value-flow-model.js";
 import { sourcePrimitiveIntegerBounds } from "../../source-semantics/local-type-flow/operator-decisions.js";
 import { sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
 import { Node_Expression, Node_Initializer } from "../ast.js";
 import { binaryIntegerRange, exactIntegerRange, integerRange, integerSquareRoot, joinIntegerRanges, sourceIntegerScalar } from "./domain.js";
-import type { SourceIntegerArithmetic, SourceIntegerRange } from "./domain.js";
+import type { SourceIntegerArithmetic } from "./domain.js";
 
 export interface SourceIntegerRangeOptions extends Pick<SourceGuardContext, "ast" | "navigation" | "protocols" | "view" | "syntaxDomain" | "enclosing"> {
   value(expression: Node): SourceProductionResult<SourceTypeEvidence>;

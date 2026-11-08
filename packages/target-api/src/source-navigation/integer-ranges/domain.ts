@@ -1,10 +1,6 @@
+import type { SourceIntegerRange } from "../../public/source/contracts.js";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { compareSourceNumericLiteralMagnitude } from "../../source-model/literals/token.js";
-
-export interface SourceIntegerRange {
-  readonly minimum: bigint;
-  readonly maximum: bigint;
-}
 
 export type SourceIntegerArithmetic = "integer" | "float64";
 
