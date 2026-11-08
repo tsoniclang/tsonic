@@ -162,6 +162,10 @@ const integerBounds: Readonly<Partial<Record<SourcePrimitiveKind, readonly [bigi
 const float32OverflowThreshold = (1n << 128n) - (1n << 103n);
 const decimalOverflowThresholdTwice = (((1n << 96n) - 1n) << 1n) + 1n;
 
+export function sourcePrimitiveIntegerBounds(primitive: SourcePrimitiveKind): readonly [bigint, bigint] | undefined {
+  return integerBounds[primitive];
+}
+
 export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind): boolean {
   if (literal.form === "array") return false;
   const bounds = integerBounds[primitive];
