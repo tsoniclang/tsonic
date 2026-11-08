@@ -1,54 +1,42 @@
-import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
+import type { Node } from "@tsonic/tsts";
+import { sourceBooleanLiteralDisposition } from "../../source-model/literals/domain.js";
+import type { SourceOperation, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
+import type { SourceGuardContext } from "../../source-semantics/value-flow-model.js";
+import { sourcePrimitiveIntegerBounds } from "../../source-semantics/local-type-flow/operator-decisions.js";
+import { sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
 import { Node_Expression, Node_Initializer } from "../ast.js";
-import { binaryIntegerRange, integerRange, joinIntegerRanges } from "./domain.js";
-import type { SourceIntegerRange } from "./domain.js";
+import { binaryIntegerRange, exactIntegerRange, integerRange, integerSquareRoot, joinIntegerRanges, sourceIntegerScalar } from "./domain.js";
+import type { SourceIntegerArithmetic, SourceIntegerRange } from "./domain.js";
 
-export interface SourceIntegerRangeOptions {
-  readonly ast: AstReader;
-  readonly navigation: SourceNodeNavigationFacts;
-  readonly sourceFiles: readonly SourceFile[];
-  isNumber(expression: Node): boolean;
+export interface SourceIntegerRangeOptions extends Pick<SourceGuardContext, "ast" | "navigation" | "protocols" | "view" | "syntaxDomain" | "enclosing"> {
+  value(expression: Node): SourceProductionResult<SourceTypeEvidence>;
+  operation(expression: Node): SourceProductionResult<SourceOperation>;
 }
 
 export interface SourceIntegerRangeQueries {
-  readonly exactInt32Remainders: readonly Node[];
-  range(expression: Node): SourceIntegerRange | undefined;
+  range(expression: Node): SourceProductionResult<SourceIntegerRange | undefined>;
 }
 
 type Environment = Map<Node, SourceIntegerRange>;
 
-export function analyzeSourceIntegerRanges(options: SourceIntegerRangeOptions): SourceIntegerRangeQueries {
-  const ranges = new WeakMap<Node, SourceIntegerRange>();
-  const candidates: Node[] = [];
-  const { ast } = options;
-  const callables = new Set<Node>();
-  const pending: { readonly node: Node; readonly owner?: Node }[] = options.sourceFiles.map(node => ({ node }));
-  while (pending.length > 0) {
-    const current = pending.pop()!;
-    const { node } = current;
-    const owner = callableKinds.has(ast.kindName(node)) ? node : current.owner;
-    if (owner !== undefined && ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindPercentToken") callables.add(owner);
-    ast.forEachChild(node, child => { if (child !== undefined) pending.push({ node: child, owner }); });
-  }
-  for (const callable of callables) {
-    const analysis = new CallableIntegerRanges(options);
-    for (const [expression, range] of analysis.analyze(callable)) {
-      ranges.set(expression, range);
-      if (ast.is.IsBinaryExpression(expression) && ast.operatorKindName(expression) === "KindPercentToken") candidates.push(expression);
-    }
-  }
-  const exactInt32Remainders = candidates.filter(expression => {
-      const binary = ast.as.AsBinaryExpression(expression);
-      const left = binary?.Left === undefined ? undefined : ranges.get(binary.Left);
-      const right = binary?.Right === undefined ? undefined : ranges.get(binary.Right);
-      return ranges.has(expression) && left !== undefined && right !== undefined &&
-        left.minimum >= 0 && left.maximum <= 2_147_483_647 &&
-        right.minimum > 0 && right.maximum <= 2_147_483_647;
-  });
+export function createSourceIntegerRangeQueries(options: SourceIntegerRangeOptions): SourceIntegerRangeQueries {
+  const completed = new WeakMap<Node, ReadonlyMap<Node, SourceIntegerRange>>();
   return Object.freeze({
-    range: (expression: Node) => ranges.get(expression),
-    exactInt32Remainders: Object.freeze(exactInt32Remainders),
+    range(expression: Node): SourceProductionResult<SourceIntegerRange | undefined> {
+      if (!options.navigation.includes(expression)) throw new Error("Integer ranges require an original occurrence from this Source program.");
+      let remaining = 2_048;
+      const callable = options.enclosing(expression, "body", () => --remaining >= 0);
+      if (callable === undefined) return Object.freeze({ kind: "resolved", value: undefined });
+      let ranges = completed.get(callable);
+      if (ranges === undefined) {
+        const analyzed = new CallableIntegerRanges(options).analyze(callable);
+        if (analyzed.kind !== "resolved") return analyzed;
+        ranges = analyzed.value;
+        completed.set(callable, ranges);
+      }
+      return Object.freeze({ kind: "resolved", value: ranges.get(expression) });
+    },
   });
 }
 
@@ -56,22 +44,24 @@ class CallableIntegerRanges {
   readonly #options: SourceIntegerRangeOptions;
   readonly #ranges = new Map<Node, SourceIntegerRange>();
   readonly #safeBindings = new Map<Node, boolean>();
+  readonly #evidence = new Map<Node, SourceTypeEvidence>();
+  #incomplete: Exclude<SourceProductionResult<unknown>, { readonly kind: "resolved" }> | undefined;
   #remaining = 16_384;
   #abandoned = false;
 
   constructor(options: SourceIntegerRangeOptions) { this.#options = options; }
 
-  analyze(callable: Node): ReadonlyMap<Node, SourceIntegerRange> {
+  analyze(callable: Node): SourceProductionResult<ReadonlyMap<Node, SourceIntegerRange>> {
     const body = this.#options.ast.body(callable);
     if (body !== undefined) {
       if (this.#options.ast.is.IsBlock(body)) this.statement(body, new Map(), 0);
       else this.expression(body, new Map(), 0);
     }
-    return this.#abandoned ? new Map() : this.#ranges;
+    return this.#incomplete ?? Object.freeze({ kind: "resolved", value: this.#abandoned ? new Map() : this.#ranges });
   }
 
   private enter(depth: number): boolean {
-    if (depth > 128 || --this.#remaining < 0) this.#abandoned = true;
+    if (this.#incomplete !== undefined || depth > 128 || --this.#remaining < 0) this.#abandoned = true;
     return !this.#abandoned;
   }
 
@@ -81,12 +71,54 @@ class CallableIntegerRanges {
     const parent = this.#options.ast.parent(declaration);
     const declarationKind = parent === undefined ? undefined : this.#options.ast.variableDeclarationKind(parent);
     const summary = this.#options.navigation.declarationUseSummary(declaration);
-    const safe = this.#options.ast.is.IsVariableDeclaration(declaration) &&
+    let safe = this.#options.ast.is.IsVariableDeclaration(declaration) &&
       (declarationKind === "let" || declarationKind === "const") &&
       !summary.captured && !summary.exported && !summary.memberWritten &&
       !summary.uses.some(use => use.role === "argument" || use.role === "yield");
+    if (safe) {
+      const exposure = sourceBindingHasMutableExposure(this.#options, summary, () => this.enter(0));
+      if (exposure.kind === "refused") { this.#incomplete = exposure; return false; }
+      safe = !exposure.value;
+    }
     this.#safeBindings.set(declaration, safe);
     return safe;
+  }
+
+  private evidence(node: Node): SourceTypeEvidence | undefined {
+    const previous = this.#evidence.get(node);
+    if (previous !== undefined) return previous;
+    const selected = this.#options.value(node);
+    if (selected.kind !== "resolved") { this.#incomplete = selected; return undefined; }
+    let value = selected.value;
+    const visited = new Set<SourceTypeEvidence>();
+    while (value.type.kind === "declared" || value.type.kind === "intersection") {
+      if (!this.enter(0) || visited.has(value)) return undefined;
+      visited.add(value);
+      const definition = value.type.kind === "intersection"
+        ? this.#options.view.component(value, { kind: "intersection-result" }) : this.#options.view.definition(value);
+      if (definition.kind === "refused") { this.#incomplete = definition; return undefined; }
+      value = definition.value;
+    }
+    this.#options.view.assertEvidence(value);
+    this.#evidence.set(node, value);
+    return value;
+  }
+
+  private arithmetic(node: Node): SourceIntegerArithmetic | undefined {
+    const value = this.evidence(node);
+    if (value?.category.kind !== "known" || value.category.category !== "number" && value.category.category !== "bigint") return undefined;
+    if (value.type.kind === "intrinsic" && value.type.intrinsic === "bigint") return "integer";
+    if (value.type.kind !== "primitive") return undefined;
+    return value.type.primitive === "float64" ? "float64"
+      : sourcePrimitiveIntegerBounds(value.type.primitive) !== undefined ? "integer" : undefined;
+  }
+
+  private retain(node: Node, range: SourceIntegerRange): SourceIntegerRange | undefined {
+    const arithmetic = this.arithmetic(node);
+    if (arithmetic === undefined || exactIntegerRange(range, arithmetic) === undefined) return undefined;
+    const value = this.evidence(node)!;
+    const bounds = value.type.kind === "primitive" ? sourcePrimitiveIntegerBounds(value.type.primitive) : undefined;
+    return bounds === undefined || range.minimum >= bounds[0] && range.maximum <= bounds[1] ? range : undefined;
   }
 
   private declaration(reference: Node | undefined): Node | undefined {
@@ -106,11 +138,14 @@ class CallableIntegerRanges {
     if (!this.enter(depth)) return undefined;
     const { ast } = this.#options;
     const kind = ast.kindName(node);
-    if (callableKinds.has(kind)) return undefined;
+    if (this.#options.navigation.callableRoles(node).body) return undefined;
     let range: SourceIntegerRange | undefined;
-    if (ast.is.IsNumericLiteral(node)) {
-      const text = ast.text(node);
-      range = text === undefined ? undefined : integerRange(Number(text.replace(/_/gu, "")));
+    if (ast.is.IsNumericLiteral(node) || ast.is.IsBigIntLiteral(node)) {
+      const domain = this.#options.syntaxDomain(node);
+      if (domain.kind !== "resolved") { this.#incomplete = domain; return undefined; }
+      const integer = domain.value.kind === "finite" && domain.value.values.length === 1
+        ? sourceIntegerScalar(domain.value.values[0]!) : undefined;
+      range = integer === undefined ? undefined : integerRange(integer);
     } else if (ast.is.IsIdentifier(node)) {
       const declaration = this.declaration(node);
       range = declaration === undefined ? undefined : environment.get(declaration);
@@ -123,6 +158,17 @@ class CallableIntegerRanges {
       if (binary?.Left === undefined || binary.Right === undefined) return undefined;
       if (conditionalKinds.has(operator ?? "")) {
         this.expression(binary.Left, environment, depth + 1);
+        const operation = this.#options.operation(node);
+        if (operation.kind !== "resolved") { this.#incomplete = operation; return undefined; }
+        const selection = operation.value.kind === "selection-assignment" ? operation.value.selection : operation.value;
+        if (selection.kind !== "and" && selection.kind !== "or" && selection.kind !== "coalesce")
+          throw new Error("Conditional integer-flow analysis requires the original Source selection.");
+        if (selection.disposition === "left") return undefined;
+        if (selection.disposition === "right") {
+          this.expression(binary.Right, environment, depth + 1);
+          if (assignmentKinds.has(operator ?? "")) this.bind(this.declaration(binary.Left), undefined, environment);
+          return undefined;
+        }
         const optional = new Map(environment);
         this.expression(binary.Right, optional, depth + 1);
         this.merge(environment, optional, environment);
@@ -141,7 +187,8 @@ class CallableIntegerRanges {
         if (declaration === undefined) environment.clear();
         else this.bind(declaration, undefined, environment);
       } else if (left !== undefined && right !== undefined && operator !== undefined) {
-        range = binaryIntegerRange(operator, left, right);
+        const arithmetic = this.arithmetic(node);
+        range = arithmetic === undefined ? undefined : binaryIntegerRange(operator, left, right, arithmetic);
       }
     } else if (ast.is.IsPrefixUnaryExpression(node) || ast.is.IsPostfixUnaryExpression(node)) {
       const operand = ast.is.IsPrefixUnaryExpression(node)
@@ -149,20 +196,22 @@ class CallableIntegerRanges {
       const value = operand === undefined ? undefined : this.expression(operand, environment, depth + 1);
       const operator = ast.operatorKindName(node);
       if (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") {
-        const next = value === undefined ? undefined : binaryIntegerRange(
-          operator === "KindPlusPlusToken" ? "KindPlusToken" : "KindMinusToken", value, integerRange(1)!);
+        const arithmetic = this.arithmetic(node);
+        const computed = value === undefined || arithmetic === undefined ? undefined : binaryIntegerRange(
+          operator === "KindPlusPlusToken" ? "KindPlusToken" : "KindMinusToken", value, integerRange(1n)!, arithmetic);
+        const next = computed === undefined ? undefined : this.retain(node, computed);
         this.bind(this.declaration(operand), next, environment);
         range = ast.is.IsPrefixUnaryExpression(node) ? next : value;
       } else if (operator === "KindPlusToken") range = value;
-      else if (operator === "KindMinusToken" && value !== undefined && (value.minimum > 0 || value.maximum < 0)) {
+      else if (operator === "KindMinusToken" && value !== undefined && (value.minimum > 0n || value.maximum < 0n)) {
         range = integerRange(-value.maximum, -value.minimum);
       }
     } else {
       this.invalidateWrites(node, environment, depth + 1);
       return undefined;
     }
-    if (range !== undefined && this.#options.isNumber(node)) this.#ranges.set(node, range);
-    else range = undefined;
+    range = range === undefined ? undefined : this.retain(node, range);
+    if (range !== undefined) this.#ranges.set(node, range);
     return range;
   }
 
@@ -194,6 +243,15 @@ class CallableIntegerRanges {
     } else if (ast.is.IsIfStatement(node)) {
       const conditional = ast.as.AsIfStatement(node);
       if (conditional?.Expression !== undefined) this.expression(conditional.Expression, environment, depth + 1);
+      if (conditional?.Expression !== undefined) {
+        const domain = this.#options.syntaxDomain(conditional.Expression);
+        if (domain.kind !== "resolved") { this.#incomplete = domain; return false; }
+        const disposition = sourceBooleanLiteralDisposition(domain.value);
+        if (disposition !== "dynamic") {
+          const selected = disposition === "true" ? conditional.ThenStatement : conditional.ElseStatement;
+          return selected === undefined || this.statement(selected, environment, depth + 1);
+        }
+      }
       const yes = new Map(environment);
       const no = new Map(environment);
       const yesContinues = conditional?.ThenStatement === undefined || this.statement(conditional.ThenStatement, yes, depth + 1);
@@ -203,7 +261,7 @@ class CallableIntegerRanges {
       else return false;
     } else if (ast.is.IsForStatement(node)) {
       this.loop(node, environment, depth + 1);
-    } else if (!callableKinds.has(ast.kindName(node)) && ast.kindName(node) !== "KindEmptyStatement") {
+    } else if (!this.#options.navigation.callableRoles(node).body && ast.kindName(node) !== "KindEmptyStatement") {
       environment.clear();
     }
     return true;
@@ -228,21 +286,25 @@ class CallableIntegerRanges {
       ? ast.as.AsPostfixUnaryExpression(loop.Incrementor)?.Operand
       : ast.is.IsPrefixUnaryExpression(loop.Incrementor) ? ast.as.AsPrefixUnaryExpression(loop.Incrementor)?.Operand : undefined;
     if (counter === undefined || !this.safeBinding(counter) || start === undefined || start.minimum !== start.maximum ||
-      start.minimum < 0 || ast.operatorKindName(loop.Incrementor) !== "KindPlusPlusToken" ||
+      start.minimum < 0n || ast.operatorKindName(loop.Incrementor) !== "KindPlusPlusToken" ||
       this.declaration(increment) !== counter || !ast.is.IsBinaryExpression(loop.Condition)) return;
     const condition = ast.as.AsBinaryExpression(loop.Condition);
     const operator = ast.operatorKindName(loop.Condition);
     if (condition?.Left === undefined || condition.Right === undefined ||
       (operator !== "KindLessThanToken" && operator !== "KindLessThanEqualsToken")) return;
     const bound = this.expression(condition.Right, bodyEnvironment, depth + 1);
-    if (bound === undefined || bound.maximum >= Number.MAX_SAFE_INTEGER) return;
-    let maximum = bound.maximum - (operator === "KindLessThanToken" ? 1 : 0);
+    if (bound === undefined) return;
+    let maximum = bound.maximum - (operator === "KindLessThanToken" ? 1n : 0n);
     if (this.declaration(condition.Left) !== counter) {
       const square = ast.is.IsBinaryExpression(condition.Left) ? ast.as.AsBinaryExpression(condition.Left) : undefined;
       if (square === undefined || ast.operatorKindName(condition.Left) !== "KindAsteriskToken" ||
-        this.declaration(square.Left) !== counter || this.declaration(square.Right) !== counter || maximum > 2_147_483_647) return;
-      maximum = Math.floor(Math.sqrt(maximum));
+        this.declaration(square.Left) !== counter || this.declaration(square.Right) !== counter || maximum < 0n) return;
+      maximum = integerSquareRoot(maximum);
+      const followingSquare = integerRange((maximum + 1n) * (maximum + 1n));
+      if (followingSquare === undefined || this.retain(condition.Left, followingSquare) === undefined) return;
     }
+    const after = integerRange(maximum + 1n);
+    if (after === undefined || this.retain(loop.Incrementor, after) === undefined) return;
     const range = integerRange(start.minimum, maximum);
     if (range === undefined) return;
     const writes = new Map<Node, SourceIntegerRange>([[counter, range]]);
@@ -256,7 +318,7 @@ class CallableIntegerRanges {
   private invalidateWrites(node: Node, environment: Environment, depth: number): void {
     if (!this.enter(depth)) return;
     const { ast } = this.#options;
-    if (callableKinds.has(ast.kindName(node))) return;
+    if (this.#options.navigation.callableRoles(node).body) return;
     if (ast.is.IsVariableDeclaration(node) && Node_Initializer(ast, node) !== undefined) {
       const parent = ast.parent(node);
       if (parent === undefined || ast.variableDeclarationKind(parent) === "var") environment.clear();
@@ -295,7 +357,6 @@ class CallableIntegerRanges {
   }
 }
 
-const callableKinds = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration"]);
 const transparentKinds = new Set(["KindParenthesizedExpression", "KindAsExpression", "KindSatisfiesExpression", "KindNonNullExpression", "KindTypeAssertion"]);
 const conditionalKinds = new Set(["KindAmpersandAmpersandToken", "KindBarBarToken", "KindQuestionQuestionToken",
   "KindAmpersandAmpersandEqualsToken", "KindBarBarEqualsToken", "KindQuestionQuestionEqualsToken"]);

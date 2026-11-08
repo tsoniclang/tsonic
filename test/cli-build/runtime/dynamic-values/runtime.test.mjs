@@ -361,7 +361,7 @@ test("CLI emits and executes explicit any comma sequences through native stateme
     "{",
     "    public static void Main()",
     "    {",
-    "        Console.WriteLine(Smoke.Generated.Index.sequence(Tsonic.CSharp.Runtime.TsValue.from(7.0)));",
+    "        Console.WriteLine(Smoke.Generated.Index.sequence(Tsonic.CSharp.Runtime.TsValue.fromnative(7.0)));",
     "    }",
     "}",
     "",

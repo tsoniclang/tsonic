@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import test from "node:test";
 import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
 import { tsonicRoot } from "../../scripts/workspace-layout.mjs";
@@ -283,7 +283,7 @@ test("wait", async () => {
 
 test("invalid parents and prefixes never allocate a workspace", () => {
   const current = createTestWorkspace(scratch, "invalid-");
-  for (const parent of ["relative/.temp", join(tsonicRoot, ".temp", "..", "not-scratch"), "/", undefined]) {
+  for (const parent of ["relative/.temp", join(parse(tsonicRoot).root, "not-scratch"), "/", undefined]) {
     assert.throws(() => createTestWorkspace(parent, "project-"), /absolute .temp or .tests/u);
   }
   for (const prefix of ["", ".", "..", "../escape-", "/absolute", "bad\0prefix", undefined]) {
