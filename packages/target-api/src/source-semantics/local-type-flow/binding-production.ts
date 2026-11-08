@@ -4,7 +4,8 @@ import type { SourceEvidenceComponent, SourceProductionResult } from "../descrip
 import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { indexSource, sourceKeyEvidence } from "./type-keys.js";
+import { indexSource, produceSourceMemberKey, sourceKeyEvidence } from "./type-keys.js";
+import { produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { produceSourceMemberInventory } from "./member-production.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceDeclarationProduction } from "./declaration-production.js";
@@ -101,7 +102,11 @@ export function produceSourceBindingValue(context: SourceDeclarationProduction, 
       if (value.kind === "none") continue;
       const origin = row.readOrigins[0];
       if (origin === undefined) return sourceSemanticRefusal(declaration, "A copied original Source member requires its exact readable origin.");
-      members.push({ name: row.name, origin, optional: row.optional, readonly: false, type: value.value.type });
+      const key = produceSourceMemberKey({ ast, input, literalDomain: (original, bindings) =>
+        produceSourceComponentLiteralDomain({ ast, input, builder, value: context.value, component: context.place }, original, bindings) },
+      origin, row.name, bindings);
+      if (key.kind !== "resolved") return key;
+      members.push({ name: row.name, key: key.value, origin, optional: row.optional, readonly: false, type: value.value.type });
       children.push({ selector: { kind: "member", origin }, value: value.value });
       rows.push({ ...row, readonly: false, getters: [], setters: [], read: "property", writeOrigins: row.readOrigins, writeType: row.readType });
     }

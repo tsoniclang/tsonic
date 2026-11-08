@@ -59,6 +59,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const objects = source.createObjects({ place: producers.place, value: producers.value, declared: producers.declared,
     memberDestination: producers.memberDestination, memberValue: producers.memberValue });
   const guards = createSourceValueGuardQueries({ ast, navigation: source.navigation, view: source.descriptorBuilder,
+    enclosing: source.enclosing,
     flowConditions: source.protocolInput.flowConditions, syntaxDomain: domains.syntaxDomain,
     protocols: {
       argumentPassing: node => ({ kind: "resolved", value: source.protocolInput.argumentPassing(node) }),

@@ -40,7 +40,7 @@ export function produceSourceOperatorCategory(context: Pick<SourceSemanticProduc
     if (fact !== undefined && fact.runtimeBase === categories[index] && sourcePrimitiveOperatorIsIntegral(fact.kind))
       configured.push({ index, primitive: fact.kind });
   }
-  if (configured.length !== 1) return refusal("A mixed numeric operation requires one authenticated configured native operand category.");
+  if (configured.length !== 1) return refusal("A mixed numeric operation requires one authenticated configured native operand category. Convert one operand explicitly to establish a single numeric category.");
   const native = configured[0]!;
   const numberIndex = categories.indexOf("number");
   const number = operands[numberIndex]!;

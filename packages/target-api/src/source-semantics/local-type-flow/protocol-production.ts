@@ -10,6 +10,7 @@ import { produceSourceAwaitedType } from "./awaited.js";
 import { createSourceProductionCache } from "./production-cache.js";
 import { produceSourceReceiverBindings, type SourceCallableProduction, type SourceProducedSignature } from "./callable-production.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import { produceSourceSequenceElements } from "./tuple-layout.js";
 
 interface SourceProtocolProduction extends SourceCallableProduction {
   readonly protocolInput: SourceInputProtocolQueries;
@@ -118,9 +119,7 @@ export function createSourceSolvedProtocolFacts(context: SourceProtocolProductio
     const type = definition.value.type;
     const completion = absent(occurrence);
     if (type.kind === "array" || type.kind === "tuple") {
-      const elements = type.kind === "array" ? [builder.component(definition.value, { kind: "array-element" })]
-        : type.elements.map((_, index) => builder.component(definition.value, { kind: "tuple-element", index }));
-      const children = sourceProductionValues(elements);
+      const children = produceSourceSequenceElements(builder, definition.value, undefined);
       if (children.kind !== "resolved") return children;
       const element = builder.join(dependency(occurrence), "inferred", children.value, undefined);
       if (element.kind === "refused") return element;

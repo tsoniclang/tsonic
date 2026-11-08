@@ -2,10 +2,13 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
-import type { SourceMemberKey, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceInputComponent } from "../../host-input/identities.js";
+import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction, type SourceSyntaxProduction } from "./semantic-production.js";
+import { produceSourceSequenceElements } from "./tuple-layout.js";
 
 export function sourceMemberKeyUnit(key: SourceMemberKey): SourceLiteralUnit {
   return key.kind === "unique-symbol" ? { kind: "symbol", declaration: key.declaration }
@@ -16,6 +19,22 @@ export function sourceMemberKeyFromUnit(unit: SourceLiteralUnit): SourceMemberKe
   return unit.kind === "symbol" ? { kind: "unique-symbol", declaration: unit.declaration }
     : unit.kind === "number" ? { kind: "number", value: unit.value }
     : unit.kind === "string" ? { kind: "string", value: unit.value } : undefined;
+}
+
+export function produceSourceMemberKey(context: Pick<SourceSemanticProduction, "ast" | "input"> & {
+  literalDomain(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
+}, origin: SourceMemberOrigin, name: string, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceMemberKey> {
+  if (origin.kind === "mapped") return { kind: "resolved", value: origin.key };
+  if (origin.kind === "class-prototype") return { kind: "resolved", value: { kind: "string", value: name } };
+  const originalName = context.ast.name(origin.declaration);
+  if (originalName === undefined) return sourceSemanticRefusal(origin.declaration,
+    "An original Source member requires its exact original key.");
+  const domain = context.literalDomain(context.input.syntax(originalName), bindings);
+  if (domain.kind !== "resolved") return domain;
+  const key = domain.value.kind === "finite" && domain.value.values.length === 1
+    ? sourceMemberKeyFromUnit(domain.value.values[0]!) : undefined;
+  return key === undefined ? sourceSemanticRefusal(originalName,
+    "An original Source member requires its canonical literal or symbol key evidence.") : { kind: "resolved", value: key };
 }
 
 export function sourceKeyEvidence(context: SourceSemanticProduction, original: Node, unit: SourceLiteralUnit): SourceTypeEvidence {
@@ -89,7 +108,7 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
   }
   if (domain.kind !== "finite") {
     if (type.kind === "tuple" && key.category.kind === "known" && key.category.category === "number") {
-      return sourceProductionValues(type.elements.map((_, index) => builder.component(value, { kind: "tuple-element", index })));
+      return produceSourceSequenceElements(builder, value, undefined);
     }
   }
   if (type.kind === "tuple" && domain.kind === "finite") {
@@ -99,10 +118,10 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
       if (name === undefined) return sourceSemanticRefusal(key.component.root, "This indexed type has a non-property key domain.");
       if (name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
         const ordinal = BigInt(name.name);
-        if (ordinal >= BigInt(type.elements.length)) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
-        const selected = builder.component(value, { kind: "tuple-element", index: Number(ordinal) });
-        if (selected.kind === "refused") return selected;
-        values.push(selected.value);
+        const selected = produceSourceSequenceElements(builder, value, ordinal);
+        if (selected.kind !== "resolved") return selected;
+        if (selected.value.length === 0) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
+        values.push(...selected.value);
         continue;
       }
       return sourceSemanticRefusal(key.component.root, "A tuple type index requires its exact original numeric ordinal.");

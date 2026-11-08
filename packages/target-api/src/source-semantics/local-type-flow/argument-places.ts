@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
+import { produceSourceSequenceLayout } from "./tuple-layout.js";
 
 export interface SourceCallParameter {
   readonly index: number;
@@ -66,7 +67,7 @@ export function produceSourceArgumentPlaces(context: {
       continue;
     }
     if (parameterIndex !== context.parameters.length - 1) throw new Error("A Source rest parameter must be the final original signature parameter.");
-    const slots = restSlots(parameter.type, []);
+    const slots = produceSourceSequenceLayout(builder, parameter.type);
     if (slots.kind !== "resolved") return slots;
     for (const [index, slot] of slots.value.entries()) {
       const argument = effective[effectiveIndex];
@@ -113,42 +114,6 @@ export function produceSourceArgumentPlaces(context: {
       source: argument.source, parameter, parameterForm, destination, parameterPath: Object.freeze(parameterPath) });
   }
 
-  interface RestSlot {
-    readonly kind: "required" | "optional" | "rest";
-    readonly type: SourceTypeEvidence;
-    readonly element: SourceTypeEvidence | undefined;
-    readonly path: readonly SourceComponentSelector[];
-    readonly container: { readonly value: SourceTypeEvidence; readonly index: number } | undefined;
-  }
-
-  function restSlots(value: SourceTypeEvidence, path: readonly SourceComponentSelector[]): SourceProductionResult<readonly RestSlot[]> {
-    const definition = builder.produceDefinition(value);
-    if (definition.kind !== "resolved") return definition;
-    const selected = definition.value;
-    if (selected.type.kind === "array") {
-      const element = builder.component(selected, { kind: "array-element" });
-      return element.kind === "refused" ? element : { kind: "resolved", value: [{ kind: "rest", type: value, element: element.value, path, container: undefined }] };
-    }
-    if (selected.type.kind === "tuple") {
-      const slots: RestSlot[] = [];
-      for (const [index, element] of selected.type.elements.entries()) {
-        const selector = { kind: "tuple-element" as const, index };
-        const child = builder.component(selected, selector);
-        if (child.kind === "refused") return child;
-        const childPath = [...path, selector];
-        if (element.kind === "rest") {
-          const nested = restSlots(child.value, childPath);
-          if (nested.kind !== "resolved") return nested;
-          slots.push(...nested.value);
-        } else slots.push({ kind: element.kind, type: child.value, element: undefined, path: childPath, container: { value: selected, index } });
-      }
-      return { kind: "resolved", value: slots };
-    }
-    if (selected.type.kind === "parameter" || selected.type.kind === "projection") {
-      return { kind: "resolved", value: [{ kind: "rest", type: value, element: undefined, path, container: undefined }] };
-    }
-    return refusal("An original rest parameter requires its solved sequence or tuple component.");
-  }
 }
 
 export function produceSourceEffectiveArguments(builder: SourceDescriptorBuilder,
@@ -167,6 +132,13 @@ export function produceSourceEffectiveArguments(builder: SourceDescriptorBuilder
     const value = definition.value;
     if (value.type.kind !== "tuple") {
       effective.push({ authored, operand, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: undefined, source: operand.value });
+      continue;
+    }
+    const layout = produceSourceSequenceLayout(builder, value);
+    if (layout.kind !== "resolved") return layout;
+    if (layout.value.every(slot => slot.kind === "required")) {
+      for (const [index, slot] of layout.value.entries()) effective.push({ authored, operand, sourceArgumentIndex,
+        sourceForm: "spread-element", spreadElementIndex: index, source: slot.type });
       continue;
     }
     for (const [index, element] of value.type.elements.entries()) {
