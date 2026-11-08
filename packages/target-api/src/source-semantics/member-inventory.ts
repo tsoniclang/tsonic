@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourcePresence, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourcePresence, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "./member-correspondence.js";
@@ -7,7 +7,7 @@ import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "./me
 export type SourceMemberInventoryRow = Omit<SourceCorrespondenceMember, "receiver" | "readType" | "writeType"> & {
   readType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
   writeType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
-  readDomain(): SourcePresence<SourceLiteralDomain>;
+  readDomain(bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
 };
 
 export type SourceIndexInventoryRow = Omit<SourceCorrespondenceIndex, "receiver" | "keyType" | "readType" | "writeType"> & {
@@ -21,7 +21,9 @@ export type SourceMemberInventory =
       readonly indexes: readonly SourceIndexInventoryRow[] }
   | { readonly kind: "unavailable" };
 
-export type SourceMemberInventoryProduction = SourceMemberInventory | { readonly kind: "definition" };
+export type SourceMemberInventoryProduction = SourceMemberInventory | { readonly kind: "definition" }
+  | { readonly kind: "production";
+      readonly produce: () => SourceProductionResult<SourceMemberInventory> };
 
 export type SourceOriginSubjects =
   | { readonly kind: "complete"; readonly nodes: readonly Node[] }
