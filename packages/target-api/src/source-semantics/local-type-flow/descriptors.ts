@@ -6,6 +6,7 @@ import type { SourceLiteralDomain } from "../../source-model/literals/domain.js"
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
+import { composeSourceTypeBindings } from "../descriptor-details.js";
 
 export interface SourceDescriptorReaderInput {
   readonly input: SourceDescriptorInput;
@@ -109,7 +110,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   function publish(facts: SourceInputTypeFacts, type: SourceTypeDescriptor, children: readonly SourceEvidenceComponent[],
-    domain: SourceLiteralDomain = sourceOpenLiteralDomain, details: SourceEvidenceDetails = {
+    domain: SourceLiteralDomain = options.scalarDomain(facts.authoredTypeNode ?? facts.component.root, facts), details: SourceEvidenceDetails = {
       members: { kind: "definition" }, origins: { kind: "complete", nodes: [facts.component.root] },
     }): SourceTypeEvidence {
     const selectedCategory = category(facts);
@@ -143,18 +144,20 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     }
     function lazy(component: SourceInputComponent | undefined): {
       produce(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
-      domain(): SourcePresence<SourceLiteralDomain>;
+      domain(bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
     } {
-      let observed: SourceTypeEvidence | undefined;
       return {
         produce() {
           if (component === undefined) return { kind: "resolved", value: { kind: "none" } };
           const selected = describeComponent(component, activeBindings);
           if (selected.kind !== "resolved") return selected;
-          observed = selected.value;
-          return { kind: "resolved", value: { kind: "present", value: observed } };
+          return { kind: "resolved", value: { kind: "present", value: selected.value } };
         },
-        domain: () => observed === undefined ? { kind: "none" } : { kind: "present", value: builder.domain(observed) },
+        domain(bindings) {
+          if (component === undefined) return { kind: "resolved", value: sourceOpenLiteralDomain };
+          const applied = composeSourceTypeBindings(activeBindings, bindings, builder.substitute);
+          return applied.kind === "refused" ? applied : hooks.literalDomain(component, applied.value);
+        },
       };
     }
     const members: SourceMemberInventoryRow[] = facts.members.map(member => {
@@ -292,8 +295,17 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       if (original === undefined || declaration === undefined) return unsupported(facts.component);
       const selected = describeComponent(original, bindings);
       if (selected.kind !== "resolved") return selected;
+      const name = input.ast.name(declaration);
+      if (name === undefined) return unsupported(facts.component);
+      const keyDomain = hooks.literalDomain(input.syntax(name), bindings);
+      if (keyDomain.kind !== "resolved") return keyDomain;
+      if (keyDomain.value.kind !== "finite" || keyDomain.value.values.length !== 1) return unsupported(facts.component);
+      const key = keyDomain.value.values[0]!;
+      if (key.kind !== "number" && key.kind !== "string" && key.kind !== "symbol") return unsupported(facts.component);
       const origin = { kind: "declared" as const, declaration };
-      members.push({ name: member.name, origin, optional: member.optional, readonly: member.readonly, type: selected.value.type });
+      members.push({ name: member.name, key: key.kind === "symbol" ? { kind: "unique-symbol", declaration: key.declaration }
+        : key.kind === "number" ? { kind: "number", value: key.value } : { kind: "string", value: key.value },
+      origin, optional: member.optional, readonly: member.readonly, type: selected.value.type });
       children.push({ selector: { kind: "member", origin }, value: selected.value });
       if (member.read !== undefined && member.write !== undefined && member.read !== member.write) {
         const written = describeComponent(member.write, bindings);

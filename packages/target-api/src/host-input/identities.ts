@@ -2,10 +2,11 @@ import type { Node } from "@tsonic/tsts";
 
 export interface SourceInputSignature {
   readonly kind: "signature";
-  readonly owner: Node;
+  readonly owner: Node | undefined;
   readonly signatureKind: "call" | "construct";
   readonly declaration: Node | undefined;
   readonly typeParameters: readonly Node[];
+  readonly composition: { readonly kind: "union" | "intersection"; readonly signatures: readonly SourceInputSignature[] } | undefined;
 }
 
 export interface SourceInputComponent {

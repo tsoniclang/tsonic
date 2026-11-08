@@ -71,7 +71,7 @@ export function createSourceSubstitution(input: {
       }
       const childMap = new Map(children.map(child => [input.components.selectorKey(child.selector), child.value]));
       const details = substituteSourceEvidenceDetails(record.details, child => substitute(child, selectedBindings),
-        child => input.evidence.record(child).domain);
+        selectedBindings, substitute);
       function child(selector: SourceComponentSelector, original: SourceTypeDescriptor): SourceTypeDescriptor {
         const key = input.components.selectorKey(selector);
         const prior = record.components.get(key);

@@ -34,10 +34,14 @@ export type SourceCategoryDomain =
   | { readonly kind: "dynamic" };
 
 export interface SourceSignatureIdentity {
-  readonly owner: Node;
+  readonly owner: Node | undefined;
   readonly kind: "call" | "construct";
   readonly declaration?: Node;
   readonly typeParameters: readonly Node[];
+  readonly composition: SourcePresence<{
+    readonly kind: "union" | "intersection";
+    readonly signatures: readonly SourceSignatureIdentity[];
+  }>;
 }
 
 export type SourceMemberOrigin =
@@ -52,6 +56,7 @@ export type SourceMemberKey =
 
 export interface SourceTypeDescriptorMember {
   readonly name: string;
+  readonly key: SourceMemberKey;
   readonly origin: SourceMemberOrigin;
   readonly optional: boolean;
   readonly readonly: boolean;
@@ -218,6 +223,7 @@ export type SourceApplicationReceiver =
 export interface SourceApplication {
   readonly identity: SourceApplicationIdentity;
   readonly kind: "call" | "construct" | "function-value";
+  readonly optionalCall: boolean;
   readonly callee: SourceValueOperand;
   readonly receiver: SourceApplicationReceiver;
   /** Authored evaluation order, including empty spreads. Emit each operand once from this vector only. */
@@ -297,14 +303,22 @@ export type SourceStorageOperation = {
       readonly operand: SourceValueOperand; readonly destination: SourceUseDestination }
   | { readonly kind: "sequence"; readonly operands: readonly SourceValueOperand[] }
   | { readonly kind: "in" | "instanceof"; readonly left: SourceValueOperand; readonly right: SourceValueOperand }
+  | { readonly kind: "selection-assignment"; readonly target: Node; readonly destination: SourceUseDestination;
+      readonly selection: Extract<SourceValueSelection, { readonly kind: "and" | "or" | "coalesce" }> }
 );
 
 export type SourceOperation = SourceValueSelection | SourcePrimitiveOperation | SourceStorageOperation;
+
+export type SourceConstructionDestination =
+  | { readonly kind: "direct"; readonly destination: SourceUseDestination }
+  | { readonly kind: "sum"; readonly destination: SourceUseDestination;
+      readonly application: SourceSumApplication; readonly role: SourceSumRole; readonly arm: SourceTypeEvidence };
 
 export interface SourceConstruction {
   readonly occurrence: Node;
   readonly kind: "array" | "object";
   readonly value: SourceTypeEvidence;
+  readonly destination: SourcePresence<SourceConstructionDestination>;
   readonly evaluation: readonly {
     readonly occurrence: Node;
     readonly form: "value" | "spread" | "key";

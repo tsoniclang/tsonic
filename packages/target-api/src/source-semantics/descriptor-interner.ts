@@ -6,7 +6,7 @@ import type {
   SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember,
   SourceTypeDescriptorSignature,
 } from "../public/source/contracts.js";
-import { freezeSourceMemberOrigin, sourceMemberOriginKey } from "./descriptor-model.js";
+import { freezeSourceMemberKey, freezeSourceMemberOrigin, sourceMemberKeyIdentity, sourceMemberOriginKey } from "./descriptor-model.js";
 
 export interface SourceDescriptorInternerInput {
   assertNode(node: Node): void;
@@ -30,14 +30,15 @@ export interface SourceDescriptorInterner {
   callable(value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "callable" }>, "kind">): SourceTypeDescriptor;
   declared(value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor;
   projection(source: SourceTypeDescriptor, projection: SourceDeferredProjection): SourceTypeDescriptor;
-  signature(owner: Node, kind: "call" | "construct", original: SourceInputSignature,
+  signature(owner: Node | undefined, kind: "call" | "construct", original: SourceInputSignature,
     declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
 }
 
 export function createSourceDescriptorInterner(input: SourceDescriptorInternerInput): SourceDescriptorInterner {
   const descriptors = new Map<string, SourceTypeDescriptor>();
   const descriptorKeys = new WeakMap<SourceTypeDescriptor, number>();
-  const signatures = new Map<string, SourceSignatureIdentity>();
+  const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
+  const activeSignatures = new Set<SourceInputSignature>();
   const signatureKeys = new WeakMap<SourceSignatureIdentity, number>();
   const objectKeys = new WeakMap<object, number>();
   let nextDescriptorKey = 0;
@@ -149,11 +150,40 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   }
 
   function memberShapeKey(value: SourceTypeDescriptorMember): readonly unknown[] {
-    return [value.name, originKey(value.origin), value.optional, value.readonly, key(value.type)];
+    return [value.name, sourceMemberKeyIdentity(value.key, nodeKey), originKey(value.origin), value.optional, value.readonly, key(value.type)];
   }
 
   function indexShapeKey(value: SourceTypeDescriptorIndex): readonly unknown[] {
     return [nodeKey(value.declaration), value.readonly, key(value.key), key(value.value)];
+  }
+
+  function signature(owner: Node | undefined, kind: "call" | "construct", original: SourceInputSignature,
+    declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity {
+    input.assertSignature(original);
+    if (owner !== undefined) nodeKey(owner);
+    if (declaration !== undefined) nodeKey(declaration);
+    parameters.forEach(nodeKey);
+    if (original.owner !== owner || original.signatureKind !== kind || original.declaration !== declaration ||
+      original.typeParameters.length !== parameters.length || original.typeParameters.some((parameter, index) => parameter !== parameters[index]) ||
+      (original.composition === undefined) === (owner === undefined)) {
+      throw new Error("A Source signature requires its exact original owner, kind, declaration, composition and binder inventory.");
+    }
+    original.composition?.signatures.forEach(input.assertSignature);
+    const existing = signatures.get(original);
+    if (existing !== undefined) return existing;
+    if (activeSignatures.has(original)) throw new Error("Original Source signature composition must be acyclic.");
+    activeSignatures.add(original);
+    try {
+      const composition: SourceSignatureIdentity["composition"] = original.composition === undefined
+        ? Object.freeze({ kind: "none" }) : Object.freeze({ kind: "present", value: Object.freeze({
+          kind: original.composition.kind, signatures: Object.freeze(original.composition.signatures.map(part =>
+            signature(part.owner, part.signatureKind, part, part.declaration, part.typeParameters))) }) });
+      const selected: SourceSignatureIdentity = Object.freeze({ owner, kind,
+        ...(declaration === undefined ? {} : { declaration }), typeParameters: Object.freeze([...parameters]), composition });
+      signatureKeys.set(selected, nextSignatureKey++);
+      signatures.set(original, selected);
+      return selected;
+    } finally { activeSignatures.delete(original); }
   }
 
   return Object.freeze({
@@ -183,7 +213,7 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
     shape: (value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "shape" }>, "kind">): SourceTypeDescriptor =>
       intern(JSON.stringify(["shape", value.members.map(memberShapeKey), value.indexes.map(indexShapeKey),
         value.calls.map(signatureShapeKey), value.constructs.map(signatureShapeKey)]),
-      () => ({ kind: "shape", members: Object.freeze(value.members.map(member => Object.freeze({ ...member, origin: freezeOrigin(member.origin) }))),
+      () => ({ kind: "shape", members: Object.freeze(value.members.map(member => Object.freeze({ ...member, key: freezeSourceMemberKey(member.key), origin: freezeOrigin(member.origin) }))),
         indexes: Object.freeze(value.indexes.map(index => Object.freeze({ ...index }))),
         calls: Object.freeze(value.calls.map(freezeSignature)), constructs: Object.freeze(value.constructs.map(freezeSignature)) })),
     declared: (value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor =>
@@ -198,21 +228,6 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
         projection.kind === "component" ? objectKey(projection.component) : null]),
       () => ({ kind: "projection", source, projection: Object.freeze({ ...projection }) }));
     },
-    signature: (owner: Node, kind: "call" | "construct", original: SourceInputSignature,
-      declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity => {
-      input.assertSignature(original);
-      const identity = JSON.stringify([nodeKey(owner), kind, objectKey(original), optionalNodeKey(declaration), parameters.map(nodeKey)]);
-      const existing = signatures.get(identity);
-      if (existing !== undefined) return existing;
-      if (original.owner !== owner || original.signatureKind !== kind || original.declaration !== declaration ||
-        original.typeParameters.length !== parameters.length || original.typeParameters.some((parameter, index) => parameter !== parameters[index])) {
-        throw new Error("A Source signature requires its exact original owner, kind, declaration and binder vector.");
-      }
-      const selected: SourceSignatureIdentity = Object.freeze({ owner, kind,
-        ...(declaration === undefined ? {} : { declaration }), typeParameters: Object.freeze([...parameters]) });
-      signatureKeys.set(selected, nextSignatureKey++);
-      signatures.set(identity, selected);
-      return selected;
-    },
+    signature,
   });
 }

@@ -10,6 +10,7 @@ import type {
 } from "../public/source/contracts.js";
 
 export interface SourceDescriptorProductionHooks {
+  literalDomain(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
   declaredValue(component: SourceInputComponent, declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   signatureRefusal(signature: SourceSignatureIdentity): Extract<SourceResult<never>, { readonly kind: "refused" }> | undefined;
   inheritedBindings(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
@@ -61,7 +62,7 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
   /** Calls the sole publishFamily producer, then wraps its application in exact component/category/domain evidence. */
   join(component: SourceTypeComponent, origin: "authored" | "inferred", roles: readonly SourceTypeEvidence[], original: SourceInputComponent | undefined): SourceResult<SourceTypeEvidence>;
   originalComponent(value: SourceTypeEvidence): SourcePresence<SourceInputComponent>;
-  signature(owner: Node, kind: "call" | "construct", original: SourceInputSignature, declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
+  signature(owner: Node | undefined, kind: "call" | "construct", original: SourceInputSignature, declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
   define(declaration: Node, parameters: readonly Node[], definition: () => SourceProductionResult<SourceTypeEvidence>, members: () => SourceProductionResult<SourceMemberInventory>): void;
   publishFamily(component: SourceTypeComponent, origin: "authored" | "inferred", parameters: readonly Node[], roles: readonly SourceTypeEvidence[]): SourceSumFamily;
   applyFamily(family: SourceSumFamily, bindings: readonly SourceTypeBinding[]): SourceResult<SourceSumApplication>;

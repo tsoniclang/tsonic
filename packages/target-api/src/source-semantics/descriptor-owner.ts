@@ -70,9 +70,9 @@ export function createSourceDescriptorOwner(input: {
         return { declaration, value: child.value };
       });
       const details = substituteSourceEvidenceDetails({ members: original.value, origins: record.details.origins },
-        child => substitute(child, bindings), child => evidence.record(child).domain);
+        child => substitute(child, bindings), bindings, substitute);
       const selected = evidence.details(details).members;
-      if (selected.kind === "definition") throw new Error("An original member producer must publish its metadata, not another definition indirection.");
+      if (selected.kind === "definition" || selected.kind === "production") throw new Error("An original member producer must publish its metadata, not another production indirection.");
       return { kind: "resolved", value: selected };
     }
     if (record.original !== undefined) return input.members(value, record.original, record.requirementBindings);
@@ -351,7 +351,7 @@ export function createSourceDescriptorOwner(input: {
       const result = selected.produce();
       if (result.kind !== "resolved") return result;
       const frozen = evidence.details({ members: result.value, origins: { kind: "complete", nodes: [occurrence] } }).members;
-      if (frozen.kind === "definition") throw new Error("A construction producer must retain original metadata before geometry.");
+      if (frozen.kind === "definition" || frozen.kind === "production") throw new Error("A construction producer must retain original metadata before geometry.");
       if (frozen.kind === "complete") selected.result = frozen;
       return { kind: "resolved", value: frozen };
     },

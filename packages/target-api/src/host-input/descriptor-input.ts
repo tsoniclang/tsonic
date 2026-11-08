@@ -98,7 +98,7 @@ export interface SourceDescriptorInput extends SourceInputMarkerQueries {
   describe(component: SourceInputComponent): SourceInputTypeFacts;
   members(component: SourceInputComponent): SourceInputMemberInventory;
   describeSignature(signature: SourceInputSignature): SourceInputSignatureShape;
-  signatureComponent(signature: SourceInputSignature, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent;
+  signatureComponent(signature: SourceInputSignature, originalRoot: Node, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent;
   enumDeclaration(declaration: Node): SourceInputEnumDeclaration;
   application(invocation: Node): SourceInputCallSelection;
   constraints(occurrence: Node): readonly SourceInputBackingConstraint[];
