@@ -1,6 +1,6 @@
 import type { ArgumentPassingMode, AstReader, Node } from "@tsonic/tsts";
 import type { SourceNodeUseSummary } from "../source-model/navigation.js";
-import type { SourcePresence, SourceResult } from "../public/source/contracts.js";
+import type { SourceCallableRole, SourcePresence, SourceResult } from "../public/source/contracts.js";
 
 export interface SourceBindingExposureQueries {
   argumentPassing(node: Node): SourceResult<SourcePresence<{ readonly mode: ArgumentPassingMode }>>;
@@ -8,13 +8,16 @@ export interface SourceBindingExposureQueries {
 }
 
 export function sourceBindingHasMutableExposure(
-  input: { readonly ast: AstReader; readonly protocols: SourceBindingExposureQueries },
+  input: { readonly ast: AstReader;
+    readonly enclosing: (node: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean) => Node | undefined;
+    readonly protocols: SourceBindingExposureQueries },
   summary: SourceNodeUseSummary,
   enter: (node: Node) => boolean,
 ): SourceResult<boolean> {
   const resolved = (value: boolean): SourceResult<boolean> => Object.freeze({ kind: "resolved", value });
   for (const use of summary.uses) {
     if (!enter(use.reference)) return resolved(true);
+    const execution = input.enclosing(use.reference, "execution", enter);
     const visited = new Set<Node>();
     for (let node: Node | undefined = use.reference; node !== undefined; node = input.ast.parent(node)) {
       if (!enter(node) || visited.has(node)) return resolved(true);
@@ -26,12 +29,10 @@ export function sourceBindingHasMutableExposure(
       if (pointer.kind === "refused") return pointer;
       if (pointer.value.kind === "present" && pointer.value.value.operation === "address-of") return resolved(true);
       const kind = input.ast.kindName(node);
-      if (kind.endsWith("Statement") || sourceBindingCallableKinds.has(kind)) break;
+      if (kind.endsWith("Statement") || node === execution) break;
     }
   }
   return resolved(false);
 }
 
-export const sourceBindingCallableKinds: ReadonlySet<string> = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",
-  "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
 const immutablePassingModes = new Set(["by-value", "byref-readonly", "borrow-shared"]);

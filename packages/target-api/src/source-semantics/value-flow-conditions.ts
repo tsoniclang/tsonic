@@ -17,6 +17,7 @@ export function selectSourceGuardResult<Member, Predicate>(
   selectGuard: (expression: Node) => SourceProductionResult<SourceGuard<Predicate> | undefined>,
   testMember: (member: Member, predicate: Predicate) => SourceProductionResult<boolean | undefined>,
 ): SourceProductionResult<boolean | undefined> {
+  context.navigation.callableRoles(expression);
   let current = expression;
   let negated = false;
   const contains = createSourceSyntaxDomain(context.ast, expression);
@@ -84,6 +85,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   selectGuard: (expression: Node) => SourceProductionResult<SourceGuard<Predicate> | undefined>,
   testMember: (member: Member, predicate: Predicate) => SourceProductionResult<boolean | undefined>,
 ): SourceProductionResult<readonly Member[] | undefined> {
+  context.navigation.callableRoles(reference);
   if (!context.ast.is.IsIdentifier(reference)) return resolved(undefined);
   const binding = context.navigation.referenceFor(reference);
   if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
@@ -97,7 +99,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   if (exposure.value) return resolved(undefined);
   const original = context.flowConditions(reference);
   const selectedFlow = resolveSourceFlowConditions(context, reference, original.kind === "present" ? original.value : undefined);
-  if (selectedFlow.kind === "refused") return selectedFlow;
+  if (selectedFlow.kind !== "resolved") return selectedFlow;
   const flow = selectedFlow.value;
   if (flow === undefined || flow.reference !== reference) return resolved(undefined);
   let selected = members;
