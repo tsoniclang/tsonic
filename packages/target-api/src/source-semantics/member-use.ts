@@ -1,9 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceInputComponent } from "../host-input/identities.js";
-import type { SourceInputCorrespondenceMember, SourceInputMemberUseSelection } from "../host-input/member-input.js";
+import type { SourceInputMemberUseSelection } from "../host-input/member-input.js";
 import type { SourceIndexSelection } from "../source-model/member-use.js";
 import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
-  SourceUseDestination } from "../public/source/contracts.js";
+  SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
+import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
+import type { SourceCorrespondenceMember, SourceMemberCorrespondenceProduction } from "./member-correspondence.js";
 
 export interface SourcePropertyUseArm {
   readonly kind: "member";
@@ -34,6 +36,7 @@ export type SourceMemberUseArm = SourcePropertyUseArm | SourceIndexUseArm;
 export interface SourceMemberUse {
   readonly occurrence: Node;
   readonly receiver: { readonly occurrence: Node; readonly value: SourceTypeEvidence };
+  readonly key: SourcePresence<SourceValueOperand>;
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
@@ -46,105 +49,161 @@ export interface SourceMemberUse {
   readonly arms: readonly SourceMemberUseArm[];
 }
 
+export interface SourceObjectProduction extends SourceMemberCorrespondenceProduction {
+  use(occurrence: Node): SourceProductionResult<SourceMemberUse>;
+}
+
 export function createSourceMemberUseQuery(input: {
   readonly view: SourceDescriptorView;
+  readonly inventory: SourceMemberInventoryQueries;
   readonly assertNode: (node: Node) => void;
   readonly select: (occurrence: Node) => SourceInputMemberUseSelection;
-  readonly originalComponent: (evidence: SourceTypeEvidence) => SourcePresence<SourceInputComponent>;
-  readonly publish: (component: SourceInputComponent, receiver?: SourceTypeEvidence) => SourceResult<SourceTypeEvidence>;
-  readonly origins: (receiver: SourceTypeEvidence, member: SourceInputCorrespondenceMember,
-    role: "selected" | "read" | "write") => SourceResult<readonly SourceMemberOrigin[]>;
+  readonly value: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>;
+  readonly compose: (occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write",
+    values: readonly SourceTypeEvidence[], optionalChain: boolean) => SourceProductionResult<SourceTypeEvidence>;
   readonly destination: (occurrence: Node, receiver: SourceTypeEvidence,
-    member: SourceInputCorrespondenceMember) => SourceResult<SourceUseDestination>;
+    member: SourceCorrespondenceMember) => SourceProductionResult<SourceUseDestination>;
   readonly unavailable: (occurrence: Node,
     reason: Extract<SourceInputMemberUseSelection, { readonly kind: "unavailable" }>["reason"]) => SourceRefusal;
-}): (occurrence: Node) => SourceResult<SourceMemberUse> {
-  const { view, assertNode, select, originalComponent, publish, origins, destination, unavailable } = input;
+}): (occurrence: Node) => SourceProductionResult<SourceMemberUse> {
+  const { view, inventory, assertNode, select, value, compose, destination, unavailable } = input;
   const retained = new WeakMap<Node, SourceResult<SourceMemberUse>>();
-  const evidence = (component: SourceInputComponent, receiver?: SourceTypeEvidence): SourceResult<SourceTypeEvidence> => {
-    const selected = publish(component, receiver);
-    if (selected.kind === "refused") return selected;
-    view.assertEvidence(selected.value);
-    const original = originalComponent(selected.value);
-    if (original.kind !== "present" || original.value !== component)
-      throw new Error("A member-use publication must retain its exact original component handle.");
-    return selected;
+  const resolved = <Value>(selected: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value: selected });
+  const optionalEvidence = (produce: () => SourceProductionResult<SourcePresence<SourceTypeEvidence>>):
+    SourceProductionResult<SourceTypeEvidence | undefined> => {
+    const selected = produce();
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "none") return resolved(undefined);
+    view.assertEvidence(selected.value.value);
+    return resolved(selected.value.value);
   };
-  const optionalEvidence = (component: SourceInputComponent | undefined,
-    receiver?: SourceTypeEvidence): SourceResult<SourceTypeEvidence | undefined> => component === undefined
-    ? Object.freeze({ kind: "resolved", value: undefined }) : evidence(component, receiver);
-  const build = (occurrence: Node): SourceResult<SourceMemberUse> => {
+  const memberTypes = (row: SourceMemberInventoryRow, reads: boolean, writes: boolean) => {
+    const read = reads ? optionalEvidence(() => row.readType()) : resolved(undefined);
+    if (read.kind !== "resolved") return read;
+    const write = writes ? optionalEvidence(() => row.writeType()) : resolved(undefined);
+    return write.kind !== "resolved" ? write : resolved({ readType: read.value, writeType: write.value });
+  };
+  const build = (occurrence: Node): SourceProductionResult<SourceMemberUse> => {
     const original = select(occurrence);
     if (original.kind === "unavailable") return unavailable(occurrence, original.reason);
     if (original.occurrence !== occurrence) throw new Error("A selected member use requires its exact original occurrence.");
+    assertNode(original.receiver.occurrence);
     if (original.selectedDeclaration !== undefined) {
       assertNode(original.selectedDeclaration);
       if (!original.selectedDeclarations.includes(original.selectedDeclaration))
         throw new Error("A selected member declaration must belong to the complete original member-use inventory.");
     }
-    const receiver = evidence(original.receiver.value);
-    if (receiver.kind === "refused") return receiver;
-    const read = optionalEvidence(original.read, receiver.value);
-    if (read.kind === "refused") return read;
-    const write = optionalEvidence(original.write, receiver.value);
-    if (write.kind === "refused") return write;
+    const receiver = value(original.receiver.occurrence);
+    if (receiver.kind !== "resolved") return receiver;
+    view.assertEvidence(receiver.value);
+    let key: SourcePresence<SourceValueOperand> = Object.freeze({ kind: "none" });
+    if (original.key !== undefined) {
+      assertNode(original.key);
+      const selected = value(original.key);
+      if (selected.kind !== "resolved") return selected;
+      view.assertEvidence(selected.value);
+      key = Object.freeze({ kind: "present", value: Object.freeze({ occurrence: original.key, value: selected.value }) });
+    }
+    const reads = original.access === "read" || original.access === "read-write";
+    const writes = original.access === "write" || original.access === "read-write";
     const arms: SourceMemberUseArm[] = [];
-    for (const arm of original.arms) {
-      const value = evidence(arm.kind === "index" ? arm.receiver : arm.member.receiver, receiver.value);
-      if (value.kind === "refused") return value;
-      if (arm.kind === "index") {
-        const key = evidence(arm.key);
-        if (key.kind === "refused") return key;
-        const readType = optionalEvidence(arm.read, value.value);
-        if (readType.kind === "refused") return readType;
-        const writeType = optionalEvidence(arm.write, value.value);
-        if (writeType.kind === "refused") return writeType;
-        arms.push(Object.freeze({ kind: "index", receiver: value.value, selection: arm.selection, key: key.value,
-          readType: readType.value, writeType: writeType.value, readonly: arm.readonly }));
+    const readTypes: SourceTypeEvidence[] = [];
+    const writeTypes: SourceTypeEvidence[] = [];
+    for (const arm of receiver.value.sum?.arms ?? [receiver.value]) {
+      view.assertEvidence(arm);
+      if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence" && original.optionalChain) continue;
+      const selected = inventory.members(arm);
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.kind !== "complete") return unavailable(occurrence, "missing-selected-member");
+      const properties = selected.value.members.filter(row => row.declarations.some(declaration => original.selectedDeclarations.includes(declaration)));
+      if (properties.length > 1) return unavailable(occurrence, "inconsistent-original-origins");
+      if (properties.length === 1) {
+        const row = properties[0]!;
+        for (const declaration of row.declarations) assertNode(declaration);
+        const types = memberTypes(row, reads, writes);
+        if (types.kind !== "resolved") return types;
+        const member: SourceCorrespondenceMember = Object.freeze({ ...row, receiver: arm,
+          readType: types.value.readType, writeType: types.value.writeType });
+        let writeDestination: SourceUseDestination | undefined;
+        if (types.value.writeType !== undefined) {
+          const selectedDestination = destination(occurrence, arm, member);
+          if (selectedDestination.kind !== "resolved") return selectedDestination;
+          view.assertEvidence(selectedDestination.value.declaration.type);
+          view.assertEvidence(selectedDestination.value.applied);
+          if (selectedDestination.value.applied !== types.value.writeType)
+            throw new Error("A member write destination must retain its exact canonical applied write evidence.");
+          writeDestination = selectedDestination.value;
+          writeTypes.push(types.value.writeType);
+        }
+        if (types.value.readType !== undefined) readTypes.push(types.value.readType);
+        arms.push(Object.freeze({ kind: "member", receiver: arm, origins: row.origins, readOrigins: row.readOrigins,
+          writeOrigins: row.writeOrigins, declarations: row.declarations,
+          readDeclarations: Object.freeze(row.declarations.filter(declaration => original.readDeclarations.includes(declaration))),
+          writeDeclarations: Object.freeze(row.declarations.filter(declaration => original.writeDeclarations.includes(declaration))),
+          readType: types.value.readType, writeType: types.value.writeType, writeDestination }));
         continue;
       }
-      const selectedOrigins = origins(value.value, arm.member, "selected");
-      if (selectedOrigins.kind === "refused") return selectedOrigins;
-      const readOrigins = original.read === undefined ? Object.freeze({ kind: "resolved", value: Object.freeze([]) } as const)
-        : origins(value.value, arm.member, "read");
-      if (readOrigins.kind === "refused") return readOrigins;
-      const writeOrigins = original.write === undefined ? Object.freeze({ kind: "resolved", value: Object.freeze([]) } as const)
-        : origins(value.value, arm.member, "write");
-      if (writeOrigins.kind === "refused") return writeOrigins;
-      const readType = optionalEvidence(original.read === undefined ? undefined : arm.member.read, value.value);
-      if (readType.kind === "refused") return readType;
-      const writeType = optionalEvidence(original.write === undefined ? undefined : arm.member.write, value.value);
-      if (writeType.kind === "refused") return writeType;
-      let writeDestination: SourceUseDestination | undefined;
-      if (writeType.value !== undefined) {
-        const selected = destination(occurrence, value.value, arm.member);
-        if (selected.kind === "refused") return selected;
-        view.assertEvidence(selected.value.declaration.type);
-        view.assertEvidence(selected.value.applied);
-        const applied = originalComponent(selected.value.applied);
-        if (applied.kind !== "present" || applied.value !== arm.member.write)
-          throw new Error("A selected member write destination must retain its exact applied write component.");
-        writeDestination = selected.value;
+      if (key.kind !== "present") return unavailable(occurrence, "missing-selected-member");
+      const selectedIndexes = original.arms.filter(item => item.kind === "index");
+      const selections = selectedIndexes.map(item => item.selection).filter(item => {
+        if (item.kind === "array-element") return arm.type.kind === "array";
+        if (item.kind === "tuple-element") return arm.type.kind === "tuple";
+        if (item.kind === "string-character") return arm.type.kind === "string";
+        return selected.value.kind === "complete" && selected.value.indexes.some(index =>
+          index.declarations.some(declaration => item.declarations.includes(declaration)));
+      });
+      if (selections.length === 0) return unavailable(occurrence, "missing-selected-member");
+      const selection = selections[0]!;
+      if (!selections.every(item => item.kind === selection.kind &&
+        (item.kind !== "tuple-element" || selection.kind === "tuple-element" && item.index === selection.index) &&
+        item.declarations.length === selection.declarations.length && item.declarations.every(declaration => selection.declarations.includes(declaration))))
+        return unavailable(occurrence, "inconsistent-original-origins");
+      let readType: SourceTypeEvidence | undefined;
+      let writeType: SourceTypeEvidence | undefined;
+      let readonly: boolean;
+      if (selection.kind === "array-element" || selection.kind === "tuple-element") {
+        const element = view.component(arm, selection.kind === "array-element"
+          ? { kind: "array-element" } : { kind: "tuple-element", index: selection.index });
+        if (element.kind === "refused") return element;
+        readonly = arm.type.kind === "array" || arm.type.kind === "tuple" ? arm.type.readonly : true;
+        readType = reads ? element.value : undefined;
+        writeType = writes && !readonly ? element.value : undefined;
+      } else {
+        const indexes = selected.value.indexes.filter(index => index.declarations.some(declaration => selection.declarations.includes(declaration)));
+        if (indexes.length !== 1) return unavailable(occurrence, "inconsistent-original-origins");
+        const index = indexes[0]!;
+        const read = reads ? optionalEvidence(() => index.readType()) : resolved(undefined);
+        if (read.kind !== "resolved") return read;
+        const write = writes ? optionalEvidence(() => index.writeType()) : resolved(undefined);
+        if (write.kind !== "resolved") return write;
+        readType = read.value;
+        writeType = write.value;
+        readonly = index.readonly;
       }
-      arms.push(Object.freeze({ kind: "member", receiver: value.value, origins: selectedOrigins.value,
-        readOrigins: readOrigins.value, writeOrigins: writeOrigins.value,
-        declarations: arm.member.declarations, readDeclarations: arm.readDeclarations, writeDeclarations: arm.writeDeclarations,
-        readType: readType.value, writeType: writeType.value, writeDestination }));
+      if (readType !== undefined) readTypes.push(readType);
+      if (writeType !== undefined) writeTypes.push(writeType);
+      arms.push(Object.freeze({ kind: "index", receiver: arm, selection, key: key.value.value, readType, writeType, readonly }));
     }
-    return Object.freeze({ kind: "resolved", value: Object.freeze({ occurrence,
-      receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }),
-      access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
+    if (arms.length === 0) return unavailable(occurrence, "missing-selected-member");
+    const read = reads ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), original.optionalChain) : resolved(undefined);
+    if (read.kind !== "resolved") return read;
+    const write = writes ? compose(occurrence, receiver.value, "write", Object.freeze(writeTypes), original.optionalChain) : resolved(undefined);
+    if (write.kind !== "resolved") return write;
+    if (read.value !== undefined) view.assertEvidence(read.value);
+    if (write.value !== undefined) view.assertEvidence(write.value);
+    return resolved(Object.freeze({ occurrence, receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }),
+      key, access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
       selectedDeclaration: original.selectedDeclaration === undefined ? Object.freeze({ kind: "none" })
         : Object.freeze({ kind: "present", value: original.selectedDeclaration }),
       selectedDeclarations: original.selectedDeclarations, readDeclarations: original.readDeclarations,
-      writeDeclarations: original.writeDeclarations, readType: read.value, writeType: write.value, arms: Object.freeze(arms) }) });
+      writeDeclarations: original.writeDeclarations, readType: read.value, writeType: write.value, arms: Object.freeze(arms) }));
   };
   return occurrence => {
     assertNode(occurrence);
     const existing = retained.get(occurrence);
     if (existing !== undefined) return existing;
     const selected = build(occurrence);
-    retained.set(occurrence, selected);
+    if (selected.kind !== "pending") retained.set(occurrence, selected);
     return selected;
   };
 }
