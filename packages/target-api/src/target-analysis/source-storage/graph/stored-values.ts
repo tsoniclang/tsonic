@@ -1,9 +1,9 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/ast.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalSignature } from "../model/callable-heads.js";
 import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
 import { forEachSourceImmediateEvaluationChild } from "../../../source-navigation/immediate-evaluation.js";
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
@@ -18,7 +18,7 @@ import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { SourceStorageFixedPointQueries } from "../model/relations.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
   SourceStorageWriteOccurrence } from "../../../source-model/storage.js";
-import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
+import type { SourceNodeWriteValue } from "../../../source-model/navigation.js";
 import type { SourceStorageWriteProjection } from "../model/projections.js";
 import type { SourceStorageStore, SourceStorageWrite } from "../model/stores.js";
 
@@ -37,7 +37,7 @@ export function createSourceStorageFormalMemberWrites(
     unresolvedFor(invocation: Node): string | undefined;
   },
 ) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const { navigation } = source.facts;
   let budget = sourceBudget;
   let rows = budget.createRows();
@@ -72,11 +72,15 @@ export function createSourceStorageFormalMemberWrites(
   };
   for (const declaration of queries.declarations) {
     if (!budget.step()) break;
-    const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
-    if (parameters === undefined || !rows.add(1)) continue;
+    const head = sourceStorageOriginalSignature(source, declaration,
+      navigation.callableRoles(declaration).body ? "body" : "signature");
+    if (head === undefined) continue;
+    const parameters = head.signature.parameters.map(parameter => parameter.declaration);
+    if (parameters.some(parameter => parameter === undefined) || !rows.add(1)) continue;
     const selected: SourceStorageSubject[] = [];
     for (const parameter of parameters) {
       if (!budget.step()) break;
+      if (parameter === undefined) break;
       const subject = queries.subject(parameter, "input");
       const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
       if (subject === undefined || type === undefined || !rows.add(2)) continue;
@@ -86,15 +90,16 @@ export function createSourceStorageFormalMemberWrites(
     if (selected.length === parameters.length) owners.set(declaration, Object.freeze(selected));
   }
   const stable = (reference: Node): boolean => {
-    const binding = navigation.referenceFor(reference);
+    const binding = navigation.sourceReferenceFor(reference);
     if (binding === undefined) return false;
     const summary = navigation.declarationUseSummary(binding.declaration);
     if (summary.exported && ast.is.IsVariableDeclaration(binding.declaration) &&
       ast.variableDeclarationKind(binding.declaration) !== "const" ||
-      sourceBindingHasMutableExposure(source, summary, budget.step)) return false;
+      sourceStorageValue(sourceBindingHasMutableExposure({ ast, protocols: source.facts.protocols,
+        enclosing: source.analysis.enclosing }, summary, budget.step))) return false;
     if (!summary.bindingWritten) return true;
     if (summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember)) return false;
-    const preserved = (node: Node): boolean => budget.step() && navigation.bindingWritesWithin(binding.symbol, node).length === 0;
+    const preserved = (node: Node): boolean => budget.step() && navigation.declarationWrites(binding.declaration, node).length === 0;
     const contains = (node: Node, child: Node): boolean => {
       for (let current: Node | undefined = child; current !== undefined && budget.step(); current = ast.parent(current))
         if (current === node) return true;
@@ -142,7 +147,7 @@ export function createSourceStorageFormalMemberWrites(
     let current = expression;
     while (budget.step()) {
       const file = ast.getSourceFile(current);
-      if (file === undefined || !semantics.includes(file)) return unresolved("Member-write receivers require their original checked source binding.");
+      if (file === undefined || !navigation.includes(current)) return unresolved("Member-write receivers require their original checked source binding.");
       if (visited.has(current) || !temporary.add(1)) return unresolved(budget.failure() ?? "Member-write aliases require an acyclic checked initializer chain.");
       visited.add(current);
       if (ast.is.IsParenthesizedExpression(current) || ast.is.IsAsExpression(current) || ast.is.IsSatisfiesExpression(current) ||
@@ -155,12 +160,11 @@ export function createSourceStorageFormalMemberWrites(
       if (ast.is.IsObjectLiteralExpression(current) || ast.is.IsArrayLiteralExpression(current) || ast.is.IsNewExpression(current) ||
         ast.is.IsFunctionExpression(current) || ast.is.IsArrowFunction(current)) return undefined;
       if (!ast.is.IsIdentifier(current)) {
-        const type = semantics.forFile(file).types.expressionType(current);
-        if (type !== undefined && (sourceStorageIsScalarType(type, semantics.forFile(file)) ||
-          semantics.forFile(file).types.isNullish(type) || semantics.forFile(file).types.isVoidLike(type))) return undefined;
+        const type = sourceStorageValue(source.facts.values.type(current));
+        if (sourceStorageIsScalarType(type, source)) return undefined;
         return unresolved("Member-write demand requires a parameter binding or a qualified local alias, not an element, property or call result.");
       }
-      const reference = navigation.referenceFor(current);
+      const reference = navigation.sourceReferenceFor(current);
       if (reference === undefined || !stable(current)) return unresolved("Member-write demand has no parameter/local-alias proof without intervening reassignment or mutable exposure.");
       const declaration = reference.declaration;
       if (ast.is.IsParameterDeclaration(declaration)) {
@@ -211,10 +215,8 @@ export function createSourceStorageFormalMemberWrites(
     readonly reason?: string;
   } => {
     const selected = parameterFor(expression);
-    const consumer = semantics.forNode(expression);
-    const type = selected?.kind === "input" ? formals.get(selected)?.type : consumer.types.expressionType(expression);
-    if (type !== undefined && (sourceStorageIsScalarType(type, consumer) ||
-      consumer.types.isNullish(type) || consumer.types.isVoidLike(type))) return { inputs: [] };
+    const type = selected?.kind === "input" ? formals.get(selected)?.type : sourceStorageValue(source.facts.values.type(expression));
+    if (type !== undefined && sourceStorageIsScalarType(type, source)) return { inputs: [] };
     if (selected?.kind === "input") return { inputs: [selected] };
     if (selected !== undefined && selected.kind !== "unresolved") {
       budget.reject("Formal member-write aliases require the exact checked input subject.");
@@ -228,18 +230,18 @@ export function createSourceStorageFormalMemberWrites(
   const membersFor = (formal: SourceStorageSubject, from: SourceTypeEvidence, member: Node): readonly Node[] | undefined => {
     const selected = formals.get(formal);
     if (selected === undefined || !budget.step()) return undefined;
-    const consumer = semantics.forNode(selected.parameter);
-    const presentFormal = sourcePresentStorageType(selected.type, consumer);
-    const presentFrom = sourcePresentStorageType(from, consumer);
+    const presentFormal = sourcePresentStorageType(selected.type, source);
+    const presentFrom = sourcePresentStorageType(from, source);
     if (presentFormal === undefined || presentFrom === undefined) return undefined;
-    const relation = consumer.types.structuralMember(presentFormal, presentFrom, member, "correspondence");
-    return relation?.kind === "present" && relation.source.declarations.length !== 0 ? relation.source.declarations : undefined;
+    const relation = sourceStorageValue(source.facts.objects.correspondingMember(presentFormal, presentFrom, member, "correspondence"));
+    return relation.kind === "present" && relation.value.kind === "present" && relation.value.source.declarations.length !== 0
+      ? relation.value.source.declarations : undefined;
   };
   const recordWrite = (write: SourceStorageWriteOccurrence): SourceStorageWriteOccurrence => {
     if (inputsClosed) throw new Error("Formal member-write inputs cannot change after their final publication.");
     if (write.kind !== "mutation" || write.destination !== "member" && write.destination !== "element" || !budget.step()) return write;
-    const selected = ast.is.IsPropertyAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.propertyAccess(write.reference)
-      : ast.is.IsElementAccessExpression(write.reference) ? semantics.forNode(write.reference).operations.elementAccess(write.reference) : undefined;
+    const selected = ast.is.IsPropertyAccessExpression(write.reference) || ast.is.IsElementAccessExpression(write.reference)
+      ? sourceStorageValue(source.facts.objects.use(write.reference)) : undefined;
     const members = sourceStorageAccessDeclarations(source, write.reference, "write");
     if (write.destination === "element" && (members === undefined || members.length === 0) ||
       members !== undefined && members.length !== 0 && members.every(ast.is.IsSetAccessorDeclaration)) return write;
@@ -247,12 +249,12 @@ export function createSourceStorageFormalMemberWrites(
       budget.reject("Formal member-write demand requires its exact checked selected receiver.");
       return write;
     }
-    const formal = parameterFor(selected.receiver.expression);
+    const formal = parameterFor(selected.receiver.occurrence);
     let reason = write.reason ?? (formal?.kind === "unresolved" ? formal.reason : undefined);
     if (formal?.kind === "input") {
       if (members === undefined || members.length === 0) reason = "Member-write demand requires its exact selected source member declaration.";
       for (const member of members ?? []) {
-        const mapped = membersFor(formal, selected.receiver.type, member);
+        const mapped = membersFor(formal, selected.receiver.value, member);
         if (mapped === undefined) { reason ??= "Member-write demand has no exact checked formal/member correspondence."; continue; }
         for (const declaration of mapped) add(formal, declaration);
       }
@@ -260,7 +262,7 @@ export function createSourceStorageFormalMemberWrites(
     } else if (reason !== undefined) {
       const shared = members?.some(member => ast.is.IsPropertySignatureDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) === true;
       if (!shared) return write;
-      const inputs = affected(selected.receiver.expression);
+      const inputs = affected(selected.receiver.occurrence);
       if (inputs === undefined) budget.reject("Formal member-write uncertainty requires its complete checked receiver correlation.");
       for (const input of inputs ?? []) add(input, reason);
     }
@@ -268,21 +270,23 @@ export function createSourceStorageFormalMemberWrites(
   };
   const connectInvocation = (invocation: Node, connectInputs: boolean): void => {
     if (!budget.step()) return;
-    const call = semantics.forNode(invocation).operations.call(invocation);
     const implementations = queries.implementationsFor(invocation);
-    const assignment = ast.parent(invocation);
-    const setter = assignment !== undefined && ast.is.IsBinaryExpression(assignment) &&
-      ast.operatorKindName(assignment) === "KindEqualsToken" ? ast.as.AsBinaryExpression(assignment) : undefined;
-    const supplied = call?.sourceArguments.map(argument => argument.expression)
-      ?? (ast.is.IsCallExpression(invocation) ? ast.as.AsCallExpression(invocation)?.Arguments?.Nodes
-        : ast.is.IsNewExpression(invocation) ? ast.as.AsNewExpression(invocation)?.Arguments?.Nodes
-          : setter?.Left === invocation && setter.Right !== undefined ? [setter.Right] : []);
+    const supplied: Node[] = [];
+    if (ast.is.IsCallExpression(invocation) || ast.is.IsNewExpression(invocation)) {
+      const application = sourceStorageValue(source.facts.applications.application(invocation));
+      if (application.argumentDisposition === "skip") return;
+      for (const argument of application.sourceArguments) {
+        if (!budget.step()) return;
+        supplied.push(sourceStorageValue(argument.operand).occurrence);
+      }
+    } else for (const value of sourceBindingWriteAtReference(ast, invocation)?.values ?? []) {
+      if (!budget.step()) return;
+      supplied.push(value.expression);
+    }
     const markUnresolved = (reason: string): void => {
-      for (const expression of supplied ?? []) {
+      for (const expression of supplied) {
         if (!budget.step()) break;
-        if (expression === undefined) continue;
-        const actual = ast.is.IsSpreadElement(expression) ? Node_Expression(ast, expression) : expression;
-        if (actual !== undefined) for (const input of inputsFor(actual).inputs) add(input, reason);
+        for (const input of inputsFor(expression).inputs) add(input, reason);
       }
     };
     const reason = queries.unresolvedFor(invocation);
@@ -491,7 +495,7 @@ export function createSourceStorageStoredValues(
     occurrences.set(write.reference, occurrence);
     if (alias !== undefined) occurrences.set(alias, occurrence);
   };
-  const writeFor = (reference: Node, valueFor: (input: SourceBindingWriteValue) => SourceStorageWriteProjection | undefined,
+  const writeFor = (reference: Node, valueFor: (input: SourceNodeWriteValue) => SourceStorageWriteProjection | undefined,
     aggregate: (values: readonly SourceStorageSubject[]) => SourceStorageSubject | undefined): SourceStorageWrite | undefined => {
     const write = sourceBindingWriteAtReference(ast, reference);
     if (write === undefined) return undefined;
@@ -548,7 +552,7 @@ export function createSourceStorageStoredValues(
   };
   return Object.freeze({
     initialize(storage: SourceStorageSubject | undefined, occurrence: Node, value?: SourceStorageSubject): void {
-      const source: SourceBindingWriteValue | undefined = value === undefined || value.kind === "input" ? undefined
+      const source: SourceNodeWriteValue | undefined = value === undefined || value.kind === "input" ? undefined
         : Object.freeze({ kind: "value", expression: occurrence, projection: Object.freeze([]) });
       if (storage !== undefined) record(storage, { reference: occurrence, operation: storage.node, value, kind: "initialization",
         values: Object.freeze(value === undefined ? [] : [Object.freeze({ source, subjects: Object.freeze([value]), reason: undefined })]) });

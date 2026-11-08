@@ -12,7 +12,7 @@ export function sourceGuardPreservesBinding(
   enter: (node: Node) => boolean,
 ): SourceResult<boolean> {
   const resolved = (value: boolean): SourceResult<boolean> => Object.freeze({ kind: "resolved", value });
-  const binding = context.navigation.referenceFor(reference);
+  const binding = context.navigation.sourceReferenceFor(reference);
   if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
     !context.ast.is.IsParameterDeclaration(binding.declaration) && !context.ast.is.IsBindingElement(binding.declaration)) return resolved(false);
   const summary = context.navigation.declarationUseSummary(binding.declaration);
