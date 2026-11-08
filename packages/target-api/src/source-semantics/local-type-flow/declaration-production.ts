@@ -4,7 +4,7 @@ import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceU
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceCorrespondenceMember } from "../member-correspondence.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
@@ -50,6 +50,10 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
     }
   }
   if (value.kind !== "resolved") return value;
+  if (ast.is.IsParameterDeclaration(declaration) && ast.as.AsParameterDeclaration(declaration)?.QuestionToken !== undefined) {
+    value = produceSourceParameterPresence(production, input.syntax(declaration), value.value, true);
+    if (value.kind !== "resolved") return value;
+  }
   return { kind: "resolved", value: Object.freeze({ origin: { kind: "declaration" as const, declaration }, type: value.value }) };
 }
 
@@ -61,7 +65,12 @@ export function produceSourceDeclaredComponent(production: SourceDeclarationProd
   if (last?.kind === "result") return production.completion(declaration, bindings);
   if (last?.kind === "parameter" || last?.kind === "receiver") {
     const annotation = ast.typeNode(declaration);
-    if (annotation !== undefined) return reader.describeSyntax(annotation, bindings);
+    if (annotation !== undefined) {
+      const value = reader.describeSyntax(annotation, bindings);
+      if (value.kind !== "resolved") return value;
+      const parameter = last.kind === "parameter" ? input.describeSignature(last.signature).parameters[last.index] : undefined;
+      return produceSourceParameterPresence(production, component, value.value, parameter?.optional === true && !parameter.rest);
+    }
     const selected = context.destination(declaration, bindings);
     if (selected.kind !== "resolved") return selected;
     if (selected.value.kind === "present") return { kind: "resolved", value: selected.value.value.applied };

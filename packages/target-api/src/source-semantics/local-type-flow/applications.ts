@@ -67,7 +67,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       return parameter.explicitTypeNode === undefined ? undefined : reader.describeSyntax(parameter.explicitTypeNode, ordered());
     }
 
-    for (const parameter of parameters) {
+    for (const parameter of original.class?.arguments ?? []) {
       const value = stated(parameter);
       if (value === undefined) continue;
       if (value.kind !== "resolved") return value;
@@ -116,6 +116,65 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
           }
         }
       }
+    }
+
+    const directCallee = context.navigation.sourceReferenceFor(original.callee.occurrence);
+    const callee = directCallee === undefined && staticReceiver === undefined ? context.value(original.callee.occurrence, ordered())
+      : context.component(original.callee.component, ordered(), value);
+    if (callee.kind !== "resolved") return callee;
+    const optionalCall = context.ast.is.IsCallExpression(invocation) &&
+      context.ast.as.AsCallExpression(invocation)?.QuestionDotToken !== undefined;
+    let argumentDisposition: SourceApplication["argumentDisposition"] = "evaluate";
+    function guard(evidence: SourceTypeEvidence): SourceApplication["argumentDisposition"] {
+      const presence = sourcePresenceLiteralDisposition(builder.domain(evidence));
+      return presence === "absent" ? "skip" : presence === "dynamic" ? "dynamic" : "evaluate";
+    }
+    if (optionalCall) argumentDisposition = guard(callee.value);
+    if (context.ast.is.IsPropertyAccessExpression(original.callee.occurrence) || context.ast.is.IsElementAccessExpression(original.callee.occurrence)) {
+      const member = context.objects.use(original.callee.occurrence);
+      if (member.kind !== "resolved") return member;
+      if (member.value.optionalChain || member.value.chainContinuation) {
+        const selected = guard(member.value.receiver.value);
+        argumentDisposition = selected === "skip" || argumentDisposition === "skip" ? "skip"
+          : selected === "dynamic" || argumentDisposition === "dynamic" ? "dynamic" : "evaluate";
+      }
+    }
+    function authored(bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceAuthoredArgument[]> {
+      const arguments_: SourceAuthoredArgument[] = [];
+      for (const argument of value.sourceArguments) {
+        const source = context.value(argument.expression, bindings);
+        if (source.kind === "pending") return source;
+        if (source.kind === "refused" && (argumentDisposition !== "skip" || source.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED")) return source;
+        arguments_.push(Object.freeze({ occurrence: argument.occurrence, form: argument.form,
+          operand: source.kind === "refused" ? source : Object.freeze({ kind: "resolved", value: Object.freeze({ occurrence: argument.expression, value: source.value }) }) }));
+      }
+      return { kind: "resolved", value: Object.freeze(arguments_) };
+    }
+    function absent(bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
+      const details = produceSourceEvidenceDetails(context, invocation, bindings);
+      return details.kind !== "resolved" ? details : { kind: "resolved", value: builder.evidence({ type: builder.intrinsic("absence"),
+        component: builder.componentIdentity(invocation, []), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
+      [], input.syntax(invocation), { kind: "finite", values: [{ kind: "absence" }] }, details.value) };
+    }
+    if (argumentDisposition === "skip") {
+      const classBindings = ordered();
+      if (original.class?.arguments.some(argument => !classBindings.some(binding => binding.declaration === argument.declaration)))
+        return refusal("A skipped Source call still requires its authentic receiver and class environment.");
+      const sourceArguments = authored(classBindings);
+      if (sourceArguments.kind !== "resolved") return sourceArguments;
+      const result = absent(classBindings);
+      if (result.kind !== "resolved") return result;
+      const identity: SourceApplicationIdentity = Object.freeze({ invocation, signature,
+        classBindings: Object.freeze(classBindings), signatureBindings: Object.freeze([]) });
+      return { kind: "resolved", value: { kind: "applicable", candidate: value, proven: [], application: Object.freeze({ identity,
+        kind: original.kind, optionalCall, argumentDisposition, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
+        receiver, sourceArguments: sourceArguments.value, arguments: Object.freeze([]), result: result.value }) } };
+    }
+    for (const parameter of original.signatureArguments) {
+      const value = stated(parameter);
+      if (value === undefined) continue;
+      if (value.kind !== "resolved") return value;
+      bindings.set(parameter.declaration!, value.value);
     }
 
     const supplied = new Set(bindings.keys());
@@ -198,45 +257,9 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     const identity: SourceApplicationIdentity = Object.freeze({ invocation, signature,
       classBindings: Object.freeze(allBindings.slice(0, classCount)),
       signatureBindings: Object.freeze(allBindings.slice(classCount)) });
-    const directCallee = context.navigation.sourceReferenceFor(original.callee.occurrence);
-    const callee = directCallee === undefined && staticReceiver === undefined ? context.value(original.callee.occurrence, allBindings)
-      : context.component(original.callee.component, allBindings, value);
-    if (callee.kind !== "resolved") return callee;
-    const optionalCall = context.ast.is.IsCallExpression(invocation) &&
-      context.ast.as.AsCallExpression(invocation)?.QuestionDotToken !== undefined;
-    let argumentDisposition: SourceApplication["argumentDisposition"] = "evaluate";
-    function guard(evidence: SourceTypeEvidence): void {
-      const presence = sourcePresenceLiteralDisposition(builder.domain(evidence));
-      if (presence === "absent") argumentDisposition = "skip";
-      else if (presence === "dynamic" && argumentDisposition !== "skip") argumentDisposition = "dynamic";
-    }
-    if (optionalCall) guard(callee.value);
-    if (context.ast.is.IsPropertyAccessExpression(original.callee.occurrence) || context.ast.is.IsElementAccessExpression(original.callee.occurrence)) {
-      const member = context.objects.use(original.callee.occurrence);
-      if (member.kind !== "resolved") return member;
-      if (member.value.optionalChain || member.value.chainContinuation) guard(member.value.receiver.value);
-    }
-    const sourceArguments: SourceAuthoredArgument[] = [];
-    for (const argument of value.sourceArguments) {
-      const source = context.value(argument.expression, allBindings);
-      if (source.kind === "pending") return source;
-      if (source.kind === "refused" && (argumentDisposition !== "skip" || source.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED")) return source;
-      sourceArguments.push(Object.freeze({ occurrence: argument.occurrence, form: argument.form,
-        operand: source.kind === "refused" ? source : Object.freeze({ kind: "resolved", value: Object.freeze({ occurrence: argument.expression, value: source.value }) }) }));
-    }
-    const absent = (): SourceProductionResult<SourceTypeEvidence> => {
-      const details = produceSourceEvidenceDetails(context, invocation, allBindings);
-      return details.kind !== "resolved" ? details : { kind: "resolved", value: builder.evidence({ type: builder.intrinsic("absence"),
-        component: builder.componentIdentity(invocation, []), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
-      [], input.syntax(invocation), { kind: "finite", values: [{ kind: "absence" }] }, details.value) };
-    };
-    if (argumentDisposition === "skip") {
-      const result = absent();
-      if (result.kind !== "resolved") return result;
-      return { kind: "resolved", value: { kind: "applicable", candidate: value, proven: [], application: Object.freeze({ identity,
-        kind: original.kind, optionalCall, argumentDisposition, callee: { occurrence: original.callee.occurrence, value: callee.value },
-        receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze([]), result: result.value }) } };
-    }
+    const authoredArguments = authored(allBindings);
+    if (authoredArguments.kind !== "resolved") return authoredArguments;
+    const sourceArguments = authoredArguments.value;
     const arguments_: SourceArgumentPlace[] = [];
     const declaredSignature = produceSourceCallableSignature(context, original.signature, [], original.class?.declaration);
     if (declaredSignature.kind !== "resolved") return declaredSignature;
@@ -289,7 +312,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       result = selected.value;
     }
     if (argumentDisposition === "dynamic") {
-      const absence = absent();
+      const absence = absent(allBindings);
       if (absence.kind !== "resolved") return absence;
       const selected = builder.join(builder.componentIdentity(invocation, []), "inferred", [result, absence.value], input.syntax(invocation));
       if (selected.kind === "refused") return selected;

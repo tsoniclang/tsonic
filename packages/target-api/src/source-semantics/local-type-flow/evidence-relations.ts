@@ -36,6 +36,13 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
   function relate(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
     builder.assertEvidence(left);
     builder.assertEvidence(right);
+    if (left.type.kind === "intersection" || right.type.kind === "intersection") {
+      const first = builder.produceDefinition(left);
+      if (first.kind !== "resolved") return first;
+      const second = builder.produceDefinition(right);
+      if (second.kind !== "resolved") return second;
+      return relate(first.value, second.value);
+    }
     const actual = left.type, required = right.type;
     if (actual.kind === "intrinsic" && actual.intrinsic === "never") return resolved("yes");
     if (required.kind === "intrinsic" && (required.intrinsic === "unknown" || required.intrinsic === "any")) return resolved("yes");

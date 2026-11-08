@@ -25,6 +25,21 @@ export interface SourceProducedSignature {
   readonly result: SourceTypeEvidence;
 }
 
+export function produceSourceParameterPresence(context: Pick<SourceSemanticProduction, "builder" | "reader">,
+  component: SourceInputComponent, value: SourceTypeEvidence, optional: boolean): SourceProductionResult<SourceTypeEvidence> {
+  if (!optional) return { kind: "resolved", value };
+  const { builder, reader } = context;
+  const identity = reader.componentIdentity(component);
+  if (value.type.kind === "optional" || value.sum?.arms.some(arm => arm.type.kind === "intrinsic" &&
+    (arm.type.intrinsic === "absence" || arm.type.intrinsic === "void")) || value.type.kind === "intrinsic" &&
+    (value.type.intrinsic === "absence" || value.type.intrinsic === "void")) return builder.join(identity, "authored", [value], component);
+  const absence = builder.evidence({ type: builder.intrinsic("absence"), component: identity,
+    category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
+  { kind: "finite", values: [{ kind: "absence" }] },
+  { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(value) });
+  return builder.join(identity, "authored", [value, absence], component);
+}
+
 export function produceSourceCallableSignature(context: SourceCallableProduction, original: SourceInputSignature,
   bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined): SourceProductionResult<SourceProducedSignature> {
   const { ast, input, builder, reader } = context;
@@ -66,7 +81,9 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     const value = annotation === undefined ? context.parameter(component, declaration, identity, parameter.index, activeBindings)
       : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
-    parameters.push({ index: parameter.index, declaration, kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: value.value });
+    const present = produceSourceParameterPresence(context, component, value.value, parameter.optional && !parameter.rest);
+    if (present.kind !== "resolved") return present;
+    parameters.push({ index: parameter.index, declaration, kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: present.value });
   }
   let receiver: SourceProducedSignature["receiver"];
   if (shape.receiver !== undefined) {

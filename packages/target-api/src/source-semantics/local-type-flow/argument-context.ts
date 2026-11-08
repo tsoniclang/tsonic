@@ -3,9 +3,10 @@ import type { SourceInputCallCandidate } from "../../host-input/call-input.js";
 import type { SourcePresence, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { Node_Expression } from "../../source-navigation/ast.js";
-import { produceSourceHeritageBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { produceSourceEffectiveArguments } from "./argument-places.js";
 import { sourceLiteralDomainsEqual } from "../../source-model/literals/domain.js";
+import { produceSourceSequenceElements } from "./tuple-layout.js";
 
 export function produceSourceArgumentContext(context: SourceCallableProduction, occurrence: Node,
   invocation: Node): SourceProductionResult<SourcePresence<SourceTypeEvidence>> {
@@ -42,13 +43,7 @@ export function produceSourceArgumentContext(context: SourceCallableProduction, 
       const receiver = context.value(original.receiver.occurrence, bindings);
       if (receiver.kind !== "resolved") return receiver;
       if (receiver.value.type.kind === "declared") {
-        for (const [index, declaration] of ast.typeParameters(receiver.value.type.declaration).entries()) {
-          if (declaration === undefined) throw new Error("An original receiver must retain its complete original class binder vector.");
-          const value = builder.component(receiver.value, { kind: "type-argument", declaration: receiver.value.type.declaration, index });
-          if (value.kind === "refused") return value;
-          if (!bindings.some(binding => binding.declaration === declaration)) bindings.push({ declaration, value: value.value });
-        }
-        const inherited = produceSourceHeritageBindings(context, receiver.value.type.declaration, bindings);
+        const inherited = produceSourceReceiverBindings(context, receiver.value, bindings);
         if (inherited.kind !== "resolved") return inherited;
         bindings.splice(0, bindings.length, ...inherited.value);
       }
@@ -94,19 +89,12 @@ export function produceSourceArgumentContext(context: SourceCallableProduction, 
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: { kind: "present", value: selected.value } };
     }
     const offset = effectiveIndex - formal.index;
-    const selected = type.kind === "array" ? builder.component(definition.value, { kind: "array-element" })
-      : type.kind === "tuple" && type.elements[offset] !== undefined ? builder.component(definition.value, { kind: "tuple-element", index: offset })
-        : undefined;
-    if (selected === undefined) return none;
+    if (type.kind !== "array" && type.kind !== "tuple") return none;
+    const selected = produceSourceSequenceElements(builder, definition.value, BigInt(offset));
     if (selected.kind !== "resolved") return selected;
-    if (type.kind === "tuple" && type.elements[offset]?.kind === "rest") {
-      const tail = builder.produceDefinition(selected.value);
-      if (tail.kind !== "resolved") return tail;
-      if (tail.value.type.kind !== "array") return none;
-      const element = builder.component(tail.value, { kind: "array-element" });
-      return element.kind !== "resolved" ? element : { kind: "resolved", value: { kind: "present", value: element.value } };
-    }
-    return { kind: "resolved", value: { kind: "present", value: selected.value } };
+    if (selected.value.length === 0) return none;
+    const joined = builder.join(builder.componentIdentity(occurrence, []), "authored", selected.value, undefined);
+    return joined.kind !== "resolved" ? joined : { kind: "resolved", value: { kind: "present", value: joined.value } };
   }
 }
 

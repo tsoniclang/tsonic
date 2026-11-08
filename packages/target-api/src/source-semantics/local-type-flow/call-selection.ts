@@ -42,6 +42,8 @@ export function selectSourceCallCandidate(selection: SourceInputCallSelection, i
   }
   if (!candidates.includes(winner.candidate) || winner.candidate.application.invocation !== invocation ||
     winner.application.identity.invocation !== invocation) throw new Error("A Source winner requires its exact original invocation and candidate attempt.");
+  if (winner.application.argumentDisposition === "skip") return { kind: "resolved", value: Object.freeze({
+    application: winner.application, original: winner.candidate.application, diagnostics: Object.freeze([]) }) };
   const applications = new Set(candidates.map(candidate => candidate.application));
   const diagnostics = sourceProvenDiagnosticRoots(candidates.flatMap(candidate => [...candidate.diagnosticCoverage,
     ...candidate.constraints.map(constraint => constraint.rootCoverage)]), winner.proven,
