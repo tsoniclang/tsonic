@@ -189,7 +189,7 @@ test("U3 refuses a selected overload whose candidates erase different authored n
 
 test("C15 does not retype or reject a fixed declared read", () => {
   const current = fixture("declare function take(value: int32): void; declare function take(value: int64): void; function run(value: int32) { take(value); }");
-  const reference = current.source.navigation.declarationUses(current.named("value"))[0]!.reference;
+  const reference = current.source.facts.navigation.declarationUses(current.named("value"))[0]!.reference;
   current.add(reference, current.named("value"), "fixed");
   assert.equal(current.run().length, 0, "a fixed value keeps the existing target conversion checks");
 });
@@ -375,7 +375,7 @@ test("B9 excluded declared right operands keep their original caller queries and
   });
   current.track("value");
   const operand = current.find("foreignDeclaredNumber");
-  const declaration = current.source.navigation.sourceReferenceFor(operand)?.declaration;
+  const declaration = current.source.facts.navigation.sourceReferenceFor(operand)?.declaration;
   assert.equal(declaration !== undefined, true, "the real selected foreign declaration is retained");
   const uses = current.run();
   assert.deepEqual(kinds(uses), ["fill"]);
@@ -479,7 +479,7 @@ test("U19 reads and U22 creation containment are not additional use-side links o
 test("U20 an inline argument closure belongs to the same inference root", () => {
   const current = fixture("declare function apply(callback: () => void): void; declare function take(value: int32): void; function run() { const n = 1; apply(() => { take(n); }); }");
   const declaration = current.track("n");
-  const captured = current.source.navigation.declarationUses(declaration).find(use => use.captured)!;
+  const captured = current.source.facts.navigation.declarationUses(declaration).find(use => use.captured)!;
   current.add(captured.reference, declaration);
   assert.deepEqual(kinds(current.run()), ["fill"]);
 });
@@ -498,7 +498,7 @@ declare const construct: new (callback: (value: unknown) => void) => object;
 declare function take(value: int32): void;
 function run() { const n = 1; ${original}; ${captured}; }`);
       const declaration = current.track("n");
-      const reference = current.source.navigation.declarationUses(declaration).find(use => use.captured);
+      const reference = current.source.facts.navigation.declarationUses(declaration).find(use => use.captured);
       if (reference === undefined) throw new Error("The original checked closure capture is required.");
       current.add(reference.reference, declaration);
       const closures = current.inventory.filter(node => current.source.ast.is.IsArrowFunction(node));
@@ -532,7 +532,7 @@ test("U20 root validation rejects stored, named and non-inline wrapper boundarie
     const current = fixture(`declare function consume(callback: (value: unknown) => void): void;
 declare function take(value: int32): void; function run() { const n = 1; ${body} }`);
     const declaration = current.track("n");
-    const reference = current.source.navigation.declarationUses(declaration).find(use => use.captured);
+    const reference = current.source.facts.navigation.declarationUses(declaration).find(use => use.captured);
     if (reference === undefined) throw new Error("The checked non-inline capture is required.");
     current.add(reference.reference, declaration);
     assert.throws(() => current.run(), /original inference root/u, "a separate callable root cannot be substituted by an outer graph root");
@@ -558,7 +558,7 @@ test("U23 wrappers keep the final argument occurrence without duplicating a fill
 test("U24 a fixed declaration stays fixed and is not reclassified from a later use", () => {
   const current = fixture("declare function take(value: number): void; function run() { const n: int32 = 1; take(n); }");
   const declaration = current.named("n");
-  const reference = current.source.navigation.declarationUses(declaration)[0]!.reference;
+  const reference = current.source.facts.navigation.declarationUses(declaration)[0]!.reference;
   current.add(reference, declaration, "fixed");
   assert.equal(current.run().length, 0, "fixed declarations are target conversion inputs, not inference groups");
 });
@@ -743,7 +743,7 @@ test("C16 the first over-limit real reference refuses the exact local with no wi
   const current = fixture(`function run() { const n = 1; ${"void n; ".repeat(1025)} }`);
   current.track("n");
   const uses = current.run();
-  const reference = current.source.navigation.declarationUses(current.named("n"))[1024]!.reference;
+  const reference = current.source.facts.navigation.declarationUses(current.named("n"))[1024]!.reference;
   assert.equal(uses.length === 1 && uses[0]?.kind === "refused" && uses[0].refusal.code === "TSONIC_LOCAL_TYPE_LIMIT", true, "the 1024-use limit is not raised");
   assert.equal(uses[0]?.site === reference, true, "the first rejected occurrence anchors the refusal");
 });

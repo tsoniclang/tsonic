@@ -56,13 +56,13 @@ function fixture(text: string) {
     if (outcome === undefined || outcome.kind === "refused") throw new Error(`The resolved ${name} is required.`);
     return outcome.type;
   };
-  const refusalSummary = () => source.effectiveTypes.refusals().map(issue => {
+  const refusalSummary = () => source.facts.refusals().map(issue => {
     const range = source.ast.authoredRange(issue.site);
     const file = source.ast.getSourceFile(issue.site);
     const text = range.kind === "authored" && file !== undefined
       ? source.ast.getSourceText(file).slice(range.start, Math.min(range.end, range.start + 128))
       : source.ast.kindName(issue.site);
-    return `${issue.code}@${source.ast.pos(issue.site)}:${text}:${issue.reason}`;
+    return `${issue.code}@${source.ast.pos(issue.site)}:${text}:${issue.message}`;
   }).join("; ").slice(0, 4096);
   return { source, nodes, declaration, type, refusalSummary };
 }
@@ -84,8 +84,8 @@ for (const [expression, code, reason] of [
     const current = fixture(`function make() { return ${expression}; }`);
     const literal = current.nodes.find(node => expression === "{}"
       ? current.source.ast.is.IsObjectLiteralExpression(node) : current.source.ast.is.IsArrayLiteralExpression(node));
-    const refusal = current.source.effectiveTypes.refusals().find(issue => issue.site === literal);
-    assert.equal(literal !== undefined && refusal?.code === code && refusal.reason === reason, true,
+    const refusal = current.source.facts.refusals().find(issue => issue.site === literal);
+    assert.equal(literal !== undefined && refusal?.code === code && refusal.message === reason, true,
       "the canonical Terms group owns the unchanged original code, message and construction occurrence");
     assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal)?.kind === "refused", true);
   });
@@ -105,7 +105,7 @@ test("C32 unbound constructions retain ordinary exact call fills and C24 signatu
     outcomes[1].type.members[0]?.type.kind === "primitive" && outcomes[1].type.members[0].type.primitive === "float64", true);
   assert.equal(outcomes[2]?.kind !== "refused" && outcomes[2]?.type.kind === "array" &&
     outcomes[2].type.element.kind === "primitive" && outcomes[2].type.element.primitive === "int64", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2404 generic array binders project the same solved aggregate used by every argument", () => {
@@ -137,7 +137,7 @@ test("C2404 generic array binders project the same solved aggregate used by ever
       instance.result?.kind === "array" && instance.result.element === outcome.type.element, true,
       "the canonical element object is shared by the allocation, method binder and call result");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2417 broad contextual callback returns do not replace their body's own result", () => {
@@ -178,7 +178,7 @@ test("C2417 broad contextual callback returns do not replace their body's own re
         `callback ${index}: primitive and union destinations still own the literal's exact native arm`);
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2425 generator return slots project their authored completion component, not the whole iterator", () => {
@@ -207,7 +207,7 @@ test("C2425 generator return slots project their authored completion component, 
         outcome.type.primitive === (name === "ordinary" ? "int32" : "float32")), true,
     name + ": the original authored completion slot owns its literal");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2425 scalar rest arguments use the same declared element slot while spreads retain their sequence", () => {
@@ -235,7 +235,7 @@ test("C2425 scalar rest arguments use the same declared element slot while sprea
   assert.equal(spread !== undefined && spread.kind !== "refused" && spread.type.kind === "array" &&
     spread.type.element.kind === "primitive" && spread.type.element.primitive === "int32", true,
   "the spread sequence keeps its full authored array contract");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2417 inactive concrete callbacks publish every original parameter through the selected invocation", () => {
@@ -260,7 +260,7 @@ test("C2417 inactive concrete callbacks publish every original parameter through
       `parameter ${index}: the declaration, name and callable retain one concrete originating descriptor`);
   }
   assert.equal(signature?.result.kind === "intrinsic" && signature.result.intrinsic === "void", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2417 callback parameter enrollment retains concrete authored binders without retargeting fixed annotations", () => {
@@ -285,7 +285,7 @@ test("C2417 callback parameter enrollment retains concrete authored binders with
       : method?.type.kind === "primitive" && method.type.primitive === "int32", true,
       `callback ${index}: the exact original declared method binder remains independent`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2418 inherited authored callback heads do not borrow a self-inferred result default", () => {
@@ -334,7 +334,7 @@ test("C2418 inherited authored callback heads do not borrow a self-inferred resu
     assert.equal(body !== undefined && slots.get(body) === undefined, true,
       `callback ${index}: an inferred Result default is not an authored return destination`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2418 checked inherited arguments and defaults never authorize a callback head or retarget an annotation", () => {
@@ -365,7 +365,7 @@ test("C2418 checked inherited arguments and defaults never authorize a callback 
       selected.type.kind === "primitive" && selected.type.primitive === (index === 0 ? "int64" : "float32"), true,
       `callback ${index}: the body retains its own integer or exact authored arithmetic result`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2408 every formal shape retains authored binding provenance and exact native aliases", () => {
@@ -470,7 +470,7 @@ test("C2412 homomorphic results retain their wrapper separately from the authore
       resultShape.members[0].type.primitive === "int32" && outcome !== undefined && outcome.kind !== "refused" &&
       outcome.type === result, true, "the separately solved result preserves its readonly wrapper and one publication object");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C32 never opens an annotated or module construction or a scalar literal", () => {
@@ -479,7 +479,7 @@ test("C32 never opens an annotated or module construction or a scalar literal", 
     function scalar(): number { return 1; }`);
   const constructions = current.nodes.filter(node => current.source.ast.is.IsArrayLiteralExpression(node) ||
     current.source.ast.is.IsObjectLiteralExpression(node));
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   assert.equal(constructions.every(node => current.source.effectiveTypes.get(node)?.kind !== "refused"), true);
   const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission");
   const scalar = current.nodes.find(node => current.source.ast.is.IsNumericLiteral(node));
@@ -502,7 +502,7 @@ test("declared readonly array returns and their conditional branches retain the 
       outcome.type.element.kind === "primitive" && outcome.type.element.primitive === "float64", true,
       "actual declared slots or ordinary C32 return demand select the same element without an array-copy conversion");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 
@@ -539,11 +539,11 @@ test("C2396 awaited finite nominal unions retain their own payload objects and o
       "union order and checked numeric collapse cannot replace a solved payload object or its authored width");
     assert.equal((input.type.kind === "optional") === (output.type.kind === "optional"), true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const unbound = fixture(`async function optional(pending: Promise<int32> | undefined): Promise<int32 | undefined> {
     const selected = await pending; return selected;
   }`);
-  assert.equal(unbound.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true,
+  assert.equal(unbound.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true,
     "a newly inferred optional local keeps the original union-fill refusal rather than borrowing await's payload relation");
 });
 test("C2392 a retained nominal receiver publishes its original optional member result", () => {
@@ -564,7 +564,7 @@ test("C2392 a retained nominal receiver publishes its original optional member r
   assert.equal(stored.kind === "declared" && result !== undefined && result.kind !== "refused" && result.type.kind === "optional" &&
     result.type.value === stored.typeArguments[0], true, "the original receiver binder supplies the exact present member object");
   assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "primitive" && selected.type.primitive === "bool", true);
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNION" && ast.is.IsCallExpression(issues[0].site), true,
     "an open array result retains its original union-inference refusal independently of the completed nominal receiver");
 });
@@ -604,16 +604,16 @@ test("C2392 authored global primitive aliases retain their exact declaration thr
   const declaration = annotation === undefined ? undefined : source.semantics.forNode(parameter!).declarations.authoredTypeDeclaration(annotation);
   const body = declaration === undefined ? undefined : source.ast.typeNode(declaration);
   const qualifier = body === undefined ? undefined : source.ast.as.AsImportTypeNode(body)?.Qualifier;
-  assert.equal(reference !== undefined && qualifier !== undefined && source.navigation.sourceReferenceFor(qualifier) === undefined && declaration !== undefined &&
+  assert.equal(reference !== undefined && qualifier !== undefined && source.facts.navigation.sourceReferenceFor(qualifier) === undefined && declaration !== undefined &&
     source.ast.is.IsTypeAliasDeclaration(declaration) && source.ast.getSourceFile(declaration) === checked.getSourceFile("/src/globals.d.ts"), true,
     "semantic declaration evidence reaches the original global alias without expanding project navigation");
-  assert.equal(source.effectiveTypes.refusals().length, 0);
+  assert.equal(source.facts.refusals().length, 0);
 });
 
 test("an empty inferred literal consumed through a generic call keeps only its real construction refusal", () => {
   const current = fixture("declare function identity<T>(value: T): T; function run(): void { const value = {}; void identity(value); }");
   const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   assert.equal(issues[0]?.code === "TSONIC_UNTYPED_OBJECT_LITERAL" && issues[0].site === literal, true,
     "synthetic result and binder shape terms do not fabricate additional object-construction sites");
@@ -622,14 +622,14 @@ test("an empty inferred literal consumed through a generic call keeps only its r
 test("one eager publication fills numeric locals from the first exact demand", () => {
   const current = fixture("declare function take(value: number): void; function run(): void { const value = 1; take(value); }");
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   assert.equal(Object.isFrozen(current.source.effectiveTypes), true);
   assert.equal(Object.isFrozen(current.type("value")), true);
 });
 
 test("a later conflicting exact demand retains its original checked site", () => {
   const current = fixture("declare function narrow(value: int32): void; declare function broad(value: number): void; function run(): void { const value = 1; narrow(value); broad(value); }");
-  const failure = current.source.effectiveTypes.refusals().find(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT");
+  const failure = current.source.facts.refusals().find(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT");
   const later = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
     current.source.ast.text(current.source.ast.as.AsCallExpression(node)?.Expression) === "broad");
   const earlier = current.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
@@ -641,7 +641,7 @@ test("a later conflicting exact demand retains its original checked site", () =>
 
 test("signature closure defaults leaves before exact use demands", () => {
   const current = fixture("declare function broad(value: number): void; function run() { const value = 1; broad(value); return value + 1; }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_SIGNATURE"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_SIGNATURE"), true);
 });
 
 test("declared returns are ordinary exact demands rather than signature defaults", () => {
@@ -708,7 +708,7 @@ test("ordinary fixed API write values publish their declared read type and a wri
 test("derived-local demands never flow back into arithmetic operands", () => {
   const current = fixture("declare function broad(value: number): void; function run(): void { const value = 1; const derived = value * 2; broad(derived); }");
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "int64" });
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT"), true);
 });
 
 test("derived arithmetic is typed once in dependency order", () => {
@@ -728,12 +728,12 @@ test("declared numeric widths cross a generic call without checker erasure", () 
 
 test("an empty array gets no type from a receiver-binder insertion", () => {
   const current = fixture("function run(): void { const values = []; values.push(1); }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_UNTYPED_ARRAY_LITERAL"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_UNTYPED_ARRAY_LITERAL"), true);
 });
 
 test("uncontextualized empty object and array declarations are Host refusals", () => {
   const current = fixture("function run(): void { const data = {}; const values = []; }");
-  const codes = current.source.effectiveTypes.refusals().map(issue => issue.code);
+  const codes = current.source.facts.refusals().map(issue => issue.code);
   assert.equal(codes.includes("TSONIC_UNTYPED_OBJECT_LITERAL"), true);
   assert.equal(codes.includes("TSONIC_UNTYPED_ARRAY_LITERAL"), true);
 });
@@ -747,7 +747,7 @@ test("C2445 later broad slots check the original aggregate without supplying its
       const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
       assert.equal(literal !== undefined && outcome?.kind === "refused" && outcome.code === "TSONIC_UNTYPED_OBJECT_LITERAL" &&
         outcome.site === literal, true, `${broad}: the later slot cannot replace the original untyped object`);
-      assert.equal(current.source.effectiveTypes.refusals().length, 1, `${broad}: one original construction owns the refusal`);
+      assert.equal(current.source.facts.refusals().length, 1, `${broad}: one original construction owns the refusal`);
     }
     const array = fixture(`function make() { return []; }
       function run(): ${broad} { const selected: ${broad} = make(); return selected; }`);
@@ -755,7 +755,7 @@ test("C2445 later broad slots check the original aggregate without supplying its
     const outcome = literal === undefined ? undefined : array.source.effectiveTypes.get(literal);
     assert.equal(literal !== undefined && outcome?.kind === "refused" && outcome.code === "TSONIC_UNTYPED_ARRAY_LITERAL" &&
       outcome.site === literal, true, `${broad}: a later call-result slot cannot type the original empty array`);
-    assert.equal(array.source.effectiveTypes.refusals().length, 1, `${broad}: the original array owns its one refusal`);
+    assert.equal(array.source.facts.refusals().length, 1, `${broad}: the original array owns its one refusal`);
   }
   const positive = fixture(`function run(): void {
     const annotated: object = {};
@@ -771,7 +771,7 @@ test("C2445 later broad slots check the original aggregate without supplying its
     "a later broad check leaves the original array element intact");
   const annotated = positive.type("annotated");
   assert.equal(annotated.kind === "intrinsic" && annotated.intrinsic === "object", true, "an original authored creation keeps its existing contract");
-  assert.equal(positive.source.effectiveTypes.refusals().length, 0);
+  assert.equal(positive.source.facts.refusals().length, 0);
 });
 
 test("Host-fixed counters and every checked read carry the same B8 authority", () => {
@@ -779,7 +779,7 @@ test("Host-fixed counters and every checked read carry the same B8 authority", (
   assertSameValue(current.type("index"), { kind: "primitive", primitive: "int64" });
   assertSameValue(current.type("moduleValue"), { kind: "primitive", primitive: "int64" });
   const declaration = current.declaration("index");
-  for (const use of current.source.navigation.declarationUses(declaration)) {
+  for (const use of current.source.facts.navigation.declarationUses(declaration)) {
     if (use.kind === "type-only" || use.kind === "source-linkage") continue;
     const outcome = current.source.effectiveTypes.get(use.reference);
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.fixedRule?.kind === "loop-counter", true);
@@ -821,15 +821,15 @@ function outcomeCode(outcome: SourceEffectiveTypeOutcome | undefined): string | 
 
 test("a different pair of fixed element types refuses at its original array", () => {
   const current = fixture("function run(narrow: float32, signed: int32): void { const values = [narrow, signed]; }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS"), true);
   assert.equal(outcomeCode(current.source.effectiveTypes.get(current.declaration("values"))), "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS");
 });
 
 test("a seeded accumulator is checked once against its non-cyclic type", () => {
   const current = fixture("function run(): void { const values = [1, 2]; const total = values.reduce((sum, value) => sum + value, 0); }");
   assertSameValue(current.type("total"), { kind: "primitive", primitive: "int64" });
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), false);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), false);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2434 a retained seed precedes nested callback operations without borrowing their result", () => {
@@ -843,13 +843,13 @@ test("C2434 a retained seed precedes nested callback operations without borrowin
       void total;
     }`);
   assertSameValue(current.type("total"), { kind: "primitive", primitive: "int64" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const fractional = fixture(`${declarations}
     function run(values: Values<int32>): void {
       const total = values.accumulate((sum, value, index) => sum + 0.5 + value + index, 0);
       void total;
     }`);
-  assert.equal(fractional.source.effectiveTypes.refusals().some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true,
+  assert.equal(fractional.source.facts.refusals().some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true,
     "a computed floating callback cannot widen the actual retained integer seed");
 });
 
@@ -871,12 +871,12 @@ test("inline callable construction publishes one callable type consistent with i
     assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
     if (outcome !== undefined && outcome.kind !== "refused") assertSameValue(outcome.type, { kind: "primitive", primitive: "int64" });
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a fractional accumulator return cannot retype an integer seed", () => {
   const current = fixture("function run(): void { const values = [1, 2]; const total = values.reduce((sum, value) => sum + 0.5, 0); }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_ACCUMULATOR"), true);
 });
 
 test("C2432 compound literal locals consume the same solved arithmetic peer without retargeting fixed storage", () => {
@@ -888,7 +888,7 @@ test("C2432 compound literal locals consume the same solved arithmetic peer with
   }`);
   assertSameValue(current.type("total"), { kind: "primitive", primitive: "float64" });
   assertSameValue(current.type("selected"), { kind: "primitive", primitive: "float64" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const fixed = fixture(`function run(left: number, right: number): void {
     let total: int32 = 0;
     total += left + right;
@@ -931,10 +931,10 @@ test("C2434 explicit symbolic destinations retain the original enclosing type pa
   const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
   assert.equal(outcome !== undefined && outcome.kind !== "refused" && sourceTypeDescriptorsEqual(outcome.type, type), true,
     "the same authored symbolic destination reaches the original empty allocation");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const unbound = fixture(`declare function receive<Value>(value: Value[]): Value[];
     function read(): void { const missing = receive([]); void missing; }`);
-  assert.equal(unbound.source.effectiveTypes.refusals().some(refusal => refusal.code === "TSONIC_UNTYPED_ARRAY_LITERAL"), true,
+  assert.equal(unbound.source.facts.refusals().some(refusal => refusal.code === "TSONIC_UNTYPED_ARRAY_LITERAL"), true,
     "an inferred empty construction has no independent authored symbolic argument");
 });
 
@@ -954,29 +954,29 @@ test("C2437 authored symbolic aliases consume the canonical descriptor's origina
     const element = array?.kind === "array" ? sourceTypeDescriptorStructure(array.element) : undefined;
     assert.equal(parameter !== undefined && element?.kind === "declared" && element.declaration === parameter, true,
       `${argument}: the original enclosing type parameter survives authored alias expansion`);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, `${argument}: the original empty allocation has an authored destination`);
+    assert.equal(current.source.facts.refusals().length, 0, `${argument}: the original empty allocation has an authored destination`);
   }
 });
 
 test("the use bound is a Host refusal rather than a partial use prefix", () => {
   const uses = Array.from({ length: 1025 }, () => "take(value);").join(" ");
   const current = fixture(`declare function take(value: number): void; function run(): void { const value = 1; ${uses} }`);
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
 });
 
 test("a depth-five open literal refuses instead of publishing a shallow descriptor", () => {
   const current = fixture("function run(): void { const value = [[[[[1]]]]]; }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
 });
 
 test("a fractional bitwise derived local never publishes a floating bitwise carrier", () => {
   const current = fixture("function run(): void { const value = 0.5; const derived = ~value; }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED"), true);
 });
 
 test("C29 module declarations keep their own type without signature refusals", () => {
   const current = fixture('const foo = "bar"; export const record: Record<string, string> = { foo }; export const plain = 7 / 2; export const typed: int32 = 7 / 2;');
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const defaults = createSourceTypeFlowAnalysisContext(current.source);
   assertSameValue(current.type("plain"), defaults.context.describe(current.declaration("plain")));
   assertSameValue(current.type("typed"), { kind: "primitive", primitive: "int32" });
@@ -991,7 +991,7 @@ test("C29 module declarations keep their own type without signature refusals", (
 
 test("declared recursive unions publish their declared reference without expansion or refusal", () => {
   const current = fixture("type Tree = number | readonly Tree[]; declare const input: Tree; function run(value: Tree): Tree { const retained: Tree = value; return retained; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const declaration = current.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
     current.source.ast.text(current.source.ast.name(node)) === "Tree");
   for (const name of ["input", "retained"]) {
@@ -1003,10 +1003,10 @@ test("declared recursive unions publish their declared reference without expansi
 
 test("C29 a fixed read keeps its own carrier when an open sibling conflicts", () => {
   const current = fixture("declare function take(values: number[]): void; function run(value: int32): void { const values = [value, 1]; take(values); }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_CONFLICT"), true);
   const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "value");
   if (parameter === undefined) throw new Error("The exact declared parameter is required.");
-  for (const use of current.source.navigation.declarationUses(parameter)) {
+  for (const use of current.source.facts.navigation.declarationUses(parameter)) {
     if (use.kind === "type-only" || use.kind === "source-linkage") continue;
     const outcome = current.source.effectiveTypes.get(use.reference);
     assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
@@ -1017,11 +1017,11 @@ test("C29 a fixed read keeps its own carrier when an open sibling conflicts", ()
 
 test("C29 annotated aggregate construction does not retype its fixed children", () => {
   const current = fixture("function run(narrow: float32, signed: int32): void { const values: float32[] = [narrow, signed]; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   assertSameValue(current.type("values"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float32" } });
   const signed = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "signed");
   if (signed === undefined) throw new Error("The exact signed source parameter is required.");
-  for (const use of current.source.navigation.declarationUses(signed)) {
+  for (const use of current.source.facts.navigation.declarationUses(signed)) {
     const outcome = current.source.effectiveTypes.get(use.reference);
     assert.equal(outcome !== undefined && outcome.kind !== "refused", true);
     if (outcome === undefined || outcome.kind === "refused") throw new Error("The original fixed source read is required.");
@@ -1039,7 +1039,7 @@ for (const [name, body] of [
 ] as const) {
   test(`C30 ${name} owns the construction type without joining fixed element carriers`, () => {
     const current = fixture(body);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
+    assert.equal(current.source.facts.refusals().length, 0, current.refusalSummary());
     const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
     if (literal === undefined) throw new Error("The original declared array literal is required.");
     const outcome = current.source.effectiveTypes.get(literal);
@@ -1051,7 +1051,7 @@ for (const [name, body] of [
       const parameter = current.nodes.find(node => current.source.ast.is.IsParameterDeclaration(node) &&
         current.source.ast.text(current.source.ast.name(node)) === parameterName);
       if (parameter === undefined) throw new Error("The exact fixed source parameter is required.");
-      for (const use of current.source.navigation.declarationUses(parameter)) {
+      for (const use of current.source.facts.navigation.declarationUses(parameter)) {
         if (use.kind === "type-only" || use.kind === "source-linkage") continue;
         const value = current.source.effectiveTypes.get(use.reference);
         assert.equal(value !== undefined && value.kind !== "refused", true, parameterName);
@@ -1069,7 +1069,7 @@ for (const [name, body] of [
 
 test("C30 a declared construction never retypes an independently filled open operand", () => {
   const current = fixture("declare function broad(value: number): void; function run(signed: int32): void { const value = 1; broad(value); const values: float32[] = [value, signed]; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
   assertSameValue(current.type("values"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float32" } });
   const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
@@ -1079,7 +1079,7 @@ test("C30 a declared construction never retypes an independently filled open ope
 
 test("C30 data-member construction keeps its declared shape and the original operands", () => {
   const current = fixture("declare function broad(value: number): void; function run(signed: int32): void { const value = 1; broad(value); const data: { first: float32; second: number } = { first: value, second: signed }; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   assertSameValue(current.type("value"), { kind: "primitive", primitive: "float64" });
   const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
   const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
@@ -1095,7 +1095,7 @@ test("C30 data-member construction keeps its declared shape and the original ope
 
 test("an index-signature declared construction publishes its declared reference without an initializer retry", () => {
   const current = fixture("type Indexed = { [name: string]: number }; function run(): void { const data: Indexed = { value: 1 }; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const literal = current.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
   assert.equal(literal !== undefined, true);
   const declaration = current.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
@@ -1117,13 +1117,13 @@ test("an index-signature declared construction publishes its declared reference 
 
 test("C29 open union demands still produce the original Host refusal", () => {
   const current = fixture("declare function take(value: number | string): void; function run(): void { const value = 1; take(value); }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_UNION"), true);
   assert.equal(outcomeCode(current.source.effectiveTypes.get(current.declaration("value"))), "TSONIC_LOCAL_TYPE_UNION");
 });
 
 test("synthetic call result terms never request literal construction admission", () => {
   const current = fixture("function run(values: int32[]): void { const mapped = values.map(value => value); const filtered = values.filter(value => value > 0); const actual = [1, 2]; }");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const admissions = current.source.effectiveTypes.obligations().filter(obligation => obligation.kind === "literal-admission");
   const aggregate = admissions.filter(obligation => obligation.type.kind === "array" || obligation.type.kind === "shape");
   assert.equal(aggregate.length > 0, true);
@@ -1136,7 +1136,7 @@ test("synthetic call result terms never request literal construction admission",
 test("C2224 an array construction owns the mixed-fixed refusal through an asserted numeric peer", () => {
   const current = fixture("function run(narrow: float32): void { const values = [narrow, 0.5 as number]; void values; }");
   const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && issues[0].site === literal, true,
     "the construction, not an alias or later scalar demand, owns the C19 cause");
@@ -1145,7 +1145,7 @@ test("C2224 an array construction owns the mixed-fixed refusal through an assert
 test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation", () => {
   for (const elements of ["signed, 9007199254740993", "9007199254740993, signed", "signed, -9007199254740993"]) {
     const current = fixture(`function run(signed: int32): void { const values = [${elements}]; void values; }`);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, elements);
+    assert.equal(current.source.facts.refusals().length, 0, elements);
     const selected = current.type("values");
     assert.equal(selected.kind === "array" && selected.element.kind === "primitive" &&
       selected.element.primitive === "int32", true, elements);
@@ -1161,7 +1161,7 @@ test("C2224 a non-fitting literal retains its fixed peer and exact D2 obligation
 
 test("C2224 a refused empty construction suppresses its dependent projection refusal", () => {
   const current = fixture("function run(): boolean { const values = []; values[0] = 1; return values !== undefined; }");
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
   assert.equal(issues[0]?.code === "TSONIC_UNTYPED_ARRAY_LITERAL" && issues[0].site === literal, true);
@@ -1172,7 +1172,7 @@ test("C2224 a refused empty construction suppresses its dependent projection ref
 
 test("C2224 independent empty constructions retain independent causes", () => {
   const current = fixture("function run(): void { const first = {}; const second = {}; void first; void second; }");
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 2);
   assert.equal(issues.every(issue => issue.code === "TSONIC_UNTYPED_OBJECT_LITERAL"), true);
   assert.equal(issues[0] !== issues[1] && issues[0]?.site !== issues[1]?.site, true);
@@ -1194,7 +1194,7 @@ test("C30 uses the unique kind-matching declared parameter arm and retains its m
   assert.equal(arrayType !== undefined && arrayType.kind !== "refused", true);
   if (arrayType === undefined || arrayType.kind === "refused") throw new Error("The chosen array arm is required.");
   assertSameValue(arrayType.type, { kind: "array", readonly: true, element: { kind: "primitive", primitive: "float64" } });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C30 ambiguous declared object arms retain their own structural refusal origin", () => {
@@ -1204,7 +1204,7 @@ test("C30 ambiguous declared object arms retain their own structural refusal ori
   const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
   const record = graph.nodes.find(node => node.node === literal && node.variable.path.length === 0);
   assert.equal(record?.declaredSlotRefusal !== undefined && graph.refusals.includes(record.declaredSlotRefusal), true);
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_UNION" && issues[0].site === literal, true);
   assert.equal(literal !== undefined && current.source.effectiveTypes.get(literal)?.kind === "refused", true);
@@ -1223,7 +1223,7 @@ test("C30 carries declared nested element slots through both coalescing return b
   assertSameValue(selected[0].type, { kind: "array", readonly: true, element: {
     kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } } });
   assertSameValue(selected[1].type, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 for (const returned of ["Value", "Locked<Value>"]) {
@@ -1241,7 +1241,7 @@ for (const returned of ["Value", "Locked<Value>"]) {
     const instance = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
     assert.equal(instance?.method.length, 1);
     assertSameValue(instance?.method[0]?.type, { kind: "intrinsic", intrinsic: "object" });
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   });
 }
 
@@ -1253,7 +1253,7 @@ test("a merged Map constructor retains the actual type declaration and both sour
   assert.equal(current.source.ast.is.IsInterfaceDeclaration(selected.declaration), true);
   assert.equal(current.source.ast.typeParameters(selected.declaration).length, 2);
   assertSameValue(selected.typeArguments, [{ kind: "primitive", primitive: "int32" }, { kind: "string" }]);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("inherited receiver and method binders retain their distinct declarations and chosen widths", () => {
@@ -1269,7 +1269,7 @@ test("inherited receiver and method binders retain their distinct declarations a
   assertSameValue(instance?.receiver[0]?.type, { kind: "primitive", primitive: "int32" });
   assertSameValue(instance?.method[0]?.type, { kind: "primitive", primitive: "int32" });
   assertSameValue(current.type("selected"), { kind: "primitive", primitive: "int32" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a declared generic binding leaf retains the substituted property and callable member identities", () => {
@@ -1288,7 +1288,7 @@ test("a declared generic binding leaf retains the substituted property and calla
   const declaredMethod = current.nodes.find(node => current.source.ast.is.IsMethodSignatureDeclaration(node));
   assert.equal(readType.type.calls[0]?.declaration === declaredMethod, true);
   assertSameValue(readType.type.calls[0]?.result, { kind: "primitive", primitive: "int32" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("never-open field arrays publish one int64 default at their declaration, initializer and reads", () => {
@@ -1302,7 +1302,7 @@ test("never-open field arrays publish one int64 default at their declaration, in
     if (selected === undefined || selected.kind === "refused") throw new Error("Every field value occurrence is required.");
     assertSameValue(selected.type, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int64" } });
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("one callable return publication retains zero-argument declared results and full inferred async carriers", () => {
@@ -1320,7 +1320,7 @@ test("one callable return publication retains zero-argument declared results and
   assert.equal(deferred.type.kind === "declared", true);
   if (deferred.type.kind !== "declared") throw new Error("An async return is the full carrier, not its payload.");
   assertSameValue(deferred.type.typeArguments, [{ kind: "primitive", primitive: "int32" }]);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("an intrinsic object slot preserves separately published physical values, methods and getter returns", () => {
@@ -1347,7 +1347,7 @@ test("an intrinsic object slot preserves separately published physical values, m
   assert.equal(returned !== undefined && returned.kind !== "refused" && returned.provenance.occurrence === getter, true);
   if (returned === undefined || returned.kind === "refused") throw new Error("The getter's actual value return is required.");
   assertSameValue(returned.type, { kind: "primitive", primitive: "int32" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a C8 fixed heterogeneous construction keeps its scalar child at the complete closed source element type", () => {
@@ -1357,7 +1357,7 @@ test("a C8 fixed heterogeneous construction keeps its scalar child at the comple
   assert.equal(selected !== undefined && selected.kind !== "refused", true);
   if (selected === undefined || selected.kind === "refused") throw new Error("The original numeric value publication is required.");
   assert.equal(sourceTypeDescriptorsEqual(selected.type, { kind: "union", types: [{ kind: "string" }, { kind: "primitive", primitive: "int64" }] }), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2436 broad heterogeneous arrays retain independent scalar calculation groups", () => {
@@ -1371,7 +1371,7 @@ test("C2436 broad heterogeneous arrays retain independent scalar calculation gro
     element: { kind: "union", types: [{ kind: "primitive", primitive: "int64" },
       { kind: "primitive", primitive: "bool" }, { kind: "intrinsic", intrinsic: "any" },
       { kind: "primitive", primitive: "float64" }] } });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0,
+  assert.equal(current.source.facts.refusals().length, 0,
     "a broad aggregate element cannot make its authored bool and any calculations one equality group");
 });
 
@@ -1414,7 +1414,7 @@ test("C2437 optional generic destinations retain the exact authored member corre
     assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type.kind === "intrinsic" &&
       selected.type.intrinsic === "absence", true, "a nullish actual argument retains absence, never the present member slot");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2232 scalar tokens retain the entire declared union instead of selecting a physical arm", () => {
@@ -1432,7 +1432,7 @@ test("C2232 scalar tokens retain the entire declared union instead of selecting 
   assert.equal(sourceTypeDescriptorsEqual(second.type, { kind: "union", types: [
     { kind: "primitive", primitive: "float32" }, { kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float64" },
   ] }), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("negative zero publishes the int64 default for an open and an exported binding", () => {
@@ -1458,7 +1458,7 @@ test("C30 signed literal children retain the same declared scalar and union slot
     assert.equal(sourceTypeDescriptorsEqual(whole.type, child.type), true,
       "the spelling child does not acquire an independent int64 default under a declared floating slot");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2377 literal demands precede the own default without changing C8 storage or inferred authority", () => {
@@ -1486,7 +1486,7 @@ test("C2377 literal demands precede the own default without changing C8 storage 
   assertSameValue(current.type("own"), { kind: "primitive", primitive: "int64" });
   assertSameValue(current.type("partnered"), { kind: "primitive", primitive: "float32" });
   assertSameValue(current.type("retained"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "int64" } });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0,
+  assert.equal(current.source.facts.refusals().length, 0,
     "the original fixed-peer nonfit stays a D2 obligation, not an own-default range refusal");
 });
 
@@ -1514,7 +1514,7 @@ test("C2377 assigned closures use the original callable storage before a numeric
     assert.equal(returned !== undefined && returned.kind !== "refused" && returned.type.kind === "primitive" &&
       returned.type.primitive === "int32", true, "the actual literal body receives that same declared result demand");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("B8 counters keep their int64 rule through checked declaration components and every read", () => {
@@ -1561,7 +1561,7 @@ test("class-expression values retain their constructor contract independently of
   const chosen = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
   assert.equal(chosen !== undefined && chosen.kind !== "refused" && chosen.type.kind === "shape" &&
     chosen.type.constructs.length === 1, true, "a runtime class expression keeps its real constructor value descriptor");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("unused real signature parameters publish the same chosen descriptor as their callable", () => {
@@ -1581,7 +1581,7 @@ test("unused real signature parameters publish the same chosen descriptor as the
     assert.equal(sourceTypeDescriptorsEqual(outcome.type, parameter.type), true);
     assert.equal(outcome.provenance.occurrence === parameter.declaration, true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("published descriptors and provenance carry identities without checked Type payloads", () => {
@@ -1631,7 +1631,7 @@ for (const initializer of ["value => value", "function(value) { const copied = v
       outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int32";
     assert.equal(isInt32(current.source.effectiveTypes.get(parameter)), true, "the real parameter inherits its authored slot width");
     const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(parameter) !== node &&
-      current.source.navigation.sourceReferenceFor(node)?.declaration === parameter);
+      current.source.facts.navigation.sourceReferenceFor(node)?.declaration === parameter);
     assert.equal(reads.length > 0, true, "the checked body reads the real parameter");
     assert.equal(reads.every(node => isInt32(current.source.effectiveTypes.get(node))), true,
       "the body graph uses the chosen parameter width, not a late callable-only repair");
@@ -1646,7 +1646,7 @@ for (const initializer of ["value => value", "function(value) { const copied = v
     assert.equal(admissions.length, 1, "the actual return expression has one native admission against the declared result");
     assert.equal(admissions[0]?.type.kind === "primitive" && admissions[0].type.primitive === "int32" &&
       admissions[0].valueType?.kind === "primitive" && admissions[0].valueType.primitive === "int32", true);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   });
 }
 
@@ -1668,7 +1668,7 @@ test("nested declared callables retain authored union order and async returns re
     deferred.type.kind === "declared" && deferred.type.typeArguments.length === 1 &&
     deferred.type.typeArguments[0]?.kind === "primitive" && deferred.type.typeArguments[0].primitive === "int32", true,
     "the canonical callable return contains the complete Promise, not a target-wrapped payload");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("fixed heterogeneous parents retain inferred admission authority without admissions on reads or assignment patterns", () => {
@@ -1722,7 +1722,7 @@ test("broad aggregate slots retain their final authored construction descriptors
   const exact = current.source.effectiveTypes.get(initializer("exact"));
   assert.equal(exact !== undefined && exact.kind !== "refused" && exact.construction === undefined, true,
     "construction metadata is absent on every non-broad aggregate slot");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("literal member correspondence keeps real property, method, accessor and nested declaration identities", () => {
@@ -1754,7 +1754,7 @@ test("literal member correspondence keeps real property, method, accessor and ne
   assert.equal(spreadOutcome !== undefined && spreadOutcome.kind !== "refused" && spreadOutcome.memberCorrespondence?.length === 0, true,
     "an applicable spread-only literal has an empty correspondence, never a record for its spread");
   assert.equal(pairs !== undefined && Object.isFrozen(pairs) && pairs.every(Object.isFrozen), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a later B2 fill transports the same checked member identity to its original construction", () => {
@@ -1767,14 +1767,14 @@ test("a later B2 fill transports the same checked member identity to its origina
     outcome.memberCorrespondence?.length === 1 && outcome.memberCorrespondence[0]?.property === ast.properties(literal)[0] &&
     required.members[0] !== undefined && sourceTypeDescriptorMemberOriginsEqual(outcome.memberCorrespondence[0]!.origin,
       required.members[0].origin), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("two later B2 fills cannot publish two different destination declarations for one authored member", () => {
   const current = fixture(`function run(): void { const value = { count: 1 };
     const first: { count: number } = value; const second: { count: number } = value; }`);
   const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("value"))?.Initializer;
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   assert.equal(issues[0]?.code === "TSONIC_LOCAL_TYPE_CONFLICT" && literal !== undefined &&
     current.source.effectiveTypes.get(literal) === issues[0], true, "different chosen declarations are the same group's C4/C5 conflict");
@@ -1792,7 +1792,7 @@ test("literal admission retains its actual inferred or declared Source authority
     assert.equal(admissions.length, 1, "one canonical construction admission owns the Source authority");
     assert.equal(admissions[0]?.kind === "literal-admission" && admissions[0].authority === authority, true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("contextual methods and accessors take their declared descriptors from checked member identity for every key form", () => {
@@ -1823,7 +1823,7 @@ test("contextual methods and accessors take their declared descriptors from chec
       `member ${ast.pos(member)}: exact declared parameter`);
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 function assertSameValue(actual: unknown, expected: unknown): void {
@@ -1863,7 +1863,7 @@ test("an implicit class prototype retains its real binder-flag origin without ch
     outcome.type.constructs.length === 1 && outcome.type.constructs[0]?.result.kind === "declared" &&
     outcome.type.constructs[0].result.declaration === owner, true, "the class expression remains its single constructor-value form");
   assert.equal(Object.isFrozen(prototype?.origin), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 for (const body of [
@@ -1882,7 +1882,7 @@ for (const body of [
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && admissions[0]?.kind === "literal-admission" &&
       admissions[0].authority === "declared" && sourceTypeDescriptorsEqual(outcome.type, admissions[0].type), true,
       "B2/C22 retains the chosen declared fill, not the unannotated syntax site's inferred default");
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   });
 }
 
@@ -1900,7 +1900,7 @@ test("numeric aggregate elements keep their D2 admissions without admitting unre
     assert.equal(matching[0]?.kind === "literal-admission" && matching[0].authority === "inferred", true);
   }
   assert.equal(admissions.some(row => row.site === scalar || ast.is.IsCallExpression(row.site)), false);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C14 every derived form preserves declaration-typed operands across the complete Source kind map", () => {
@@ -1977,7 +1977,7 @@ test("C14 every derived form preserves declaration-typed operands across the com
       assert.equal(expression !== undefined && outcome?.kind === "refused" && outcome.site === expression &&
         outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" && outcome.reason.length > 0, true,
       `${source.name}: ${operator.label} has its one precise Host refusal`);
-      assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === expression && issue === outcome).length, 1,
+      assert.equal(current.source.facts.refusals().filter(issue => issue.site === expression && issue === outcome).length, 1,
         `${source.name}: ${operator.label} has one original-site refusal`);
       continue;
     }
@@ -1987,7 +1987,7 @@ test("C14 every derived form preserves declaration-typed operands across the com
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === expression, true,
       `${source.name}: ${operator.label} keeps the exact derived occurrence`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, sources.length * refusedOperators.size,
+  assert.equal(current.source.facts.refusals().length, sources.length * refusedOperators.size,
     "all accepted declaration-typed cells stay unchanged and every signed rejected cell has one Host refusal");
 });
 
@@ -2035,7 +2035,7 @@ test("C24 runtime parameters have groups while bodyless and type-only signatures
       assert.equal(type?.kind === "primitive" && type.primitive === "int32", true, `parameter ${ast.pos(parameter)} retains its declared width`);
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("comma value selection keeps only the right operand while retaining left effects and closed derived kinds", () => {
@@ -2071,7 +2071,7 @@ test("comma value selection keeps only the right operand while retaining left ef
   assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" && outcome.type.primitive === "int64", true,
     "the exact written return keeps the right derived kind; declared number conversion remains target admission");
   assertSameValue(current.type("selected_unbound"), { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("generic binder fills retain declared authority for direct and aliased fixed arrays and objects without certifying inferred calls", () => {
@@ -2112,7 +2112,7 @@ test("generic binder fills retain declared authority for direct and aliased fixe
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && matching[0]?.authority === row.authority &&
       matching[0].type === outcome.type, true, row.name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("declared destination records cover normalized kinds without reflecting containers as member shapes", () => {
@@ -2154,7 +2154,7 @@ test("declared destination records cover normalized kinds without reflecting con
     const described = defaults.context.describe(declaration);
     const record = graph.nodes.find(record => record.node === declaration);
     const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(declaration) !== node &&
-      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+      current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
     const readRecords = reads.map(node => graph.nodes.find(record => record.node === node));
     let normalized = described;
     const visited = new Set<SourceTypeDescriptor>();
@@ -2223,7 +2223,7 @@ test("construction-family union and optional demands use the one immediate C30 k
     const { ast } = current.source;
     const literal = current.nodes.find(node => ast.is.IsArrayLiteralExpression(node));
     const outcome = literal === undefined ? undefined : current.source.effectiveTypes.get(literal);
-    const issues = current.source.effectiveTypes.refusals();
+    const issues = current.source.facts.refusals();
     if (row.refused) {
       assert.equal(literal !== undefined && outcome?.kind === "refused" &&
         outcome.site === literal && outcome.code === "TSONIC_LOCAL_TYPE_UNION", true, name);
@@ -2413,13 +2413,13 @@ test("non-single mapped keys refuse complete used, unused and nested value descr
     const declaration = current.declaration("value");
     const mapped = current.nodes.find(node => current.source.ast.is.IsMappedTypeNode(node));
     const outcome = current.source.effectiveTypes.get(declaration);
-    const issues = current.source.effectiveTypes.refusals().filter(issue => issue.site === declaration);
+    const issues = current.source.facts.refusals().filter(issue => issue.site === declaration);
     assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE" &&
       outcome.site === declaration && outcome.related === mapped, true, name);
     assert.equal(issues.length, 1, name + ": one value refusal");
     assert.equal(outcome?.kind === "refused" && outcome.reason.includes(form.key) && !("type" in outcome), true, name + ": no partial descriptor");
     assert.equal(current.nodes.filter(node => current.source.ast.is.IsElementAccessExpression(node)).every(node =>
-      !current.source.effectiveTypes.refusals().some(issue => issue.site === node && issue.code === "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE")), true,
+      !current.source.facts.refusals().some(issue => issue.site === node && issue.code === "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE")), true,
     name + ": receiver refusal is not recreated at the member use");
   }
 });
@@ -2524,7 +2524,7 @@ test("C30 and B2 authority uses the declared slot while every B4 or inferred slo
   }
   console.log(`Source authority case map: ${JSON.stringify(observed)}`);
   assert.equal(failures.length, 0, failures.join("; "));
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("R1 totality: every domain value has exactly one outcome and an inexpressible declared value is one precise refusal", () => {
@@ -2539,7 +2539,7 @@ test("R1 totality: every domain value has exactly one outcome and an inexpressib
   const outcome = read === undefined ? undefined : current.source.effectiveTypes.get(read);
   assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" && outcome.site === read, true,
     "the inexpressible project interface is one refusal at its own value node");
-  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === read).length, 1);
+  assert.equal(current.source.facts.refusals().filter(issue => issue.site === read).length, 1);
   assert.equal(current.type("count").kind === "primitive", true, "an expressible sibling still publishes");
 });
 
@@ -2548,7 +2548,7 @@ for (const [name, program] of [
   ["array", `export function run(): int32 { const value: int32[][][][][][] = [[[[[[1]]]]]]; return value[0]![0]![0]![0]![0]![0]!; }`],
 ] as const) test(`R3 a declared ${name} literal deeper than four levels publishes its full declared structure`, () => {
   const current = fixture(program);
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), false,
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), false,
     "declared structure is bounded only by the shared expansion budget, never by the open-literal depth four");
   const value = current.source.effectiveTypes.get(current.declaration("value"));
   assert.equal(value !== undefined && value.kind !== "refused", true);
@@ -2556,7 +2556,7 @@ for (const [name, program] of [
 
 test("R3 an open literal deeper than four levels still refuses (B6)", () => {
   const current = fixture("export function run(): void { const value = [[[[[[1]]]]]]; void value; }");
-  assert.equal(current.source.effectiveTypes.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
+  assert.equal(current.source.facts.refusals().some(issue => issue.code === "TSONIC_LOCAL_TYPE_LIMIT"), true);
 });
 
 test("C-2263 a recursive aliased union publishes its alias at every level with the recursion cut as a reference", () => {
@@ -2744,7 +2744,7 @@ test("LM solved literal receivers retain declared widths, signature identities a
           : returned.type.kind === "primitive" && returned.type.primitive === sample.width), true,
       `${sample.name}: declared method/accessor return`);
     }
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, sample.name);
+    assert.equal(current.source.facts.refusals().length, 0, sample.name);
   }
 });
 
@@ -2786,7 +2786,7 @@ test("LM checked computed, numeric, quoted and symbol members keep their actual 
     const selected = current.source.effectiveTypes.get(receiver);
     assert.equal(selected !== undefined && selected.kind !== "refused" && selected.type === published.type, true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("LM receiver aliases and nested projections use the solved literal without merging callable roots", () => {
@@ -2812,7 +2812,7 @@ test("LM receiver aliases and nested projections use the solved literal without 
     assert.equal(first !== undefined && second !== undefined && first.root === second.root, true,
       "a solved receiver dependency is not a cross-root equality link");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("D-A graph decisions include inactive fixed operands and preserve exact primitive operand publications", () => {
@@ -2835,7 +2835,7 @@ test("D-A graph decisions include inactive fixed operands and preserve exact pri
     const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
     assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
       outcome.reason.length > 0, true, name);
-    assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue === outcome).length, 1, name);
+    assert.equal(current.source.facts.refusals().filter(issue => issue === outcome).length, 1, name);
   }
   const { ast } = current.source;
   const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
@@ -2852,7 +2852,7 @@ test("D-A graph decisions include inactive fixed operands and preserve exact pri
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
       outcome.type.primitive === "float64" && outcome.provenance.occurrence === reference, true, "fixed operand width and occurrence");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 4);
+  assert.equal(current.source.facts.refusals().length, 4);
 });
 
 test("D-A constant folding retains operator admission and canonical signed default bounds", () => {
@@ -2870,7 +2870,7 @@ test("D-A constant folding retains operator admission and canonical signed defau
   const power = ast.as.AsVariableDeclaration(current.declaration("powered"))?.Initializer;
   const refused = power === undefined ? undefined : current.source.effectiveTypes.get(power);
   assert.equal(refused?.kind === "refused" && refused.site === power && refused.reason.includes("Exponentiation"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === refused, true);
+  assert.equal(current.source.facts.refusals().length === 1 && current.source.facts.refusals()[0] === refused, true);
 });
 
 test("C14 admitted all-literal arithmetic retains the authored int8 result after operator admission", () => {
@@ -2885,7 +2885,7 @@ test("C14 admitted all-literal arithmetic retains the authored int8 result after
   const graph = collectSourceTypeFlowEdges(createSourceTypeFlowAnalysisContext(current.source).context);
   assert.equal(graph.derived.some(derived => derived.node === expression && derived.operator === "add"), true,
     "the all-literal expression still passes through the same operator admission");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("D-A only actual unbound literal groups adapt while fixed casts and module widths remain fixed", () => {
@@ -2903,7 +2903,7 @@ test("D-A only actual unbound literal groups adapt while fixed casts and module 
   const operand = cast === undefined ? undefined : current.source.effectiveTypes.get(cast);
   assert.equal(operand !== undefined && operand.kind !== "refused" && operand.type.kind === "primitive" &&
     operand.type.primitive === "int32", true, "retained syntax cannot reopen a fixed operand width");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("D-A a bare bigint literal may adapt but declared and asserted bigint values remain in their own domain", () => {
@@ -2919,7 +2919,7 @@ test("D-A a bare bigint literal may adapt but declared and asserted bigint value
     const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
     assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true, name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 2);
+  assert.equal(current.source.facts.refusals().length, 2);
 });
 
 test("D-A compound results retain left storage and preserve the independent promoted write-fit", () => {
@@ -2937,7 +2937,7 @@ test("D-A compound results retain left storage and preserve the independent prom
   assert.equal(write?.kind === "write-fit" && write.value === compound && write.type.kind === "primitive" &&
     write.type.primitive === "int32" && write.valueType?.kind === "primitive" && write.valueType.primitive === "float64", true,
   "the unchanged D2 write-fit still receives float64 calculation into int32 storage; it is not waived by the int32 expression result");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("D-A a declared result slot never hides its operator refusal", () => {
@@ -2946,7 +2946,7 @@ test("D-A a declared result slot never hides its operator refusal", () => {
   const expression = ast.as.AsVariableDeclaration(current.declaration("forbidden"))?.Initializer;
   const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
   assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.reason.includes("Exponentiation"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === outcome, true);
+  assert.equal(current.source.facts.refusals().length === 1 && current.source.facts.refusals()[0] === outcome, true);
 });
 
 test("D-A all accepted binary families publish their own exact closed result", () => {
@@ -2971,7 +2971,7 @@ test("D-A all accepted binary families publish their own exact closed result", (
   assert.equal(result !== undefined && result.kind !== "refused" && right !== undefined && right.kind !== "refused" &&
     sourceTypeDescriptorsEqual(result.type, right.type) && result.provenance.occurrence === sequence, true,
   "comma owns a publication of the exact right-value descriptor, not a target fallback");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("D-A intrinsic bigint keeps its existing operation domain without becoming a primitive or admitting mixed domains", () => {
@@ -2993,13 +2993,13 @@ test("D-A intrinsic bigint keeps its existing operation domain without becoming 
     const expression = ast.as.AsVariableDeclaration(current.declaration(name))?.Initializer;
     const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
     assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.reason.length > 0, true, name);
-    assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue === outcome).length, 1, name);
+    assert.equal(current.source.facts.refusals().filter(issue => issue === outcome).length, 1, name);
   }
   const assignment = current.nodes.find(node => ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindSlashEqualsToken");
   const writes = current.source.effectiveTypes.obligations().filter(row => row.kind === "write-fit" && row.site === assignment);
   assert.equal(writes.length === 1 && writes[0]?.value === assignment && writes[0]?.type.kind === "intrinsic" &&
     writes[0].type.intrinsic === "bigint" && writes[0]?.valueType?.kind === "intrinsic" && writes[0].valueType.intrinsic === "bigint", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 4);
+  assert.equal(current.source.facts.refusals().length, 4);
 });
 
 test("C14 an open linked coalescing left and an aliased optional preserve their produced widths", () => {
@@ -3014,7 +3014,7 @@ test("C14 an open linked coalescing left and an aliased optional preserve their 
   const expression = current.source.ast.as.AsVariableDeclaration(current.declaration("dense"))?.Initializer;
   const refused = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
   assert.equal(refused?.kind === "refused" && refused.site === expression && refused.reason.includes("nullable"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === refused, true);
+  assert.equal(current.source.facts.refusals().length === 1 && current.source.facts.refusals()[0] === refused, true);
 });
 
 test("OWN read-only checks retain declared construction authority without filling width or merging array and tuple storage", () => {
@@ -3048,7 +3048,7 @@ test("OWN read-only checks retain declared construction authority without fillin
         storage.type.elements[1]?.type.kind === "primitive" && storage.type.elements[1].type.primitive === "float64", true,
       `${sample.name}: declared array admission does not merge the separately retained tuple storage`);
     }
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, sample.name);
+    assert.equal(current.source.facts.refusals().length, 0, sample.name);
   }
 });
 
@@ -3065,7 +3065,7 @@ test("C2330 signed whole literals retain the fixed array peer while range failur
     const admissions = current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal);
     assert.equal(admissions.length === 1 && admissions[0]?.type.kind === "primitive" && admissions[0].type.primitive === width, true,
       `${width}: the original non-fitting whole token still reaches Native D2`);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, width);
+    assert.equal(current.source.facts.refusals().length, 0, width);
   }
 });
 
@@ -3084,7 +3084,7 @@ test("C2330 bigint equality retains absence and native-integral comparisons with
     const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
     assert.equal(outcome?.kind === "refused" && outcome.site === expression, true, name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 5);
+  assert.equal(current.source.facts.refusals().length, 5);
 });
 
 test("C2330 a stored operation operand retains its original solved producer", () => {
@@ -3099,7 +3099,7 @@ test("C2330 a stored operation operand retains its original solved producer", ()
     outcome.type.primitive === "int64", true);
   assert.equal(producer !== undefined && producer.kind !== "refused" && captured !== undefined && captured.kind !== "refused" &&
     captured.type === producer.type, true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2332 discarded selectors publish no result while conditions and effects keep their own outcomes", () => {
@@ -3123,7 +3123,7 @@ test("C2332 discarded selectors publish no result while conditions and effects k
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
       outcome.type.primitive === "int32" && outcome.provenance.occurrence === node, true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2332 discarded numeric conditions still refuse without inventing a result descriptor", () => {
@@ -3135,14 +3135,14 @@ test("C2332 discarded numeric conditions still refuse without inventing a result
   assert.equal(selectors.length, 4);
   for (const node of selectors) {
     assert.equal(current.source.effectiveTypes.get(node) === undefined, true);
-    const issues = current.source.effectiveTypes.refusals().filter(issue => issue.site === node);
+    const issues = current.source.facts.refusals().filter(issue => issue.site === node);
     assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
       issues[0].reason.includes(current.source.ast.operatorKindName(node) === "KindQuestionQuestionToken" ? "nullable" : "bool"), true);
   }
   const consumed = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
   const outcome = consumed === undefined ? undefined : current.source.effectiveTypes.get(consumed);
   assert.equal(outcome?.kind === "refused" && outcome.site === consumed && outcome.reason.includes("bool"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 5);
+  assert.equal(current.source.facts.refusals().length, 5);
 });
 
 test("C2332 primitive union operands refuse at the original operator with the exact published arm names", () => {
@@ -3154,7 +3154,7 @@ test("C2332 primitive union operands refuse at the original operator with the ex
     const reason = `Operator '+' has no admitted result for the union operand '(${arms})'; narrow the operand to one primitive kind first.`;
     assert.equal(outcome?.kind === "refused" && outcome.site === expression && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
       outcome.reason === reason, true, annotation);
-    assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === outcome, true, annotation);
+    assert.equal(current.source.facts.refusals().length === 1 && current.source.facts.refusals()[0] === outcome, true, annotation);
   }
 });
 
@@ -3183,7 +3183,7 @@ test("C2330 in and instanceof produce bool and plain assignment produces its rig
   assert.equal(current.source.effectiveTypes.obligations().some(row => row.kind === "write-fit" && row.site === assignment &&
     row.type.kind === "primitive" && row.type.primitive === "float64" && row.valueType?.kind === "primitive" &&
     row.valueType.primitive === "int32"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2330 named function captures read the solved outer scalar and aggregate without cross-root equality", () => {
@@ -3208,7 +3208,7 @@ test("C2330 named function captures read the solved outer scalar and aggregate w
     assert.equal(first !== undefined && second !== undefined && first.root === second.root, true);
   }
   assertSameValue(current.type("total"), { kind: "primitive", primitive: "int32" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2330 declared optional pattern slots retain absence unless their own binding default removes it", () => {
@@ -3224,11 +3224,11 @@ test("C2330 declared optional pattern slots retain absence unless their own bind
       : outcome.type.kind === "primitive" && outcome.type.primitive === "float64"), true, name);
   }
   const coalesce = current.nodes.find(node => ast.operatorKindName(node) === "KindQuestionQuestionToken");
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   const refusal = issues[0];
   assert.equal(coalesce !== undefined && issues.length === 1 && refusal !== undefined && refusal.site === coalesce &&
     refusal.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
-    refusal.reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
+    refusal.message === "A coalescing operator requires a nullable or runtime-union left operand.", true);
   assert.equal(refusal !== undefined && current.source.effectiveTypes.get(current.declaration("selected")) === refusal &&
     coalesce !== undefined && current.source.effectiveTypes.get(coalesce) === refusal, true);
 });
@@ -3240,7 +3240,7 @@ test("C2330 numeric and string index reads use the canonical receiver index desc
   }`);
   assertSameValue(current.type("numeric"), { kind: "primitive", primitive: "int32" });
   for (const name of ["textual", "keyed"]) assertSameValue(current.type(name), { kind: "primitive", primitive: "float32" });
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2330 direct callable interfaces publish their exact enclosing bindings and call result", () => {
@@ -3262,7 +3262,7 @@ test("C2330 direct callable interfaces publish their exact enclosing bindings an
     const formal = current.nodes.find(node => ast.is.IsParameterDeclaration(node) && ast.is.IsCallSignatureDeclaration(ast.parent(node)!));
     const metadata = formal === undefined ? undefined : current.source.effectiveTypes.get(formal);
     assert.equal(metadata !== undefined && metadata.kind !== "refused" && metadata.type.kind === "declared" && metadata.type.declaration === binder, true, annotation);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+    assert.equal(current.source.facts.refusals().length, 0, annotation);
   }
 });
 
@@ -3287,7 +3287,7 @@ test("C2351 ordinary declared member projections consume the solved descriptor w
   assertSameValue(current.type("agrees"), { kind: "primitive", primitive: "bool" });
   assert.equal(member !== undefined && current.type("payload") === member.type, true,
     "the field is the same solved Source member, not its independently checked number carrier");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2351 discarded captures retain a declared primitive demand through eligible conditional literal arms", () => {
@@ -3308,17 +3308,17 @@ test("C2351 discarded captures retain a declared primitive demand through eligib
     assert.equal(owner !== undefined && owner.kind !== "refused" && owner.type.kind === "primitive" &&
       owner.type.primitive === row.primitive, true, row.name);
     const references = current.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
-      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+      current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
     assert.equal(references.length >= 3 && references.every(node => {
       const outcome = current.source.effectiveTypes.get(node);
       return owner !== undefined && owner.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
         outcome.type === owner.type;
     }), true, row.name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const fixed = fixture(`function run(flag: boolean, value: int32): int32 { const selected = flag ? value : 1; return selected; }`);
   assertSameValue(fixed.type("selected"), { kind: "primitive", primitive: "int32" });
-  assert.equal(fixed.source.effectiveTypes.refusals().length, 0);
+  assert.equal(fixed.source.facts.refusals().length, 0);
 });
 
 test("C2351 closed declared member contracts do not demand an unrelated refused receiver binder", () => {
@@ -3341,7 +3341,7 @@ test("C2351 closed declared member contracts do not demand an unrelated refused 
     member.type.primitive === "float32", true, "a dependent field remains the same member of the solved nominal definition");
   assertSameValue(current.type("count"), { kind: "primitive", primitive: "float64" });
   assertSameValue(current.type("agrees"), { kind: "primitive", primitive: "bool" });
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   const literal = ast.as.AsVariableDeclaration(current.declaration("mixed"))?.Initializer;
   assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS" && issues[0].site === literal, true);
   const sizes = current.nodes.filter(node => ast.is.IsPropertyAccessExpression(node) && ast.text(ast.name(node)) === "size");
@@ -3408,7 +3408,7 @@ test("C2357 annotated array constructor arguments retain union elements and exac
     assertSameValue(current.type(`agrees_${row.name}`), { kind: "primitive", primitive: "bool" });
     if (row.name === "narrow") assertSameValue(current.type(`payload_${row.name}`), { kind: "primitive", primitive: "float32" });
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2351 closed declared union members retain occurrence narrowing and leave optional chains on their original path", () => {
@@ -3443,7 +3443,7 @@ test("C2351 closed declared union members retain occurrence narrowing and leave 
     assert.equal(record !== undefined && record.association?.component === undefined, true,
       "a checked optional chain does not use the new closed original-declaration component producer");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2330 recursive alias calls retain nominal argument widths without selecting a union arm", () => {
@@ -3460,7 +3460,7 @@ test("C2330 recursive alias calls retain nominal argument widths without selecti
   assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "declared" &&
     outcome.type.declaration === alias && outcome.type.typeArguments.length === 1 && outcome.type.typeArguments[0]?.kind === "primitive" &&
     outcome.type.typeArguments[0].primitive === "int32", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2330 nested callback array returns preserve the same float32 parameter and literal carrier", () => {
@@ -3478,7 +3478,7 @@ test("C2330 nested callback array returns preserve the same float32 parameter an
     const selected = element === undefined ? undefined : current.source.effectiveTypes.get(element);
     assert.equal(selected !== undefined && selected.kind !== "refused" && sourceTypeDescriptorsEqual(selected.type, outcome.type.element), true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2335 reference coalescing retains its produced descriptors and discarded form stays outside the result domain", () => {
@@ -3492,7 +3492,7 @@ test("C2335 reference coalescing retains its produced descriptors and discarded 
     const discarded = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
     assert.equal(discarded.length, 1, annotation);
     assert.equal(discarded.every(node => current.source.effectiveTypes.get(node) === undefined), true, annotation);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+    assert.equal(current.source.facts.refusals().length, 0, annotation);
   }
 });
 
@@ -3512,7 +3512,7 @@ test("C2337 assignment-pattern RHS retains every heterogeneous checked tuple ele
       element.type.primitive === (index < 2 ? "int64" : "float64")), true);
   assert.equal(selected !== undefined && selected.kind !== "refused" && admissions.length === 1 &&
     admissions[0]?.authority === "inferred" && admissions[0].type === selected.type, true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2337 conditional dependencies retain boolean and optional call terms even when the call has no public graph value", () => {
@@ -3539,7 +3539,7 @@ test("C2337 conditional dependencies retain boolean and optional call terms even
   const discarded = current.nodes.filter(node => sourceTypeFlowDiscardedSelection(current.source, node));
   assert.equal(discarded.length, 4);
   assert.equal(discarded.every(node => current.source.effectiveTypes.get(node) === undefined), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2337 the canonical scalar calculation-arm reader preserves fixed nonfits and orders fitting primitive identities", () => {
@@ -3579,7 +3579,7 @@ test("C2421 scalar constructions retain strings and unique numeric kinds before 
       physical.primitive === (["string", "int8", "float32", "int64"] as const)[index], true,
       `construction ${index}: exact kind publication does not suppress the target's range check`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2337 signed literal calculation arms do not replace the published scalar union or its spelling child", () => {
@@ -3592,7 +3592,7 @@ test("C2337 signed literal calculation arms do not replace the published scalar 
     const spelling = child === undefined ? undefined : current.source.effectiveTypes.get(child);
     assert.equal(whole !== undefined && whole.kind !== "refused" && whole.type.kind === "union" &&
       spelling !== undefined && spelling.kind !== "refused" && sourceTypeDescriptorsEqual(whole.type, spelling.type), true, width);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, width);
+    assert.equal(current.source.facts.refusals().length, 0, width);
   }
 });
 
@@ -3601,7 +3601,7 @@ test("C2337 stored captures retain each original cell through repeated reads and
     const read = () => { visits += 1; return visits + visits; };
     const second = () => { other += 1; return other; }; void read; void second; }`);
   const { ast } = current.source;
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 0);
   for (const name of ["visits", "other"]) {
     const declaration = current.declaration(name);
@@ -3633,10 +3633,10 @@ test("C2337 nested discarded coalescing validates only retained branch dependenc
     const outcome = current.source.effectiveTypes.get(node);
     return outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" && outcome.type.intrinsic === "absence";
   }), true, "the two retained absence leaves have their own canonical value, not a selector result");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0, JSON.stringify(current.source.effectiveTypes.refusals().map(issue => {
+  assert.equal(current.source.facts.refusals().length, 0, JSON.stringify(current.source.facts.refusals().map(issue => {
     const range = current.source.ast.authoredRange(issue.site);
     const file = current.source.ast.getSourceFile(issue.site);
-    return { code: issue.code, kind: current.source.ast.kindName(issue.site), reason: issue.reason.slice(0, 160),
+    return { code: issue.code, kind: current.source.ast.kindName(issue.site), reason: issue.message.slice(0, 160),
       site: range?.kind === "authored" && file !== undefined
         ? current.source.ast.getSourceText(file).slice(range.start, Math.min(range.end, range.start + 100)) : "unavailable" };
   })).slice(0, 2048));
@@ -3645,7 +3645,7 @@ test("C2337 nested discarded coalescing validates only retained branch dependenc
 test("C2337 nested discarded primitive selection does not bypass a coalescing refusal", () => {
   const current = fixture(`declare function effect(): void;
     function run(flag: boolean): void { const first = 1; const second = 2; (flag ? first : second) ?? effect(); }`);
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length === 1 && current.source.ast.operatorKindName(issues[0]?.site) === "KindQuestionQuestionToken" &&
     issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" && issues[0].reason.includes("nullable"), true);
 });
@@ -3672,7 +3672,7 @@ test("C2338 multiple fitting literal arms use stable primitive identity priority
       assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.construction?.kind === "primitive" &&
         outcome.construction.primitive === "int32", true, annotation);
     }
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+    assert.equal(current.source.facts.refusals().length, 0, annotation);
   }
 });
 
@@ -3698,7 +3698,7 @@ test("C2338 folded literal union slots reuse the same fit decision without admit
       assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.construction?.kind === "primitive" &&
         outcome.construction.primitive === primitive, true, annotation);
     }
-    assert.equal(current.source.effectiveTypes.refusals().length, 0, annotation);
+    assert.equal(current.source.facts.refusals().length, 0, annotation);
   }
   const power = fixture("function run(): (int32 | number)[] { return [2 ** 2]; }");
   const expression = power.nodes.find(node => power.source.ast.is.IsBinaryExpression(node));
@@ -3720,7 +3720,7 @@ test("C2338 declared and bound numeric operands cannot retarget as open literals
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
       outcome.type.primitive === "uint32", true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const selected = fixture("function run(value: int32 | number): void { const result = -value; void result; }");
   const expression = selected.nodes.find(node => selected.source.ast.is.IsPrefixUnaryExpression(node));
   const outcome = expression === undefined ? undefined : selected.source.effectiveTypes.get(expression);
@@ -3830,7 +3830,7 @@ test("C2339 all co-fitting numeric pairs use the explicit whole-literal priority
       row.name + ": each actual literal retains full storage and its independently solved arm");
     }
   }
-  assert.equal(source.effectiveTypes.refusals().length, 0);
+  assert.equal(source.facts.refusals().length, 0);
 });
 
 test("C2342 folded scalar construction publishes its solved arm without replacing optional or union storage", () => {
@@ -3875,7 +3875,7 @@ test("C2342 folded scalar construction publishes its solved arm without replacin
     outcome.type.intrinsic === "unknown" && outcome.construction?.kind === "primitive" &&
     outcome.construction.primitive === "int64", true,
     "C2360 Q1 retains unknown storage while publishing the same solved int64 construction");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2360 own integer defaults retain int64 bounds, native division and the original range owner", () => {
@@ -3898,17 +3898,17 @@ test("C2360 own integer defaults retain int64 bounds, native division and the or
   const fieldOutcome = field === undefined ? undefined : positive.source.effectiveTypes.get(field);
   assert.equal(fieldOutcome !== undefined && fieldOutcome.kind !== "refused" && fieldOutcome.type.kind === "primitive" &&
     fieldOutcome.type.primitive === "int64", true, "the field uses the same signed-whole default");
-  assert.equal(positive.source.effectiveTypes.refusals().length, 0);
+  assert.equal(positive.source.facts.refusals().length, 0);
   const negative = fixture(`const moduleOverflow = 9223372036854775808;
     export const exportedOverflow = -9223372036854775809;
     class Holder { value = (9223372036854775808); }
     function run(): void { const localOverflow = -9223372036854775809;
       const foldedOverflow = 9223372036854775807 + 1; void localOverflow; void foldedOverflow; }
     function read(): void { void moduleOverflow; void exportedOverflow; }`);
-  const issues = negative.source.effectiveTypes.refusals();
+  const issues = negative.source.facts.refusals();
   assert.equal(issues.length, 5, "one precise own-creation range refusal per actual initializer");
   assert.equal(issues.every(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
-    issue.reason === "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint."), true);
+    issue.message === "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint."), true);
   for (const name of ["moduleOverflow", "exportedOverflow", "localOverflow", "foldedOverflow"]) {
     const outcome = negative.source.effectiveTypes.get(negative.declaration(name));
     assert.equal(outcome !== undefined && outcome.kind === "refused" && issues.includes(outcome), true, name);
@@ -3931,7 +3931,7 @@ test("C2360 literal selection partners use the same admission fit without retarg
   assert.equal(retained.kind === "union" && retained.types.length === 2 && retained.types.every(type =>
     type.kind === "primitive" && (type.primitive === "int8" || type.primitive === "int64")), true,
   "a bound producer is not reopened as a literal under its partner");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2358 broad scalar storage publishes the solved own primitive without choosing another width", () => {
@@ -3995,7 +3995,7 @@ test("C2358 broad scalar storage publishes the solved own primitive without choo
       value.construction?.kind === "primitive" && value.construction.primitive === ["int64", "float64", "int64", "bool"][index], true,
     "unknown element storage does not merge distinct scalar construction widths");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2360 exact primitive context precedes the own-default range without retargeting fixed peers", () => {
@@ -4043,10 +4043,10 @@ test("C2360 exact primitive context precedes the own-default range without retar
   const stored = values === undefined ? undefined : source.effectiveTypes.get(values);
   assert.equal(stored !== undefined && stored.kind !== "refused" && stored.type.kind === "array" && stored.type.element.kind === "primitive" &&
     stored.type.element.primitive === "int64", true, "the non-fitting signed whole retains its actual fixed peer for D2");
-  const issues = source.effectiveTypes.refusals();
+  const issues = source.facts.refusals();
   assert.equal(issues.length, 2, "only the local and broad own-creation defaults are outside int64");
   assert.equal(issues.every(issue => issue.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
-    issue.reason === "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint."), true);
+    issue.message === "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint."), true);
 });
 
 test("C2357 direct declared primitive wrappers publish the same solved scalar object", () => {
@@ -4072,7 +4072,7 @@ test("C2357 direct declared primitive wrappers publish the same solved scalar ob
         row.name + ": every transparent occurrence retains the same completed primitive");
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2344 a narrowed optional read does not widen the coalescing admission of its produced primitive", () => {
@@ -4084,7 +4084,7 @@ test("C2344 a narrowed optional read does not widen the coalescing admission of 
   const storage = current.source.effectiveTypes.get(declaration);
   assert.equal(storage !== undefined && storage.kind !== "refused" && storage.type.kind === "optional", true);
   const reads = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.name(declaration) !== node &&
-    current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
   assert.equal(reads.length, 3);
   assert.equal(reads.every(node => {
     const outcome = current.source.effectiveTypes.get(node);
@@ -4095,9 +4095,9 @@ test("C2344 a narrowed optional read does not widen the coalescing admission of 
     assert.equal(outcome?.kind === "refused" && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
       ast.operatorKindName(outcome.site) === "KindQuestionQuestionToken", true, name);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 2);
+  assert.equal(current.source.facts.refusals().length, 2);
   const fixed = fixture(`function run(): number { const value: number = 4; return value ?? 0; }`);
-  const issues = fixed.source.effectiveTypes.refusals();
+  const issues = fixed.source.facts.refusals();
   assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED" &&
     issues[0].reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
 });
@@ -4120,15 +4120,15 @@ test("C2342 discarded closures project captures from the retained owner without 
   }), true, "each discarded root consumes the same solved parent type through a distinct read");
   const roots = new Map(graph.nodes.map(record => [record.variable.node, record.root]));
   assert.equal(graph.links.every(link => roots.get(link.source.node) === roots.get(link.target.node)), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const retained = fixture(`function run(flag: boolean): void { const value = flag ? 1 : 2;
     const read = () => value + 1; void read; }`);
-  const issues = retained.source.effectiveTypes.refusals();
+  const issues = retained.source.facts.refusals();
   assert.equal(issues.length, 0);
   const retainedDeclaration = retained.declaration("value");
   const retainedProducer = retained.source.effectiveTypes.get(retainedDeclaration);
   const retainedReads = retained.nodes.filter(node => retained.source.ast.is.IsIdentifier(node) &&
-    retained.source.navigation.sourceReferenceFor(node)?.declaration === retainedDeclaration);
+    retained.source.facts.navigation.sourceReferenceFor(node)?.declaration === retainedDeclaration);
   assert.equal(retainedReads.length > 0 && retainedReads.every(node => {
     const outcome = retained.source.effectiveTypes.get(node);
     return retainedProducer !== undefined && retainedProducer.kind !== "refused" && outcome !== undefined &&
@@ -4155,7 +4155,7 @@ test("C2344 discarded comma selection consumes never completion without admittin
     const callee = effect === undefined ? undefined : ast.as.AsCallExpression(effect)?.Expression;
     return callee !== undefined && ast.is.IsIdentifier(callee) && ast.text(callee) === "ready";
   });
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(normal !== undefined && issues.length === 1 && issues[0]?.site === normal &&
     issues[0].reason === "A coalescing operator requires a nullable or runtime-union left operand.", true);
 });
@@ -4185,7 +4185,7 @@ test("C2373 fixed scalar data keeps its producer while an aliased literal retain
         "a declared optional slot cannot change the actual fixed producer's width");
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2373 signed spelling operands publish their actual contextual kind without an own-default retry", () => {
@@ -4203,7 +4203,7 @@ test("C2373 signed spelling operands publish their actual contextual kind withou
     assert.equal(current.source.effectiveTypes.obligations().some(row => row.kind === "literal-admission" &&
       row.site === expression && row.type.kind === "primitive" && row.type.primitive === primitive), true,
     primitive + ": the nonfit stays the original Native D2 obligation");
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   }
 });
 
@@ -4239,7 +4239,7 @@ test("C2373 every broad scalar default and string argument carries its original 
         : outcome.construction.kind === "primitive" && (outcome.construction.primitive === "bool" || outcome.construction.primitive === "int64")), true,
     "the existing Source construction carries strings, booleans and integers without a Native choice");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2373 await payloads are solved before dependent integral equality and retain the same descriptor", () => {
@@ -4270,10 +4270,10 @@ test("C2373 await payloads are solved before dependent integral equality and ret
       value !== undefined && value.kind !== "refused" && carrier.type.typeArguments[0] === value.type, true,
     "the dependent operation sees the same actual solved task payload");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
   const rejected = fixture(`function reject(mixed: int64 | number, right: bigint): boolean { return mixed === right; }`);
-  assert.equal(rejected.source.effectiveTypes.refusals().length, 1);
-  assert.equal(rejected.source.effectiveTypes.refusals()[0]?.reason,
+  assert.equal(rejected.source.facts.refusals().length, 1);
+  assert.equal(rejected.source.facts.refusals()[0]?.reason,
     "Bigint equality requires bigint, absence or a native-integral operand.");
 });
 
@@ -4313,8 +4313,8 @@ test("C2373 explicit call binders do not unify callback or argument producers wi
     argument.type.primitive === "int32" && instantiation?.method.length === 1 && instantiation.method[0]?.type.kind === "primitive" &&
     instantiation.method[0].type.primitive === "float64", true,
   "the authored binder and the original input keep distinct widths until the independent native conversion");
-  const issues = current.source.effectiveTypes.refusals();
-  assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; "));
+  const issues = current.source.facts.refusals();
+  assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.message}`).join("; "));
 });
 
 test("C2373 Source-any addition publishes its original nonprimitive result beside primitive operators", () => {
@@ -4331,7 +4331,7 @@ test("C2373 Source-any addition publishes its original nonprimitive result besid
     const outcome = current.source.effectiveTypes.get(node);
     return outcome !== undefined && outcome.kind !== "refused" && outcome.provenance.occurrence === node;
   }), true, "every operator owns its actual Source publication without a target retyper");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2373 closed global member declarations retain native aliases on arrays and generic receivers", () => {
@@ -4376,7 +4376,7 @@ test("C2373 closed global member declarations retain native aliases on arrays an
       outcome.type.kind === "primitive" && outcome.type.primitive === "int32" && outcome.provenance.occurrence === node, true,
     "the actual selected declaration retains its int32 alias without completing unrelated receiver binders");
   }
-  assert.equal(source.effectiveTypes.refusals().length, 0);
+  assert.equal(source.facts.refusals().length, 0);
 });
 
 test("C2373 a property initializer publishes its exact contextual callable parameter and result", () => {
@@ -4389,7 +4389,7 @@ test("C2373 a property initializer publishes its exact contextual callable param
   const result = arrow === undefined ? undefined : current.source.effectiveTypes.callableReturn(arrow);
   assert.equal(input !== undefined && input.kind !== "refused" && input.type.kind === "primitive" && input.type.primitive === "int32", true);
   assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "primitive" && result.type.primitive === "int32", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2373 an optional invocation retains whole-call absence without changing the present callable return", () => {
@@ -4425,7 +4425,7 @@ test("C2373 an optional invocation retains whole-call absence without changing t
         "pre-solve call publication and the invocation result retain the same absence-capable descriptor");
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2373 bodyless signature patterns publish the same authored binding slots without runtime groups", () => {
@@ -4452,7 +4452,7 @@ test("C2373 bodyless signature patterns publish the same authored binding slots 
   for (const parameter of current.nodes.filter(node => ast.is.IsParameterDeclaration(node))) {
     assert.equal(graph.nodes.some(record => record.node === parameter), false, "bodyless parameter heads remain outside the runtime graph");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2384 later declared aggregate demands select the scalar arm before the numeric own default", () => {
@@ -4612,8 +4612,8 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
   });
   assert.equal(numericGroups.length === 3 && new Set(numericGroups).size === 3, true,
     "the three original numeric children retain distinct canonical groups");
-  const issues = current.source.effectiveTypes.refusals();
-  assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.reason}`).join("; ").slice(0, 2048));
+  const issues = current.source.facts.refusals();
+  assert.equal(issues.length, 0, issues.map(issue => `${issue.code}@${ast.pos(issue.site)}:${issue.message}`).join("; ").slice(0, 2048));
 });
 
 test("C2421 contextual callback heads retain optional absence and defaulted heads retain their present value", () => {
@@ -4651,7 +4651,7 @@ test("C2421 contextual callback heads retain optional absence and defaulted head
     "a missing parameter head never fabricates a callable parameter");
   const plus = current.type("plus");
   assert.equal(plus.kind === "primitive" && plus.primitive === "int32", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
+  assert.equal(current.source.facts.refusals().length, 0, current.refusalSummary());
 });
 
 test("C2421 for-of patterns retain their original tuple, rest member and absence descriptors", () => {
@@ -4693,7 +4693,7 @@ test("C2421 for-of patterns retain their original tuple, rest member and absence
       "tuple rest retains the exact optional element, not a homogeneous approximation");
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2421 named function values and their aliases retain the callable, not its return annotation", () => {
@@ -4720,7 +4720,7 @@ test("C2421 named function values and their aliases retain the callable, not its
     assert.equal(original !== undefined && original.kind !== "refused" && selected !== undefined && selected.kind !== "refused" &&
       sourceTypeDescriptorsEqual(original.type, selected.type), true, name + ": the alias keeps its original callable producer");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
+  assert.equal(current.source.facts.refusals().length, 0, current.refusalSummary());
 });
 
 test("C2424 closed nominal guard reads retain authored members without changing their declared storage", () => {
@@ -4754,7 +4754,7 @@ test("C2424 closed nominal guard reads retain authored members without changing 
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "intrinsic" && outcome.type.intrinsic === "unknown", true,
       name + ": an unguarded broad read stays broad");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2424 optional generic result positions retain the authored present component and one absence", () => {
@@ -4784,7 +4784,7 @@ test("C2424 optional generic result positions retain the authored present compon
     assert.equal(outcome !== undefined && outcome.kind !== "refused" && read !== undefined && read.kind !== "refused" &&
       read.type === outcome.type, true, name + ": the original occurrence keeps its identical directed present result");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2429 recursive collection slots resolve the original alias and exact retained arguments", () => {
@@ -4809,7 +4809,7 @@ test("C2429 recursive collection slots resolve the original alias and exact reta
     assert.equal(physical?.kind === "primitive" && physical.primitive === expected, true,
       ast.pos(node) + ": the original recursive alias argument owns the scalar, not an erased backing or own default");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2429 Boolean union presence removes only the absence excluded at the original read", () => {
@@ -4838,7 +4838,7 @@ test("C2429 Boolean union presence removes only the absence excluded at the orig
   const type = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
   assert.equal(type?.kind === "shape" && type.members.every(member => member.type.kind === "optional"), true,
     "occurrence presence never rewrites the original optional property declarations");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2430 guarded generic accessor reads project the solved present payload without changing storage", () => {
@@ -4877,7 +4877,7 @@ test("C2430 guarded generic accessor reads project the solved present payload wi
     assert.equal(sourceTypeDescriptorStructure(current.type(name)).kind === "optional", true,
       name + ": the guard never removes absence from the original declaration or another accessor call");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2388 receiver writes keep the retained fixed argument's binder path", () => {
@@ -4900,7 +4900,7 @@ test("C2388 receiver writes keep the retained fixed argument's binder path", () 
     write.valueVariable.path.some(part => part.kind === "binder" && ast.is.IsTypeParameterDeclaration(part.declaration)) &&
     write.valueType?.kind === "primitive" && write.valueType.primitive === "int32", true,
     "the original fixed Box argument keeps its exact projected binder, independently of inference eligibility");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2504 object construction publishes only its actual unannotated initializer principal", () => {
@@ -4935,7 +4935,7 @@ test("C2504 object construction publishes only its actual unannotated initialize
   const principal = current.source.effectiveTypes.get(direct);
   assert.equal(principal !== undefined && principal.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
     sourceTypeDescriptorsEqual(principal.type, outcome.type), true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2388 parameter names publish their already solved declaration descriptor", () => {
@@ -4954,7 +4954,7 @@ test("C2388 parameter names publish their already solved declaration descriptor"
       selected.kind !== "refused" && selected.type === declaration.type && selected.provenance.occurrence === name, true,
       "the identifier name retains its canonical declaration fact without a second type query");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("R123 bool controls retain each selected native value domain", () => {
@@ -4977,7 +4977,7 @@ test("R123 bool controls retain each selected native value domain", () => {
   }
   const selected = sourceTypeDescriptorStructure(current.type("booleanValue"));
   assert.equal(selected.kind === "primitive" && selected.primitive === "bool", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("R123 value selection never admits a nonbool left control", () => {

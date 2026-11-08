@@ -43,11 +43,11 @@ test("C2446 narrowed callable reads retain their original authored branch withou
   assert.equal(stored !== undefined && stored.kind !== "refused" && stored.type.kind === "union" &&
     stored.type.types.length === 2, true, "the original declaration keeps its complete authored storage union");
   const reads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
-    current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+    current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
   assert.equal(reads.length, 2, "both actual mapper reads are retained");
   const alias = current.declaration("alias");
   const aliasReads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
-    current.source.navigation.sourceReferenceFor(node)?.declaration === alias);
+    current.source.facts.navigation.sourceReferenceFor(node)?.declaration === alias);
   assert.equal(aliasReads.length, 3, "each original alias read, including the actual map argument, is retained");
   for (const node of [...reads, ...aliasReads, alias, current.declaration("second")]) {
     const described = current.defaults.context.describe(node);
@@ -63,7 +63,7 @@ test("C2446 narrowed callable reads retain their original authored branch withou
       "the selected original callable syntax, parameter width and result width survive each alias/read");
     }
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("C2446 union occurrence projection preserves subsets and refuses to guess erased numeric branches", () => {
@@ -118,7 +118,7 @@ test("an unresolved foreign conditional alias is not an identity-only nominal cu
   const outcome = read === undefined ? undefined : current.source.effectiveTypes.get(read);
   assert.equal(outcome?.kind === "refused" && outcome.site === read && outcome.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true,
     "the original local read owns its one precise Source refusal");
-  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.site === read).length, 1);
+  assert.equal(current.source.facts.refusals().filter(issue => issue.site === read).length, 1);
   const count = current.source.effectiveTypes.get(current.declaration("count"));
   assert.equal(count !== undefined && count.kind !== "refused" && count.type.kind === "primitive" && count.type.primitive === "int32", true,
     "an expressible sibling is independent of the unresolved alias");
@@ -142,7 +142,7 @@ test("a present object construction retains canonical member correspondence into
   const user = structure.kind === "shape" ? structure.members.find(member => member.name === "user") : undefined;
   assert.equal(user !== undefined && outcome.memberCorrespondence?.[0]?.origin === user.origin, true,
     "the correspondence retains the identical member origin of the published present contract");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a closed foreign conditional alias publishes its exact primitive result inside a project interface", () => {
@@ -159,7 +159,7 @@ test("a closed foreign conditional alias publishes its exact primitive result in
   const primitive = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
   assert.equal(primitive?.kind === "primitive" && primitive.primitive === "int32", true,
     "Awaited's resolved result retains the exact authored int32 width");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 
@@ -228,7 +228,7 @@ test("generic recursive aliases publish their original exact template separately
     concrete.type.declaration === declaration && concrete.type.typeArguments[0]?.kind === "primitive" &&
     concrete.type.typeArguments[0].primitive === "float32", true,
   "a concrete occurrence never replaces the declaration template or its original binder identity");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("an inferred call result preserves an unavailable body's original Source refusal", () => {
@@ -282,7 +282,7 @@ test("checked conditional aliases preserve distinct parameter and result widths 
     const returned = captured.members.find(member => member.name === "result")?.type;
     assert.equal(parameters !== undefined && sourceTypeDescriptorStructure(parameters).kind === "tuple", true);
     assert.equal(returned?.kind === "primitive" && returned.primitive === "int32", true);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   }
 });
 
@@ -309,7 +309,7 @@ test("nested checked conditional steps retain an outer infer binding by its exac
   const type = sourceTypeDescriptorStructure(descriptor);
   assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
     "the outer infer binding survives into the checker's selected inner branch");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("discarded selections leave the result-publication domain without dropping their operands", () => {
@@ -346,7 +346,7 @@ test("direct callable values retain their instantiated owner bindings without a 
     const call = current.source.semantics.forNode(initializer).operations.call(initializer);
     assert.equal(call !== undefined && call.sourceReceiver === undefined, true,
       "this is the direct callable binding path, not a property receiver");
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.facts.refusals().length, 0);
   }
 });
 
@@ -402,7 +402,7 @@ test("normalised intersection aliases preserve the underlying nominal declaratio
   const code = selected.definition.members.find(member => member.name === "code");
   assert.equal(code?.readonly && code.type.kind === "primitive" && code.type.primitive === "int32" &&
     code.origin.kind === "declared", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("declared structures have no open-inference depth limit", () => {
@@ -439,7 +439,7 @@ test("an unannotated self-dependent callable has one precise return-annotation r
   const current = fixture("function recursive() { return recursive; }", false);
   const returned = current.defaults.nodes.find(node => current.source.ast.is.IsReturnStatement(node));
   const value = returned === undefined ? undefined : current.source.ast.as.AsReturnStatement(returned)?.Expression;
-  const issues = current.source.effectiveTypes.refusals();
+  const issues = current.source.facts.refusals();
   assert.equal(issues.length, 1);
   assert.equal(value !== undefined && issues[0]?.site === value && issues[0]?.code === "TSONIC_LOCAL_TYPE_SIGNATURE" &&
     issues[0].reason === "This unannotated callable return depends on itself. Annotate the return type.", true);
@@ -531,7 +531,7 @@ for (const selected of [{ annotation: "number", primitive: "float64" }, { annota
     const declaration = current.declaration("index");
     const reads = current.defaults.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
       node !== current.source.ast.name(declaration) &&
-      current.source.navigation.sourceReferenceFor(node)?.declaration === declaration);
+      current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
     assert.equal(reads.length >= 3, true, "the exact checked counter reads are retained");
     for (const node of [declaration, ...reads]) {
       assert.equal(current.defaults.fixedRule(node) === undefined, true, "an annotation excludes counter authority before caching");
@@ -641,7 +641,7 @@ test("the one integer default owner retains signed 64-bit creation for local, mo
     const selected = current.defaults.context.describe(declaration);
     assert.equal(selected?.kind === "primitive" && selected.primitive === primitive, true, `${scope}_${name}`);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("integer creation describes the signed whole minimum and refuses values beyond int64 without a float fallback", () => {
@@ -681,7 +681,7 @@ test("annotated unions and index signatures publish their declared type, never t
     assert.equal(name === "value" ? described?.kind === "union" && described.types.length > 1
       : described?.kind === "shape" && described.indexes.length > 0, true);
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("declared index aliases retain the actual signature only in their resolved definition", () => {
@@ -715,7 +715,7 @@ test("a recursive alias definition closes at the same declaration and arguments 
   assert.equal(array?.kind === "array" && array.readonly && array.element.kind === "declared", true);
   if (array?.kind !== "array" || array.element.kind !== "declared") throw new Error("The recursive array reference is required.");
   assert.equal(array.element.declaration === alias && array.element.typeArguments.length === 0 && array.element.definition === undefined, true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("a mapped Record index retains its real mapped origin and substituted primitive width", () => {
@@ -730,7 +730,7 @@ test("a mapped Record index retains its real mapped origin and substituted primi
   assertSameValue(type.definition.indexes[0]?.key, { kind: "string" });
   assertSameValue(type.definition.indexes[0]?.value, { kind: "primitive", primitive: "int32" });
   assert.equal(type.definition.indexes[0]?.readonly, false);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.facts.refusals().length, 0);
 });
 
 test("class and interface indexes retain their exact declaration and readonly metadata", () => {

@@ -151,7 +151,7 @@ test("excluded declaration owners retain the included consumer query context", (
   assert.equal(current.source.sourceFiles.length, 1);
   assert.equal(current.source.sourceFiles[0] === current.file, true);
   assert.equal(current.source.semantics.includes(native), false);
-  assert.equal(current.source.navigation.isProjectDeclaration(declaration), false);
+  assert.equal(current.source.facts.navigation.isProjectDeclaration(declaration), false);
   assert.equal(current.graph.roots.includes(native), false);
   assert.equal(current.graph.nodes.every(entry => current.source.ast.getSourceFile(entry.node) === current.file), true);
   assert.equal(current.graph.refusals.length, 0);

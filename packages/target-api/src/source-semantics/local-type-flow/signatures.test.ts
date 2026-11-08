@@ -579,5 +579,5 @@ test("C2388 contextual authored results do not become inferred signatures", () =
     "the original authored callback result, not a checked return, owns the declared slot");
   assert.equal(signatures.some(signature => signature.owner === inferred), true,
     "a genuinely inferred signature retains its original closure boundary");
-  assert.equal(current.source.effectiveTypes.refusals().filter(issue => issue.code === "TSONIC_LOCAL_TYPE_SIGNATURE").length, 1);
+  assert.equal(current.source.facts.refusals().filter(issue => issue.code === "TSONIC_LOCAL_TYPE_SIGNATURE").length, 1);
 });
