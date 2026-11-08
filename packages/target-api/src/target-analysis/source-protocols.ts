@@ -1,6 +1,8 @@
 import type { ArgumentPassingMode, Node } from "@tsonic/tsts";
 import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeBinding,
   SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
+import type { SourcePointerFacts } from "./source-pointers.js";
+import type { SourceMarkerFacts } from "./source-markers.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;
@@ -104,7 +106,7 @@ export type SourceArgumentPassing =
   | { readonly role: "declaration"; readonly mode: ArgumentPassingMode }
   | { readonly role: "argument"; readonly mode: ArgumentPassingMode; readonly storageExpression: Node };
 
-export interface SourceAnalysisFacts {
+export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts {
   iteration(occurrence: Node): SourceResult<SourcePresence<SourceIteration>>;
   generator(declaration: Node): SourceResult<SourcePresence<SourceGenerator>>;
   yield(occurrence: Node): SourceResult<SourcePresence<SourceYield>>;
