@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceArgumentPlace, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceJsApiResultPresence } from "../../target-analysis/source-profile.js";
+import type { SourceJsApiResultPresence } from "../../source-model/profile.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import { sourceKeyDomainContains } from "./key-domains.js";

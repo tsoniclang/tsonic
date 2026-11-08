@@ -5,7 +5,7 @@ import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceJsApiFacts } from "../../target-analysis/source-profile.js";
+import type { SourceJsApiFacts } from "../../source-model/profile.js";
 import type { SourceObjectProduction } from "../member-use.js";
 import type { SourceObjectProductionQueries } from "../object-production.js";
 import type { SourcePropertyName } from "../../source-model/property-names.js";

@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputAtomicIteration, SourceInputIterationMechanism, SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceAnalysisFacts, SourceAtomicIterationMechanism, SourceGenerator, SourceIteration,
-  SourceIterationMechanism, SourceIterationValues, SourceYield } from "../../target-analysis/source-protocols.js";
+  SourceIterationMechanism, SourceIterationValues, SourceYield } from "../../source-model/protocols.js";
 import type { SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
