@@ -86,6 +86,7 @@ function createMemberTable(): (owner: string, name: string) => Meaning | undefin
   ]);
   define(["JSON"], "json", "static", [["parse", ["value", "callback"]], ["stringify", ["value", "value", "value"],
     Object.freeze({ kind: "serialization", valueParameterIndex: 0, replacerParameterIndex: 1,
+      conversionMember: "toJSON", conversionOrder: "before-replacer",
       replacerAppliesTo: "root-and-descendants", proof: "present-serializable-root" })]]);
   define(["ObjectConstructor"], "object", "static", [
     ...rows(["keys", "values", "entries", "fromEntries", "getOwnPropertyNames", "freeze", "isFrozen", "create"], ["value"]),
