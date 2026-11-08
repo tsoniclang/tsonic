@@ -32,7 +32,7 @@ export type ProviderSourceCallSelector =
 export function selectedProviderCallMatches(
   selected: SelectedProviderSourceCall,
   selector: ProviderSourceCallSelector,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileAnalysisContext, "ast" | "checker">,
 ): boolean {
   const declaration = selected.declaration;
   if (
@@ -85,7 +85,7 @@ export function forEachSelectedProviderSourceCall(
 
 function directImportedModuleSpecifier(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileAnalysisContext, "ast" | "checker">,
 ): string | undefined {
   const callee = unwrapParenthesizedExpression(
     selected.selection.sourceCallee.expression,
@@ -114,7 +114,7 @@ function directImportedModuleSpecifier(
 
 function enclosingImportDeclaration(
   node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileAnalysisContext, "ast">,
 ): Node | undefined {
   let current = node;
   while (current !== undefined) {
@@ -128,7 +128,7 @@ function enclosingImportDeclaration(
 
 export function unwrapParenthesizedExpression(
   node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileAnalysisContext, "ast">,
 ): Node | undefined {
   let current = node;
   while (current !== undefined && context.ast.is.IsParenthesizedExpression(current)) {

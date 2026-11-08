@@ -1,6 +1,7 @@
-import type { ExtensionFactSubject, Node, Symbol } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "./context.js";
+import type { ExtensionFactSubject, Node, SourceFileQueries, Symbol } from "@tsonic/tsts";
 import { unwrapParenthesizedExpression } from "./source-call.js";
+
+type SourceMemberSelectionInput = Pick<SourceFileQueries, "ast" | "checker">;
 
 export type SelectedInlineSourceMemberResult =
   | {
@@ -17,7 +18,7 @@ export type SelectedInlineSourceMemberResult =
 
 export function selectInlineSourceMember(
   inlineFunction: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
   syntax: "element" | "property" = "property",
 ): SelectedInlineSourceMemberResult {
   if (
@@ -61,7 +62,7 @@ function selectPropertyMember(
   returned: Node,
   parameter: Node,
   parameterSymbol: Symbol,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
 ): SelectedInlineSourceMemberResult {
   const property = context.checker.getResolvedPropertyAccessInfo(returned);
   if (
@@ -88,7 +89,7 @@ function selectElementMember(
   returned: Node,
   parameter: Node,
   parameterSymbol: Symbol,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
 ): SelectedInlineSourceMemberResult {
   const element = context.checker.getResolvedElementAccessInfo(returned);
   if (
@@ -115,7 +116,7 @@ function selectedMemberResult(
   expression: Node,
   selectedSymbol: Symbol | undefined,
   selectedDeclaration: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
 ): SelectedInlineSourceMemberResult {
   const selectedMember = selectedDeclaration ?? selectedSymbol;
   const selectedDeclarations = selectedSymbol === undefined
@@ -152,7 +153,7 @@ function selectedReceiverMatchesParameter(
 
 function singleReturnedExpression(
   inlineFunction: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
 ): Node | undefined {
   const body = context.ast.body(inlineFunction);
   if (body === undefined) {
@@ -170,7 +171,7 @@ function singleReturnedExpression(
 
 function collectReturnExpressions(
   node: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
   returned: Node[],
   root: boolean,
 ): void {
@@ -193,7 +194,7 @@ function collectReturnExpressions(
 
 function isFunctionBoundary(
   node: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: SourceMemberSelectionInput,
 ): boolean {
   return context.ast.is.IsArrowFunction(node) ||
     context.ast.is.IsFunctionExpression(node) ||

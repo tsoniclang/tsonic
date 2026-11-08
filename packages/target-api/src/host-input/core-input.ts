@@ -3,6 +3,7 @@ import type { SourcePresence } from "../public/source/contracts.js";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "../target/data-layout.js";
 import type { SourceInputComponent } from "./identities.js";
 import type { SourceInputMarkerQueries, SourceInputMarkers } from "./marker-input.js";
+import type { SourceInputSafetyQueries } from "./safety-input.js";
 
 export interface SourceInputOriginalSubjects {
   readonly component: SourcePresence<SourceInputComponent>;
@@ -69,7 +70,7 @@ export type SourceInputPointerOperation =
         | { readonly width: 64; readonly runtimeBase: "bigint"; readonly signedness: "unsigned" }; readonly dataLayout: Node }
   | { readonly family: "keep-alive"; readonly operation: "keep-alive"; readonly value: Node };
 
-export interface SourceInputCoreQueries extends SourceInputMarkerQueries {
+export interface SourceInputCoreQueries extends SourceInputMarkerQueries, SourceInputSafetyQueries {
   pointerType(subjects: SourceInputOriginalSubjects): SourceInputPointerType;
   typeMarkers(subjects: SourceInputOriginalSubjects): { readonly kind: "available"; readonly value: SourceInputMarkers }
     | { readonly kind: "unavailable" };

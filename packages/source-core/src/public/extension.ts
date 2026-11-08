@@ -9,10 +9,6 @@ export type {
   SelectedProviderSourceCall,
 } from "../analysis/source-call.js";
 export type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-export { analyzeSafetyBuilderCalls } from "../safety/builder-analysis.js";
-export type { SafetyBuilderAnalysisContract } from "../safety/builder-analysis.js";
-export { analyzeUnsafeContextCalls } from "../safety/unsafe-context-analysis.js";
-export type { UnsafeContextAnalysisContract } from "../safety/unsafe-context-analysis.js";
 export {
   nativePointerOperationProviderDeclarations,
   nativePointerProviderDeclaration,

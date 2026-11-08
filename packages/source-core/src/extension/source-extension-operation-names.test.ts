@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics, pointerOperationFactKey, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { tsonicCoreLangModule, tsonicCoreTypesModule } from "../identity.js";
-import { tsonicSafetyBuilderFactKey } from "../safety/facts.js";
 import { sourceSafetySignatureIds } from "../safety/declarations.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
-import { assertProviderDeclarationModel, assertVirtualModuleResolution, callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, propertyCallExpression, sourceAst } from "./source-extension.fixtures.js";
+import { assertProviderDeclarationModel, assertVirtualModuleResolution, callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, sourceAst } from "./source-extension.fixtures.js";
 
 const renamedOperations = {
   writeOnlyRef: "writeonlyref", readWriteRef: "readwriteref", readOnlyRef: "readonlyref",
@@ -136,18 +135,6 @@ test("requiresunsafe is the sole safety terminal spelling on both builders", () 
     assert.equal(terminal.id, signature);
     assert.equal(terminal.signatures?.[0]?.id, `${name}.requiresunsafe`);
     assert.equal(builder?.members?.some(member => member.name === "requiresUnsafe"), false);
-  }
-  const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { safety as declareSafety } from "@tsonic/core/lang.js";
-    import * as core from "@tsonic/core/lang.js";
-    interface Worker { execute(): void; value: number; }
-    declareSafety<Worker>().requiresunsafe();
-    core.safety<Worker>().method(worker => worker.execute).requiresunsafe();
-  `);
-  for (const index of [0, 1]) {
-    const fact = getSourceFact(session, propertyCallExpression(session, sourceFile, "requiresunsafe", index), tsonicSafetyBuilderFactKey);
-    assert.ok(fact?.kind === "application");
-    assert.equal(fact.contract, "requires-unsafe");
   }
   const removed = createSourceCoreSession(`
     import { safety } from "@tsonic/core/lang.js";

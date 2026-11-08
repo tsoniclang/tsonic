@@ -19,10 +19,6 @@ import {
   tsonicNativePointerOperationFactKey,
 } from "../pointers/facts.js";
 import {
-  tsonicSafetyBuilderFactKey,
-  tsonicUnsafeContextFactKey,
-} from "./facts.js";
-import {
   tsonicCoreLangModule,
   tsonicCoreTypesModule,
 } from "../identity.js";
@@ -143,148 +139,6 @@ test("native pointer operations ignore local same-spelled calls", () => {
   );
 });
 
-test("unsafe context facts distinguish exact expression and remaining-block forms", () => {
-  const { checked, sourceFile } = createCleanSession(`
-    import { unsafecontext as unsafeAlias } from "@tsonic/core/lang.js";
-    import * as core from "@tsonic/core/lang.js";
-    import { unsafecontext as localUnsafe } from "./local.js";
-
-    const direct = unsafeAlias(1 + 2);
-    const namespaced = core.unsafecontext(3 + 4);
-    {
-      unsafeAlias();
-      const inside = 5;
-    }
-    localUnsafe(6);
-    {
-      const unsafeAlias = <T>(value: T): T => value;
-      unsafeAlias(7);
-    }
-  `, {
-    "/src/local.ts": "export function unsafecontext<T>(value: T): T { return value; }",
-  });
-
-  const expression = fact(checked, call(checked.ast, sourceFile, "unsafeAlias", 0), tsonicUnsafeContextFactKey);
-  assert.equal(expression?.kind, "expression");
-  assert.ok(expression?.expression !== undefined);
-  const namespaced = fact(checked, call(checked.ast, sourceFile, "core.unsafecontext"), tsonicUnsafeContextFactKey);
-  assert.equal(namespaced?.kind, "expression");
-  const block = fact(checked, call(checked.ast, sourceFile, "unsafeAlias", 1), tsonicUnsafeContextFactKey);
-  assert.deepEqual(block, { kind: "remaining-block" });
-  assert.equal(fact(checked, call(checked.ast, sourceFile, "localUnsafe"), tsonicUnsafeContextFactKey), undefined);
-  assert.equal(fact(checked, call(checked.ast, sourceFile, "unsafeAlias", 2), tsonicUnsafeContextFactKey), undefined);
-});
-
-test("unsafe block marker rejects every non-leading or non-statement placement", () => {
-  const { checked } = createSession(`
-    import { unsafecontext } from "@tsonic/core/lang.js";
-
-    {
-      const before = 1;
-      unsafecontext();
-    }
-    const invalid = unsafecontext();
-  `);
-  assert.deepEqual(
-    checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode),
-    [
-      "SOURCE_CORE_UNSAFE_CONTEXT_BLOCK_POSITION_INVALID",
-      "SOURCE_CORE_UNSAFE_CONTEXT_BLOCK_POSITION_INVALID",
-    ],
-  );
-});
-
-test("safety facts retain exact function, member, constructor, and accessor subjects", () => {
-  const { checked, sourceFile } = createCleanSession(`
-    import { safety } from "@tsonic/core/lang.js";
-    import type { int32 } from "@tsonic/core/types.js";
-
-    function read(value: int32): int32 { return value; }
-    class Box {
-      value: int32 = 0;
-      constructor(value: int32) { this.value = value; }
-      method(value: int32): int32 { return value; }
-      get current(): int32 { return this.value; }
-      set current(value: int32) { this.value = value; }
-    }
-    interface Indexed {
-      [key: string]: int32;
-    }
-
-    safety(read).requiresunsafe();
-    safety<Box>().method(box => box.method).requiresunsafe();
-    safety<Box>().constructor().safe();
-    safety<Box>().property(box => box.value).requiresunsafe();
-    safety<Box>().property(box => box.current).getter().safe();
-    safety<Box>().property(box => box.current).setter().requiresunsafe();
-    safety<Indexed>().indexer(value => value[""]).getter().requiresunsafe();
-  `);
-
-  const applications = [
-    ["requiresunsafe", 0, "requires-unsafe", "declaration", "read"],
-    ["requiresunsafe", 1, "requires-unsafe", "declaration", "method"],
-    ["safe", 0, "safe", "constructor", "Box"],
-    ["requiresunsafe", 2, "requires-unsafe", "declaration", "value"],
-    ["safe", 1, "safe", "getter", "current"],
-    ["requiresunsafe", 3, "requires-unsafe", "setter", "current"],
-    ["requiresunsafe", 4, "requires-unsafe", "getter", undefined],
-  ] as const;
-  for (const [callee, occurrence, contract, placement, selectedName] of applications) {
-    const application = fact(
-      checked,
-      propertyCall(checked.ast, sourceFile, callee, occurrence),
-      tsonicSafetyBuilderFactKey,
-    );
-    assert.equal(application?.kind, "application");
-    if (application?.kind !== "application") {
-      continue;
-    }
-    assert.equal(application.contract, contract);
-    assert.equal(application.applicationPlacement, placement);
-    const selected = application.selectedMember ?? application.applicationTarget;
-    if (selectedName !== undefined) {
-      assert.equal(typeName(checked.ast, checked.ast.name(selected as Node) ?? selected as Node), selectedName);
-    } else {
-      assert.ok(checked.ast.is.IsIndexSignatureDeclaration(selected as Node));
-    }
-    if (application.selectedMember !== undefined) {
-      assert.ok(application.selectedMemberDeclaration !== undefined);
-      assert.ok(application.selectedMemberDeclarations !== undefined);
-      assert.ok(application.selectedMemberDeclarations.length > 0);
-      assert.ok(
-        application.selectedMemberDeclarations.includes(
-          application.selectedMemberDeclaration,
-        ),
-      );
-      assert.ok(Object.isFrozen(application.selectedMemberDeclarations));
-    }
-  }
-});
-
-test("safety facts are shadow-safe and reject unproven selector chains", () => {
-  const { checked, sourceFile } = createSession(`
-    import { safety as sourceSafety } from "@tsonic/core/lang.js";
-    import { safety as localSafety } from "./local.js";
-
-    class Box { value = 1; }
-    sourceSafety<Box>().method(box => box.value).requiresunsafe();
-    localSafety<Box>().requiresunsafe();
-    {
-      const sourceSafety = <T>(_target: T) => ({ requiresunsafe(): void {} });
-      sourceSafety(new Box()).requiresunsafe();
-    }
-  `, {
-    "/src/local.ts": "export function safety<T>() { return { requiresunsafe(): void {} }; }",
-  });
-
-  assert.deepEqual(
-    checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode),
-    ["SOURCE_CORE_SAFETY_SELECTOR_MEMBER_KIND_INVALID"],
-  );
-  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresunsafe", 1), tsonicSafetyBuilderFactKey), undefined);
-  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresunsafe", 2), tsonicSafetyBuilderFactKey), undefined);
-});
-
 function createSession(source: string, extraFiles: Readonly<Record<string, string>> = {}): {
   readonly checked: CheckedSourceProgram;
   readonly sourceFile: SourceFile;
@@ -346,16 +200,6 @@ function call(ast: AstReader, sourceFile: SourceFile, name: string, occurrence =
     ast.is.IsCallExpression(node) && expressionText(ast, ast.as.AsCallExpression(node)?.Expression) === name);
 }
 
-function propertyCall(ast: AstReader, sourceFile: SourceFile, name: string, occurrence = 0): Node {
-  return findOccurrence(sourceFile, ast, occurrence, (node) => {
-    if (!ast.is.IsCallExpression(node)) {
-      return false;
-    }
-    const callee = ast.as.AsCallExpression(node)?.Expression;
-    return ast.is.IsPropertyAccessExpression(callee) && ast.text(ast.name(callee)) === name;
-  });
-}
-
 function findOccurrence(
   sourceFile: SourceFile,
   ast: AstReader,
@@ -408,16 +252,4 @@ function expressionText(ast: AstReader, node: Node | undefined): string {
     return left.length === 0 ? right : `${left}.${right}`;
   }
   return ast.text(ast.name(node) ?? node);
-}
-
-function typeName(ast: AstReader, node: Node): string {
-  if (ast.is.IsTypeReferenceNode(node)) {
-    const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
-    return name === undefined ? "" : typeName(ast, name);
-  }
-  if (ast.is.IsQualifiedName(node)) {
-    const name = ast.as.AsQualifiedName(node)?.Right;
-    return name === undefined ? "" : typeName(ast, name);
-  }
-  return ast.text(node);
 }

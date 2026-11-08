@@ -5,6 +5,7 @@ import type { SourcePointerFacts } from "./pointers.js";
 import type { SourceMarkerFacts } from "./markers.js";
 import type { SourceControlFlowQueries } from "./control-flow.js";
 import type { SourceStorageAnalysisOptions, SourceStorageAnalysisSelection } from "./storage.js";
+import type { SourceSafetyFacts } from "./safety.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;
@@ -108,7 +109,7 @@ export type SourceArgumentPassing =
   | { readonly role: "declaration"; readonly mode: ArgumentPassingMode }
   | { readonly role: "argument"; readonly mode: ArgumentPassingMode; readonly storageExpression: Node };
 
-export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts {
+export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts, SourceSafetyFacts {
   readonly controlFlow: SourceControlFlowQueries;
   storageAnalysis(options: SourceStorageAnalysisOptions): SourceStorageAnalysisSelection;
   iteration(occurrence: Node): SourceResult<SourcePresence<SourceIteration>>;

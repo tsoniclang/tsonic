@@ -12,6 +12,7 @@ import type { SourcePointerFacts } from "../source-model/pointers.js";
 import type { SourceAnalysisFacts, SourceDisposalAlternative, SourceResourceManagement } from "../source-model/protocols.js";
 import { createSourceStoragePlaceQueries } from "./source-storage/place.js";
 import type { SourceControlFlowQueries } from "../source-model/control-flow.js";
+import type { SourceSafetyFacts } from "../source-model/safety.js";
 
 export function createSourceAnalysisFacts(options: {
   readonly ast: AstReader;
@@ -27,11 +28,12 @@ export function createSourceAnalysisFacts(options: {
   readonly pointers: SourcePointerFacts & SourceMarkerFacts;
   readonly controlFlow: SourceControlFlowQueries;
   readonly storageAnalysis: SourceAnalysisFacts["storageAnalysis"];
+  readonly safety: SourceSafetyFacts;
   readonly unavailable: (node: Node, reason: string) => SourceRefusal;
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;
 }): SourceAnalysisFacts {
   const { ast, input, view, assertNode, values, navigation, memberPlace, inventory, signature,
-    solved, pointers, controlFlow, storageAnalysis, unavailable, settle } = options;
+    solved, pointers, controlFlow, storageAnalysis, safety, unavailable, settle } = options;
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
   const present = <Value>(value: Value): SourcePresence<Value> => Object.freeze({ kind: "present", value });
   const none = Object.freeze({ kind: "none" } as const);
@@ -131,6 +133,7 @@ export function createSourceAnalysisFacts(options: {
   const facts: SourceAnalysisFacts = Object.freeze({
     controlFlow,
     storageAnalysis,
+    safety: safety.safety,
     iteration(occurrence: Node) { assertNode(occurrence); return solved.iteration(occurrence); },
     generator(declaration: Node) { assertNode(declaration); return solved.generator(declaration); },
     yield(occurrence: Node) { assertNode(occurrence); return solved.yield(occurrence); },

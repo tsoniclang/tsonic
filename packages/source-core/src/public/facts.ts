@@ -28,19 +28,6 @@ export {
   tsonicCoreSafetyProviderNames,
 } from "../safety/declarations.js";
 export type { SourceSafetyProviderNames } from "../safety/declarations.js";
-export {
-  tsonicSafetyBuilderFactKey,
-  tsonicUnsafeContextFactKey,
-} from "../safety/facts.js";
-export type {
-  TsonicSafetyApplicationFact,
-  TsonicSafetyApplicationPlacement,
-  TsonicSafetyBuilderFact,
-  TsonicSafetyBuilderStateFact,
-  TsonicSafetyContract,
-  TsonicSafetyMemberKind,
-  TsonicUnsafeContextFact,
-} from "../safety/facts.js";
 export { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 export type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
 export { tsonicCompileTimeFactKey } from "../compile-time/facts.js";

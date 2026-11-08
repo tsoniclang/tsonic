@@ -3,6 +3,7 @@ import { functionPointerFactKey, pointerFactKey, pointerOperationFactKey, provid
 import type { CheckedSourceProgram, ExtensionFactKey, ExtensionFactSubject, Node, Type } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputCoreQueries, SourceInputLayoutIdentity, SourceInputMemoryLayout,
   SourceInputOriginalSubjects, SourceInputPointerOperation, SourceInputPointerType } from "@tsonic/target-api/host";
+import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
 import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import type { TsonicMemoryLayoutFact } from "../memory-layout/facts.js";
 import { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
@@ -10,18 +11,21 @@ import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../poin
 import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 import { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
 import { createSourceCoreMarkerInput, sourceCoreMarkerFacts } from "./marker-facts.js";
+import { createSourceCoreSafetyInput } from "./safety-input.js";
 
 export interface SourceCoreInputOptions {
   readonly checked: CheckedSourceProgram;
   readonly assertNode: (node: Node) => void;
   readonly observedComponent: (component: SourceInputComponent) => Type | undefined;
   readonly syntax: (node: Node) => SourceInputComponent;
+  readonly safetyProviders: readonly TargetSourceSafetyProvider[];
 }
 
 export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInputCoreQueries {
   const { checked, assertNode, observedComponent, syntax } = input;
   const { ast, sourceFacts } = checked;
   const markerInput = createSourceCoreMarkerInput({ sourceFacts, assertNode });
+  const safetyInput = createSourceCoreSafetyInput(input);
   const layouts = new WeakMap<TsonicMemoryLayoutFact, SourceInputLayoutIdentity>();
   const originalLayouts = new WeakMap<SourceInputLayoutIdentity, TsonicMemoryLayoutFact>();
   const operations = new WeakMap<Node, ReturnType<SourceInputCoreQueries["operation"]>>();
@@ -226,7 +230,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
       })) });
     return Object.freeze({ kind: "available", value });
   };
-  return Object.freeze({ ...markerInput, pointerType, operation, pointeeMatches, layout, typeMarkers(original: SourceInputOriginalSubjects) {
+  return Object.freeze({ ...markerInput, ...safetyInput, pointerType, operation, pointeeMatches, layout, typeMarkers(original: SourceInputOriginalSubjects) {
     const selected = subjects(original);
     return selected.complete ? Object.freeze({ kind: "available" as const,
       value: sourceCoreMarkerFacts({ sourceFacts, assertNode }, selected.values) }) : unavailable;
