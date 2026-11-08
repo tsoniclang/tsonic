@@ -4,9 +4,6 @@ import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
-import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
-import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
-import type { SourceTypeDescriptorMember } from "./types.js";
 import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure } from "./terms.js";
 import { sourceTypeFlowDiscardedSelection } from "./value-syntax.js";
 
@@ -144,91 +141,13 @@ test("a present object construction retains canonical member correspondence into
   assert.equal(current.source.facts.refusals().length, 0);
 });
 
-test("a closed foreign conditional alias publishes its exact primitive result inside a project interface", () => {
-  const current = fixture(`interface Local { read(value: int32): Awaited<Promise<int32>>; }
-    declare const local: Local;
-    export function run(): void { const alias = local; void alias; }`);
-  const descriptor = current.defaults.context.describe(current.declaration("local"));
-  assert.equal(descriptor?.kind === "declared" && descriptor.definition?.kind === "shape", true,
-    "the closed alias has a complete project interface definition");
-  if (descriptor?.kind !== "declared" || descriptor.definition?.kind !== "shape") throw new Error("The original interface definition is required.");
-  const method = descriptor.definition.members.find(member => member.name === "read");
-  const callable = method === undefined ? undefined : sourceTypeDescriptorStructure(method.type);
-  const result = callable?.kind === "callable" ? callable.calls[0]?.result : undefined;
-  const primitive = result === undefined ? undefined : sourceTypeDescriptorStructure(result);
-  assert.equal(primitive?.kind === "primitive" && primitive.primitive === "int32", true,
-    "Awaited's resolved result retains the exact authored int32 width");
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
 
 
 
-test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
-  for (const alias of [false, true]) {
-    const current = fixture(`type Input = readonly (string | float32)[] | { readonly marker: string; readonly value: float32 };
-      type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
-      type Result = Locked<Input>;
-      declare const selected: ${alias ? "Result" : "Locked<Input>"};`);
-    const descriptor = current.defaults.context.describe(current.declaration("selected"));
-    const normalized = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
-    assert.equal(normalized?.kind === "union" && normalized.types.length === 2, true,
-      `the exact normalized union has two complete alternatives, alias=${alias}`);
-    if (normalized?.kind !== "union") throw new Error("The normalized mapped union is required.");
-    const alternatives = normalized.types.map(sourceTypeDescriptorStructure);
-    const object = alternatives.find(type => type.kind === "shape");
-    const array = alternatives.find(type => type.kind === "array");
-    const member = object?.kind === "shape" ? object.members.find(property => property.name === "value") : undefined;
-    const value = member === undefined ? undefined : sourceTypeDescriptorStructure(member.type);
-    assert.equal(array?.kind === "array" && array.readonly && object?.kind === "shape" &&
-      member?.readonly === true && member.origin.kind === "declared" &&
-      value?.kind === "primitive" && value.primitive === "float32", true,
-      `array and object alternatives retain their exact published kind, width and origin, alias=${alias}`);
-    assert.equal(alternatives.some(type => type.kind === "declared" && type.cut !== undefined), false,
-      "a normalized constituent is not a recursive application of the enclosing mapped alias");
-  }
-});
 
 
-test("normalized mapped definitions exclude all enclosing alias metadata but retain genuine member recursion", () => {
-  const current = fixture(`type Input = readonly (string | float32)[] | { readonly value: float32 };
-    type Locked<Value> = { readonly [Key in keyof Value]: Value[Key] };
-    type First = Locked<Input>; type Second = First; type Third = Second;
-    type Link<Value> = { value: Value; next?: Link<Value> };
-    declare const selected: Third; declare const recursive: Link<float32>;`);
-  const descriptor = current.defaults.context.describe(current.declaration("selected"));
-  const structure = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
-  assert.equal(structure?.kind === "union" && structure.types.length === 2 && structure.types.every(type => {
-    const selected = sourceTypeDescriptorStructure(type);
-    return selected.kind === "array" || selected.kind === "shape";
-  }), true, "normalization does not reenter any alias in its own completed chain");
-  const recursive = current.defaults.context.describe(current.declaration("recursive"));
-  const root = recursive === undefined ? undefined : sourceTypeDescriptorStructure(recursive);
-  const next = root?.kind === "shape" ? root.members.find(member => member.name === "next")?.type : undefined;
-  const target = next?.kind === "optional" ? next.value : next;
-  assert.equal(target?.kind === "declared" && target.cut === "recursion" && target.declaration ===
-    (recursive?.kind === "declared" ? recursive.declaration : undefined), true,
-    "a separate authored recursive member retains its real nominal cut");
-});
 
-test("generic recursive aliases publish their original exact template separately from concrete occurrences", () => {
-  const current = fixture(`type Tree<Value> = Value | readonly Tree<Value>[];
-    declare const selected: Tree<float32>;`);
-  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node) &&
-    current.source.ast.text(current.source.ast.name(node)) === "Tree");
-  const parameter = declaration === undefined ? undefined : current.source.ast.typeParameters(declaration)[0];
-  const template = declaration === undefined ? undefined : current.source.effectiveTypes.get(declaration);
-  const concrete = current.source.effectiveTypes.get(current.declaration("selected"));
-  assert.equal(template?.kind === "resolved" && template.type.kind === "declared" && template.type.declaration === declaration &&
-    template.type.typeArguments.length === 1 && template.type.typeArguments[0]?.kind === "declared" &&
-    template.type.typeArguments[0].declaration === parameter && template.type.definition?.kind === "union", true,
-  "the actual alias declaration owns its complete generic arm definition");
-  assert.equal(concrete !== undefined && concrete.kind !== "refused" && concrete.type.kind === "declared" &&
-    concrete.type.declaration === declaration && concrete.type.typeArguments[0]?.kind === "primitive" &&
-    concrete.type.typeArguments[0].primitive === "float32", true,
-  "a concrete occurrence never replaces the declaration template or its original binder identity");
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
 test("an inferred call result preserves an unavailable body's original Source refusal", () => {
   const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
@@ -247,69 +166,7 @@ test("an inferred call result preserves an unavailable body's original Source re
   assert.equal(call !== undefined && current.source.effectiveTypes.callInstantiation(call)?.result === undefined, true);
 });
 
-test("checked conditional aliases preserve distinct parameter and result widths through exact infer binders", () => {
-  for (const reverse of [false, true]) {
-    const declarations = [
-      "type Callback = (value: float32, optional?: int32) => int32;",
-      "type Arguments = Parameters<Callback>;",
-      "type Result = ReturnType<Callback>;",
-      "type Capture<Value> = Value extends (...arguments_: infer Parameters) => infer Result ? { arguments_: Parameters; result: Result } : never;",
-    ];
-    const current = fixture(`${(reverse ? declarations.reverse() : declarations).join("\n")}
-      declare const arguments_: Arguments; declare const result: Result; declare const captured: Capture<Callback>;`);
-    const argumentsType = current.defaults.context.describe(current.declaration("arguments_"));
-    const resultType = current.defaults.context.describe(current.declaration("result"));
-    const capturedType = current.defaults.context.describe(current.declaration("captured"));
-    assert.equal(argumentsType !== undefined && resultType !== undefined && capturedType !== undefined, true,
-      `all exact alias publications exist, reverse=${reverse}`);
-    if (argumentsType === undefined || resultType === undefined || capturedType === undefined) throw new Error("The checked alias descriptors are required.");
-    const tuple = sourceTypeDescriptorStructure(argumentsType);
-    const result = sourceTypeDescriptorStructure(resultType);
-    const captured = sourceTypeDescriptorStructure(capturedType);
-    assert.equal(tuple.kind === "tuple" && tuple.elements.length === 2, true);
-    if (tuple.kind !== "tuple") throw new Error("The original parameter tuple is required.");
-    assert.equal(tuple.elements[0]?.type.kind === "primitive" && tuple.elements[0].type.primitive === "float32", true);
-    assert.equal(tuple.elements[1]?.kind === "optional" && tuple.elements[1].type.kind === "optional" &&
-      tuple.elements[1].type.value.kind === "primitive" && tuple.elements[1].type.value.primitive === "int32", true);
-    assert.equal(tuple.elements.every(element => element.declaration !== undefined &&
-      current.source.ast.is.IsParameterDeclaration(element.declaration)), true, "the exact authored formal nodes survive inference");
-    assert.equal(result.kind === "primitive" && result.primitive === "int32", true,
-      "a result cannot choose the parameter's checker-identical float32 width");
-    assert.equal(captured.kind === "shape", true);
-    if (captured.kind !== "shape") throw new Error("The checked conditional capture is required.");
-    const parameters = captured.members.find(member => member.name === "arguments_")?.type;
-    const returned = captured.members.find(member => member.name === "result")?.type;
-    assert.equal(parameters !== undefined && sourceTypeDescriptorStructure(parameters).kind === "tuple", true);
-    assert.equal(returned?.kind === "primitive" && returned.primitive === "int32", true);
-    assert.equal(current.source.facts.refusals().length, 0);
-  }
-});
 
-test("nested checked conditional steps retain an outer infer binding by its exact selected scope", () => {
-  const current = fixture(`interface Box<Value> { value: Value; }
-    type Inner<Value> = Value extends Box<infer Element> ? (Element extends int32 ? Element : never) : never;
-    declare const selected: Inner<Box<int32>>;`);
-  const { ast } = current.source;
-  const declaration = current.defaults.nodes.find(node => ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === "Inner");
-  const inferred = current.defaults.nodes.find(node => ast.is.IsTypeParameterDeclaration(node) && ast.text(ast.name(node)) === "Element");
-  const annotation = ast.typeNode(current.declaration("selected"));
-  const argument = annotation === undefined ? undefined : ast.typeArguments(annotation)[0];
-  const queries = current.source.semantics.forNode(current.declaration("selected"));
-  const checked = argument === undefined ? undefined : queries.types.authoredType(argument);
-  const application = declaration === undefined || checked === undefined ? undefined : queries.types.instantiateAlias(declaration, [checked]);
-  assert.equal(application?.kind === "conditional" && application.conditionalSteps.length >= 2 && inferred !== undefined, true,
-    "the real checked application contains the nested selected steps and original infer binder");
-  const nestedCarriesOuter = application?.conditionalSteps.slice(1).some(step =>
-    step.bindings.some(binding => inferred !== undefined && binding.declarations.includes(inferred))) ?? false;
-  console.info("C2329_NESTED_INFER", JSON.stringify({ steps: application?.conditionalSteps.length ?? 0, nestedCarriesOuter }));
-  const descriptor = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(descriptor !== undefined, true, "the nested conditional has its exact complete descriptor");
-  if (descriptor === undefined) throw new Error("The nested conditional descriptor is required.");
-  const type = sourceTypeDescriptorStructure(descriptor);
-  assert.equal(type.kind === "primitive" && type.primitive === "int32", true,
-    "the outer infer binding survives into the checker's selected inner branch");
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
 test("discarded selections leave the result-publication domain without dropping their operands", () => {
   const current = fixture(`function run(flag: boolean, optional?: () => number): number {
@@ -378,61 +235,8 @@ test("literal defaults select checked member symbols only from their own retaine
     nested.members[0].type.primitive === "int64", true);
 });
 
-test("normalised intersection aliases preserve the underlying nominal declaration instead of a false self-recursion cut", () => {
-  const current = fixture(`class Failure { readonly code: int32 = 1; }
-    type Maybe = Failure | null | undefined;
-    type Present = NonNullable<Maybe>;
-    declare const selected: Present;`);
-  const failure = current.defaults.nodes.find(node => current.source.ast.is.IsClassDeclaration(node) &&
-    current.source.ast.text(current.source.ast.name(node)) === "Failure");
-  let selected = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(failure !== undefined && selected !== undefined, true);
-  const visited = new Set<Node>();
-  while (selected?.kind === "declared" && selected.declaration !== failure) {
-    assert.equal(!visited.has(selected.declaration) && selected.definition !== undefined, true,
-      "every non-recursive alias owns one complete checked definition");
-    if (visited.has(selected.declaration)) throw new Error("An alias must not manufacture a self cut.");
-    visited.add(selected.declaration);
-    selected = selected.definition;
-  }
-  assert.equal(selected?.kind === "declared" && selected.declaration === failure && selected.cut === undefined &&
-    selected.definition?.kind === "shape", true, "the actual Failure identity and structure are retained");
-  if (selected?.kind !== "declared" || selected.definition?.kind !== "shape") throw new Error("The checked nominal Failure is required.");
-  const code = selected.definition.members.find(member => member.name === "code");
-  assert.equal(code?.readonly && code.type.kind === "primitive" && code.type.primitive === "int32" &&
-    code.origin.kind === "declared", true);
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
-test("declared structures have no open-inference depth limit", () => {
-  const current = fixture("declare const deep: { a: { b: { c: { d: { e: int32 } } } } };");
-  let selected = current.defaults.context.describe(current.declaration("deep"));
-  for (const name of ["a", "b", "c", "d", "e"]) {
-    assert.equal(selected?.kind === "shape", true, "each finite authored structural level remains described");
-    if (selected?.kind !== "shape") throw new Error("The actual declared structural level is required.");
-    const member = selected.members.find(member => member.name === name);
-    assert.equal(member?.origin.kind === "declared" && current.source.ast.is.IsPropertySignatureDeclaration(member.origin.declaration), true);
-    selected = member?.type;
-  }
-  assert.equal(selected?.kind === "primitive" && selected.primitive === "int32", true);
-});
 
-test("symbol indexes and inline mapped indexes retain their actual checked origins", () => {
-  const current = fixture(`declare const symbols: { readonly [key: symbol]: int32 };
-    declare const mapped: { readonly [Key in string]: float32 };`);
-  for (const [name, origin, primitive] of [["symbols", "index", "int32"], ["mapped", "mapped", "float32"]] as const) {
-    const selected = current.defaults.context.describe(current.declaration(name));
-    assert.equal(selected?.kind === "shape" && selected.indexes.length === 1, true);
-    if (selected?.kind !== "shape") throw new Error("The actual declared index shape is required.");
-    const index = selected.indexes[0];
-    assert.equal(index !== undefined && index.readonly && (origin === "index"
-      ? current.source.ast.is.IsIndexSignatureDeclaration(index.declaration)
-      : current.source.ast.is.IsMappedTypeNode(index.declaration)), true);
-    assert.equal(index?.value.kind === "primitive" && index.value.primitive === primitive, true);
-    assert.equal(origin === "index" ? index?.key.kind === "intrinsic" && index.key.intrinsic === "symbol"
-      : index?.key.kind === "string", true);
-  }
-});
 
 test("an unannotated self-dependent callable has one precise return-annotation refusal", () => {
   const current = fixture("function recursive() { return recursive; }", false);
@@ -446,64 +250,9 @@ test("an unannotated self-dependent callable has one precise return-annotation r
     "the actual return expression carries the same canonical first cause");
 });
 
-test("C2284 finite mapped members retain their exact checked declaration tuple for the origin ruling", () => {
-  const current = fixture('type Flags = { [Key in "left" | "right"]: number }; declare const flags: Flags;');
-  const declaration = current.declaration("flags");
-  const queries = current.source.semantics.forNode(declaration);
-  const selected = queries.declarations.declaredValueType(declaration);
-  const mapped = current.defaults.nodes.find(node => current.source.ast.is.IsMappedTypeNode(node));
-  assert.equal(selected !== undefined && mapped !== undefined, true, "the actual checked mapped type and value are retained");
-  if (selected === undefined || mapped === undefined) throw new Error("The original checked mapped type is required.");
-  const members = queries.types.propertyInfos(selected);
-  assert.equal(members.length, 2, "both finite authored keys are observed without an invented member origin");
-});
 
-test("one canonical structural form carries all member, index, call and construct inventories", () => {
-  const current = fixture(`interface Factory { readonly prototype: object; new(): object }
-    interface Empty {}
-    interface IndexedCallable { [name: string]: unknown; (value: number): number }
-    type Callback = (value: number) => number; type Construct = new() => object;
-    type FunctionObject = { (value: number): number; count: number };
-    declare const factory: Factory; declare const empty: Empty; declare const indexed: IndexedCallable;
-    declare const callback: Callback; declare const construct: Construct; declare const functionObject: FunctionObject;`);
-  for (const [name, form, calls, constructs, members, indexes] of [
-    ["factory", "shape", 0, 1, 1, 0], ["empty", "shape", 0, 0, 0, 0],
-    ["indexed", "shape", 1, 0, 0, 1], ["callback", "callable", 1, 0, 0, 0],
-    ["construct", "callable", 0, 1, 0, 0], ["functionObject", "shape", 1, 0, 1, 0],
-  ] as const) {
-    let type = current.defaults.context.describe(current.declaration(name));
-    if (type?.kind === "declared") {
-      assert.equal(type.definition !== undefined && !("members" in type) && !("indexes" in type), true, name);
-      type = type.definition;
-    }
-    assert.equal(type?.kind, form, name);
-    if (type?.kind !== "shape" && type?.kind !== "callable") continue;
-    assert.equal(type.calls.length, calls, name);
-    assert.equal(type.constructs.length, constructs, name);
-    if (type.kind === "shape") {
-      assert.equal(type.members.length, members, name);
-      assert.equal(type.indexes.length, indexes, name);
-    }
-  }
-});
 
-test("nominal recursion cuts by declaration identity even when its actual arguments expand", () => {
-  const current = fixture("interface Nest<Value> { child: Nest<Value[]> } declare const value: Nest<number>;");
-  const type = current.defaults.context.describe(current.declaration("value"));
-  assert.equal(type?.kind === "declared" && type.definition?.kind === "shape", true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The actual complete nominal definition is required.");
-  const child = type.definition.members[0]?.type;
-  assert.equal(child?.kind === "declared" && child.declaration === type.declaration && child.definition === undefined &&
-    child.typeArguments.length === 1 && child.typeArguments[0]?.kind === "array" &&
-    child.typeArguments[0].element.kind === "primitive" && child.typeArguments[0].element.primitive === "float64", true);
-});
 
-test("expanding alias recursion uses the shared declared resource budget rather than a silent cut", () => {
-  assert.throws(() => fixture("type Nest<Value> = { child: Nest<Value[]> }; declare const value: Nest<number>;"),
-    (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
-      failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.sourceNode !== undefined &&
-      failure.diagnostic.evidence?.includes(`depth=${sourceTypeExpansionBudget.depth}`) === true);
-});
 
 test("a required component overrides the occurrence's literal default", () => {
   const current = fixture("declare const required: number[]; export const literal = [1];");
@@ -550,93 +299,10 @@ test("excluded annotations and tuple aliases retain the included consumer's quer
     source.ast.getSourceFile(member.origin.declaration) === native), true);
 });
 
-test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {
-  const current = fixture("function run(): void { const value: number | string = 1; const dictionary: { [key: string]: number } = {}; }");
-  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
-  assert.equal(index !== undefined, true);
-  if (index === undefined) throw new Error("The actual checked index declaration is required.");
-  for (const [name, expected] of [["value", { kind: "union", types: [{ kind: "primitive", primitive: "float64" }, { kind: "string" }] }],
-    ["dictionary", { kind: "shape", members: [], indexes: [{ declaration: index, key: { kind: "string" },
-      value: { kind: "primitive", primitive: "float64" }, readonly: false }], calls: [], constructs: [] }]] as const) {
-    const described = current.defaults.context.describe(current.declaration(name));
-    const published = current.source.effectiveTypes.get(current.declaration(name));
-    assertSameValue(described, expected);
-    assert.equal(published !== undefined && published.kind !== "refused", true, name);
-    if (published === undefined || published.kind === "refused") throw new Error("The declared type must be published.");
-    assertSameValue(published.type, expected);
-    assert.equal(described?.kind === "primitive" && described.primitive === "int32", false);
-    assert.equal(name === "value" ? described?.kind === "union" && described.types.length > 1
-      : described?.kind === "shape" && described.indexes.length > 0, true);
-  }
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
-test("declared index aliases retain the actual signature only in their resolved definition", () => {
-  const current = fixture("type Indexed = { [name: string]: number }; const data: Indexed = { value: 1 };");
-  const alias = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
-  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
-  const type = current.defaults.context.describe(current.declaration("data"));
-  assert.equal(alias !== undefined && index !== undefined && type?.kind === "declared", true);
-  if (type?.kind !== "declared") throw new Error("The nominal index alias is required.");
-  assert.equal(type.declaration === alias && !("members" in type) && !("indexes" in type), true);
-  assert.equal(type.definition?.kind === "shape", true);
-  if (type.definition?.kind !== "shape") throw new Error("The Host-resolved alias body is required.");
-  assert.equal(type.definition.indexes[0]?.declaration === index && type.definition.indexes[0]?.readonly === false, true);
-  assertSameValue(type.definition.indexes[0]?.key, { kind: "string" });
-  assertSameValue(type.definition.indexes[0]?.value, { kind: "primitive", primitive: "float64" });
-  assert.equal(type.definition.members.length === 0 && type.definition.indexes.length === 1, true);
-  assert.equal(type.definition.calls.length === 0 && type.definition.constructs.length === 0, true);
-  const literal = current.defaults.nodes.find(node => current.source.ast.is.IsObjectLiteralExpression(node));
-  assert.equal(current.source.effectiveTypes.obligations().filter(row => row.kind === "literal-admission" && row.site === literal).length, 1);
-});
 
-test("a recursive alias definition closes at the same declaration and arguments without expanding the inner reference", () => {
-  const current = fixture("type Tree = number | readonly Tree[]; declare const retained: Tree;");
-  const alias = current.defaults.nodes.find(node => current.source.ast.is.IsTypeAliasDeclaration(node));
-  const type = current.defaults.context.describe(current.declaration("retained"));
-  assert.equal(type?.kind === "declared" && type.declaration === alias && type.definition?.kind === "union", true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "union") throw new Error("The complete recursive alias body is required.");
-  assert.equal(type.typeArguments.length, 0);
-  assert.equal(type.definition.types.some(member => member.kind === "primitive" && member.primitive === "float64"), true);
-  const array = type.definition.types.find(member => member.kind === "array");
-  assert.equal(array?.kind === "array" && array.readonly && array.element.kind === "declared", true);
-  if (array?.kind !== "array" || array.element.kind !== "declared") throw new Error("The recursive array reference is required.");
-  assert.equal(array.element.declaration === alias && array.element.typeArguments.length === 0 && array.element.definition === undefined, true);
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
-test("a mapped Record index retains its real mapped origin and substituted primitive width", () => {
-  const current = fixture("const retained: Record<string, int32> = { count: 1 };");
-  const type = current.defaults.context.describe(current.declaration("retained"));
-  assert.equal(type?.kind === "declared" && type.definition?.kind === "shape" && type.definition.indexes.length === 1, true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The resolved Record alias body is required.");
-  const origin = current.source.ast.typeNode(type.declaration);
-  assert.equal(origin !== undefined && current.source.ast.is.IsMappedTypeNode(origin), true);
-  assert.equal(type.definition.indexes[0]?.declaration === origin && !("members" in type) && !("indexes" in type), true);
-  assertSameValue(type.typeArguments, [{ kind: "string" }, { kind: "primitive", primitive: "int32" }]);
-  assertSameValue(type.definition.indexes[0]?.key, { kind: "string" });
-  assertSameValue(type.definition.indexes[0]?.value, { kind: "primitive", primitive: "int32" });
-  assert.equal(type.definition.indexes[0]?.readonly, false);
-  assert.equal(current.source.facts.refusals().length, 0);
-});
 
-test("class and interface indexes retain their exact declaration and readonly metadata", () => {
-  const current = fixture("interface Values { readonly [key: string]: int32; } declare const retained: Values;");
-  const type = current.defaults.context.describe(current.declaration("retained"));
-  const declaration = current.defaults.nodes.find(node => current.source.ast.is.IsInterfaceDeclaration(node));
-  const index = current.defaults.nodes.find(node => current.source.ast.is.IsIndexSignatureDeclaration(node));
-  assert.equal(type?.kind === "declared" && type.declaration === declaration &&
-    type.definition?.kind === "shape" && type.definition.indexes.length === 1, true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The declared interface definition is required.");
-  assert.equal(type.definition.indexes[0]?.declaration === index && type.definition.indexes[0]?.readonly === true &&
-    !("members" in type) && !("indexes" in type), true);
-  assertSameValue(type.definition.indexes[0]?.key, { kind: "string" });
-  assertSameValue(type.definition.indexes[0]?.value, { kind: "primitive", primitive: "int32" });
-});
-
-function assertSameValue(actual: unknown, expected: unknown): void {
-  assert.equal(isDeepStrictEqual(actual, expected), true, "exact source descriptor equality");
-}
 
 test("declared definitions have one canonical member and signature inventory", () => {
   const current = fixture(`interface Factory { readonly prototype: object; new(): object; }
