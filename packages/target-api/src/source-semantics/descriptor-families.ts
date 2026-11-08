@@ -96,7 +96,8 @@ export function createSourceFamilyOwner(input: {
         append(child.value, indexes, true);
         const absence = input.evidence.create({ type: input.interner.intrinsic("absence"), component: value.component,
           category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-        sourceFiniteLiteralDomain([{ kind: "absence" }]), []);
+        sourceFiniteLiteralDomain([{ kind: "absence" }]), [],
+        { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [] } });
         append(absence, indexes);
         return;
       }
@@ -104,9 +105,10 @@ export function createSourceFamilyOwner(input: {
       const selected = value.type.kind === "intrinsic" && value.type.intrinsic === "void" && unionContext
         ? input.evidence.create({ type: input.interner.intrinsic("absence"), component: value.component,
           category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-        sourceFiniteLiteralDomain([{ kind: "absence" }]), [])
+        sourceFiniteLiteralDomain([{ kind: "absence" }]), [],
+        { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [] } })
         : value;
-      let index = arms.indexOf(selected);
+      let index = arms.findIndex(arm => input.evidence.equivalent(arm, selected));
       if (index < 0) { index = arms.length; arms.push(selected); }
       if (!indexes.includes(index)) indexes.push(index);
     }

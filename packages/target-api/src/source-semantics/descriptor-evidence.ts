@@ -1,12 +1,14 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../host-input/identities.js";
-import { sourceFiniteLiteralDomain, type SourceLiteralDomain } from "../source-model/literals/domain.js";
+import { sourceFiniteLiteralDomain, sourceLiteralDomainsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
   SourceCategoryDomain, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
   SourceTypeBinding, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
 import type { SourceComponentOwner } from "./descriptor-components.js";
+import type { SourceEvidenceDetails } from "./member-inventory.js";
+import { createSourceEvidenceDetailsOwner } from "./descriptor-details.js";
 
 export interface SourceEvidenceRecord {
   readonly value: SourceTypeEvidence;
@@ -14,14 +16,17 @@ export interface SourceEvidenceRecord {
   readonly original: SourceInputComponent | undefined;
   readonly domain: SourceLiteralDomain;
   readonly requirementBindings: readonly SourceTypeBinding[];
+  readonly details: SourceEvidenceDetails;
 }
 
 export interface SourceEvidenceOwner {
+  details(value: SourceEvidenceDetails): SourceEvidenceDetails;
   assert(value: SourceTypeEvidence): void;
   record(value: SourceTypeEvidence): SourceEvidenceRecord;
-  create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[]): SourceTypeEvidence;
+  create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[], details: SourceEvidenceDetails): SourceTypeEvidence;
   category(value: SourceCategoryDomain): SourceCategoryDomain;
   categoryKey(value: SourceCategoryDomain): string;
+  equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): boolean;
 }
 
 export function createSourceEvidenceOwner(input: {
@@ -33,6 +38,9 @@ export function createSourceEvidenceOwner(input: {
 }): SourceEvidenceOwner {
   const records = new WeakMap<SourceTypeEvidence, SourceEvidenceRecord>();
   const categories = new Map<string, SourceCategoryDomain>();
+  const equivalences = new WeakMap<SourceTypeEvidence, WeakMap<SourceTypeEvidence, boolean>>();
+  const freezeDetails = createSourceEvidenceDetailsOwner({ assertNode: input.assertNode,
+    assertEvidence: value => { record(value); } });
 
   function categoryKey(value: SourceCategoryDomain): string {
     switch (value.kind) {
@@ -69,7 +77,30 @@ export function createSourceEvidenceOwner(input: {
     return Object.freeze({ ...value, category: category(value.category) });
   }
 
-  function create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[]): SourceTypeEvidence {
+  function equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): boolean {
+    const from = record(left), to = record(right);
+    if (left === right) return true;
+    if (left.type !== right.type || categoryKey(left.category) !== categoryKey(right.category) ||
+      !sourceLiteralDomainsEqual(from.domain, to.domain) || from.components.size !== to.components.size ||
+      from.requirementBindings.length !== to.requirementBindings.length) return false;
+    let previous = equivalences.get(left);
+    const retained = previous?.get(right);
+    if (retained !== undefined) return retained;
+    if (previous === undefined) { previous = new WeakMap(); equivalences.set(left, previous); }
+    previous.set(right, true);
+    for (const [key, child] of from.components) {
+      const other = to.components.get(key);
+      if (other === undefined || !equivalent(child.value, other.value)) { previous.set(right, false); return false; }
+    }
+    const bindings = new Map(to.requirementBindings.map(binding => [binding.declaration, binding.value]));
+    for (const binding of from.requirementBindings) {
+      const other = bindings.get(binding.declaration);
+      if (other === undefined || !equivalent(binding.value, other)) { previous.set(right, false); return false; }
+    }
+    return true;
+  }
+
+  function create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[], details: SourceEvidenceDetails): SourceTypeEvidence {
     input.assertDescriptor(value.type);
     input.components.assert(value.component);
     if (original !== undefined) input.assertOriginal(original);
@@ -98,10 +129,11 @@ export function createSourceEvidenceOwner(input: {
     }
     const selected: SourceTypeEvidence = Object.freeze({ type: value.type, component: value.component,
       category: selectedCategory, numeric: selectedNumeric, sum: value.sum });
+    const selectedDetails = freezeDetails(details);
     records.set(selected, Object.freeze({ value: selected, components: entries, original, domain: selectedDomain,
-      requirementBindings: Object.freeze(requirementBindings.map(binding => Object.freeze({ ...binding }))) }));
+      requirementBindings: Object.freeze(requirementBindings.map(binding => Object.freeze({ ...binding }))), details: selectedDetails }));
     return selected;
   }
 
-  return Object.freeze({ assert: (value: SourceTypeEvidence): void => { record(value); }, record, create, category, categoryKey });
+  return Object.freeze({ details: freezeDetails, assert: (value: SourceTypeEvidence): void => { record(value); }, record, create, category, categoryKey, equivalent });
 }
