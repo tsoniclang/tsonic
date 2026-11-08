@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
@@ -16,13 +16,14 @@ import { sourceFlowStatement } from "./statements.js";
 import { createSourceSwitchCoverage } from "./switch-coverage.js";
 
 export function createSourceControlFlowQueries(source: TargetSourceProgram,
-  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain): SourceControlFlowQueries {
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain,
+  callableHead: (declaration: Node) => SourceResult<SourceTypeEvidence>): SourceControlFlowQueries {
   const domains = new WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>();
   const switchCoverage = createSourceSwitchCoverage(source);
   return Object.freeze({
     domain: (nodes: readonly Node[]) => selectControlFlowDomain(source, nodes, domains),
     declaration: (declaration: Node, options: SourceDeclarationControlFlowOptions) =>
-      selectDeclarationControlFlow(source, declaration, options, domains, switchCoverage, literalDomain),
+      selectDeclarationControlFlow(source, declaration, options, domains, switchCoverage, literalDomain, callableHead),
   });
 }
 
@@ -70,7 +71,8 @@ interface PatternContinuation {
 function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
   options: SourceDeclarationControlFlowOptions, domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>,
   switchCoverage: ReturnType<typeof createSourceSwitchCoverage>,
-  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain):
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain,
+  callableHead: (declaration: Node) => SourceResult<SourceTypeEvidence>):
   SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
   try {
     const { ast } = source;
@@ -102,7 +104,7 @@ function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: 
     const includes = (node: Node): boolean => included === "source" || included.has(node);
     const selectedLimits = sourceFlowLimits(options.limits ?? {});
     const owner = createSourceFlowConstruction<SourceDeclarationFlowExecutionRegion>(declaration, selectedLimits);
-    const selectedEntry = sourceDeclarationFlowEntry(source, declaration, owner.step);
+    const selectedEntry = sourceDeclarationFlowEntry(source, declaration, owner.step, callableHead);
     for (const root of selectedEntry.rootExecutions.keys()) {
       owner.step(root);
       if (!includes(root)) throw new SourceFlowFailure(propertyRoot
@@ -191,26 +193,10 @@ function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: 
     let entry = owner.withExecution(bodyExecution, () => {
       let entry = body === undefined ? completion : ast.is.IsBlock(body) || ast.is.IsSourceFile(body) ? build.statement(body, completion, bodyContext)
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
-      const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      let receiver: Node | undefined;
-      if (!implicit && !propertyRoot && !ast.is.IsSourceFile(declaration) && parameters.length !== 0) {
-        const slot = source.facts.values.declaredSlot(declaration);
-        if (slot.kind === "refused") throw new SourceFlowRefusal(slot);
-        const selected = source.facts.descriptors.definition(slot.value.type);
-        if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
-        const type = selected.value.type;
-        const signatures = type.kind === "callable" || type.kind === "shape" ? type.calls : [];
-        const original = signatures.filter(signature => signature.identity.declaration === declaration);
-        if (original.length !== 1) throw new SourceFlowFailure("Declaration flow requires its exact original body signature, not an overload signature.", declaration);
-        receiver = original[0]!.receiver?.declaration;
-        const declared = new Set(original[0]!.parameters.flatMap(parameter => parameter.declaration === undefined ? [] : [parameter.declaration]));
-        if (parameters.some(parameter => parameter !== undefined && parameter !== receiver && !declared.has(parameter)))
-          throw new SourceFlowFailure("Declaration flow parameters require their exact original signature parameter declarations.", declaration);
-      }
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
-        if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
+        if (parameter !== undefined) entry = build.pattern(parameter, entry, context, true, undefined);
       }
       return entry;
     });

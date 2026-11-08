@@ -1,4 +1,5 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { createSourceStorageDomainInitialization } from "./domain-initialization.js";
 import type { Node } from "@tsonic/tsts";
@@ -25,7 +26,7 @@ export function createSourceStorageDomains(
   transport: ReturnType<typeof createSourceStorageTransport>,
   budget: SourceStorageBudget,
 ) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const { navigation } = source.facts;
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget, transport.substitutions.empty);
@@ -165,7 +166,7 @@ export function createSourceStorageDomains(
       }
       return true;
     }
-    if (sourceConstructionExpression(invocation, source, budget.step) === undefined) return false;
+    if (sourceStorageValue(sourceConstructionExpression(invocation, source, budget.step)) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
     if (target === undefined) return false;
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, bindings), {
@@ -229,7 +230,10 @@ export function createSourceStorageDomains(
               if (projected === undefined) return undefined;
               result.push({ subject: projected, bindings: current.bindings });
             }
-            else pending.push({ subject: original, bindings: current.bindings, type: member.destination.property.type });
+            else {
+              if (member.destination.readType === undefined) return undefined;
+              pending.push({ subject: original, bindings: current.bindings, type: member.destination.readType });
+            }
           }
         }
       }
@@ -375,15 +379,16 @@ export function createSourceStorageDomains(
       const node = candidate.subject.node;
       if (!candidate.contributes || candidate.subject.kind !== "value" || candidate.subject.projection.length !== 0 ||
         !ast.is.IsPropertyAccessExpression(node)) continue;
-      const declaration = semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration;
-      const member = declaration === undefined ? undefined : sourceStorageMemberSubject(declaration, ast, transport.subject);
-      if (member === undefined) continue;
-      let receiver = transport.subjectFor(Node_Expression(ast, node));
+      const selected = sourceStorageValue(source.facts.objects.use(node));
+      const members = selected.readDeclarations.map(declaration => sourceStorageMemberSubject(declaration, ast, transport.subject))
+        .filter((member): member is SourceStorageSubject => member !== undefined);
+      if (members.length === 0) continue;
+      let receiver = transport.subjectFor(selected.receiver.occurrence);
       for (let depth = 0; receiver !== undefined && depth < 64; depth += 1) {
         if (!budget.step() || !rows.add(1)) break;
-        const members = declaredMembers.get(receiver) ?? [];
-        if (!members.includes(member)) members.push(member);
-        declaredMembers.set(receiver, members);
+        const retained = declaredMembers.get(receiver) ?? [];
+        for (const member of members) if (!retained.includes(member)) retained.push(member);
+        declaredMembers.set(receiver, retained);
         const parents = transport.incomingFor(receiver);
         receiver = parents.size === 1 ? parents.values().next().value : undefined;
       }

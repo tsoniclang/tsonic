@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
-import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
+import { analyzeSourceResourceScopes } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createHostSourceProgramInput } from "../../packages/host/dist/host-input/program.js";
+import { composeSourceProgram } from "../../packages/target-api/dist/source-semantics/target-source-program.js";
 import { classes, fixture, flow, declarationFlow, marked, reachable, propertyField, runtimeLayers } from "./flow-construction-fixtures.mjs";
 
 test("resource declaration admission preserves exact dense data-only original list membership", () => {
@@ -202,15 +200,25 @@ test("declaration construction refuses a missing checked constructor contract wi
   const current = fixture(`type Factory = new () => { root: number };
     function layer(Parent: Factory) { return class Layer extends Parent { field = mark("declared-field"); }; }`);
   const declaration = current.ast.parent(propertyField(current, "Layer", "field"));
-  const formal = current.source.navigation.nodesForFiles(current.source.sourceFiles).find(node =>
+  const formal = current.source.facts.navigation.nodesForFiles(current.source.sourceFiles).find(node =>
     current.ast.is.IsParameterDeclaration(node) && current.ast.text(current.ast.name(node)) === "Parent");
   assert.equal(formal !== undefined, true, "the declared native-constructor input has its original checked identity");
-  const source = { ...current.source, semantics: { ...current.source.semantics,
-    forNode(node) {
-      const selected = current.source.semantics.forNode(node);
-      return node === formal ? { ...selected, types: { ...selected.types, constructSignatures: () => [] } } : selected;
-    } } };
-  const result = createSourceControlFlowQueries(source).declaration(declaration, { domain: { kind: "source" } });
+  const original = createHostSourceProgramInput({ checked: current.checked, apiFacts: undefined, profileFiles: [], safetyProviders: [] });
+  const aliases = current.source.facts.navigation.nodesForFiles(current.source.sourceFiles).filter(node =>
+    current.ast.is.IsTypeAliasDeclaration(node) && current.ast.text(current.ast.name(node)) === "Factory");
+  assert.equal(aliases.length, 1, "the complete original constructor-contract declaration domain is retained");
+  const syntax = current.ast.typeNode(aliases[0]);
+  assert.equal(syntax !== undefined, true);
+  const component = original.input.input.syntax(syntax);
+  const observed = original.input.input.describe(component);
+  assert.equal(observed.kind === "structure" && observed.constructs.length === 1, true,
+    "the negative removes only a genuine existing original signature receipt");
+  const changed = { ...original.input.input, describe(selected) {
+    const value = original.input.input.describe(selected);
+    return selected === component ? Object.freeze({ ...value, constructs: Object.freeze([]) }) : value;
+  } };
+  const source = composeSourceProgram({ ...original.input, input: changed }).program;
+  const result = source.facts.protocols.controlFlow.declaration(declaration, { domain: { kind: "source" } });
   assert.equal(result.kind, "unresolved", "missing native constructor evidence is not empty success");
   assert.equal(result.source === formal, true, "the missing contract belongs to the original declared constructor input");
   assert.equal("graph" in result, false, "no partial initializer graph escapes the failed native contract");

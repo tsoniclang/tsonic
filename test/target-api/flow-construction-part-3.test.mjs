@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { classes, fixture, flow, declarationFlow, marked, reachable, propertyField, runtimeLayers } from "./flow-construction-fixtures.mjs";
 
@@ -59,7 +56,7 @@ test(`repeated class AST retains every actual factory activation in construction
       selected.kind === "unresolved" ? selected.reason : "One complete actual construction is published.");
     if (!capturesFirst) selectCaptures();
     const declaration = propertyField(current, "Layer", "field");
-    const graphSelection = createSourceControlFlowQueries(source).declaration(declaration, { domain: { kind: "source" } });
+    const graphSelection = source.facts.protocols.controlFlow.declaration(declaration, { domain: { kind: "source" } });
     assert.equal(graphSelection.kind === "resolved", true,
       graphSelection.kind === "unresolved" ? graphSelection.reason : "One checked declaration CFG is independent of observed instances.");
     const graph = graphSelection.graph;
@@ -105,9 +102,12 @@ test(`symbolic property initializer flow retains ${label} without a fabricated c
   "the original initializer region is not a constructor activation or fabricated callable");
   assert.equal(graph.points.some(point => point.operation.kind === "return" || point.operation.kind === "declare"), false,
     "an initializer is neither a function return nor a synthetic parameter declaration");
-  assert.equal(graph.points.some(point => point.operation.kind === "evaluate" && point.source !== undefined &&
-    current.ast.is.IsPropertyAccessExpression(point.source) &&
-    current.source.semantics.forNode(point.source).operations.propertyAccess(point.source)?.accessMode === "read"), reads,
+  assert.equal(graph.points.some(point => {
+    if (point.operation.kind !== "evaluate" || point.source === undefined || !current.ast.is.IsPropertyAccessExpression(point.source)) return false;
+    const use = current.source.facts.objects.use(point.source);
+    assert.equal(use.kind, "resolved", "each original evaluated member retains its canonical Source use");
+    return use.value.access === "read";
+  }), reads,
   "only actual initializer reads observe the inherited value");
   assert.equal(graph.points.some(point => point.operation.kind === "write-location"), writes,
     "only the explicit RHS assignment writes storage; the native owner applies the field's own store");
@@ -216,7 +216,7 @@ test("property flow rejects static, missing, foreign and forged actual initializ
     ["foreign call", current.source, declaration, { storage: current.storage, call: foreign.construct("Value") }],
     ["copied construction", current.source, declaration, { storage: current.storage, call, construction: { ...selected.alternatives[0] } }],
   ]) {
-    const result = createSourceControlFlowQueries(source).declaration(root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
+    const result = source.facts.protocols.controlFlow.declaration(root, { domain: { kind: "source" }, ...(invocation === undefined ? {} : { invocation }) });
     assert.equal(result.kind, "unresolved", `${label}: incomplete identity cannot publish an empty initializer graph`);
     assert.equal("graph" in result, false, `${label}: no partial graph escapes`);
   }

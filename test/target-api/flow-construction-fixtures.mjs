@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
-import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
+import { defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { sourceFlowOwnerFixture } from "../host/fixtures/source-flow-owner.mjs";
 
 const classes = `
   class Base {
@@ -24,16 +21,20 @@ function fixture(text) {
     files: { "/src/index.ts": `export {}; declare function mark(name: string): number; ${text}` },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unannotated authored construction checks");
-  const source = createTargetSourceProgram(checked);
-  const flowQueries = createSourceControlFlowQueries(source);
-  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+  const source = sourceFlowOwnerFixture({ checked, apiFacts: undefined, profileFiles: [], safetyProviders: [] }).program;
+  const flowQueries = source.facts.protocols.controlFlow;
+  const selected = source.facts.protocols.storageAnalysis({ sourceFiles: source.sourceFiles,
+    limits: defaultSourceStorageLimits, nativeClassConstructors: [] });
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason
+    : selected.kind === "refused" ? selected.message : "the original storage analysis resolves");
+  const storage = selected.queries;
   const ast = source.ast;
   const named = name => storage.nodes.find(node => (ast.is.IsClassDeclaration(node) || ast.is.IsVariableDeclaration(node)) &&
     ast.text(ast.name(node)) === name);
   const construct = name => storage.invocations.find(node => ast.is.IsNewExpression(node) &&
     ast.text(ast.as.AsNewExpression(node).Expression) === name);
   const constructor = name => ast.members(named(name)).find(ast.is.IsConstructorDeclaration);
-  return { source, flowQueries, storage, ast, named, construct, constructor };
+  return { checked, source, flowQueries, storage, ast, named, construct, constructor };
 }
 
 function flow(current, declaration) {

@@ -1,13 +1,15 @@
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
 import type { SourceDeclarationFlowExecutionRegion } from "../../source-model/control-flow.js";
 import { SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 
 export interface SourceFlowEntry<Region = SourceDeclarationFlowExecutionRegion> {
   readonly body: Node | undefined;
-  readonly parameters: readonly (Node | undefined)[];
+  readonly parameters: readonly Node[];
+  readonly receiver: Node | undefined;
   readonly bodyExecution: Region | undefined;
   readonly entryInitializers: readonly SourceFlowInitializer<Region>[];
   readonly superInitializers: readonly SourceFlowInitializer<Region>[];
@@ -22,7 +24,7 @@ export interface SourceFlowInitializer<Region = SourceDeclarationFlowExecutionRe
 }
 
 export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declaration: Node,
-  step: (node?: Node) => void): SourceFlowEntry<SourceDeclarationFlowExecutionRegion> {
+  step: (node?: Node) => void, callableHead: (declaration: Node) => SourceResult<SourceTypeEvidence>): SourceFlowEntry<SourceDeclarationFlowExecutionRegion> {
   const { ast } = source;
   const { navigation, values, descriptors } = source.facts;
   const rootExecutions = new Map<Node, SourceDeclarationFlowExecutionRegion>();
@@ -36,7 +38,7 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
     syntaxRoots.push(root);
     return selected;
   };
-  const empty = { parameters: [],
+  const empty = { parameters: [], receiver: undefined,
     superInitializers: [], completionInitializers: [], syntaxRoots, rootExecutions };
   if (ast.is.IsSourceFile(declaration)) return { ...empty, body: declaration,
     bodyExecution: region(declaration, declaration, "module"), entryInitializers: [] };
@@ -109,7 +111,38 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
   if (implementation !== undefined && body === undefined)
     throw new SourceFlowFailure("Declaration flow requires an implemented checked body or a completed selected native contract.", implementation);
   const bodyExecution = body === undefined || implementation === undefined ? undefined : region(implementation, body, "body");
-  const parameters = implementation === undefined ? [] : ast.parameters(implementation);
+  const parameters: Node[] = [];
+  let receiver: Node | undefined;
+  if (implementation !== undefined) {
+    const head = callableHead(implementation);
+    if (head.kind === "refused") throw new SourceFlowRefusal(head);
+    const type = head.value.type;
+    const signatures = type.kind === "callable" || type.kind === "shape" ? [...type.calls, ...type.constructs] : [];
+    const originals = signatures.filter(signature => signature.identity.declaration === implementation);
+    if (originals.length !== 1)
+      throw new SourceFlowFailure("Declaration flow requires its exact original API-body signature, not an advertised overload.", implementation);
+    const original = originals[0]!;
+    receiver = original.receiver?.declaration;
+    const seen = new Set<Node>();
+    for (const parameter of original.parameters) {
+      const node = parameter.declaration;
+      step(node);
+      if (node === undefined || !navigation.includes(node) || !ast.is.IsParameterDeclaration(node) ||
+        ast.parent(node) !== implementation || seen.has(node))
+        throw new SourceFlowFailure("Declaration flow requires its complete original body parameter inventory.", implementation);
+      seen.add(node);
+      parameters.push(node);
+    }
+    if (receiver !== undefined) {
+      step(receiver);
+      if (!navigation.includes(receiver) || !ast.is.IsParameterDeclaration(receiver) || ast.parent(receiver) !== implementation || seen.has(receiver))
+        throw new SourceFlowFailure("Declaration flow requires its original explicit receiver declaration.", implementation);
+    }
+    const authored = ast.parameters(implementation);
+    const actual = receiver === undefined ? parameters : [receiver, ...parameters];
+    if (authored.length !== actual.length || authored.some((parameter, index) => parameter !== actual[index]))
+      throw new SourceFlowFailure("Declaration flow requires every original body parameter in its authored order.", implementation);
+  }
   for (const parameter of parameters) {
     if (parameter === undefined) continue;
     step(parameter);
@@ -131,7 +164,7 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
   if (heritage?.value.kind === "unresolved") throw new SourceFlowFailure(heritage.value.reason, owner);
   const derived = body !== undefined && (heritage?.value.edges.some(edge => edge.kind === "extends") ?? false);
   const completionInitializers = classes.slice(0, -1).reverse().flatMap(fields);
-  return { body, parameters, bodyExecution,
+  return { body, parameters: Object.freeze(parameters), receiver, bodyExecution,
     entryInitializers: derived ? [] : initializers, superInitializers: derived ? initializers : [],
     completionInitializers, syntaxRoots, rootExecutions };
 }

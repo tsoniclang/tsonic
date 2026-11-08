@@ -1,4 +1,4 @@
-import type { SourceStorageProgram } from "./program.js";
+import type { TargetSourceProgram } from "../../../source-semantics/types.js";
 import type { Node } from "@tsonic/tsts";
 import type { SourceSignatureIdentity, SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceStorageValue } from "./program.js";
@@ -22,7 +22,7 @@ export interface SourceStorageClassLineage<Bindings> {
 }
 
 export function sourceStorageClassLineages<Bindings>(
-  source: SourceStorageProgram,
+  source: Pick<TargetSourceProgram, "ast" | "facts">,
   budget: SourceStorageBudget,
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
   queries: {
@@ -106,7 +106,7 @@ export function sourceStorageClassLineages<Bindings>(
 }
 
 export function sourceStorageInstanceCaptures<Bindings>(
-  source: SourceStorageProgram,
+  source: Pick<TargetSourceProgram, "ast" | "facts">,
   budget: SourceStorageBudget,
   candidate: Node,
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
@@ -130,7 +130,7 @@ export function sourceStorageInstanceCaptures<Bindings>(
   return captures;
 }
 
-export function sourceStorageAllocations<Bindings>(source: SourceStorageProgram, budget: SourceStorageBudget,
+export function sourceStorageAllocations<Bindings>(source: Pick<TargetSourceProgram, "ast" | "facts">, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings,
   receiverOriginsFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
     readonly { readonly subject: SourceStorageSubject; readonly bindings: Bindings }[]): SourceStorageUnresolved |

@@ -17,7 +17,7 @@ export function createSourceStorageMutationDestinations<Bindings>(source: Source
       for (const declaration of declarations) {
         if (!budget.step()) return false;
         const member = memberFlow.memberFor(origin, declaration, receiverType);
-        if (member === undefined || member.kind === "absent" && !member.destination.property.optional) return false;
+        if (member === undefined || member.kind === "absent" && !member.destination.optional) return false;
         for (const original of member.kind === "present" ? member.source.declarations : member.destination.declarations) {
           if (!budget.step()) return false;
           destinations.add(original);

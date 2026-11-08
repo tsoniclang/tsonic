@@ -189,7 +189,8 @@ export function composeSourceProgram(input: SourceProgramInput) {
     } });
   const program = Object.freeze<TargetSourceProgram>({ ast, sourceFiles,
     documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
-  const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain);
+  const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain,
+    declaration => settle(requiredSolved().callableHead(declaration, "body", Object.freeze([]))));
   const attributes = createSourceAttributeFacts({ input: input.core, assertNode });
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
     objects: completeObjects, settle, callableHead: solved.callableHead, declared: completeObjectQueries.declared,
