@@ -6,7 +6,7 @@ import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayo
 import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
 import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";
-import { selectTsonicFixedArray } from "../fixed-arrays/selection.js";
+import { selectTsonicFixedArray } from "../host-input/fixed-array-selection.js";
 import { readSourceFact } from "../analysis/source-call.js";
 import { memoryDescriptorKeys } from "./descriptor-declarations.js";
 import { readMemoryDescriptor, readMemoryDescriptorFields } from "./descriptors.js";

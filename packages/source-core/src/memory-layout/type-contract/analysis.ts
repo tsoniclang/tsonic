@@ -13,7 +13,7 @@ import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypeMemb
 import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "./facts.js";
 import { createMemoryValueDomains } from "./values.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
-import { selectTsonicFixedArray } from "../../fixed-arrays/selection.js";
+import { selectTsonicFixedArray } from "../../host-input/fixed-array-selection.js";
 import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
 import { tsonicMemoryRecordBindingFactKey } from "../bindings/facts.js";
 

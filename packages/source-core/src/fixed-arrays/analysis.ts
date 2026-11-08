@@ -4,7 +4,7 @@ import { tsonicFixedArrayFactKey } from "./facts.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { forEachTsonicSourceFile } from "../analysis/context.js";
 import { readSourceFact, visitPostOrder } from "../analysis/source-call.js";
-import { selectTsonicFixedArray } from "./selection.js";
+import { selectTsonicFixedArray } from "../host-input/fixed-array-selection.js";
 
 const fixedArrayEvidence = Object.freeze<readonly ExtensionEvidence[]>([{
   message: "source-core fixed-array type",
