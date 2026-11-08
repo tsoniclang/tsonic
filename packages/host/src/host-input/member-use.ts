@@ -101,6 +101,7 @@ export function createSourceMemberUseInput(input: {
     const result: SourceInputMemberUse = Object.freeze({ kind: "member", occurrence,
       receiver: Object.freeze({ occurrence: selected.receiver.expression, value: originalReceiver }),
       access: selected.accessMode, callCallee: selected.callCallee, optionalChain: selected.optionalChain,
+      selectedDeclaration: selected.selectedDeclaration,
       selectedDeclarations: Object.freeze([...selectedDeclarations]), readDeclarations: Object.freeze([...readDeclarations]),
       writeDeclarations: Object.freeze([...writeDeclarations]), read, write, arms: Object.freeze(arms) });
     retained.set(occurrence, result);
