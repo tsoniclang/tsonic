@@ -1,21 +1,16 @@
 import assert from "node:assert/strict";
-import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../../../packages/target-api/dist/source-semantics/target-source-program.js";
+import { sourceTypeFlowFixture } from "../source-type-flow-fixture.mjs";
 import { sourceExpressionCallArgument } from "../../../../packages/target-api/dist/source-navigation/callable-arguments.js";
 import { Node_Expression } from "../../../../packages/target-api/dist/source-navigation/ast.js";
 function fixture(body, inline = false) {
-    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-            "/src/index.ts": `export {};
+    const { source } = sourceTypeFlowFixture(`export {};
 declare function consume(callback: (value: unknown) => void): void;
 declare const construct: new (callback: (value: unknown) => void) => object;
-${body}`,
-        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-    assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-    const source = createTargetSourceProgram(checked);
+${body}`);
     let expression;
     const declarations = new Map();
     const calls = [];
-    const file = checked.getSourceFile("/src/index.ts");
+    const file = source.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
     assert.ok(file);
     const visit = (node) => {
         if (source.ast.is.IsFunctionDeclaration(node) || source.ast.is.IsVariableDeclaration(node)) {
@@ -38,7 +33,7 @@ ${body}`,
     const nativeDeclarations = new Set([declarations.get("consume"), declarations.get("construct")]);
     const directCalls = calls.filter(call => {
         const callee = Node_Expression(source.ast, call);
-        const declaration = callee === undefined ? undefined : source.navigation.sourceReferenceFor(callee)?.declaration;
+        const declaration = callee === undefined ? undefined : source.facts.navigation.sourceReferenceFor(callee)?.declaration;
         return declaration !== undefined && nativeDeclarations.has(declaration);
     });
     return { source, expression: expression, declarations, select() {
@@ -55,9 +50,10 @@ ${body}`,
                     reference = Node_Expression(source.ast, reference);
                 }
                 const argument = reference === undefined ? undefined : sourceExpressionCallArgument(reference, source);
-                if (argument === undefined || argument.call !== call)
+                assert.equal(argument?.kind, "resolved", "the exact original argument question has no Source refusal");
+                if (argument.value.kind === "none" || argument.value.value.call !== call)
                     return undefined;
-                selected.push(argument);
+                selected.push(argument.value.value);
             }
             return selected.length === 0 ? undefined : Object.freeze(selected);
         } };
