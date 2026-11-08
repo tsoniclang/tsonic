@@ -12,6 +12,7 @@ import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selecti
 import { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
 import { createSourceCoreMarkerInput, sourceCoreMarkerFacts } from "./marker-facts.js";
 import { createSourceCoreSafetyInput } from "./safety-input.js";
+import { createSourceCoreAttributeInput } from "./attribute-input.js";
 
 export interface SourceCoreInputOptions {
   readonly checked: CheckedSourceProgram;
@@ -26,6 +27,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
   const { ast, sourceFacts } = checked;
   const markerInput = createSourceCoreMarkerInput({ sourceFacts, assertNode });
   const safetyInput = createSourceCoreSafetyInput(input);
+  const attributeInput = createSourceCoreAttributeInput(input);
   const layouts = new WeakMap<TsonicMemoryLayoutFact, SourceInputLayoutIdentity>();
   const originalLayouts = new WeakMap<SourceInputLayoutIdentity, TsonicMemoryLayoutFact>();
   const operations = new WeakMap<Node, ReturnType<SourceInputCoreQueries["operation"]>>();
@@ -230,7 +232,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
       })) });
     return Object.freeze({ kind: "available", value });
   };
-  return Object.freeze({ ...markerInput, ...safetyInput, pointerType, operation, pointeeMatches, layout, typeMarkers(original: SourceInputOriginalSubjects) {
+  return Object.freeze({ ...markerInput, ...safetyInput, ...attributeInput, pointerType, operation, pointeeMatches, layout, typeMarkers(original: SourceInputOriginalSubjects) {
     const selected = subjects(original);
     return selected.complete ? Object.freeze({ kind: "available" as const,
       value: sourceCoreMarkerFacts({ sourceFacts, assertNode }, selected.values) }) : unavailable;

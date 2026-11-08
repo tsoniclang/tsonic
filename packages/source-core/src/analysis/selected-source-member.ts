@@ -1,4 +1,4 @@
-import type { ExtensionFactSubject, Node, SourceFileQueries, Symbol } from "@tsonic/tsts";
+import type { Node, SourceFileQueries, Symbol } from "@tsonic/tsts";
 import { unwrapParenthesizedExpression } from "./source-call.js";
 
 type SourceMemberSelectionInput = Pick<SourceFileQueries, "ast" | "checker">;
@@ -6,8 +6,8 @@ type SourceMemberSelectionInput = Pick<SourceFileQueries, "ast" | "checker">;
 export type SelectedInlineSourceMemberResult =
   | {
       readonly kind: "selected";
-      readonly expression: ExtensionFactSubject;
-      readonly selectedMember: ExtensionFactSubject;
+      readonly expression: Node;
+      readonly selectedMember: Node | Symbol;
       readonly selectedDeclaration?: Node;
       readonly selectedDeclarations: readonly Node[];
     }

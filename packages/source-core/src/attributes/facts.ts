@@ -1,5 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactSubject } from "@tsonic/tsts";
+import type { Node, Symbol } from "@tsonic/tsts";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 
 export type TsonicAttributeApplicationMemberKind = "property" | "method";
@@ -7,8 +7,10 @@ export type TsonicAttributeApplicationPlacement = "declaration" | "constructor";
 
 export interface TsonicAttributeBuilderStateFact {
   readonly kind: "builder-state";
-  readonly applicationTarget: ExtensionFactSubject;
-  readonly selectedMember?: ExtensionFactSubject;
+  readonly applicationTarget: Node;
+  readonly selectedMember?: Node | Symbol;
+  readonly selectedMemberDeclaration?: Node;
+  readonly selectedMemberDeclarations?: readonly Node[];
   readonly applicationMemberKind?: TsonicAttributeApplicationMemberKind;
   readonly applicationPlacement?: TsonicAttributeApplicationPlacement;
   readonly applicationParameterName?: string;
@@ -17,9 +19,11 @@ export interface TsonicAttributeBuilderStateFact {
 
 export interface TsonicAttributeApplicationFact {
   readonly kind: "application";
-  readonly invocation: ExtensionFactSubject;
-  readonly applicationTarget: ExtensionFactSubject;
-  readonly selectedMember?: ExtensionFactSubject;
+  readonly invocation: Node;
+  readonly applicationTarget: Node;
+  readonly selectedMember?: Node | Symbol;
+  readonly selectedMemberDeclaration?: Node;
+  readonly selectedMemberDeclarations?: readonly Node[];
   readonly applicationMemberKind?: TsonicAttributeApplicationMemberKind;
   readonly applicationPlacement?: TsonicAttributeApplicationPlacement;
   readonly applicationParameterName?: string;
@@ -40,7 +44,8 @@ export const tsonicAttributeBuilderFactKey = defineExtensionFactKey<TsonicAttrib
 function snapshotTsonicAttributeBuilderFact(
   value: TsonicAttributeBuilderFact,
 ): TsonicAttributeBuilderFact {
-  return Object.freeze({ ...value });
+  return Object.freeze({ ...value, ...(value.selectedMemberDeclarations === undefined ? {}
+    : { selectedMemberDeclarations: Object.freeze([...value.selectedMemberDeclarations]) }) });
 }
 
 function tsonicAttributeBuilderFactEquals(
@@ -50,6 +55,11 @@ function tsonicAttributeBuilderFactEquals(
   return left.kind === right.kind &&
     left.applicationTarget === right.applicationTarget &&
     left.selectedMember === right.selectedMember &&
+    left.selectedMemberDeclaration === right.selectedMemberDeclaration &&
+    (left.selectedMemberDeclarations === right.selectedMemberDeclarations ||
+      left.selectedMemberDeclarations !== undefined && right.selectedMemberDeclarations !== undefined &&
+      left.selectedMemberDeclarations.length === right.selectedMemberDeclarations.length &&
+      left.selectedMemberDeclarations.every((node, index) => node === right.selectedMemberDeclarations?.[index])) &&
     left.applicationMemberKind === right.applicationMemberKind &&
     left.applicationPlacement === right.applicationPlacement &&
     left.applicationParameterName === right.applicationParameterName &&

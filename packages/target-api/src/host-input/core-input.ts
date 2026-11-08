@@ -4,6 +4,7 @@ import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "../ta
 import type { SourceInputComponent } from "./identities.js";
 import type { SourceInputMarkerQueries, SourceInputMarkers } from "./marker-input.js";
 import type { SourceInputSafetyQueries } from "./safety-input.js";
+import type { SourceAttributeBuilderFact } from "../source-model/attributes.js";
 
 export interface SourceInputOriginalSubjects {
   readonly component: SourcePresence<SourceInputComponent>;
@@ -71,6 +72,7 @@ export type SourceInputPointerOperation =
   | { readonly family: "keep-alive"; readonly operation: "keep-alive"; readonly value: Node };
 
 export interface SourceInputCoreQueries extends SourceInputMarkerQueries, SourceInputSafetyQueries {
+  attributeBuilder(occurrence: Node): SourcePresence<SourceAttributeBuilderFact>;
   pointerType(subjects: SourceInputOriginalSubjects): SourceInputPointerType;
   typeMarkers(subjects: SourceInputOriginalSubjects): { readonly kind: "available"; readonly value: SourceInputMarkers }
     | { readonly kind: "unavailable" };

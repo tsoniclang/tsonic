@@ -27,6 +27,7 @@ import { createSourceIntegerFacts } from "../source-navigation/integer-ranges/in
 import { createSourceStorageAnalysis } from "../target-analysis/source-storage/analysis.js";
 import type { SourceStorageAnalysisInputs } from "../target-analysis/source-storage/model/program.js";
 import { createSourceSafetyFacts } from "../target-analysis/source-safety-production.js";
+import { createSourceAttributeFacts } from "../target-analysis/source-attribute-production.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
   return composeSourceProgram(input).program;
@@ -188,6 +189,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const program = Object.freeze<TargetSourceProgram>({ ast, sourceFiles,
     documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
   const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain);
+  const attributes = createSourceAttributeFacts({ input: input.core, assertNode });
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
     objects: completeObjects, settle,
     aggregate(original, values) {
@@ -197,7 +199,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
     literalDomain: owner.builder.domain, syntaxDomain: solved.syntaxDomain,
     flowConditions: input.protocolInput.flowConditions, enclosing: navigationOwner.analysis.enclosing });
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
-    values: solved.values, navigation, memberPlace: completeMemberUses.place,
+    values: solved.values, navigation, memberPlace: completeMemberUses.place, attributes,
     inventory: memberInventory, storageAnalysis: options => createSourceStorageAnalysis(program, storageInputs, options),
     safety: createSourceSafetyFacts({ ast, input: input.core, assertNode, observe(refusal) {
       owner.observe(refusal);

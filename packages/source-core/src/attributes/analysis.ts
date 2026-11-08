@@ -175,6 +175,8 @@ function analyzeAttributeSelector(
     ...predecessor,
     applicationTarget: selection.expression,
     selectedMember: selection.selectedMember,
+    selectedMemberDeclaration: selection.selectedDeclaration,
+    selectedMemberDeclarations: selection.selectedDeclarations,
     applicationMemberKind: memberKind,
     applicationPlacement: "declaration",
   });
@@ -269,6 +271,8 @@ function analyzeAttributeApplication(
     ...(predecessor.selectedMember === undefined
       ? {}
       : { selectedMember: predecessor.selectedMember }),
+    ...(predecessor.selectedMemberDeclaration === undefined ? {} : { selectedMemberDeclaration: predecessor.selectedMemberDeclaration }),
+    ...(predecessor.selectedMemberDeclarations === undefined ? {} : { selectedMemberDeclarations: predecessor.selectedMemberDeclarations }),
     ...(predecessor.applicationMemberKind === undefined
       ? {}
       : { applicationMemberKind: predecessor.applicationMemberKind }),
