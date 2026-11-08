@@ -10,11 +10,12 @@ export type SourceLiteralUnit =
   | { readonly kind: "symbol"; readonly declaration: Node };
 
 export type SourceLiteralDomain =
-  | { readonly kind: "open" }
+  | { readonly kind: "open"; readonly presence: "present" | "dynamic" }
   | { readonly kind: "unreachable" }
   | { readonly kind: "finite"; readonly values: readonly SourceLiteralUnit[] };
 
-export const sourceOpenLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "open" });
+export const sourceOpenLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "open", presence: "dynamic" });
+export const sourcePresentLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "open", presence: "present" });
 export const sourceUnreachableLiteralDomain: SourceLiteralDomain = Object.freeze({ kind: "unreachable" });
 
 interface NumericIdentity {
@@ -96,15 +97,21 @@ export function sourceFiniteLiteralDomain(values: readonly SourceLiteralUnit[]):
 
 export function sourceLiteralDomainUnion(values: readonly SourceLiteralDomain[]): SourceLiteralDomain {
   const units: SourceLiteralUnit[] = [];
+  let openPresent = false;
   for (const value of values) {
-    if (value.kind === "open") return sourceOpenLiteralDomain;
+    if (value.kind === "open") {
+      if (value.presence === "dynamic") return sourceOpenLiteralDomain;
+      openPresent = true;
+    }
     if (value.kind === "finite") units.push(...value.values);
   }
+  if (openPresent) return units.some(value => value.kind === "absence") ? sourceOpenLiteralDomain : sourcePresentLiteralDomain;
   return sourceFiniteLiteralDomain(units);
 }
 
 export function sourceLiteralDomainIncludes(domain: SourceLiteralDomain, value: SourceLiteralUnit): boolean {
-  return domain.kind === "open" || domain.kind === "finite" && domain.values.some(candidate => sourceLiteralUnitsEqual(candidate, value));
+  return domain.kind === "open" ? domain.presence === "dynamic" || value.kind !== "absence"
+    : domain.kind === "finite" && domain.values.some(candidate => sourceLiteralUnitsEqual(candidate, value));
 }
 
 export function sourceBooleanLiteralDisposition(domain: SourceLiteralDomain): "true" | "false" | "dynamic" {
@@ -114,6 +121,7 @@ export function sourceBooleanLiteralDisposition(domain: SourceLiteralDomain): "t
 }
 
 export function sourcePresenceLiteralDisposition(domain: SourceLiteralDomain): "present" | "absent" | "dynamic" {
+  if (domain.kind === "open") return domain.presence;
   if (domain.kind !== "finite" || domain.values.length === 0) return "dynamic";
   if (domain.values.every(value => value.kind === "absence")) return "absent";
   return domain.values.every(value => value.kind !== "absence") ? "present" : "dynamic";
