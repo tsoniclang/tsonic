@@ -14,12 +14,13 @@ import { produceSourceBindingValue } from "./binding-production.js";
 export interface SourceDeclarationProduction extends SourceCallableProduction {
   readonly context: SourceTypeFlowAnalysisContext;
   inferred(node: Node): SourceProductionResult<SourceTypeEvidence>;
+  iteration(declaration: Node): SourceProductionResult<SourceTypeEvidence | undefined>;
   enumValue(component: SourceInputComponent, declaration: Node): SourceProductionResult<SourceTypeEvidence>;
 }
 
 export function produceSourceDeclaredSlot(production: SourceDeclarationProduction, declaration: Node,
   bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceDeclaredSlot> {
-  const { ast, reader, input, context, builder } = production;
+  const { ast, reader, input, context } = production;
   input.assertNode(declaration);
   const annotation = ast.typeNode(declaration);
   let value: SourceProductionResult<SourceTypeEvidence>;
@@ -38,7 +39,10 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
   } else if (ast.is.IsGetAccessorDeclaration(declaration)) value = production.completion(declaration, bindings);
   else {
     const initializer = Node_Initializer(ast, declaration);
-    value = initializer === undefined ? production.inferred(declaration) : context.value(initializer, bindings);
+    const iteration = initializer === undefined ? production.iteration(declaration) : undefined;
+    if (iteration !== undefined && iteration.kind !== "resolved") return iteration;
+    value = initializer === undefined ? iteration?.kind === "resolved" && iteration.value !== undefined ? { kind: "resolved", value: iteration.value }
+      : production.inferred(declaration) : context.value(initializer, bindings);
     if (value.kind === "resolved") {
       const mutable = ast.is.IsVariableDeclaration(declaration) ? ast.variableDeclarationKind(declaration) !== "const"
         : ast.is.IsPropertyDeclaration(declaration) && !ast.hasModifierKind(declaration, "readonly");
@@ -46,8 +50,7 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
     }
   }
   if (value.kind !== "resolved") return value;
-  const type = bindings.length === 0 ? value : builder.substitute(value.value, bindings);
-  return type.kind !== "resolved" ? type : { kind: "resolved", value: Object.freeze({ origin: { kind: "declaration" as const, declaration }, type: type.value }) };
+  return { kind: "resolved", value: Object.freeze({ origin: { kind: "declaration" as const, declaration }, type: value.value }) };
 }
 
 export function produceSourceDeclaredComponent(production: SourceDeclarationProduction, component: SourceInputComponent,

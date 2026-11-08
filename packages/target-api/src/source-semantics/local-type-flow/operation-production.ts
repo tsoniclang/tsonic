@@ -13,6 +13,7 @@ import { decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator
 import { produceSourceAwaitedType } from "./awaited.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
+import { sourceEnumOperator, sourceEnumDestination } from "../enum-numeric-uses.js";
 
 export interface SourceOperationProduction extends SourceSemanticProduction {
   value(node: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -81,6 +82,15 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (syntax?.Operand === undefined || operator === undefined) return refusal("A unary operation requires its original operand and admitted operator.");
     const value = operand(syntax.Operand);
     if (value.kind !== "resolved") return value;
+    const enumOperation = sourceEnumOperator(context, operator, [value.value.value], occurrence);
+    if (enumOperation.kind !== "resolved") return enumOperation;
+    if (enumOperation.value.kind === "enum") {
+      const result = builder.evidence({ ...enumOperation.value.value, component,
+        numeric: { producer: occurrence, category: enumOperation.value.value.category, kind: "operation" } },
+      [], undefined, sourcePresentLiteralDomain, details.value);
+      if (operator !== "bit-not") throw new Error("An admitted original unary enum operation must be its complement operation.");
+      return { kind: "resolved", value: { occurrence, kind: "unary", operator, operands: [value.value], result } };
+    }
     const defined = builder.produceDefinition(value.value.value);
     if (defined.kind !== "resolved") return defined;
     const type = defined.value.type;
@@ -122,7 +132,9 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   if (right.kind !== "resolved") return right;
   if (operator === "assignment") {
     const destination = requiredDestination(syntax.Left);
-    return destination.kind !== "resolved" ? destination : { kind: "resolved", value: { occurrence, kind: "assignment",
+    if (destination.kind !== "resolved") return destination;
+    const admitted = sourceEnumDestination(context, right.value.value, destination.value.applied, occurrence);
+    return admitted.kind !== "resolved" ? admitted : { kind: "resolved", value: { occurrence, kind: "assignment",
       target: syntax.Left, source: right.value, destination: destination.value, result: destination.value.applied } };
   }
   const left = operand(syntax.Left);
@@ -176,13 +188,19 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   }
   const binary = sourcePrimitiveBinaryOperators.find(selected => selected === operator);
   if (binary === undefined) return refusal("This binary operation has no canonical native meaning.");
+  const enumOperation = sourceEnumOperator(context, binary, [left.value.value, right.value.value], occurrence);
+  if (enumOperation.kind !== "resolved") return enumOperation;
   const first = builder.produceDefinition(left.value.value), second = builder.produceDefinition(right.value.value);
   if (first.kind !== "resolved") return first;
   if (second.kind !== "resolved") return second;
   const leftType = first.value.type, rightType = second.value.type;
   const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "equal-strict", "not-equal-strict"].includes(binary);
   let calculation: SourceTypeEvidence;
-  if (binary === "add" && (leftType.kind === "string" || rightType.kind === "string")) {
+  if (enumOperation.value.kind === "comparison") calculation = primitive("bool");
+  else if (enumOperation.value.kind === "enum") calculation = builder.evidence({ ...enumOperation.value.value, component,
+    numeric: { producer: occurrence, category: enumOperation.value.value.category, kind: "operation" } },
+  [], undefined, sourcePresentLiteralDomain, details.value);
+  else if (binary === "add" && (leftType.kind === "string" || rightType.kind === "string")) {
     calculation = builder.evidence({ type: builder.string(), component, category: { kind: "known", category: "string" }, numeric: undefined,
       sum: undefined }, [], undefined, sourcePresentLiteralDomain, details.value);
   } else if (leftType.kind === "intrinsic" && leftType.intrinsic === "bigint" && rightType.kind === "intrinsic" && rightType.intrinsic === "bigint") {

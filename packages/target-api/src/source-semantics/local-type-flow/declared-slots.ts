@@ -5,7 +5,8 @@ import { Node_Initializer, sourceTransparentExpressionOperand } from "../../sour
 import type { SourceTypeFlowAnalysisContext } from "./types.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 
-export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAnalysisContext) {
+export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAnalysisContext,
+  contextual: (node: Node, bindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceTypeEvidence | undefined>) {
   const { ast, input, navigation, descriptorBuilder: builder } = context.source;
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
   const active = new Set<Node>();
@@ -88,10 +89,10 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     }
     const owner = ast.parent(declaration);
     if (owner === undefined) return none;
-    const selected = destination(owner, bindings);
+    const selected = contextual(owner, bindings);
     if (selected.kind !== "resolved") return selected;
-    if (selected.value.kind === "none") return none;
-    const definition = builder.produceDefinition(selected.value.value.applied);
+    if (selected.value === undefined) return none;
+    const definition = builder.produceDefinition(selected.value);
     if (definition.kind !== "resolved") return definition;
     const type = definition.value.type;
     if (type.kind !== "shape" && type.kind !== "callable" || type.calls.length !== 1) return none;

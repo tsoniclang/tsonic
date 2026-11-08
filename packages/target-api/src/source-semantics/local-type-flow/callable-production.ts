@@ -14,6 +14,7 @@ export interface SourceCallableProduction extends SourceSemanticProduction {
   parameter(component: SourceInputComponent, declaration: Node | undefined, signature: SourceSignatureIdentity, index: number,
     bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   completion(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  observeSignature(signature: SourceSignatureIdentity, result: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): void;
 }
 
 export interface SourceProducedSignature {
@@ -101,6 +102,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
         : context.completion(declaration, activeBindings);
   }
   if (result.kind !== "resolved") return result;
+  context.observeSignature(identity, result.value, bindings);
   return { kind: "resolved", value: Object.freeze({ identity, receiver, parameters: Object.freeze(parameters), result: result.value }) };
 }
 

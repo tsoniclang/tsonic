@@ -10,7 +10,7 @@ import type {
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceCallableSignature, produceSourceHeritageBindings, type SourceCallableProduction } from "./callable-production.js";
-import { produceSourceArgumentPlaces } from "./argument-places.js";
+import { produceSourceArgumentPlaces, produceSourceDeclaredParameterPlace } from "./argument-places.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import type { SourceTypeFlowSource } from "./types.js";
 
@@ -219,8 +219,10 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     for (const argument of places.value) {
       const parameter = declaredSignature.value.parameters[argument.parameter.index];
       if (parameter === undefined || parameter.index !== argument.parameter.index) throw new Error("An applied Source parameter requires its original authored declaration slot.");
+      const declaredPlace = produceSourceDeclaredParameterPlace(builder, parameter, argument.parameterPath);
+      if (declaredPlace.kind !== "resolved") return declaredPlace;
       const slot: SourceDeclaredSlot = Object.freeze({ origin: Object.freeze({ kind: "parameter", signature,
-        index: parameter.index, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) }), type: parameter.type });
+        index: parameter.index, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) }), type: declaredPlace.value });
       const admission = context.admits(argument.source, argument.destination, argument.effectiveArgument);
       if (admission.kind !== "resolved") return admission;
       if (!admission.value) return refusal("A Source argument does not fit its exact applied parameter destination.");

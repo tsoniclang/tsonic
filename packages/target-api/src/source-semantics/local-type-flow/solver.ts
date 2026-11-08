@@ -6,6 +6,7 @@ import type { SourceApplication, SourceConstruction, SourceDeclaredSlot, SourceO
 import type { SourceDescriptorProductionHooks, SourceProductionResult } from "../descriptor-contracts.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createSourceEnumFacts } from "../enum-facts.js";
+import { sourceEnumDestination, sourceEnumValueDomain } from "../enum-numeric-uses.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
@@ -26,6 +27,8 @@ import { sourceEvidenceExtends } from "./evidence-relations.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { indexSource } from "./type-keys.js";
+import { produceSourceArgumentContext, sourceArgumentContextSite } from "./argument-context.js";
+import { produceSourceApplicationComponent } from "./component-production.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
@@ -40,6 +43,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   let protocols: ReturnType<typeof createSourceSolvedProtocolFacts> | undefined;
   const demandedDeclarations = new Set<Node>();
   const signatures = new Set<SourceSignatureIdentity>();
+  const signatureResults = new Map<SourceSignatureIdentity, SourceTypeEvidence>();
   const signatureRefusals = new Map<SourceSignatureIdentity, Extract<SourceResult<never>, { kind: "refused" }>>();
   const diagnostics = new Set<SourceInputDiagnosticIdentity>();
   const dependency = (node: Node) => builder.componentIdentity(node, []);
@@ -47,7 +51,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
 
   const values = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
-    produce: (node, bindings) => produceSourceValue({ ...semantic(), context, inferred,
+    produce: (node, bindings) => {
+      const result = produceSourceValue({ ...semantic(), context, inferred,
       expected, construction: occurrence => {
         if (construction === undefined) return pending(occurrence);
         const result = construction.produce(occurrence);
@@ -58,15 +63,25 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
         return result.kind !== "resolved" ? result : result.value.kind === "none"
           ? sourceSemanticRefusal(occurrence, "An original yield requires its canonical generator activation.")
           : { kind: "resolved", value: result.value.value.resumed };
-      } }, node, bindings) });
+      } }, node, bindings);
+      if (result.kind === "resolved" && bindings.length === 0) observeHead(result.value);
+      return result;
+    } });
   const declarations = createSourceProductionCache<Node, SourceDeclaredSlot>({ dependency,
-    produce: (node, bindings) => declarationProduction === undefined ? pending(node) : produceSourceDeclaredSlot(declarationProduction, node, bindings) });
+    produce(node, bindings) {
+      if (declarationProduction === undefined) return pending(node);
+      const result = produceSourceDeclaredSlot(declarationProduction, node, bindings);
+      if (result.kind === "resolved" && bindings.length === 0) observeHead(result.value.type);
+      return result;
+    } });
   const completions = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
     produce: (node, bindings) => declarationProduction === undefined ? pending(node) : produceSourceCallableCompletion(declarationProduction, node, bindings) });
   const returns = createSourceProductionCache<SourceSignatureIdentity, SourceTypeEvidence>({
     dependency: signature => dependency(signature.declaration ?? signature.owner),
     produce(signature, bindings) {
       signatures.add(signature);
+      const published = signatureResults.get(signature);
+      if (published !== undefined) return builder.substitute(published, bindings);
       if (signature.declaration === undefined) return sourceSemanticRefusal(signature.owner,
         "An original nonsyntax callable result requires its authenticated signature component.", "TSONIC_LOCAL_TYPE_SIGNATURE");
       return completions.query(signature.declaration, bindings);
@@ -80,8 +95,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     produce(node) {
       return produceSourceOperation({ ...semantic(), value: occurrence => value(occurrence, []), literal: context.literal,
         unboundLiteral: occurrence => {
-          const variable = graph?.variable(occurrence);
-          return variable === undefined || (graph?.expected(occurrence).length ?? 0) === 0 ? context.literal(occurrence) : undefined;
+          const selected = graph?.expected(occurrence);
+          return selected === undefined || selected.kind === "resolved" && selected.value.length === 0 ? context.literal(occurrence) : undefined;
         }, destination: occurrence => destination(occurrence, []), expected: occurrence => {
           const selected = expected(occurrence);
           if (selected.kind !== "resolved") return selected;
@@ -95,6 +110,16 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
 
   function semantic() {
     return { ast, input, builder, reader: context.reader, objects: context.objects };
+  }
+  function observeHead(value: SourceTypeEvidence): void {
+    if (value.sum !== undefined) { for (const arm of value.sum.arms) observeHead(arm); return; }
+    if (value.type.kind !== "shape" && value.type.kind !== "callable") return;
+    for (const signature of [...value.type.calls, ...value.type.constructs]) {
+      const result = builder.component(value, { kind: "result", signature: signature.identity });
+      if (result.kind === "refused") throw new Error("A published callable head must retain its authenticated original result edge.");
+      signatures.add(signature.identity);
+      if (!signatureResults.has(signature.identity)) signatureResults.set(signature.identity, result.value);
+    }
   }
   function value(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
     input.assertNode(node);
@@ -159,17 +184,30 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       return builder.join(dependency(occurrence), "inferred", values, undefined);
     },
   });
-  slots = createSourceTypeFlowDeclaredSlotReader(context);
+  slots = createSourceTypeFlowDeclaredSlotReader(context, expected);
   declarationProduction = { ...semantic(), context, navigation: source.navigation, value, place,
-    parameter(component, declaration, signature, index, bindings) {
-      signatures.add(signature);
+    parameter(component, declaration, _signature, index, bindings) {
       if (declaration === undefined) return place(component, bindings);
       const contextual = slots!.parameter(declaration, bindings);
       if (contextual.kind !== "resolved") return contextual;
       return contextual.value.kind === "present" ? { kind: "resolved", value: contextual.value.value }
         : sourceSemanticRefusal(declaration, `The original formal parameter at index ${index} has no authored or solved contextual component.`, "TSONIC_LOCAL_TYPE_SIGNATURE");
-    }, completion, inferred, enumValue: enums.value };
-  applicationProduction = { ...declarationProduction, profile: source.profile, component: (component, bindings) => place(component, bindings),
+    }, completion, inferred, enumValue: enums.value,
+    observeSignature(signature, result, bindings) {
+      signatures.add(signature);
+      if (bindings.length === 0 && !signatureResults.has(signature)) signatureResults.set(signature, result);
+    },
+    iteration(declaration) {
+      let owner = ast.parent(declaration);
+      if (owner !== undefined && ast.is.IsVariableDeclarationList(owner)) owner = ast.parent(owner);
+      if (owner === undefined || !ast.is.IsForOfStatement(owner) && !ast.is.IsForInStatement(owner))
+        return { kind: "resolved", value: undefined };
+      if (protocols === undefined) return pending(owner);
+      const selected = protocols.iteration(owner);
+      return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value.element : undefined };
+    } };
+  applicationProduction = { ...declarationProduction, profile: source.profile,
+    component: (component, bindings, candidate) => produceSourceApplicationComponent(declarationProduction!, component, bindings, candidate),
     admits, proves };
   construction = createSourceConstructionProduction({ ...semantic(), value: node => value(node, []),
     completion: node => completion(node, []), propertyName: context.propertyName, destination: node => destination(node, []),
@@ -180,15 +218,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     signature: (original, bindings) => produceSourceCallableSignature(declarationProduction!, original, bindings, undefined) });
   const collected = collectSourceTypeFlowEdges(context);
   graph = createSourceGraphSolver(context, collected, collectSourceTypeFlowUses(context, collected),
-    node => produceSourceValue({ ...semantic(), context, inferred, expected,
-      construction: node => {
-        const selected = construction!.produce(node);
-        return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.value };
-      }, yielded: node => {
-        const selected = protocols!.yield(node);
-        return selected.kind !== "resolved" ? selected : selected.value.kind === "none" ? sourceSemanticRefusal(node,
-          "An original yield has no canonical generator activation.") : { kind: "resolved", value: selected.value.value.resumed };
-      } }, node, []));
+    node => value(node, []), node => contextual(node, []));
 
   function inferred(node: Node): SourceProductionResult<SourceTypeEvidence> {
     if (graph === undefined) return pending(node);
@@ -208,18 +238,31 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     const variable = graph.variable(node);
     return variable === undefined ? sourceUnresolvedDeclaration(declarationProduction!, node) : graph.resolve(variable);
   }
-  function expected(node: Node): SourceProductionResult<SourceTypeEvidence | undefined> {
-    const candidates = graph?.expected(node) ?? [];
+  function expected(node: Node, bindings: readonly SourceTypeBinding[] = []): SourceProductionResult<SourceTypeEvidence | undefined> {
+    const selected = graph?.expected(node);
+    if (selected !== undefined && selected.kind !== "resolved") return selected;
+    const candidates = selected?.kind === "resolved" ? selected.value : [];
     if (candidates.length > 0) {
       if (!candidates.every(value => value.type === candidates[0]!.type)) return sourceSemanticRefusal(node,
         "This original Source value has conflicting declared destinations.", "TSONIC_LOCAL_TYPE_CONFLICT");
       return { kind: "resolved", value: candidates[0] };
     }
+    return contextual(node, bindings);
+  }
+  function contextual(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence | undefined> {
     if (slots === undefined) return pending(node);
-    const selected = slots.destination(node, []);
+    const argument = sourceArgumentContextSite({ ast }, node);
+    if (argument !== undefined) {
+      if (declarationProduction === undefined) return pending(node);
+      const selected = produceSourceArgumentContext(declarationProduction, argument.occurrence, argument.invocation);
+      return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value : undefined };
+    }
+    const selected = slots.destination(node, bindings);
     return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value.applied : undefined };
   }
   function admits(actual: SourceTypeEvidence, required: SourceTypeEvidence, site: Node): SourceProductionResult<boolean> {
+    const enumAdmission = sourceEnumDestination(semantic(), actual, required, site);
+    if (enumAdmission.kind !== "resolved") return enumAdmission;
     const relation = sourceEvidenceExtends(semantic(), actual, required);
     if (relation.kind !== "resolved") return relation;
     if (relation.value === "deferred") return { kind: "pending", dependencies: [actual.component, required.component] };
@@ -259,6 +302,9 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       if (ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node) || ast.is.IsTypeAliasDeclaration(node) ||
         ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) || ast.is.IsPropertyDeclaration(node) ||
         source.navigation.callableRoles(node).signature) declared(node, []);
+      if (ast.is.IsForOfStatement(node) || ast.is.IsForInStatement(node) || ast.is.IsSpreadElement(node)) protocols.iteration(node);
+      if (source.protocolInput.generator(node).kind === "present") protocols.generator(node);
+      if (ast.is.IsYieldExpression(node)) protocols.yield(node);
     }
     for (const signature of signatures) callableReturn(signature, []);
     graph.invalidate();
@@ -276,7 +322,21 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   }
   const types = new Map<Node, SourceResult<SourceTypeEvidence>>();
   for (const node of context.values) {
-    const result = settle(node, value(node, []));
+    let produced = value(node, []);
+    if (produced.kind === "resolved") {
+      const domain = sourceEnumValueDomain(semantic(), produced.value);
+      if (domain.kind !== "resolved") produced = domain;
+      else if (domain.value.possible.length > 0) {
+        const selected = destination(node, []);
+        if (selected.kind !== "resolved") produced = selected;
+        else if (selected.value.kind === "present") {
+          const parent = ast.parent(node) ?? node;
+          const admission = sourceEnumDestination(semantic(), produced.value, selected.value.value.applied, parent);
+          if (admission.kind !== "resolved") produced = admission;
+        }
+      }
+    }
+    const result = settle(node, produced);
     types.set(node, result);
     values.seed(node, [], result);
   }

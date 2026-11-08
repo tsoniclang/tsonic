@@ -1,19 +1,18 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
-import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";
-import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { createSourceTypeFlowTerms } from "./term-groups.js";
-import { sourceTypeFlowNumericLiteralKind } from "./defaults.js";
 import { sourceSemanticRefusal, sourceProductionValues } from "./semantic-production.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
+import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowGraph, SourceTypeFlowTerm, SourceTypeFlowUse, SourceTypeFlowVariable } from "./types.js";
 
 export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, graph: SourceTypeFlowGraph,
-  uses: readonly SourceTypeFlowUse[], produce: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>): {
+  uses: readonly SourceTypeFlowUse[], produce: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>,
+  contextualValue: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence | undefined>): {
   resolve(variable: SourceTypeFlowVariable): SourceProductionResult<SourceTypeEvidence>;
   variable(occurrence: Node): SourceTypeFlowVariable | undefined;
-  expected(occurrence: Node): readonly SourceTypeEvidence[];
+  expected(occurrence: Node): SourceProductionResult<readonly SourceTypeEvidence[]>;
   invalidate(): void;
 } {
   const { descriptorBuilder: builder, ast } = context.source;
@@ -24,12 +23,25 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
   const completed = new Map<SourceTypeFlowVariable, SourceProductionResult<SourceTypeEvidence>>();
   const active = new Set<SourceTypeFlowVariable>();
   const fills = new Map<SourceTypeFlowVariable, SourceTypeEvidence[]>();
+  const contextual = new Map<SourceTypeFlowVariable, Node[]>();
   const inputs = new Map<SourceTypeFlowVariable, SourceTypeFlowVariable[]>();
   const derived = new Map(graph.derived.map(record => [terms.group(record.result).variable, record.node]));
   const calls = new Map(graph.calls.map(record => [terms.group(record.result).variable, record.node]));
+  for (const group of terms.groups()) {
+    const locals = group.nodes.filter(node => node.kind === "open-local" || node.kind === "derived-local");
+    if (new Set(locals.map(node => node.declaration ?? node.node)).size > 64)
+      terms.refuse(group.variable, createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_LIMIT", group.variable.node));
+    for (const local of locals) if (context.source.navigation.declarationUses(local.declaration ?? local.node).length > 1024)
+      terms.refuse(group.variable, createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_LIMIT", local.node));
+  }
   for (const use of uses) {
     const selected = terms.group(use.variable).variable;
     if (use.kind === "refused") terms.refuse(use.variable, use.refusal);
+    if (use.kind === "contextual") {
+      const values = contextual.get(selected);
+      if (values === undefined) contextual.set(selected, [use.site]);
+      else values.push(use.site);
+    }
     if (use.kind === "fill") {
       const values = fills.get(selected);
       if (values === undefined) fills.set(selected, [use.value]);
@@ -51,7 +63,9 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
     if (active.has(key)) return { kind: "pending", dependencies: [builder.componentIdentity(variable.node, [])] };
     active.add(key);
     try {
-      const authoritative = fills.get(key) ?? [];
+      const selectedFills = destinations(key);
+      if (selectedFills.kind !== "resolved") return selectedFills;
+      const authoritative = selectedFills.value;
       let result: SourceProductionResult<SourceTypeEvidence>;
       if (authoritative.length > 0) {
         const signature = signatures.get(key);
@@ -104,16 +118,7 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
   function termValue(term: SourceTypeFlowTerm): SourceProductionResult<SourceTypeEvidence> {
     if (term.kind === "fixed") return { kind: "resolved", value: term.value };
     if (term.kind === "original") return context.place(term.component, []);
-    if (term.kind === "numeric") {
-      const creation = sourceTypeFlowNumericLiteralKind(term.literal);
-      if (creation.kind === "refused") return sourceSemanticRefusal(term.site, creation.reason);
-      const component = builder.componentIdentity(term.site, []);
-      return { kind: "resolved", value: builder.evidence({ type: builder.primitive(creation.primitive), component,
-        category: { kind: "known", category: "number" }, numeric: { producer: term.site, category: { kind: "known", category: "number" }, kind: "literal" }, sum: undefined },
-      [], context.source.input.syntax(term.site), sourceLiteralValueDomain(term.literal, "number", "present"),
-      { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [term.site] } }) };
-    }
-    if (term.kind === "construction") return produce(term.site);
+    if (term.kind === "numeric" || term.kind === "construction") return produce(term.site);
     if (term.kind === "template") {
       const bindings: SourceTypeBinding[] = [];
       for (const binding of term.bindings) {
@@ -123,14 +128,7 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
       }
       return builder.substitute(term.value, bindings);
     }
-    if (term.kind === "array") {
-      const element = resolve(term.element);
-      return element.kind !== "resolved" ? element : { kind: "resolved", value: builder.evidence({
-        type: builder.array(element.value.type, term.readonly), component: builder.componentIdentity(term.site, []),
-        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined },
-      [{ selector: { kind: "array-element" }, value: element.value }], context.source.input.syntax(term.site), sourcePresentLiteralDomain,
-      { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [term.site] } }) };
-    }
+    if (term.kind === "array") return produce(term.site);
     if (term.kind === "optional") {
       const value = resolve(term.value);
       if (value.kind !== "resolved") return value;
@@ -141,7 +139,31 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
     }
     return produce(term.site);
   }
+  function destinations(variable: SourceTypeFlowVariable): SourceProductionResult<readonly SourceTypeEvidence[]> {
+    const values = [...fills.get(variable) ?? []];
+    for (const node of contextual.get(variable) ?? []) {
+      const value = contextualValue(node);
+      if (value.kind !== "resolved") return value;
+      if (value.value !== undefined && !(value.value.type.kind === "intrinsic" &&
+        ["unknown", "any", "object", "void"].includes(value.value.type.intrinsic))) values.push(value.value);
+    }
+    return { kind: "resolved", value: values };
+  }
   return Object.freeze({ resolve, variable: (node: Node) => variables.get(node),
-    expected: (node: Node) => { const variable = variables.get(node); return variable === undefined ? [] : fills.get(terms.group(variable).variable) ?? []; },
+    expected: (node: Node): SourceProductionResult<readonly SourceTypeEvidence[]> => {
+      const variable = variables.get(node);
+      if (variable === undefined) return { kind: "resolved", value: [] };
+      const group = terms.group(variable);
+      const selected = destinations(group.variable);
+      if (selected.kind !== "resolved" || selected.value.length > 0) return selected;
+      const values: SourceTypeEvidence[] = [];
+      for (const term of group.terms) {
+        if (term.kind !== "fixed" && term.kind !== "original") continue;
+        const value = termValue(term);
+        if (value.kind !== "resolved") return value;
+        if (value.value.type.kind === "primitive") values.push(value.value);
+      }
+      return { kind: "resolved", value: values };
+    },
     invalidate: () => completed.clear() });
 }

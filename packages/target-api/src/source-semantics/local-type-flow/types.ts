@@ -151,6 +151,7 @@ export type SourceTypeFlowUse = {
   readonly variable: SourceTypeFlowVariable;
 } & (
   | { readonly kind: "fill"; readonly value: SourceTypeEvidence; readonly authority: "declared" | "inferred" }
+  | { readonly kind: "contextual" }
   | { readonly kind: "write"; readonly value: Node; readonly required: Node; readonly valueVariable?: SourceTypeFlowVariable }
   | { readonly kind: "refused"; readonly refusal: SourceRefusal }
   | { readonly kind: "none" }

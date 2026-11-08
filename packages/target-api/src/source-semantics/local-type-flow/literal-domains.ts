@@ -1,15 +1,19 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput, SourceInputTypeFacts } from "../../host-input/descriptor-input.js";
-import type { SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import {
-  sourceFiniteLiteralDomain, sourceOpenLiteralDomain, sourcePresentLiteralDomain, sourceUnreachableLiteralDomain,
+  sourceFiniteLiteralDomain, sourceLiteralDomainUnion, sourceOpenLiteralDomain, sourcePresentLiteralDomain, sourceUnreachableLiteralDomain,
 } from "../../source-model/literals/domain.js";
 import { sourceIntegerLiteralValue } from "../../source-model/literals/integer.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "../../source-model/literals/token.js";
+import { sourceTypeFlowTypeSyntax } from "./value-syntax.js";
+import { Node_Initializer } from "../../source-navigation/ast.js";
+import { sourceProductionValues } from "./semantic-production.js";
 
-export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node, facts: SourceInputTypeFacts): SourceLiteralDomain {
+function sourceOriginalLiteralDomain(ast: AstReader, original: Node): SourceLiteralDomain | undefined {
   let node = original;
   let negative = false;
   const seen = new Set<Node>();
@@ -57,6 +61,14 @@ export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node,
   const kind = ast.kindName(node);
   if (kind === "KindTrueKeyword" || kind === "KindFalseKeyword") return sourceFiniteLiteralDomain([{ kind: "boolean", value: kind === "KindTrueKeyword" }]);
   if (kind === "KindNullKeyword") return sourceFiniteLiteralDomain([{ kind: "absence" }]);
+  if (ast.is.IsObjectLiteralExpression(node) || ast.is.IsArrayLiteralExpression(node) || ast.is.IsNewExpression(node) ||
+    ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsFunctionDeclaration(node)) return sourcePresentLiteralDomain;
+  return undefined;
+}
+
+export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node, facts: SourceInputTypeFacts): SourceLiteralDomain {
+  const originalDomain = sourceOriginalLiteralDomain(ast, original);
+  if (originalDomain !== undefined) return originalDomain;
   const literal = facts.literal;
   if (literal !== undefined) return sourceFiniteLiteralDomain([literal.kind === "number"
     ? { kind: "number", value: { kind: "checked-float64", value: literal.value } } : literal]);
@@ -66,6 +78,57 @@ export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node,
     if (facts.scalar === "number" || facts.scalar === "bigint" || facts.scalar === "boolean") return sourcePresentLiteralDomain;
   }
   return sourceOpenLiteralDomain;
+}
+
+export function produceSourceComponentLiteralDomain(context: {
+  readonly ast: AstReader;
+  readonly input: SourceDescriptorInput;
+  readonly builder: SourceDescriptorBuilder;
+  value(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  component(original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+}, original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain> {
+  const { ast, input, builder } = context;
+  input.assertComponent(original);
+  const facts = input.describe(original);
+  if (original.path.length === 0) {
+    const parent = ast.parent(original.root);
+    if (parent !== undefined && ast.name(parent) === original.root &&
+      (ast.is.IsPropertyDeclaration(parent) || ast.is.IsPropertySignatureDeclaration(parent) ||
+        ast.is.IsPropertyAssignment(parent) || ast.is.IsMethodDeclaration(parent) || ast.is.IsMethodSignatureDeclaration(parent) ||
+        ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent))) {
+      if (ast.is.IsIdentifier(original.root)) return { kind: "resolved", value: sourceFiniteLiteralDomain([{ kind: "string", value: ast.text(original.root) }]) };
+    }
+    if (ast.is.IsComputedPropertyName(original.root)) {
+      const expression = ast.as.AsComputedPropertyName(original.root)?.Expression;
+      if (expression === undefined) throw new Error("An original computed name requires its exact original expression.");
+      return produceSourceComponentLiteralDomain(context, input.syntax(expression), bindings);
+    }
+  }
+  if (facts.kind === "parameter") {
+    const bound = bindings.find(binding => binding.declaration === facts.parameter);
+    return { kind: "resolved", value: bound === undefined ? sourceOpenLiteralDomain : builder.domain(bound.value) };
+  }
+  const syntax = facts.authoredTypeNode ?? (original.path.length === 0 ? original.root : undefined);
+  if (syntax !== undefined && sourceTypeFlowTypeSyntax(ast, syntax)) {
+    if (facts.kind === "union") {
+      const values = sourceProductionValues(facts.members.map(member => produceSourceComponentLiteralDomain(context, member, bindings)));
+      return values.kind !== "resolved" ? values : { kind: "resolved", value: sourceLiteralDomainUnion(values.value) };
+    }
+    if (facts.kind === "scalar") return { kind: "resolved", value: produceSourceScalarLiteralDomain(ast, syntax, facts) };
+  }
+  if (original.path.length === 0) {
+    const literal = sourceOriginalLiteralDomain(ast, original.root);
+    if (literal !== undefined) return { kind: "resolved", value: literal };
+  }
+  const part = original.path.at(-1);
+  if (part?.kind === "member" && (ast.is.IsPropertyAssignment(part.declaration) || ast.is.IsPropertyDeclaration(part.declaration))) {
+    const initializer = Node_Initializer(ast, part.declaration);
+    if (initializer !== undefined && ast.is.IsObjectLiteralExpression(original.root))
+      return produceSourceComponentLiteralDomain(context, input.syntax(initializer), bindings);
+  }
+  const produced = original.path.length === 0 && !sourceTypeFlowTypeSyntax(ast, original.root)
+    ? context.value(original.root, bindings) : context.component(original, bindings);
+  return produced.kind !== "resolved" ? produced : { kind: "resolved", value: builder.domain(produced.value) };
 }
 
 export function createSourceLiteralDomainQueries(input: {
@@ -85,8 +148,8 @@ export function createSourceLiteralDomainQueries(input: {
     },
     syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain> {
       input.input.assertNode(node);
-      const result = input.syntaxValue(node);
-      return result.kind === "resolved" ? { kind: "resolved", value: input.builder.domain(result.value) } : result;
+      return produceSourceComponentLiteralDomain({ ast: input.ast, input: input.input, builder: input.builder,
+        value: original => input.value(original), component: original => input.syntaxValue(original.root) }, input.input.syntax(node), []);
     },
   });
 }

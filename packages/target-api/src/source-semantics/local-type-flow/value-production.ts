@@ -10,6 +10,7 @@ import { produceSourceEvidenceDetails } from "./member-production.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import { sourceScalarCreationDestination } from "./construction-slots.js";
 import type { SourceTypeFlowAnalysisContext } from "./types.js";
+import { sourceEnumDestination, sourceEnumUseRefusal, sourceEnumValueDomain } from "../enum-numeric-uses.js";
 
 export interface SourceValueProduction extends SourceSemanticProduction {
   readonly context: SourceTypeFlowAnalysisContext;
@@ -117,7 +118,10 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
       if (ast.isConstAssertion(occurrence)) return actual;
       const annotation = ast.typeNode(occurrence);
       if (annotation === undefined) throw new Error("An original type assertion requires its actual type syntax.");
-      return reader.describeSyntax(annotation, bindings);
+      const target = reader.describeSyntax(annotation, bindings);
+      if (target.kind !== "resolved") return target;
+      const admitted = sourceEnumDestination(production, actual.value, target.value, occurrence);
+      return admitted.kind !== "resolved" ? admitted : target;
     }
     if (ast.is.IsNonNullExpression(occurrence) && actual.value.type.kind === "optional") return builder.component(actual.value, { kind: "optional-value" });
     return actual;
@@ -138,6 +142,9 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
       if (expression === undefined) throw new Error("An original template span requires its actual interpolation occurrence.");
       const value = context.value(expression, bindings);
       if (value.kind !== "resolved") return value;
+      const domain = sourceEnumValueDomain(production, value.value);
+      if (domain.kind !== "resolved") return domain;
+      if (domain.value.possible.length > 0) return sourceEnumUseRefusal(production, domain.value, occurrence, true);
     }
     return scalar(builder.string(), "string");
   }
