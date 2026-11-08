@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "./token.js";
 
 export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | undefined {
   const kind = ast.kindName(node);

@@ -1,5 +1,11 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceNumericLiteralToken } from "./literal-values-model.js";
+
+export interface SourceNumericLiteralToken {
+  readonly coefficient: bigint;
+  readonly exponent: bigint;
+  readonly negative: boolean;
+  readonly decimalText: string;
+}
 
 export function sourceLiteralToken(ast: AstReader, node: Node):
   { readonly kind: "authored"; readonly text: string } | { readonly kind: "synthetic" } {
