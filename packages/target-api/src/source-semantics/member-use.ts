@@ -1,7 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../host-input/identities.js";
-import type { SourceInputCorrespondenceMember } from "../host-input/member-components.js";
-import type { SourceInputMemberUseSelection } from "../host-input/member-use.js";
+import type { SourceInputCorrespondenceMember, SourceInputMemberUseSelection } from "../host-input/member-input.js";
 import type { SourceIndexSelection } from "../source-model/member-use.js";
 import type { SourceDescriptorView, SourceMemberOrigin, SourceRefusal, SourceResult, SourceTypeEvidence,
   SourceUseDestination } from "../public/source/contracts.js";

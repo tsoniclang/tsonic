@@ -115,7 +115,7 @@ export interface SourceNodeConstructorSignature {
   readonly parameters: readonly {
     readonly parameterIndex: number;
     readonly parameterName: string;
-    readonly parameterDeclaration: Node;
+    readonly parameterDeclaration: Node | undefined;
     readonly authoredTypeNode?: Node;
     readonly value: SourceTypeEvidence;
     readonly acceptsOmission: boolean;
@@ -133,7 +133,7 @@ export interface SourceNodeNavigationFacts {
   readonly nodes: readonly Node[];
   includes(node: Node): boolean;
   callableRoles(node: Node): SourceCallableRoles;
-  enclosing(node: Node | undefined, role: SourceCallableRole, visit?: (node: Node) => boolean): Node | undefined;
+  enclosing(node: Node | undefined, role: SourceCallableRole): Node | undefined;
   nodesForFiles(files: readonly SourceFile[]): readonly Node[];
   sourceReferenceFor(node: Node | undefined): SourceNodeReference | undefined;
   referenceFor(node: Node | undefined): SourceNodeReference | undefined;
