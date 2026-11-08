@@ -1,12 +1,6 @@
-import type { AstReader, Node, ProviderVirtualDeclarationFact } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
 import type { SourceApplication, SourceDescriptorView, SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
-
-export interface SourceJsApiIdentity {
-  readonly kind: "type" | "member" | "indexer" | "call" | "construct";
-  readonly declaringName: string | undefined;
-  readonly name: string | undefined;
-  readonly declaration: Node;
-}
+import type { SourceProfileDeclarationIdentity } from "./source-profile-identity.js";
 
 export type SourceJsCollectionFacts =
   | { readonly kind: "string" }
@@ -70,17 +64,14 @@ export interface SourceJsArrayMemberEffect {
 }
 
 export interface SourceJsApiFactsInput {
-  readonly syntax: AstReader;
   readonly view: SourceDescriptorView;
   readonly assertNode: (node: Node) => void;
   readonly assertApplication: (application: SourceApplication) => void;
-  readonly profileDeclaration: (node: Node) => "js" | "shared" | undefined;
-  readonly providerDeclaration: (node: Node) => ProviderVirtualDeclarationFact | undefined;
-  readonly wellKnownSymbol: (node: Node) => string | undefined;
+  readonly profileDeclaration: (node: Node) => SourcePresence<SourceProfileDeclarationIdentity>;
 }
 
 export interface SourceJsApiFacts {
-  identity(declaration: Node): SourceJsApiIdentity | undefined;
+  identity(declaration: Node): SourceProfileDeclarationIdentity | undefined;
   member(declaration: Node): SourceJsApiMember | undefined;
   collection(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceJsCollectionFacts>>;
   arrayMemberEffect(declaration: Node): SourceJsArrayMemberEffect | undefined;
