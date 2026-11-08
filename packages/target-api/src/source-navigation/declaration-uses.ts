@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDeclarationUse } from "./types.js";
+import type { SourceNodeUse } from "../source-model/navigation.js";
 import { sourceNodesEqual } from "./identity.js";
 import { Node_Expression, sourceTransparentExpressionOperand, SpreadAssignment_Expression } from "./ast.js";
 import { isTypeSyntaxNode, sourceReferenceMeaning } from "./syntax.js";
@@ -22,7 +22,7 @@ export function sourceDeclarationUses(
   ast: AstReader,
   declaration: Node,
   references: readonly Node[],
-): readonly SourceDeclarationUse[] {
+): readonly SourceNodeUse[] {
   return Object.freeze(references.map((reference) => {
     const kind = sourceDeclarationUseKind(ast, reference);
     const role = sourceDeclarationUseRole(ast, reference);
@@ -75,7 +75,7 @@ function sourceMemberAccessForReference(
 function sourceDeclarationUseKind(
   ast: AstReader,
   reference: Node,
-): SourceDeclarationUse["kind"] {
+): SourceNodeUse["kind"] {
   if (belongsToSourceLinkage(ast, reference)) {
     return "source-linkage";
   }
@@ -112,7 +112,7 @@ function belongsToSourceLinkage(ast: AstReader, reference: Node): boolean {
 function sourceDeclarationUseRole(
   ast: AstReader,
   reference: Node,
-): Pick<SourceDeclarationUse, "role" | "throughMember"> {
+): Pick<SourceNodeUse, "role" | "throughMember"> {
   if (belongsToSourceLinkage(ast, reference)) {
     return { role: "source-linkage", throughMember: false };
   }

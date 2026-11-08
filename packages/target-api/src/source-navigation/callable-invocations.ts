@@ -1,6 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDeclarationUseSummary, SourceProgramNavigation } from "./types.js";
-import { sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
+import type { SourceNodeUseSummary, SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { Node_Initializer } from "./ast.js";
 
 const repeatedKinds: ReadonlySet<string> = new Set([
@@ -11,8 +10,8 @@ export type SourceSubtreeParticipation =
   | { readonly kind: "resolved"; readonly nodes: readonly Node[] }
   | { readonly kind: "unresolved"; readonly reason: string };
 
-type SourceLexicalFunctionNavigation = Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationSymbol" |
-  "referencesWithin" | "sourceReferenceFor" | "callableImplementation">;
+type SourceLexicalFunctionNavigation = Pick<SourceNodeNavigationFacts, "declarationUseSummary" | "referencesToDeclaration" |
+  "sourceReferenceFor" | "callableImplementation" | "includes" | "enclosing" | "callableRoles">;
 
 export interface SourceCallableInvocationReference {
   readonly referenceDeclaration: Node | undefined;
@@ -25,7 +24,7 @@ export interface SourceCallableInvocationReference {
 
 export function createSourceCallableInvocationReferenceQuery(input: {
   readonly ast: AstReader;
-  readonly navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "callableImplementation">;
+  readonly navigation: Pick<SourceNodeNavigationFacts, "sourceReferenceFor" | "callableImplementation" | "includes">;
   readonly nativeCallableFor: (binding: Node) => Node | undefined;
   readonly lexicalBindingFor: (declaration: Node) => Node | undefined;
   readonly callAliasFor: (binding: Node) => Node | undefined;
@@ -33,6 +32,8 @@ export function createSourceCallableInvocationReferenceQuery(input: {
   const selected = new Map<Node, Map<Node, SourceCallableInvocationReference>>();
   return Object.freeze({
     forTarget(callee: Node, declaration: Node): SourceCallableInvocationReference {
+      if (!input.navigation.includes(callee) || !input.navigation.includes(declaration))
+        throw new Error("Callable references require exact original nodes from the same Source view.");
       const existing = selected.get(callee)?.get(declaration);
       if (existing !== undefined) return existing;
       const referenceDeclaration = input.navigation.sourceReferenceFor(callee)?.declaration;
@@ -56,7 +57,7 @@ export function createSourceCallableInvocationReferenceQuery(input: {
 }
 
 function lexicalFunctionUseSummaries(declaration: Node, ast: AstReader,
-  navigation: SourceLexicalFunctionNavigation): readonly SourceDeclarationUseSummary[] | undefined {
+  navigation: SourceLexicalFunctionNavigation): readonly SourceNodeUseSummary[] | undefined {
   const sourceFile = ast.getSourceFile(declaration);
   if (sourceFile === undefined) return undefined;
   if (ast.is.IsArrowFunction(declaration)) {
@@ -64,39 +65,32 @@ function lexicalFunctionUseSummaries(declaration: Node, ast: AstReader,
     if (binding === undefined || !ast.is.IsVariableDeclaration(binding) ||
       ast.variableDeclarationKind(binding) !== "const" || Node_Initializer(ast, binding) !== declaration ||
       !ast.is.IsIdentifier(ast.name(binding))) return undefined;
-    const symbol = navigation.declarationSymbol(binding, sourceFile);
     const implementation = navigation.callableImplementation(declaration);
-    if (symbol === undefined || implementation.kind !== "resolved" ||
+    if (implementation.kind !== "resolved" ||
       implementation.implementation.declaration !== declaration || implementation.implementation.sourceFile !== sourceFile)
       return undefined;
-    for (const reference of navigation.referencesWithin(symbol, sourceFile)) {
+    for (const reference of navigation.referencesToDeclaration(binding)) {
       const selected = navigation.sourceReferenceFor(reference);
-      if (selected === undefined || selected.symbol !== symbol || selected.declaration !== binding) return undefined;
+      if (selected === undefined || selected.declaration !== binding || selected.sourceFile !== sourceFile) return undefined;
     }
     return Object.freeze([navigation.declarationUseSummary(binding)]);
   }
-  const symbol = navigation.declarationSymbol(declaration, sourceFile);
   const implementation = navigation.callableImplementation(declaration);
-  if (symbol === undefined || implementation.kind !== "resolved" || implementation.implementation.symbol !== symbol)
+  if (implementation.kind !== "resolved")
     return undefined;
   const declarations = new Set([declaration, implementation.implementation.declaration]);
   const owner = ast.parent(declaration);
-  let familyValid = true;
   if (owner !== undefined) ast.forEachChild(owner, candidate => {
-    if (candidate === undefined || !ast.is.IsFunctionDeclaration(candidate) ||
-        navigation.declarationSymbol(candidate, sourceFile) !== symbol) return;
+    if (candidate === undefined || !ast.is.IsFunctionDeclaration(candidate)) return;
     const selected = navigation.callableImplementation(candidate);
-    if (selected.kind !== "resolved" || selected.implementation.symbol !== symbol ||
-        selected.implementation.declaration !== implementation.implementation.declaration ||
-        selected.implementation.sourceFile !== sourceFile) familyValid = false;
-    else declarations.add(candidate);
+    if (selected.kind === "resolved" && selected.implementation.declaration === implementation.implementation.declaration &&
+        selected.implementation.sourceFile === sourceFile) declarations.add(candidate);
   });
-  if (!familyValid) return undefined;
-  for (const reference of navigation.referencesWithin(symbol, sourceFile)) {
+  for (const reference of [...declarations].flatMap(original => navigation.referencesToDeclaration(original))) {
     const selected = navigation.sourceReferenceFor(reference);
-    if (selected === undefined || selected.symbol !== symbol) return undefined;
+    if (selected === undefined) return undefined;
     const candidate = navigation.callableImplementation(selected.declaration);
-    if (candidate.kind !== "resolved" || candidate.implementation.symbol !== symbol ||
+    if (candidate.kind !== "resolved" ||
       candidate.implementation.declaration !== implementation.implementation.declaration) return undefined;
     declarations.add(selected.declaration);
   }
@@ -149,7 +143,7 @@ export function sourceLexicalFunctionIsUnused(
   navigation: SourceLexicalFunctionNavigation,
 ): boolean {
   if (!ast.is.IsFunctionDeclaration(declaration) ||
-    sourceEnclosing(ast, declaration, "deferred") === undefined) return false;
+    navigation.enclosing(declaration, "deferred") === undefined) return false;
   const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
   return summaries !== undefined && summaries.every(summary => !summary.exported && !summary.bindingWritten &&
     !summary.hasUnclassifiedValueUse && summary.uses.every(use => use.kind === "type-only"));
@@ -163,6 +157,7 @@ export function createSourceSingleInvocationQuery(
   return declaration => select(declaration, new Set());
 
   function select(declaration: Node, active: Set<Node>): boolean {
+    if (!navigation.includes(declaration)) throw new Error("A callable-use query requires its exact original Source declaration.");
     const previous = memo.get(declaration);
     if (previous !== undefined) return previous;
     if (active.has(declaration) || active.size >= 128 ||
@@ -175,7 +170,7 @@ export function createSourceSingleInvocationQuery(
   }
 
   function classify(declaration: Node, active: Set<Node>): boolean {
-    const owner = sourceEnclosing(ast, declaration, "deferred");
+    const owner = navigation.enclosing(declaration, "deferred");
     if (owner === undefined) return false;
     const summaries = lexicalFunctionUseSummaries(declaration, ast, navigation);
     if (summaries === undefined || summaries.some(summary => summary.exported || summary.bindingWritten || summary.hasUnclassifiedValueUse))
@@ -190,8 +185,8 @@ export function createSourceSingleInvocationQuery(
       if (current === owner) return true;
       const kind = ast.kindName(current);
       if (repeatedKinds.has(kind)) return false;
-      if (sourceCallableRoles(ast, current).body) return (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) &&
-        sourceEnclosing(ast, current, "deferred") === owner && select(current, active);
+      if (navigation.callableRoles(current).body) return (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) &&
+        navigation.enclosing(current, "deferred") === owner && select(current, active);
     }
     return false;
   }

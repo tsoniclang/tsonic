@@ -1,25 +1,20 @@
-import type { AstReader, Node, ResolvedWellKnownSymbolKind } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import { sourceLiteralUnitKey } from "../source-model/literals/key.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
-import type { SourcePresence, SourcePropertyName, SourceResult } from "../public/source/contracts.js";
+import type { SourcePropertyNameFacts } from "../host-input/property-name-input.js";
+import type { SourcePropertyName, SourceResult } from "../public/source/contracts.js";
 
-export interface SourcePropertyNameInput {
+export interface SourcePropertyNameInput extends SourcePropertyNameFacts {
   readonly ast: AstReader;
   readonly assertNode: (node: Node) => void;
   readonly literalDomain: (node: Node) => SourceProductionResult<SourceLiteralDomain>;
   readonly syntaxDomain: (node: Node) => SourceProductionResult<SourceLiteralDomain>;
-  readonly selectedSymbol: (node: Node) => SourcePresence<{
-    readonly declaration: Node;
-    readonly wellKnown: SourcePresence<ResolvedWellKnownSymbolKind>;
-  }>;
-  readonly eligible: (node: Node) => SourceResult<
-    { readonly kind: "eligible" } | { readonly kind: "unproven"; readonly reason: string }>;
 }
 
 export function createSourcePropertyNameQuery(input: SourcePropertyNameInput):
   (node: Node) => SourceProductionResult<SourcePropertyName> {
-  const { ast, assertNode, literalDomain, syntaxDomain, selectedSymbol, eligible } = input;
+  const { ast, assertNode, literalDomain, syntaxDomain, selectedSymbol, selectedName, eligible } = input;
   const retained = new WeakMap<Node, SourceResult<SourcePropertyName>>();
   const unproven = (reason: string): SourceResult<SourcePropertyName> => Object.freeze({ kind: "resolved",
     value: Object.freeze({ kind: "unproven", reason }) });
@@ -47,6 +42,11 @@ export function createSourcePropertyNameQuery(input: SourcePropertyNameInput):
     if (domain.value.kind !== "finite" || domain.value.values.length !== 1)
       return unproven("A static property name requires one exact finite literal or original symbol identity.");
     const selected = sourceLiteralUnitKey(domain.value.values[0]!);
+    if (selected?.kind === "name") {
+      const factual = selectedName(node);
+      if (factual.kind === "present" && !factual.value.numericIndex && factual.value.name !== selected.name)
+        return unproven(`Property key ${selected.name} has a different original selected member name ${factual.value.name}.`);
+    }
     return selected === undefined ? unproven("A static property name requires a string, finite number or original symbol.")
       : Object.freeze({ kind: "resolved", value: selected });
   };

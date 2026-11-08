@@ -1,60 +1,33 @@
-export * from "./navigation.js";
 export * from "./ast.js";
 export * from "./class-members.js";
 export * from "./checked-casts.js";
 export * from "./kinds.js";
 export * from "./node-access.js";
-export type {
-  SourceBindingWrite,
-  SourceBindingWriteValue,
-  SourceClassConstructorParameter,
-  SourceClassConstructorResult,
-  SourceClassConstructorSignature,
-  SourceCountedLoop,
-  SourceCallableImplementationResult,
-  SourceDeclarationReference,
-  SourceDeclarationUse,
-  SourceDeclarationUseSummary,
-  SourceExpressionEffects,
-  SourceExpressionValueFlowSummary,
-  SourceDeclaredHeritageEdge,
-  SourceDeclaredHeritageResult,
-  SourceHeritagePathResult,
-  SourceProgramNavigation,
-  SourceParameterUseSummary,
-  SourceProjectMemberDispatch,
-  SourceProjectMemberContractsResult,
-  SourceProjectMemberImplementationResult,
-  SourceProjectModuleDependency,
-  SourceProjectModuleExport,
-  SourceProjectModuleSpecifierResolution,
-  SourceProjectReference,
-  SourceReferenceIndexStatistics,
-  SourceValueEscapeKind,
-} from "./types.js";
+export type * from "../source-model/navigation.js";
+export { createSourceNodeInventory, createSourceSyntaxDomain } from "./node-inventory.js";
 export { sourceCallableValueParameters } from "./callable-parameters.js";
 export {
   projectSourceNodeIdentity,
   sourceFileIdentity,
   sourceNodeIdentity,
   sourceNodesEqual,
-  sourceSymbolIdentity,
-  sourceSymbolsEqual,
 } from "./identity.js";
-export { sourceBindingWriteAtReference } from "./references-usage.js";
+export { sourceBindingWriteAtReference, sourceNodeIsWithin } from "./references-usage.js";
 export { sourceAnnotationHint } from "./annotation-hints.js";
 export type { SourceAnnotationHintBindings } from "./annotation-hints.js";
-export { referenceQueryNode } from "./syntax.js";
+export { referenceQueryNode, sourceReferenceMeaning, isTypeSyntaxNode } from "./syntax.js";
+export type { SourceReferenceMeaning } from "./syntax.js";
 export { sourceAbsenceUse } from "./absence-use.js";
 export type { SourceAbsenceUse } from "./absence-use.js";
-export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary } from "./declaration-use-summary.js";
-export { sourceConstructorParametersMatch } from "./constructors.js";
+export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary, sourceParameterUseSummary } from "./declaration-use-summary.js";
+export { sourceDeclarationUses } from "./declaration-uses.js";
 export { sourceConstructionExpression, sourceSuperConstructor, sourceInstanceInitializers } from "./class-initialization.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { sourceReceiverBoundary, sourceReceiverOwner } from "./receiver-owner.js";
 export type { SourceReceiverBoundary } from "./receiver-owner.js";
 export { sourceCallableDefinitionIsDiscarded, sourceConstructValueInputs,
-  sourceExpressionValueInputs, sourceImmediatelyAwaitedLocal } from "./expression-use.js";
+  sourceExpressionValueInputs, sourceImmediatelyAwaitedLocal, sourceExpressionResultDisposition,
+  sourceExpressionResultUse, sourceExpressionSelectsOperandValue } from "./expression-use.js";
 export type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 export type { SourceValueInput, SourceValueInputSlot } from "./expression-use.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
@@ -65,7 +38,8 @@ export { sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 export { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused,
   sourceNodesOutsideErasedSubtrees, createSourceCallableInvocationReferenceQuery } from "./callable-invocations.js";
 export type { SourceSubtreeParticipation, SourceCallableInvocationReference } from "./callable-invocations.js";
-export { sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
+export { sourceCallableRoles, sourceEnclosing, createSourceEnclosingQuery } from "./callable-boundaries.js";
+export { sourceExpressionValueFlow } from "./value-flow.js";
 export type { SourceCallableRole, SourceCallableRoles } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";

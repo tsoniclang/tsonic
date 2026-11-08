@@ -1,13 +1,13 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
 import { sourceTransparentExpressionOperand } from "./ast.js";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations } from "./ast.js";
 import { sourceEnclosing } from "./callable-boundaries.js";
 
 export function sourceImmediatelyAwaitedLocal(ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUseSummary" | "declarationUses" | "expressionResultDisposition">, call: Node): boolean {
+  navigation: Pick<SourceNodeNavigationFacts, "declarationUseSummary" | "declarationUses" | "expressionResultDisposition">, call: Node): boolean {
   const disposition = navigation.expressionResultDisposition(call);
   const declaration = disposition.use;
   if (disposition.kind !== "stored" || !ast.is.IsVariableDeclaration(declaration)) return false;
@@ -176,7 +176,7 @@ export function sourceExpressionResultUse(ast: AstReader, expression: Node): "co
 export function sourceCallableDefinitionIsDiscarded(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceFiles" | "expressionResultDisposition">,
+  navigation: Pick<SourceNodeNavigationFacts, "sourceFiles" | "expressionResultDisposition">,
 ): boolean {
   if (navigation === undefined) throw new Error("Callable creation demand requires its checked source navigation.");
   const visited = new Set<Node>();

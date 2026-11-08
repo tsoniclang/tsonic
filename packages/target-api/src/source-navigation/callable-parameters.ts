@@ -1,33 +1,30 @@
-import type { AstReader, Node, Signature } from "@tsonic/tsts";
-import type { SourceNavigationFileQueries } from "./query-context.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceApplication, SourcePresence, SourceResult } from "../public/source/contracts.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 
-export function sourceCallableValueParameters(ast: AstReader, declaration: Node,
-  semantics: Pick<SourceNavigationFileQueries, "types" | "declarations">,
-  context?: { readonly kind: "declaration" } |
-    { readonly kind: "selected-invocation"; readonly signature: Signature }): readonly Node[] | undefined {
-  const signature = context?.kind === "selected-invocation" ? context.signature
-    : context?.kind === "declaration" ? semantics.declarations.declarationSignature(declaration)
-      : sourceCallableDeclarationSignature(ast, declaration, semantics);
-  if (signature === undefined) return undefined;
+export function sourceCallableValueParameters(source: SourceNavigationQueryContext, declaration: Node,
+  application: SourceApplication | undefined): SourceResult<SourcePresence<readonly Node[]>> {
+  const { ast } = source;
+  const navigation = source.facts.navigation;
+  if (!navigation.includes(declaration)) throw new Error("Source callable parameters require their original declaration.");
+  const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
+  let owner = declaration;
+  if (application !== undefined) {
+    const original = source.facts.applications.application(application.identity.invocation);
+    if (original.kind === "refused") return original;
+    if (original.value !== application) throw new Error("Selected callable parameters require their exact original application.");
+    const selected = application.identity.signature.declaration;
+    if (selected === undefined) return none;
+    owner = selected;
+  }
+  if (!navigation.callableRoles(owner).signature) return none;
   const parameters: Node[] = [];
   const seen = new Set<Node>();
-  for (const symbol of semantics.declarations.signatureParameters(signature)) {
-    const parameter = semantics.declarations.primarySymbolDeclaration(symbol);
-    if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter)) return undefined;
-    if (seen.has(parameter)) return undefined;
+  for (const parameter of ast.parameters(owner)) {
+    if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter) || seen.has(parameter)) return none;
+    if (!navigation.includes(parameter)) throw new Error("A callable parameter requires its exact original identity.");
     seen.add(parameter);
     parameters.push(parameter);
   }
-  return Object.freeze(parameters);
-}
-
-function sourceCallableDeclarationSignature(ast: AstReader, declaration: Node,
-  semantics: Pick<SourceNavigationFileQueries, "types" | "declarations">): Signature | undefined {
-  const authored = semantics.declarations.declarationSignature(declaration);
-  if (authored !== undefined) return authored;
-  const construction = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
-  const type = construction ? semantics.declarations.declaredValueType(declaration) : semantics.types.expressionType(declaration);
-  if (type === undefined) return undefined;
-  const signatures = construction ? semantics.types.constructSignatures(type) : semantics.types.callSignatures(type);
-  return signatures.length === 1 ? signatures[0] : undefined;
+  return Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "present", value: Object.freeze(parameters) }) });
 }

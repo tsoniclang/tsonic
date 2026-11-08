@@ -1,12 +1,12 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceBindingScope } from "./lexical-captures.js";
 import { sourceCallableRoles } from "./callable-boundaries.js";
 
 export function sourceMayReadBeforeInitialization(
   declaration: Node,
   ast: AstReader,
-  navigation: SourceProgramNavigation,
+  navigation: SourceNodeNavigationFacts,
 ): boolean {
   const file = ast.getSourceFile(declaration);
   const boundary = ast.authoredRange(declaration);

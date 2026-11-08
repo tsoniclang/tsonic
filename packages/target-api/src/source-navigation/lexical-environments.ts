@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
+import type { SourceNodeUse, SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, type SourceLexicalCaptureSelection, type SourceNodeDomain } from "./lexical-captures.js";
 import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 import { failTargetCompilerResourceLimit } from "../artifacts.js";
@@ -11,9 +11,9 @@ export interface SourceLexicalEnvironment extends SourceLexicalCaptureSelection 
 
 export function sourceLexicalEnvironment(
   scope: Node, roots: readonly Node[], ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary">,
+  navigation: Pick<SourceNodeNavigationFacts, "sourceReferenceFor" | "declarationUseSummary">,
   domain: SourceNodeDomain,
-  isRuntimeUse: (use: SourceDeclarationUse, declaration: Node) => boolean = () => true,
+  isRuntimeUse: (use: SourceNodeUse, declaration: Node) => boolean = () => true,
   visit?: (node?: Node) => void,
 ): SourceLexicalEnvironment | { readonly kind: "unresolved"; readonly reason: string } {
   if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
@@ -26,7 +26,7 @@ export function sourceLexicalEnvironment(
   const selfReferences = new Set<Node>();
   const callableRoots = new Set<Node>();
   const pending: { readonly owner: Node; readonly roots: readonly Node[] }[] = [{ owner: scope, roots }];
-  const useKinds = new Map<Node, ReadonlyMap<Node, SourceDeclarationUse>>();
+  const useKinds = new Map<Node, ReadonlyMap<Node, SourceNodeUse>>();
   const evaluated = new Set<Node>();
   let steps = 0;
   let evaluationSteps = 0;
@@ -129,10 +129,10 @@ export function sourceLexicalEnvironment(
     return false;
   }
 
-  function usesFor(declaration: Node): ReadonlyMap<Node, SourceDeclarationUse> | undefined {
+  function usesFor(declaration: Node): ReadonlyMap<Node, SourceNodeUse> | undefined {
     const existing = useKinds.get(declaration);
     if (existing !== undefined) return existing;
-    const indexed = new Map<Node, SourceDeclarationUse>();
+    const indexed = new Map<Node, SourceNodeUse>();
     for (const use of navigation.declarationUseSummary(declaration).uses) {
       if (!includes(use.reference)) continue;
       visit?.(use.reference);

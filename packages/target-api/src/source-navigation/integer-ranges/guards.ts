@@ -1,11 +1,11 @@
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "../types.js";
+import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { Node_Expression } from "../ast.js";
 import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
 
 export function sourceIntegerIsNonnegative(input: {
   readonly ast: AstReader;
-  readonly navigation: SourceProgramNavigation;
+  readonly navigation: SourceNodeNavigationFacts;
   readonly sourceFacts?: ReadonlySourceFactResolver;
 }, expression: Node): boolean {
   const { ast, navigation } = input;

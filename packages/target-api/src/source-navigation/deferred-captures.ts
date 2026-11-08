@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceBindingScope } from "./lexical-captures.js";
 import { sourceCallableValueExpression } from "./callable-values.js";
 import { sourceBindingWriteAtReference } from "./references-usage.js";
@@ -12,7 +12,7 @@ import { sourceCallableRoles } from "./callable-boundaries.js";
 export function sourceBindingCapturedBeforeInitialization(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUses">,
+  navigation: Pick<SourceNodeNavigationFacts, "declarationUses">,
 ): boolean {
   if (!ast.is.IsVariableDeclaration(declaration)) return false;
   const initializer = sourceCallableValueExpression(ast, ast.as.AsVariableDeclaration(declaration)?.Initializer);
@@ -31,7 +31,7 @@ export function sourceBindingCapturedBeforeInitialization(
 export function sourceBindingCapturedBeforeFirstWrite(
   declaration: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUses">,
+  navigation: Pick<SourceNodeNavigationFacts, "declarationUses">,
 ): boolean {
   if (!ast.is.IsVariableDeclaration(declaration) || ast.as.AsVariableDeclaration(declaration)?.Initializer !== undefined) return false;
   if (initializedByItsStatement(declaration, ast)) return false;
@@ -55,7 +55,7 @@ function capturedBefore(
   initializer: Node | undefined,
   boundaryEnd: number,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUses">,
+  navigation: Pick<SourceNodeNavigationFacts, "declarationUses">,
 ): boolean {
   const pending: { readonly declaration: Node; readonly captured: boolean }[] = [{ declaration, captured: false }];
   const visited = new Set<Node>();
@@ -104,7 +104,7 @@ function firstDirectWriteEnd(
   declaration: Node,
   scope: Node,
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "declarationUses">,
+  navigation: Pick<SourceNodeNavigationFacts, "declarationUses">,
 ): number | undefined {
   let first: { readonly start: number; readonly end: number } | undefined;
   for (const use of navigation.declarationUses(declaration)) {

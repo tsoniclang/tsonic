@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { isTypeSyntaxNode } from "./syntax.js";
 import { sourceReceiverOwner } from "./receiver-owner.js";
 import { sourceCallableRoles } from "./callable-boundaries.js";
@@ -21,7 +21,7 @@ export function sourceLexicalCaptures(
   scope: Node,
   roots: readonly Node[],
   ast: AstReader,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  navigation: Pick<SourceNodeNavigationFacts, "sourceReferenceFor">,
   domain: SourceNodeDomain,
   step: (node?: Node) => void = () => {},
 ): SourceLexicalCaptureSelection {

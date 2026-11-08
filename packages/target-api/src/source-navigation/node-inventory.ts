@@ -1,5 +1,4 @@
-import type { AstReader, CheckedSourceProgram, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 
 export function createSourceSyntaxDomain(ast: Pick<AstReader, "getSourceFile" | "parent" | "forEachChild">, owner: Node): (node: Node) => boolean {
   const file = ast.getSourceFile(owner);
@@ -37,9 +36,10 @@ export function createSourceSyntaxDomain(ast: Pick<AstReader, "getSourceFile" | 
 }
 
 export function createSourceNodeInventory(
-  source: Pick<CheckedSourceProgram, "ast" | "containsSourceFile">,
+  source: { readonly ast: AstReader; readonly containsSourceFile: (file: SourceFile) => boolean },
   sourceFiles: readonly SourceFile[],
-): Pick<SourceProgramNavigation, "nodes" | "nodesForFiles"> & { readonly contains: (node: Node) => boolean } {
+): { readonly nodes: readonly Node[]; readonly nodesForFiles: (files: readonly SourceFile[]) => readonly Node[];
+  readonly contains: (node: Node) => boolean } {
   const defaultFiles = Object.freeze([...sourceFiles]);
   const byFile = new WeakMap<SourceFile, {
     readonly nodes: readonly Node[];
