@@ -17,7 +17,7 @@ export function createSourceStorageContextLocations(source: SourceStorageProgram
       if (source.ast.is.IsObjectLiteralExpression(subject.node) || source.ast.is.IsArrayLiteralExpression(subject.node) ||
         sourceStorageObjectRestOwner(subject.node, source.ast) !== undefined ||
         source.ast.is.IsNewExpression(subject.node) && effect?.kind !== "result-alias" ||
-        effect?.resultAllocation === subject.node) return "allocation";
+        effect?.kind === "result-allocation" && effect.allocation === subject.node) return "allocation";
     }
     for (const store of storesFor(subject) ?? []) {
       if (!budget.step()) return undefined;

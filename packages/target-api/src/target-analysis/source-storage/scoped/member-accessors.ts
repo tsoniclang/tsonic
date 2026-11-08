@@ -1,4 +1,4 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import { sourceStorageSelectedInputSlots, type SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import type { Node } from "@tsonic/tsts";
 
@@ -13,6 +13,7 @@ import type { createSourceStorageMemberFlow, createSourceStorageMemberImplementa
 import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 import { sourceStorageAccessDeclarations } from "../model/components.js";
 import type { SourceStorageAccessorInvocation } from "../graph/scoped-model.js";
+import type { SourceMemberSubject } from "../../../source-semantics/member-inventory.js";
 
 interface SourceStorageAccessorQueries {
   readonly subject: SourceStorageSubjectQuery;
@@ -27,7 +28,7 @@ interface SourceStorageAccessorQueries {
 
 export function createSourceStorageMemberAccessors(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: SourceStorageAccessorQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const noInputs: ReadonlySet<SourceStorageSubject> = new Set();
   const ancestors = createSourceStorageAncestorQuery(budget, subject =>
     subject.kind === "member" ? queries.incomingFor(subject) : noInputs);
@@ -59,11 +60,22 @@ export function createSourceStorageMemberAccessors(source: SourceStorageProgram,
         continue;
       }
       if (read || !ast.is.IsGetAccessorDeclaration(accessor)) continue;
-      const file = ast.getSourceFile(accessor);
-      if (file === undefined || !semantics.includes(file)) continue;
-      const symbol = source.facts.navigation.declarationSymbol(accessor, file);
-      if (symbol === undefined) continue;
-      for (const candidate of semantics.forFile(file).declarations.symbolDeclarations(symbol)) {
+      const owner = ast.parent(accessor);
+      if (owner === undefined) {
+        budget.reject("A writable accessor requires its exact original member owner."); return;
+      }
+      let member: SourceMemberSubject;
+      if (ast.is.IsObjectLiteralExpression(owner)) member = { kind: "construction", occurrence: owner };
+      else {
+        const declared = sourceStorageValue(source.analysis.settle(source.analysis.declared(owner, Object.freeze([]))));
+        member = { kind: "evidence", value: declared.type };
+      }
+      const selected = sourceStorageValue(source.analysis.settle(source.analysis.objects.correspondingDeclarations(
+        member, member, "source", accessor)));
+      if (selected.kind !== "present" || selected.value.kind !== "present") {
+        budget.reject("A writable accessor requires its complete original member correspondence."); return;
+      }
+      for (const candidate of selected.value.source.setters) {
         if (!budget.step()) return;
         if (ast.is.IsSetAccessorDeclaration(candidate)) yield candidate;
       }
@@ -71,14 +83,14 @@ export function createSourceStorageMemberAccessors(source: SourceStorageProgram,
   };
   const operations = function* (): Generator<SourceStorageReconciliation> {
     for (const access of sites) yield once => {
-      const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
-      const operation = property ?? (ast.is.IsElementAccessExpression(access) ? semantics.forNode(access).operations.elementAccess(access) : undefined);
+      const operation = ast.is.IsPropertyAccessExpression(access) || ast.is.IsElementAccessExpression(access)
+        ? sourceStorageValue(source.facts.objects.use(access)) : undefined;
       const restOwner = sourceStorageObjectRestOwner(access, ast);
       const bindingPattern = ast.is.IsBindingElement(access) ? ast.parent(access) : undefined;
       const bindingOwner = bindingPattern === undefined || !ast.is.IsObjectBindingPattern(bindingPattern) ? undefined : ast.parent(bindingPattern);
       const copying = ast.is.IsSpreadAssignment(access) || restOwner !== undefined;
       const receiver = ast.is.IsSpreadAssignment(access) ? SpreadAssignment_Expression(ast, access)
-        : bindingOwner === undefined ? operation?.receiver.expression : Node_Initializer(ast, bindingOwner) ?? bindingOwner;
+        : bindingOwner === undefined ? operation?.receiver.occurrence : Node_Initializer(ast, bindingOwner) ?? bindingOwner;
       if (receiver === undefined) return;
       const selected: { readonly declaration: Node; readonly read: boolean }[] = [];
       if (copying || bindingOwner !== undefined) {

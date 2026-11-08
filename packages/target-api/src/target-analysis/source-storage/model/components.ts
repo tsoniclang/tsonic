@@ -1,8 +1,8 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceLiteralUnitKey, type SourceLiteralKey } from "../../../source-model/literals/key.js";
 import { Node_Expression } from "../../../source-navigation/ast.js";
-import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalSignature } from "./callable-heads.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsMemberProjection } from "./subjects.js";
 import type { SourceStorageProgram } from "./program.js";
@@ -177,14 +177,6 @@ export function* sourceStorageComponents(value: SourceTypeEvidence, source: Sour
 
 export function sourceStorageArrayLiteralType(source: SourceStorageProgram, node: Node): SourceTypeEvidence {
   return sourceStorageValue(source.facts.values.type(node));
-}
-
-export function sourceStorageOriginalSignature(source: SourceStorageProgram, declaration: Node, role: "body" | "signature"):
-  { readonly value: SourceTypeEvidence; readonly signature: SourceTypeDescriptorSignature } | undefined {
-  const head = sourceStorageValue(source.analysis.settle(source.analysis.callableHead(declaration, role, Object.freeze([]))));
-  const selected = sourceStorageValue(sourceCallableSignatures(source, head, source.work))
-    .filter(original => original.signature.identity.declaration === declaration);
-  return selected.length === 1 ? selected[0] : undefined;
 }
 
 export function sourceStorageSubjectType(source: SourceStorageProgram, value: SourceStorageSubject,

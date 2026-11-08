@@ -1,8 +1,7 @@
 import type { SourceStorageProgram } from "./program.js";
-import { sourceStorageValue } from "./program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageOriginalSignature } from "./callable-heads.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 
 export function sourceStorageIsMemberProjection(
@@ -23,8 +22,9 @@ export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: 
   if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node)) return undefined;
   const owner = ast.parent(subject.node);
   if (owner === undefined || !source.facts.navigation.includes(owner)) return undefined;
-  const parameters = sourceStorageValue(sourceCallableValueParameters(source, owner, undefined));
-  return parameters.kind === "present" && parameters.value.includes(subject.node) ? owner : undefined;
+  const head = sourceStorageOriginalSignature(source, owner,
+    source.facts.navigation.callableRoles(owner).body ? "body" : "signature");
+  return head?.signature.parameters.some(parameter => parameter.declaration === subject.node) ? owner : undefined;
 }
 
 export function sourceStorageObjectRestOwner(node: Node, ast: AstReader): Node | undefined {

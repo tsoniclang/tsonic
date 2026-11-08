@@ -6,7 +6,7 @@ import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorage
 import type { SourceStorageSubjectQuery } from "./subjects.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
-import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
+import type { SourceNodeWriteValue } from "../../../source-model/navigation.js";
 
 export interface SourceStorageWriteProjection {
   readonly subjects: readonly SourceStorageSubject[];
@@ -161,7 +161,7 @@ export function createSourceStorageProjectionFlow(
     }
     return value;
   };
-  const writeValue = (input: SourceBindingWriteValue): SourceStorageWriteProjection | undefined => {
+  const writeValue = (input: SourceNodeWriteValue): SourceStorageWriteProjection | undefined => {
     const original = subjectFor(input.expression);
     if (original === undefined) return undefined;
     let selected: readonly SourceStorageSubject[] = [original];

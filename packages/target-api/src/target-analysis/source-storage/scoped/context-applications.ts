@@ -1,6 +1,6 @@
 import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import { sourceStorageOriginalSignature } from "../model/components.js";
+import { sourceStorageOriginalSignature } from "../model/callable-heads.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubjectQuery } from "../model/subjects.js";
