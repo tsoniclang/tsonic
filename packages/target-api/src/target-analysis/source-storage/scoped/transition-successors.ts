@@ -1,17 +1,19 @@
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+
 import type { SourceStorageTerm, SourceStorageReduction } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { createSourceStorageExecutionContext } from "./execution-context.js";
 
 interface SourceStorageTransitionSuccessorContext extends Pick<ReturnType<typeof createSourceStorageExecutionContext>, "instanceCaptures"> {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly scopes: SourceStorageScopes;
   readonly absent: Extract<SourceStorageReduction, { readonly kind: "replace" }>;
 }
 
 export function createSourceStorageTransitionSuccessors(context: SourceStorageTransitionSuccessorContext) {
   const { source, scopes, absent, instanceCaptures } = context;
-  const { ast, navigation } = source;
+  const { ast } = source;
+  const { navigation } = source.facts;
   return (term: Extract<SourceStorageTerm, { readonly kind: "transition" }>): SourceStorageReduction | undefined => {
     if (term.condition.kind === "input-frontier") return { kind: "replace", terms: [term.condition] };
     if (term.condition.kind !== "leaf") return { kind: "project", inputs: [term.condition], select: condition =>

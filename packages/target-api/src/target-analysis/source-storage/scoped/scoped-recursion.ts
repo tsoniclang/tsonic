@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { targetStronglyConnectedComponents } from "../../graph-components.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -18,7 +19,7 @@ interface SourceStorageIncomingCallSite {
 
 const noSites: readonly SourceStorageIncomingCallSite[] = Object.freeze([]);
 
-export function createSourceStorageScopedRecursion(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopedRecursion(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery) {
   const rows = budget.createRows();
   let index: { readonly incoming: ReadonlyMap<Node, readonly SourceStorageIncomingCallSite[]>;

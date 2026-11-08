@@ -1,12 +1,14 @@
 import type { Node } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo } from "../../../source-semantics/index.js";
+import type { SourceApplication } from "../../../public/source/contracts.js";
+import type { SourceJsCallbackEffect } from "../../source-profile.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageCallEffect, SourceStorageEffects } from "../model/types.js";
+import type { SourceStorageCallEffect } from "../model/types.js";
 
-export function snapshotSourceStorageCallbackEffects(value: unknown, selected: ResolvedSourceCallInfo,
-  budget: SourceStorageBudget): ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>> {
-  if (!Array.isArray(value) || selected.sourceSelectedSignatureKind !== "resolved") return undefined;
-  const effects: NonNullable<ReturnType<NonNullable<SourceStorageEffects["callbackEntries"]>>>[number][] = [];
+export function snapshotSourceStorageCallbackEffects(value: unknown, selected: SourceApplication,
+  budget: SourceStorageBudget): readonly SourceJsCallbackEffect[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const effects: SourceJsCallbackEffect[] = [];
   const positions = new Set<number>();
   for (let index = 0; index < value.length; index += 1) {
     if (!budget.row() || !budget.step()) return undefined;
@@ -21,7 +23,7 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
     const rejection: unknown = fields.rejection?.value;
     if (typeof parameterIndex !== "number" || !Number.isSafeInteger(parameterIndex) || parameterIndex < 0 ||
       positions.has(parameterIndex) || timing !== "synchronous" && timing !== "deferred" ||
-      !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === parameterIndex) ||
+      !selected.arguments.some(argument => argument.parameter.index === parameterIndex) ||
       rejection !== undefined && (typeof rejection !== "number" || !Number.isSafeInteger(rejection) || rejection < 0)) return undefined;
     positions.add(parameterIndex);
     const supplied: unknown = fields.inputs?.value;
@@ -45,7 +47,7 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
           from !== "receiver-element" && from !== "argument-element" && from !== "receiver-rejection" ||
           from !== "argument-element" && sourceParameterIndex !== undefined ||
           from === "argument-element" && (typeof sourceParameterIndex !== "number" || !Number.isSafeInteger(sourceParameterIndex) ||
-            !selected.sourceSelectedSignatureParameters.some(parameter => parameter.parameterIndex === sourceParameterIndex))) return undefined;
+            !selected.arguments.some(argument => argument.parameter.index === sourceParameterIndex))) return undefined;
         parameters.add(input);
         inputs.push(Object.freeze({ parameterIndex: input, from,
           ...(from === "argument-element" ? { sourceParameterIndex: sourceParameterIndex as number } : {}) }));
@@ -59,7 +61,7 @@ export function snapshotSourceStorageCallbackEffects(value: unknown, selected: R
 
 export function snapshotSourceStorageCallEffect(
   value: unknown,
-  selected: ResolvedSourceCallInfo,
+  selected: SourceApplication,
   budget: SourceStorageBudget,
 ): SourceStorageCallEffect | undefined {
   const reject = (): undefined => {
@@ -68,37 +70,36 @@ export function snapshotSourceStorageCallEffect(
   };
   if (!budget.row() || typeof value !== "object" || value === null) return reject();
   const keys = Reflect.ownKeys(value);
-  if (keys.some(key => key !== "resultAlias" && key !== "resultAllocation" && key !== "resumeReceiver")) return reject();
   const descriptors = Object.getOwnPropertyDescriptors(value);
   if (Object.values(descriptors).some(descriptor => !("value" in descriptor))) return reject();
-  const alias: unknown = descriptors.resultAlias?.value;
-  const allocation: unknown = descriptors.resultAllocation?.value;
-  const resumeReceiver: unknown = descriptors.resumeReceiver?.value;
-  if (resumeReceiver !== undefined && (resumeReceiver !== true || selected.sourceReceiver === undefined ||
-    selected.sourceSelectedSignatureKind !== "resolved")) return reject();
-  if (allocation !== undefined && (alias !== undefined || allocation !== selected.call || selected.sourceSelectedSignatureKind !== "resolved")) return reject();
+  const kind: unknown = descriptors.kind?.value;
+  if (kind === "no-result-storage" || kind === "receiver-resume") {
+    if (keys.length !== 1 || kind === "receiver-resume" && selected.receiver.kind !== "value") return reject();
+    return Object.freeze({ kind });
+  }
+  if (kind === "result-allocation") {
+    if (keys.length !== 2 || !keys.includes("allocation") || descriptors.allocation?.value !== selected.identity.invocation) return reject();
+    return Object.freeze({ kind, allocation: selected.identity.invocation });
+  }
+  if (kind !== "result-alias" || keys.length !== 2 || !keys.includes("argument")) return reject();
+  const alias: unknown = descriptors.argument?.value;
   const bindingCounts = new Map<number, { count: number; scalar: boolean }>();
-  for (const binding of selected.sourceArgumentBindings) {
+  for (const binding of selected.arguments) {
     if (!budget.step()) return undefined;
     const previous = bindingCounts.get(binding.sourceArgumentIndex);
     bindingCounts.set(binding.sourceArgumentIndex, {
       count: (previous?.count ?? 0) + 1,
-      scalar: binding.sourceForm === "value" && binding.sourceParameterForm === "parameter",
+      scalar: binding.sourceForm === "value" && binding.parameter.form === "parameter",
     });
   }
-  const admitted = new Map<Node, number>();
+  const admitted = new Map<unknown, number>();
   const admit = (node: Node): void => { admitted.set(node, (admitted.get(node) ?? 0) + 1); };
   for (const [argumentIndex, argument] of selected.sourceArguments.entries()) {
     if (!budget.step()) return undefined;
     const binding = bindingCounts.get(argumentIndex);
-    if (binding?.count === 1 && binding.scalar) admit(argument.expression);
+    if (binding?.count === 1 && binding.scalar) admit(sourceStorageValue(argument.operand).occurrence);
   }
-  if (selected.sourceReceiver !== undefined) admit(selected.sourceReceiver.expression);
-  const input = (node: unknown): node is Node => admitted.get(node as Node) === 1;
-  if (alias !== undefined && !input(alias)) return reject();
-  return Object.freeze({
-    ...(alias === undefined ? {} : { resultAlias: alias as Node }),
-    ...(allocation === undefined ? {} : { resultAllocation: allocation as Node }),
-    ...(resumeReceiver === undefined ? {} : { resumeReceiver }),
-  });
+  if (selected.receiver.kind === "value") admit(selected.receiver.occurrence);
+  const input = (node: unknown): node is Node => admitted.get(node) === 1;
+  return input(alias) ? Object.freeze({ kind, argument: alias }) : reject();
 }

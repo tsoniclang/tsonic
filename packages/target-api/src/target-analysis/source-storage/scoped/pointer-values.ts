@@ -1,6 +1,8 @@
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { Node } from "@tsonic/tsts";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection } from "../model/subjects.js";
 import type { SourceStorageReference, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageOperation } from "../graph/scoped-model.js";
@@ -20,7 +22,7 @@ interface SourceStoragePointerQueries {
   creatorScope(node: SourceStorageReference["subject"]["node"], scope: SourceStorageScope): SourceStorageScope;
 }
 
-export function createSourceStoragePointerValues(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStoragePointerValues(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerQueries) {
   const stores: SourceStorageStore[] = [];
   for (const invocation of transport.invocations) {
@@ -50,7 +52,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
     scope: SourceStorageScope, operation: SourceStorageOperation,
     projection: readonly SourceStorageProjection[] = []): Extract<SourceStorageTerm, { readonly kind: "pointer" }> =>
     Object.freeze({ kind: "pointer", invocation, pointer: original, input, scope, projection, ...operationFor(operation) });
-  const projected = (value: SourceStorageReference, from: Type, to: Type,
+  const projected = (value: SourceStorageReference, from: SourceTypeEvidence, to: SourceTypeEvidence,
     projection: readonly SourceStorageProjection[], invocation: Node): readonly SourceStorageTerm[] | undefined => {
     const result: SourceStorageTerm[] = [];
     sourceStorageProjectComponents(value.subject.projection, from, to, projection,
@@ -75,7 +77,7 @@ export function createSourceStoragePointerValues(source: TargetSourceProgram, bu
       if (effect.kind !== "effect" || effect.store !== store) continue;
       const originals = queries.read(sourceStorageReference(target, effect.scope));
       if (originals === undefined) return undefined;
-      const pending: { readonly pointer: SourceStorageTerm; readonly value: SourceStorageTerm; readonly type: Type }[] =
+      const pending: { readonly pointer: SourceStorageTerm; readonly value: SourceStorageTerm; readonly type: SourceTypeEvidence }[] =
         [...originals].map(pointer => ({ pointer, value: sourceStorageReference(value, effect.scope), type: operation.valueType }));
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;

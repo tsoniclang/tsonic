@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "./program.js";
 import type { Node } from "@tsonic/tsts";
 import { AsExpressionWithTypeArguments, sourceSuperConstructor } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageUnresolved } from "./types.js";
 import type { SourceStorageSubject } from "./subjects.js";
@@ -18,7 +19,7 @@ export interface SourceStorageClassLineage<Bindings> {
 }
 
 export function sourceStorageClassLineages<Bindings>(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
   queries: {
@@ -56,7 +57,7 @@ export function sourceStorageClassLineages<Bindings>(
         continue;
       }
       if (!source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node) ||
-        !source.navigation.isProjectDeclaration(node)) {
+        !source.facts.navigation.isProjectDeclaration(node)) {
         const constructors = queries.nativeConstructorsFor(value.subject);
         const nativeBase = constructors === undefined || constructors.length === 0 ? undefined
           : Object.freeze({ ...value, constructors });
@@ -65,7 +66,7 @@ export function sourceStorageClassLineages<Bindings>(
       }
       const lineage = [...classes, value];
       if (mode === undefined) {
-        const constructors = source.navigation.classConstructors(node);
+        const constructors = source.facts.navigation.classConstructors(node);
         if (constructors.kind !== "resolved") {
           if (!finish(lineage, false)) return undefined;
           continue;
@@ -77,7 +78,7 @@ export function sourceStorageClassLineages<Bindings>(
           continue;
         }
       }
-      const heritage = source.navigation.declaredHeritage(node);
+      const heritage = source.facts.navigation.declaredHeritage(node);
       if (heritage.kind !== "resolved") {
         if (!finish(lineage, false)) return undefined;
         continue;
@@ -101,7 +102,7 @@ export function sourceStorageClassLineages<Bindings>(
 }
 
 export function sourceStorageInstanceCaptures<Bindings>(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   candidate: Node,
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
@@ -125,7 +126,7 @@ export function sourceStorageInstanceCaptures<Bindings>(
   return captures;
 }
 
-export function sourceStorageAllocations<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function sourceStorageAllocations<Bindings>(source: SourceStorageProgram, budget: SourceStorageBudget,
   invocation: Node, bindings: Bindings,
   receiverOriginsFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
     readonly { readonly subject: SourceStorageSubject; readonly bindings: Bindings }[]): SourceStorageUnresolved |

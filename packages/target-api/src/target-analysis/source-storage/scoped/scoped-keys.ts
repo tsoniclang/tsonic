@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
@@ -28,7 +29,7 @@ interface ReferenceEncodings {
 
 type ReferenceWork = { [Kind in SourceStorageReference["kind"]]?: true };
 
-export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopedKeys(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, creation: SourceStorageCreationContext) {
   const { footprints, ownerFor: locationOwner } = creation;
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();

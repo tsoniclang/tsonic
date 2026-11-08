@@ -1,5 +1,7 @@
-import type { Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+
+
 import { ElementAccessExpression_ArgumentExpression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
   sourceStorageSubjectType } from "../model/components.js";
@@ -10,18 +12,18 @@ import type { SourceStorageScope, SourceStorageScopedSubject, SourceStorageProje
 import type { createSourceStorageTransport } from "./transport.js";
 
 interface SourceStoragePublicationDemand extends SourceStorageScopedSubject {
-  readonly type: Type;
+  readonly type: SourceTypeEvidence;
   readonly receiver: SourceStorageProjectionReceiver;
 }
 
-export function createSourceStoragePublicationDemands(source: TargetSourceProgram,
+export function createSourceStoragePublicationDemands(source: SourceStorageProgram,
   transport: ReturnType<typeof createSourceStorageTransport>, budget: SourceStorageBudget,
   origins: (subject: SourceStorageSubject, bindings: SourceStorageScope) => ReadonlySet<SourceStorageScopedSubject> | undefined) {
   const demands = new Map<SourceStorageSubject, Map<SourceStorageScope, SourceStoragePublicationDemand[]>>();
   const rows = budget.createRows();
   let initialized = false;
-  const retain = (receiver: SourceStorageSubject, type: Type, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
-    const selectedComponents: { readonly component: SourceStorageProjection; readonly type: Type;
+  const retain = (receiver: SourceStorageSubject, type: SourceTypeEvidence, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
+    const selectedComponents: { readonly component: SourceStorageProjection; readonly type: SourceTypeEvidence;
       readonly subject: SourceStorageSubject | undefined }[] = [];
     const semantics = source.semantics.forNode(receiver.node);
     for (const component of components) {

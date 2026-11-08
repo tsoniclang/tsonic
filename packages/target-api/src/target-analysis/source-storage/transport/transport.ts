@@ -1,3 +1,4 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { createSourceStorageCallbackInputFrontiers } from "./callback-input-frontiers.js";
 import { createSourceStoragePointerBackings } from "./pointer-backings.js";
 import { createSourceStorageGeneratorResumes } from "./generator-resumes.js";
@@ -7,7 +8,7 @@ import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorage
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { createSourceStorageSubjects, type SourceStorageSubject } from "../model/subjects.js";
 import { createSourceStorageProjectionFlow } from "../model/projections.js";
 import { createSourceStorageStructuralFlow } from "../model/structural-flow.js";
@@ -43,12 +44,13 @@ import { createSourceStorageSyntaxCollection } from "./syntax-collection.js";
 import { createSourceStorageRejections } from "./rejections.js";
 
 export function createSourceStorageTransport(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   sourceFiles: readonly SourceFile[],
   budget: SourceStorageBudget,
   effects: SourceStorageEffects = {},
 ) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const guardedValues = createSourceStorageGuardedValues(source, budget, expression => classLineagesFor(expression));
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
@@ -709,7 +711,7 @@ export function createSourceStorageTransport(
         const generator = semantics.forNode(candidate).operations.generator(candidate);
         if (generator !== undefined && invocationImplementationSelection(invocation)?.exact === true &&
           [...invocationImplementations(invocation)].every(owner => semantics.forNode(owner).operations.generator(owner) !== undefined))
-          invocationEffects.set(invocation, Object.freeze({ resultAllocation: invocation }));
+          invocationEffects.set(invocation, Object.freeze({ kind: "result-allocation", allocation: invocation }));
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async") && generator === undefined) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         const receiver = subject(candidate, "receiver");
@@ -799,7 +801,7 @@ export function createSourceStorageTransport(
     targetFor: invocation => invocationTargets.get(invocation),
     valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
     bindingsFor: (candidate, invocation, bindings, captured, callee) => substitutions.forInvocation(candidate, invocation, bindings, captured, callee),
-    hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
+    hasResultAlias: invocation => invocationEffects.get(invocation)?.kind === "result-alias",
   });
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);

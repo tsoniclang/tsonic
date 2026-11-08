@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceStorageInstanceCaptures } from "../model/construction.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
@@ -23,7 +24,7 @@ export interface SourceStorageInvocationResultQueriesContract {
 }
 
 export function createSourceStorageInvocationResults(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   queries: SourceStorageInvocationResultQueries,
 ): SourceStorageInvocationResultQueriesContract {
@@ -57,7 +58,7 @@ export function createSourceStorageInvocationResults(
       for (const value of selected) captures.add(value);
     } else for (const value of values) {
       if (!budget.step()) break;
-      const selected = source.navigation.callableImplementation(value.subject.node);
+      const selected = source.facts.navigation.callableImplementation(value.subject.node);
       if (selected.kind === "resolved" && selected.implementation.declaration === candidate) captures.add(value);
     }
     for (const captured of captures) {

@@ -1,266 +1,242 @@
-import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import { sourceLiteralUnitKey, type SourceLiteralKey } from "../../../source-model/literals/key.js";
+import { Node_Expression } from "../../../source-navigation/ast.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
-import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosing, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
-import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
+import { sourceStorageIsMemberProjection } from "./subjects.js";
+import type { SourceStorageProgram } from "./program.js";
+import { sourceStorageValue } from "./program.js";
 
-export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
-  return semantics.types.isStringLike(type) || semantics.types.isNumberLike(type) || semantics.types.isBooleanLike(type) ||
-    semantics.types.isBigIntLike(type) || semantics.types.isSymbolLike(type);
+function aggregate(source: SourceStorageProgram, original: Node, values: readonly SourceTypeEvidence[]): SourceTypeEvidence | undefined {
+  const selected = [...new Set(values)];
+  for (const value of selected) source.facts.descriptors.assertEvidence(value);
+  return selected.length === 0 ? undefined : selected.length === 1 ? selected[0]
+    : sourceStorageValue(source.analysis.aggregate(original, Object.freeze(selected)));
 }
 
-export function sourcePresentStorageType(type: Type, semantics: SourceFileSemantics): Type | undefined {
-  if (!semantics.types.isUnion(type)) return type;
-  const present = semantics.types.nonNullableType(type);
-  return present === undefined || semantics.types.isNever(present) ? undefined : present;
+function presentArms(source: SourceStorageProgram, value: SourceTypeEvidence): readonly SourceTypeEvidence[] {
+  const pending = [value];
+  const visited = new Set<SourceTypeEvidence>();
+  const selected: SourceTypeEvidence[] = [];
+  while (pending.length !== 0) {
+    const current = pending.pop()!;
+    source.work(current.component.root);
+    source.facts.descriptors.assertEvidence(current);
+    if (visited.has(current)) continue;
+    visited.add(current);
+    if (current.sum !== undefined) {
+      pending.push(...current.sum.arms);
+    } else if (current.type.kind === "optional") {
+      pending.push(sourceStorageValue(source.facts.descriptors.component(current, { kind: "optional-value" })));
+    } else if (current.type.kind !== "intrinsic" || current.type.intrinsic !== "absence" && current.type.intrinsic !== "never") {
+      if (current.type.kind === "union") throw new Error("Storage requires the original registered Source sum arms.");
+      selected.push(current);
+    }
+  }
+  return Object.freeze(selected);
 }
 
-function sourceStorageIsTupleType(type: Type, semantics: SourceFileSemantics): boolean {
-  const selected = sourcePresentStorageType(type, semantics);
-  if (selected === undefined) return false;
-  if (semantics.types.isTuple(selected)) return true;
-  if (!semantics.types.isUnion(selected)) return false;
-  const alternatives = semantics.types.unionOrIntersectionTypes(selected);
-  return alternatives.length > 0 && alternatives.every(alternative => semantics.types.isTuple(alternative));
+export function sourceStorageIsScalarType(value: SourceTypeEvidence, source: SourceStorageProgram): boolean {
+  source.facts.descriptors.assertEvidence(value);
+  const pending = [value.category];
+  while (pending.length !== 0) {
+    const category = pending.pop()!;
+    if (category.kind === "choice") pending.push(...category.alternatives);
+    else if (category.kind !== "known" || category.category === "object" || category.category === "function") return false;
+  }
+  return true;
 }
 
-export function sourceStorageAccessDeclarations(source: TargetSourceProgram, access: Node,
+export function sourcePresentStorageType(value: SourceTypeEvidence, source: SourceStorageProgram): SourceTypeEvidence | undefined {
+  return aggregate(source, value.component.root, presentArms(source, value));
+}
+
+export function sourceStorageAccessDeclarations(source: SourceStorageProgram, access: Node,
   mode: "read" | "write"): readonly Node[] | undefined {
-  const { ast } = source;
-  const semantics = source.semantics.forNode(access);
-  const property = ast.is.IsPropertyAccessExpression(access) ? semantics.operations.propertyAccess(access) : undefined;
-  const selected = property ?? (ast.is.IsElementAccessExpression(access) ? semantics.operations.elementAccess(access) : undefined);
-  if (selected === undefined) return undefined;
-  if (mode === "read" ? selected.accessMode === "write" : selected.accessMode === "read") return Object.freeze([]);
-  const direct = mode === "read" ? property?.selectedReadDeclaration ?? selected.selectedDeclaration
-    : property?.selectedWriteDeclaration ?? selected.selectedDeclaration;
-  const readable = (node: Node): boolean => sourceStorageIsDataMember(node, ast) || sourceStorageIsMethodMember(node, ast) ||
-    (mode === "read" ? ast.is.IsGetAccessorDeclaration(node) : ast.is.IsSetAccessorDeclaration(node));
-  if (direct !== undefined && readable(direct)) return Object.freeze([direct]);
-  if (selected.selectedSymbol === undefined) return undefined;
-  const declarations = [...new Set(semantics.declarations.symbolDeclarations(selected.selectedSymbol).filter(readable))];
-  return declarations.length === 0 ? undefined : Object.freeze(declarations);
+  const selected = sourceStorageValue(source.facts.objects.use(access));
+  if (mode === "read" ? selected.access === "write" : selected.access === "read") return Object.freeze([]);
+  return mode === "read" ? selected.readDeclarations : selected.writeDeclarations;
 }
 
-export function sourceStorageDynamicMemberKey(source: TargetSourceProgram, access: Node): string | undefined {
-  const { ast } = source;
-  const semantics = source.semantics.forNode(access);
-  const property = ast.is.IsPropertyAccessExpression(access) ? semantics.operations.propertyAccess(access) : undefined;
-  const element = ast.is.IsElementAccessExpression(access) ? semantics.operations.elementAccess(access) : undefined;
-  const selected = property ?? element;
-  if (selected === undefined || !semantics.types.isAny(selected.receiver.type)) return undefined;
-  if (property !== undefined) {
-    const name = ast.name(access);
-    if (name === undefined || !ast.is.IsIdentifier(name)) return undefined;
-    return semantics.operations.propertyName(name)?.name;
+export function sourceStorageDynamicMemberKey(source: SourceStorageProgram, access: Node): SourceLiteralKey | undefined {
+  const selected = sourceStorageValue(source.facts.objects.use(access));
+  if (selected.receiver.value.type.kind !== "intrinsic" || selected.receiver.value.type.intrinsic !== "any") return undefined;
+  if (selected.key.kind === "present") {
+    const domain = source.analysis.literalDomain(selected.key.value.value);
+    return domain.kind === "finite" && domain.values.length === 1 ? sourceLiteralUnitKey(domain.values[0]!) : undefined;
   }
-  if (element === undefined) return undefined;
-  const text = semantics.types.stringLiteralValue(element.argument.type);
-  if (text !== undefined) return text;
-  const numeric = semantics.types.numericLiteralValue(element.argument.type);
-  return numeric === undefined ? undefined : String(numeric);
+  const name = source.ast.name(access);
+  if (name === undefined) return undefined;
+  const key = sourceStorageValue(source.facts.objects.propertyName(name));
+  return key.kind === "name" ? Object.freeze({ kind: "name", name: key.name })
+    : key.kind === "symbol" || key.kind === "well-known-symbol" ? Object.freeze({ kind: "symbol", declaration: key.declaration }) : undefined;
 }
 
-export function sourceStorageDynamicMemberDeclarations(source: TargetSourceProgram, receiver: SourceStorageSubject,
-  key: string, mode: "read" | "write", step: () => boolean):
-  { readonly type: Type; readonly declarations: readonly Node[] } | undefined {
+export function sourceStorageDynamicMemberDeclarations(source: SourceStorageProgram, receiver: SourceStorageSubject,
+  key: SourceLiteralKey, mode: "read" | "write", step: () => boolean):
+  { readonly type: SourceTypeEvidence; readonly declarations: readonly Node[] } | undefined {
   const type = sourceStorageSubjectType(source, receiver);
-  const context = source.semantics.forNode(receiver.node);
-  if (type === undefined || context.types.isAny(type) || context.types.isUnknown(type)) return undefined;
-  const originals = new Set<Node>();
-  for (const property of context.types.propertyInfos(type)) {
+  if (type === undefined) return undefined;
+  const declarations = new Set<Node>();
+  for (const arm of presentArms(source, type)) {
     if (!step()) return undefined;
-    if (property.name !== key) continue;
-    for (const symbol of [property.symbol, ...property.rootSymbols]) {
-      for (const declaration of context.declarations.symbolDeclarations(symbol)) {
-        if (!step()) return undefined;
-        if (sourceStorageIsDataMember(declaration, source.ast) || sourceStorageIsMethodMember(declaration, source.ast) ||
-          (mode === "read" ? source.ast.is.IsGetAccessorDeclaration(declaration) : source.ast.is.IsSetAccessorDeclaration(declaration)))
-          originals.add(declaration);
-      }
+    const selected = sourceStorageValue(source.analysis.settle(source.analysis.objects.named(arm, key)));
+    if (selected.kind !== "available") return undefined;
+    for (const row of selected.members) {
+      if (!step()) return undefined;
+      const available = sourceStorageValue(source.analysis.settle(mode === "read" ? row.readType() : row.writeType()));
+      if (available.kind === "none") return undefined;
+      const origins = mode === "read" && row.read === "accessor" ? row.getters
+        : mode === "write" && row.setters.length !== 0 ? row.setters : row.declarations;
+      for (const declaration of origins) declarations.add(declaration);
     }
   }
-  return originals.size === 0 ? undefined : Object.freeze({ type, declarations: Object.freeze([...originals]) });
+  return declarations.size === 0 ? undefined : Object.freeze({ type, declarations: Object.freeze([...declarations]) });
 }
 
-export function sourceStorageComponentType(
-  type: Type,
-  component: SourceStorageProjection,
-  semantics: SourceFileSemantics,
-  ast: AstReader,
-): Type | undefined {
-  const selected = sourcePresentStorageType(type, semantics);
-  if (selected === undefined) return undefined;
-  if (sourceStorageIsMemberProjection(component)) {
-    if (component.kind === "method-value" ? !sourceStorageIsMethodMember(component.declaration, ast)
-      : !sourceStorageIsDataMember(component.declaration, ast) && !ast.is.IsGetAccessorDeclaration(component.declaration)) return undefined;
-    const properties = semantics.types.propertyInfos(selected).filter(property => [property.symbol, ...property.rootSymbols]
-      .some(symbol => semantics.declarations.symbolDeclarations(symbol).includes(component.declaration)));
-    return properties.length === 1 ? properties[0]!.type : undefined;
+function indexedElement(source: SourceStorageProgram, value: SourceTypeEvidence): SourceTypeEvidence | undefined {
+  if (value.type.kind === "array") return sourceStorageValue(source.facts.descriptors.component(value, { kind: "array-element" }));
+  if (value.type.kind === "tuple") return undefined;
+  const members = sourceStorageValue(source.analysis.settle(source.analysis.inventory.members(value)));
+  if (members.kind !== "complete") return undefined;
+  const selected: SourceTypeEvidence[] = [];
+  for (const index of members.indexes) {
+    source.work(value.component.root);
+    const key = sourceStorageValue(source.analysis.settle(index.keyType()));
+    source.facts.descriptors.assertEvidence(key);
+    if (key.category.kind !== "known" || key.category.category !== "number") continue;
+    const read = sourceStorageValue(source.analysis.settle(index.readType()));
+    if (read.kind === "none") return undefined;
+    selected.push(read.value);
   }
-  if (component.kind === "tuple-element") {
-    if (!sourceStorageIsTupleType(selected, semantics)) return undefined;
-    if (semantics.types.isUnion(selected)) {
-      const properties = semantics.types.propertyInfos(selected).filter(property => property.name === String(component.index));
-      return properties.length === 1 ? properties[0]!.type : undefined;
-    }
-    const elements = semantics.types.tupleElementInfos(selected);
-    const element = elements[component.index];
-    return element?.elementKind === "required" || element?.elementKind === "optional" ? element.type : undefined;
-  }
-  return sourceArrayElementType(selected, semantics);
+  return aggregate(source, value.component.root, selected);
 }
 
-export function sourceStorageOriginalComponents(
-  from: Type,
-  to: Type,
-  component: SourceStorageProjection,
-  semantics: SourceFileSemantics,
-): Iterable<SourceStorageProjection> {
+export function sourceStorageComponentType(value: SourceTypeEvidence, component: SourceStorageProjection,
+  source: SourceStorageProgram): SourceTypeEvidence | undefined {
+  const selected: SourceTypeEvidence[] = [];
+  for (const arm of presentArms(source, value)) {
+    let child: SourceTypeEvidence | undefined;
+    if (sourceStorageIsMemberProjection(component)) {
+      const member = sourceStorageValue(source.facts.objects.correspondingMember(arm, arm, component.declaration, "read"));
+      if (member.kind === "none" || member.value.kind !== "present" ||
+        component.kind === "method-value" && member.value.source.read !== "method") return undefined;
+      child = member.value.source.readType;
+    } else if (component.kind === "tuple-element") {
+      const element = arm.type.kind === "tuple" ? arm.type.elements[component.index] : undefined;
+      if (element === undefined || element.kind === "rest") return undefined;
+      child = sourceStorageValue(source.facts.descriptors.component(arm, { kind: "tuple-element", index: component.index }));
+    } else child = indexedElement(source, arm);
+    if (child === undefined) return undefined;
+    selected.push(child);
+  }
+  return aggregate(source, value.component.root, selected);
+}
+
+export function sourceStorageOriginalComponents(from: SourceTypeEvidence, to: SourceTypeEvidence,
+  component: SourceStorageProjection, source: SourceStorageProgram): Iterable<SourceStorageProjection> {
+  source.facts.descriptors.assertEvidence(from);
+  source.facts.descriptors.assertEvidence(to);
   if (sourceStorageIsMemberProjection(component)) {
     if (from === to) return [component];
-    const member = semantics.types.structuralMember(from, to, component.declaration, "read");
-    if (member?.kind !== "present" || member.source.read === "unavailable" ||
-      (component.kind === "method-value" ? member.destination.read !== "method"
-        : member.destination.read !== "property" && member.destination.read !== "accessor")) return [];
-    return (member.source.read === "accessor" ? member.source.getters : member.source.declarations).map(declaration => ({
-      kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
-    }));
+    const member = sourceStorageValue(source.facts.objects.correspondingMember(from, to, component.declaration, "read"));
+    if (member.kind !== "present" || member.value.kind !== "present") return [];
+    const current = member.value;
+    if (current.source.read === "unavailable" || (component.kind === "method-value" ? current.destination.read !== "method"
+      : current.destination.read !== "property" && current.destination.read !== "accessor")) return [];
+    const selected = current.source;
+    return (selected.read === "accessor" ? selected.getters : selected.declarations).map(declaration =>
+      Object.freeze({ kind: selected.read === "method" ? "method-value" as const : "member" as const, declaration }));
   }
-  return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
-    : [sourceStorageIsTupleType(from, semantics) ? component : { kind: "array-element" }];
+  if (component.kind === "array-element") return sourceStorageComponents(from, source);
+  return presentArms(source, from).every(arm => arm.type.kind === "tuple") ? [component] : [{ kind: "array-element" }];
 }
 
-export function* sourceStorageComponents(
-  type: Type,
-  semantics: SourceFileSemantics,
-): Iterable<SourceStorageProjection> {
-  const selected = sourcePresentStorageType(type, semantics);
-  if (selected === undefined) return;
-  if (sourceStorageIsTupleType(selected, semantics)) {
-    const alternatives = semantics.types.isUnion(selected) ? semantics.types.unionOrIntersectionTypes(selected) : [selected];
-    const indexes = new Set<number>();
-    for (const alternative of alternatives) for (const [index, element] of semantics.types.tupleElementInfos(alternative).entries()) {
-      if (element.elementKind === "required" || element.elementKind === "optional") indexes.add(index);
-    }
-    for (const index of indexes) yield { kind: "tuple-element", index };
-  } else if (sourceArrayElementType(selected, semantics) !== undefined)
-    yield { kind: "array-element" };
-}
-
-export function sourceStorageArrayLiteralType(source: TargetSourceProgram, node: Node, step?: () => boolean): Type | undefined {
-  const semantics = source.semantics.forNode(node);
-  let selected = semantics.types.expressionType(node) ?? semantics.types.contextualType(node)?.selectedType;
-  let expression = node;
-  while (selected === undefined || !semantics.types.isTuple(selected)) {
-    if (step !== undefined && !step()) return undefined;
-    const parent = source.ast.parent(expression);
-    if (parent === undefined || sourceTransparentExpressionOperand(source.ast, parent) !== expression) break;
-    expression = parent;
-    const checked = source.semantics.forNode(expression).types.expressionType(expression);
-    if (checked !== undefined && semantics.types.isTuple(checked)) selected = checked;
+export function* sourceStorageComponents(value: SourceTypeEvidence, source: SourceStorageProgram): Iterable<SourceStorageProjection> {
+  const indexes = new Set<number>();
+  let indexed = false;
+  for (const arm of presentArms(source, value)) {
+    if (arm.type.kind === "tuple") {
+      for (const [index, element] of arm.type.elements.entries()) if (element.kind !== "rest") indexes.add(index);
+    } else if (indexedElement(source, arm) !== undefined) indexed = true;
   }
-  return selected;
+  for (const index of indexes) yield Object.freeze({ kind: "tuple-element", index });
+  if (indexed) yield Object.freeze({ kind: "array-element" });
 }
 
-export function sourceStorageSubjectType(source: TargetSourceProgram, value: SourceStorageSubject, sourceFile?: SourceFile): Type | undefined {
-  const file = sourceFile ?? source.ast.getSourceFile(value.node);
-  if (file === undefined || !source.semantics.includes(file)) return undefined;
-  const semantics = source.semantics.forFile(file);
-  let selected: Type | undefined;
+export function sourceStorageArrayLiteralType(source: SourceStorageProgram, node: Node): SourceTypeEvidence {
+  return sourceStorageValue(source.facts.values.type(node));
+}
+
+function originalSignature(source: SourceStorageProgram, declaration: Node):
+  { readonly value: SourceTypeEvidence; readonly signature: SourceTypeDescriptorSignature } | undefined {
+  const slot = sourceStorageValue(source.facts.values.declaredSlot(declaration));
+  const value = sourceStorageValue(source.facts.descriptors.definition(slot.type));
+  const type = value.type;
+  const signatures = type.kind === "callable" || type.kind === "shape" ? [...type.calls, ...type.constructs] : [];
+  const selected = signatures.filter(signature => signature.identity.declaration === declaration);
+  return selected.length === 1 ? Object.freeze({ value, signature: selected[0]! }) : undefined;
+}
+
+export function sourceStorageSubjectType(source: SourceStorageProgram, value: SourceStorageSubject,
+  sourceFile?: SourceFile): SourceTypeEvidence | undefined {
+  source.facts.navigation.callableRoles(value.node);
+  if (sourceFile !== undefined && sourceFile !== source.ast.getSourceFile(value.node)) return undefined;
+  let selected: SourceTypeEvidence | undefined;
   if (value.kind === "return") {
-    const signature = semantics.types.declarationSignatureInfo(value.node);
-    selected = signature?.returnType !== undefined && semantics.declarations.signatureDeclaration(signature.signature) === value.node
-      ? source.ast.hasModifierKind(value.node, "async")
-        ? semantics.types.awaitedType(signature.returnType)
-        : signature.returnType
-      : undefined;
+    const original = originalSignature(source, value.node);
+    if (original === undefined) return undefined;
+    const generator = sourceStorageValue(source.facts.protocols.generator(value.node));
+    if (generator.kind === "present") selected = generator.value.values.completed;
+    else {
+      selected = sourceStorageValue(source.facts.values.callableReturn(original.signature.identity));
+      if (source.ast.hasModifierKind(value.node, "async"))
+        selected = sourceStorageValue(source.facts.descriptors.component(selected, { kind: "awaited" }));
+    }
   } else if (value.kind === "receiver") {
-    selected = sourceStorageReceiverType(source, value.node, semantics);
-  } else if (value.kind === "value" && source.ast.is.IsArrayLiteralExpression(value.node)) {
-    selected = sourceStorageArrayLiteralType(source, value.node);
-  } else if (value.kind === "value" && source.ast.is.IsSpreadElement(value.node)) {
-    const operand = Node_Expression(source.ast, value.node);
-    selected = operand === undefined ? undefined : semantics.types.expressionType(operand);
+    selected = sourceStorageReceiverType(source, value.node);
+  } else if (value.kind === "input" || value.kind === "member") {
+    selected = sourceStorageValue(source.facts.values.declaredSlot(value.node)).type;
   } else {
-    const name = source.ast.name(value.node);
-    const bindingContainer = name !== undefined && (source.ast.is.IsVariableDeclaration(value.node) ||
-      source.ast.is.IsParameterDeclaration(value.node)) &&
-      (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
-    const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
-    const containerType = bindingContainer ? source.ast.typeNode(value.node) : undefined;
-    const declarationList = bindingContainer && source.ast.is.IsVariableDeclaration(value.node) ? source.ast.parent(value.node) : undefined;
-    const declarations = declarationList !== undefined && source.ast.is.IsVariableDeclarationList(declarationList)
-      ? VariableDeclarationList_Declarations(source.ast, declarationList) : undefined;
-    const loop = declarationList === undefined ? undefined : source.ast.parent(declarationList);
-    const iteration = loop !== undefined && declarations?.length === 1 && declarations[0] === value.node &&
-      (source.ast.is.IsForOfStatement(loop) || source.ast.is.IsForInStatement(loop)) &&
-      ForInOrOfStatement_Initializer(source.ast, loop) === declarationList ? loop : undefined;
-    const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
-      value.kind === "value" && (source.ast.is.IsIdentifier(value.node) || source.ast.is.IsPropertyAccessExpression(value.node) ||
-        source.ast.is.IsElementAccessExpression(value.node) || source.ast.kindName(value.node) === "KindThisKeyword");
-    selected = bindingContainer ? iteration !== undefined ? semantics.operations.iteration(iteration)?.sourceElementType
-        : containerType !== undefined ? semantics.types.authoredType(containerType)
-        : initializer !== undefined ? semantics.types.expressionType(initializer)
-          : source.ast.is.IsParameterDeclaration(value.node) ? semantics.types.expressionType(value.node) : undefined
-      : expressionValue ? semantics.types.expressionType(value.node)
-        : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
+    const operand = source.ast.is.IsSpreadElement(value.node) ? Node_Expression(source.ast, value.node) : value.node;
+    if (operand === undefined) return undefined;
+    const declaration = source.ast.is.IsVariableDeclaration(operand) || source.ast.is.IsParameterDeclaration(operand) ||
+      source.facts.navigation.callableRoles(operand).signature || source.ast.is.IsClassDeclaration(operand);
+    selected = declaration ? sourceStorageValue(source.facts.values.declaredSlot(operand)).type
+      : sourceStorageValue(source.facts.values.type(operand));
   }
   for (const component of value.projection) {
     if (selected === undefined) return undefined;
-    selected = sourceStorageComponentType(selected, component, semantics, source.ast);
+    selected = sourceStorageComponentType(selected, component, source);
   }
   return selected;
 }
 
-function sourceStorageReceiverType(source: TargetSourceProgram, node: Node, semantics: SourceFileSemantics): Type | undefined {
+function sourceStorageReceiverType(source: SourceStorageProgram, node: Node): SourceTypeEvidence | undefined {
   const visited = new Set<Node>();
-  for (let depth = 0; depth < 128 && !visited.has(node); depth += 1) {
+  while (!visited.has(node)) {
+    source.work(node);
     visited.add(node);
-    const signature = semantics.declarations.declarationSignature(node);
-    const explicit = signature === undefined ? undefined : semantics.types.signatureThisParameterInfo(signature)?.type;
-    if (explicit !== undefined) return explicit;
-    if (source.ast.is.IsArrowFunction(node)) {
-      const owner = sourceEnclosing(source.ast, node, "body");
-      if (owner === undefined) return undefined;
-      node = owner;
-      continue;
-    }
-    const owner = source.ast.parent(node);
-    if (owner !== undefined && source.ast.is.IsObjectLiteralExpression(owner)) {
-      const element = semantics.operations.objectLiteralElement(node);
-      const kind = source.ast.is.IsMethodDeclaration(node) ? "method"
-        : source.ast.is.IsGetAccessorDeclaration(node) ? "get" : source.ast.is.IsSetAccessorDeclaration(node) ? "set" : undefined;
-      return element?.element === node && element.objectLiteral === owner && element.elementKind === kind && kind !== undefined
-        ? element.contextualType ?? element.objectLiteralType : undefined;
-    }
-    if (source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node) || source.ast.is.IsInterfaceDeclaration(node))
-      return semantics.declarations.declaredType(node);
-    if (owner !== undefined && (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ||
-      source.ast.is.IsInterfaceDeclaration(owner))) return source.ast.hasModifierKind(node, "static")
-        ? semantics.declarations.declaredValueType(owner) : semantics.declarations.declaredType(owner);
-    return undefined;
+    const original = originalSignature(source, node);
+    if (original?.signature.receiver !== undefined)
+      return sourceStorageValue(source.facts.descriptors.component(original.value,
+        { kind: "receiver", signature: original.signature.identity }));
+    if (!source.ast.is.IsArrowFunction(node)) return undefined;
+    const enclosing = source.analysis.enclosing(node, "body", original => { source.work(original); return true; });
+    if (enclosing === undefined) return undefined;
+    node = enclosing;
   }
   return undefined;
 }
 
-export function sourceIndexedStorageProjection(
-  type: Type,
-  index: Node | undefined,
-  semantics: SourceFileSemantics,
-  ast: AstReader,
-): SourceStorageProjection | undefined {
-  const selected = sourcePresentStorageType(type, semantics);
-  if (selected === undefined) return undefined;
-  if (sourceStorageIsTupleType(selected, semantics)) {
-    const indexType = index === undefined ? undefined : semantics.types.expressionType(index);
-    const value = indexType === undefined ? undefined : semantics.types.numericLiteralValue(indexType);
-    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&
-      sourceStorageComponentType(selected, { kind: "tuple-element", index: value }, semantics, ast) !== undefined
-      ? Object.freeze({ kind: "tuple-element", index: value }) : undefined;
+export function sourceIndexedStorageProjection(source: SourceStorageProgram, occurrence: Node): readonly SourceStorageProjection[] {
+  const selected = sourceStorageValue(source.facts.objects.use(occurrence));
+  const projections: SourceStorageProjection[] = [];
+  for (const arm of selected.arms) {
+    if (arm.kind !== "index") continue;
+    if (arm.selection.kind === "tuple-element") projections.push(Object.freeze({ kind: "tuple-element", index: arm.selection.index }));
+    else if (arm.selection.kind === "array-element") projections.push(Object.freeze({ kind: "array-element" }));
   }
-  if (sourceStorageComponentType(selected, { kind: "array-element" }, semantics, ast) !== undefined)
-    return Object.freeze({ kind: "array-element" });
-  return undefined;
+  return Object.freeze(projections.filter((projection, index) => projections.findIndex(previous => previous.kind === projection.kind &&
+    (previous.kind !== "tuple-element" || projection.kind === "tuple-element" && previous.index === projection.index)) === index));
 }

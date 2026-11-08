@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { selectSourceNativeValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers } from "../../../source-semantics/value-flow-conditions.js";
 import type { SourceNativeGuard } from "../../../source-semantics/value-flow-model.js";
@@ -26,11 +27,12 @@ type GuardCandidate =
   | { readonly kind: "absence" }
   | { readonly kind: "present"; readonly declaration?: Node };
 
-export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageGuardedValues(source: SourceStorageProgram, budget: SourceStorageBudget,
   classValues: (expression: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
   }[] | undefined) {
-  const { ast, navigation } = source;
+  const { ast } = source;
+  const { navigation } = source.facts;
   const context = { ast, navigation, sourceFacts: source.sourceFacts,
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
   const retained = budget.createRows();

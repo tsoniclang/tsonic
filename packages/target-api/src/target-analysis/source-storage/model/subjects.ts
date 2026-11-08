@@ -1,7 +1,8 @@
+import type { SourceStorageProgram } from "./program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
+
 
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
@@ -28,7 +29,7 @@ export type SourceStorageSubjectQuery = (
   projection?: readonly SourceStorageProjection[],
 ) => SourceStorageSubject | undefined;
 
-export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: TargetSourceProgram): Node | undefined {
+export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: SourceStorageProgram): Node | undefined {
   const { ast } = source;
   if (subject.kind === "receiver") return subject.node;
   if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node)) return undefined;

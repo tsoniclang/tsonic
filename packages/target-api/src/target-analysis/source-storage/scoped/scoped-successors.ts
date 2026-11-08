@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { Node } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
@@ -27,7 +28,7 @@ import { createSourceStorageApplicationSuccessors } from "./application-successo
 import { completeSourceStorageChildReduction, sourceStorageChildDependencies,
   type SourceStorageChildContext, type SourceStoragePendingReduction } from "./child-reduction.js";
 
-export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageScopedSuccessors(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   equations: ReturnType<typeof createSourceStorageEquations>,
   reachability: ReturnType<typeof createSourceStorageExecutionReachability>,
@@ -36,7 +37,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined,
   initialize: (value: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageTerm | undefined,
   outside: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageReference | undefined = () => undefined) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined });
   const absent: Extract<SourceStorageReduction, { readonly kind: "replace" }> = Object.freeze({
     kind: "replace", terms: Object.freeze([empty]),
@@ -266,11 +268,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
     }
     if (ast.is.IsCallExpression(node) && transport.invocations.has(node) && transport.isOpaque(node) &&
-      !transport.invocationDeclarations.has(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
+      !transport.invocationDeclarations.has(node) && transport.invocationEffects.get(node)?.kind !== "result-alias") {
       return { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject: term.subject,
         scope: term.scope, exposure: node, reason: "An invocation has no exact checked selected signature transport." })] };
     }
-    if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
+    if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.kind !== "result-alias") {
       const candidate = transport.invocationDeclarations.get(node);
       if (candidate === undefined) return { kind: "replace", terms: [leaf(term.subject, term.scope)] };
       const creator = creatorScope(node, term.scope);
@@ -283,7 +285,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         ? [] : [application(node, target, term.scope, term.subject.projection, { mode: "value" })]], dependencies: dispatchDependencies(node, term.scope) };
     }
     if ((transport.invocations.has(node) || transport.accessorTargets.has(node)) &&
-      transport.invocationEffects.get(node)?.resultAlias === undefined) {
+      transport.invocationEffects.get(node)?.kind !== "result-alias") {
       const target = transport.invocationTargets.get(node);
       if (target !== undefined) return { kind: "replace", terms: [application(node, target, term.scope, term.subject.projection, { mode: "value" })] };
     }

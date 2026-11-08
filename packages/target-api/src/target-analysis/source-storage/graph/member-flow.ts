@@ -1,5 +1,7 @@
-import type { Node, SourceFile, Type, TypePropertyInfo } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { Node, SourceFile, TypePropertyInfo } from "@tsonic/tsts";
+
 import type { SourceStructuralMemberPair } from "../../../host-input/structural-members.js";
 import { sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
@@ -28,18 +30,18 @@ export interface SourceStorageSpreadMember {
 
 // A member read through a receiver typed T | undefined | null reads the member of T: the nullish constituents have no
 // members, so member correspondence is computed against the non-nullish receiver type.
-function memberDestination(semantics: ReturnType<TargetSourceProgram["semantics"]["forFile"]>, receiverType: Type): Type | undefined {
+function memberDestination(semantics: ReturnType<SourceStorageProgram["semantics"]["forFile"]>, receiverType: SourceTypeEvidence): SourceTypeEvidence | undefined {
   return semantics.types.isUnion(receiverType) ? semantics.types.nonNullableType(receiverType) : receiverType;
 }
 
 export function createSourceStorageMemberFlow(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ) {
-  const selections = new Map<SourceFile, Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>>();
+  const selections = new Map<SourceFile, Map<SourceTypeEvidence, Map<SourceTypeEvidence | undefined, Map<SourceTypeEvidence, MemberIndex>>>>();
   const physicalMember = (member: SourceStructuralMemberPair, contract: SourceStructuralMemberPair | undefined): SourceStructuralMemberPair => {
     const allocated: SourceStructuralMemberPair = member.kind === "absent" && contract?.kind === "present" &&
       contract.source.property.optional ? Object.freeze({ kind: "present", destination: member.destination, source: contract.source }) : member;
@@ -47,7 +49,7 @@ export function createSourceStorageMemberFlow(
       ? Object.freeze({ ...allocated, source: Object.freeze({ ...allocated.source,
         property: Object.freeze({ ...allocated.source.property, readonly: true }) }) }) : allocated;
   };
-  const indexFor = (file: SourceFile, from: Type, to: Type, contextual: Type | undefined,
+  const indexFor = (file: SourceFile, from: SourceTypeEvidence, to: SourceTypeEvidence, contextual: SourceTypeEvidence | undefined,
     selection: "aggregate" | Node): MemberIndex | undefined => {
     const sources = selections.get(file);
     const contexts = sources?.get(from);
@@ -104,9 +106,9 @@ export function createSourceStorageMemberFlow(
       const index = existing ?? { aggregateReady: false, members: undefined, declarations: new Map() };
       if (selection === "aggregate") { index.members = aggregate; index.aggregateReady = true; }
       else index.declarations.set(selection, selectedMember);
-      const retainedSources = sources ?? new Map<Type, Map<Type | undefined, Map<Type, MemberIndex>>>();
-      const retainedContexts = contexts ?? new Map<Type | undefined, Map<Type, MemberIndex>>();
-      const retainedDestinations = destinations ?? new Map<Type, MemberIndex>();
+      const retainedSources = sources ?? new Map<SourceTypeEvidence, Map<SourceTypeEvidence | undefined, Map<SourceTypeEvidence, MemberIndex>>>();
+      const retainedContexts = contexts ?? new Map<SourceTypeEvidence | undefined, Map<SourceTypeEvidence, MemberIndex>>();
+      const retainedDestinations = destinations ?? new Map<SourceTypeEvidence, MemberIndex>();
       retainedDestinations.set(to, index);
       retainedContexts.set(contextual, retainedDestinations);
       retainedSources.set(from, retainedContexts);
@@ -117,7 +119,7 @@ export function createSourceStorageMemberFlow(
       if (!published) rows.release();
     }
   };
-  const receiverSelection = (owner: SourceStorageSubject, receiverType: Type) => {
+  const receiverSelection = (owner: SourceStorageSubject, receiverType: SourceTypeEvidence) => {
     if (!budget.step()) return undefined;
     const file = sourceFileFor(owner);
     const checked = sourceStorageSubjectType(source, owner, file);
@@ -133,13 +135,13 @@ export function createSourceStorageMemberFlow(
       : refinement?.kind === "members" && refinement.types.length === 1 ? refinement.types[0] : undefined;
     return { file, type, destinationType, contextual, selectedType };
   };
-  const aggregateIndex = (owner: SourceStorageSubject, receiverType: Type): MemberIndex | undefined => {
+  const aggregateIndex = (owner: SourceStorageSubject, receiverType: SourceTypeEvidence): MemberIndex | undefined => {
     const selected = receiverSelection(owner, receiverType);
     return selected?.selectedType === undefined ? undefined
       : indexFor(selected.file, selected.selectedType, selected.destinationType, selected.contextual, "aggregate");
   };
-  const excludes = (owner: SourceStorageSubject, destinationType: Type): boolean => aggregateIndex(owner, destinationType)?.members === noMembers;
-  const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: Type) => {
+  const excludes = (owner: SourceStorageSubject, destinationType: SourceTypeEvidence): boolean => aggregateIndex(owner, destinationType)?.members === noMembers;
+  const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: SourceTypeEvidence) => {
     const selected = receiverSelection(owner, receiverType);
     if (selected === undefined) return undefined;
     const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType,
@@ -149,13 +151,13 @@ export function createSourceStorageMemberFlow(
     }
     return entry;
   };
-  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): SourceStructuralMemberPair | undefined =>
+  const memberFor = (owner: SourceStorageSubject, declaration: Node, receiverType: SourceTypeEvidence): SourceStructuralMemberPair | undefined =>
     selectedMember(owner, declaration, receiverType)?.member;
-  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: Type): readonly Node[] | undefined => {
+  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, receiverType: SourceTypeEvidence): readonly Node[] | undefined => {
     const entry = selectedMember(owner, declaration, receiverType);
     return entry?.member.kind === "present" ? entry.originals : undefined;
   };
-  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: Type): {
+  const membersInLineage = <Bindings>(lineage: SourceStorageClassLineage<Bindings>, declaration: Node, destinationType: SourceTypeEvidence): {
     readonly members: readonly { readonly declaration: Node; readonly bindings: Bindings }[]; readonly absent: boolean;
   } | undefined => {
     if (!lineage.complete || lineage.classes.length === 0) return undefined;
@@ -188,7 +190,7 @@ export function createSourceStorageMemberFlow(
         const owner = source.ast.parent(constructor);
         if (owner === undefined || owner !== nativeBase.subject.node || source.ast.body(constructor) !== undefined ||
           !source.ast.is.IsClassDeclaration(owner) && !source.ast.is.IsClassExpression(owner) ||
-          source.navigation.isProjectDeclaration(owner)) return undefined;
+          source.facts.navigation.isProjectDeclaration(owner)) return undefined;
         receiver = subject(owner, "receiver");
       } else return undefined;
       const member = receiver === undefined ? undefined : memberFor(receiver, declaration, destinationType);
@@ -271,7 +273,7 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze(rows.map(member => Object.freeze(member)));
   };
-  const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type, before: Node):
+  const copyContributionFor = (owner: SourceStorageSubject, declaration: Node, destinationType: SourceTypeEvidence, before: Node):
     | { readonly kind: "own"; readonly declaration: Node }
     | { readonly kind: "spread"; readonly expression: Node; readonly components: readonly SourceStorageProjection[];
         readonly evaluation: Node; readonly definite: boolean }
@@ -362,7 +364,7 @@ export function createSourceStorageMemberFlow(
     }
     return Object.freeze({ kind: "absent" });
   };
-  const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type):
+  const memberStorageKindFor = (owner: SourceStorageSubject, declaration: Node, destinationType: SourceTypeEvidence):
     "direct" | "copied" | "absent" | undefined => {
     if (owner.projection.length !== 0) return "direct";
     if (sourceStorageObjectRestOwner(owner.node, source.ast) !== undefined) return "copied";
@@ -405,7 +407,7 @@ export function createSourceStorageMemberFlow(
     return Object.freeze(components);
   };
   return Object.freeze({ memberFor, membersInLineage, declarationsFor, excludes, copyContributionFor, memberStorageKindFor, spreadMembersFor, componentsFor,
-    membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
+    membersFor: (owner: SourceStorageSubject, destinationType: SourceTypeEvidence): readonly SourceStructuralMemberPair[] | undefined =>
       aggregateIndex(owner, destinationType)?.members });
 }
 
@@ -426,9 +428,10 @@ interface SourceStorageMemberImplementationInputs {
   readonly accessorTargets: ReadonlyMap<Node, readonly import("./scoped-model.js").SourceStorageAccessorInvocation[]>;
 }
 
-export function createSourceStorageMemberImplementations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStorageMemberImplementations(source: SourceStorageProgram, budget: SourceStorageBudget,
   inputs: SourceStorageMemberImplementationInputs) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const step = budget.step;
   const implementationsFor = (declaration: Node, invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = inputs.originsFor,

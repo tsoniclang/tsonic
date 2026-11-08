@@ -1,5 +1,7 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { Node } from "@tsonic/tsts";
+
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageInputFrontier, SourceStorageScopedSubject } from "../graph/scoped-model.js";
@@ -15,15 +17,16 @@ type SourceStoragePhysicalMembers =
       readonly excluded: boolean; readonly reason?: string }
   | { readonly kind: "pending" };
 
-export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStoragePhysicalMembers(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: {
     read(term: SourceStorageTerm): ReadonlySet<SourceStorageTerm> | undefined;
     symbolic(value: SourceStorageReference | SourceStorageInputFrontier): boolean;
     lineages(value: SourceStorageReference): readonly SourceStorageClassLineage<SourceStorageScope>[] | undefined;
   }) {
-  return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: Type,
+  return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: SourceTypeEvidence,
     mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {
-    const { ast, navigation, semantics } = source;
+    const { ast, semantics } = source;
+    const { navigation } = source.facts;
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
       : !ast.is.IsGetAccessorDeclaration(declaration);
     const unresolved = (reason: string): SourceStoragePhysicalMembers =>
@@ -36,7 +39,7 @@ export function createSourceStoragePhysicalMembers(source: TargetSourceProgram, 
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
       // The correspondence of a union receiver is the one of the union member that declares the target.
-      const declaring = (): Type => {
+      const declaring = (): SourceTypeEvidence => {
         const { types, declarations: selected } = semantics.forNode(selectedView.node);
         const members = types.isUnion(receiverType) ? types.unionOrIntersectionTypes(receiverType).filter(member =>
           types.propertyInfos(member).some(property => [property.symbol, ...property.rootSymbols]

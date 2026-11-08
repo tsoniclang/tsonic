@@ -1,5 +1,6 @@
+import type { SourceStorageProgram } from "./model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../source-semantics/index.js";
+
 import { sourceStorageSubjectType } from "./model/components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
@@ -17,7 +18,7 @@ import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../sou
 import type { SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "./model/types.js";
 
 export function createSourceStorageQuery(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   sourceFiles: readonly SourceFile[],
   limits: SourceStorageLimits = defaultSourceStorageLimits,
   effects: SourceStorageEffects = {},
@@ -255,7 +256,7 @@ export function createSourceStorageQuery(
           (ast.is.IsMethodDeclaration(declaration) || ast.is.IsPropertyAssignment(declaration) ||
             ast.is.IsShorthandPropertyAssignment(declaration));
         if (!checkedNode(declaration) || file === undefined || file.IsDeclarationFile ||
-          !source.navigation.isProjectDeclaration(declaration) || subject.projection.length !== 0 ||
+          !source.facts.navigation.isProjectDeclaration(declaration) || subject.projection.length !== 0 ||
           sourceStorageMemberSubject(declaration, ast, transport.subject) !== subject ||
           !objectMember && !sourceClassFieldHasStorage(ast, declaration) && !sourceParameterIsProperty(ast, declaration))
           return unresolved(budget.failure() ?? "Member-write selection requires its exact authored physical member slot.");
@@ -359,7 +360,7 @@ export function createSourceStorageQuery(
         for (const origin of selected.origins) {
           if (!budget.step()) return unresolved(budget.failure()!);
           if (!sourceStorageHasOriginalCallableValue(origin.subject, source.ast)) { exact = false; continue; }
-          const implementation = source.navigation.callableImplementation(origin.subject.node);
+          const implementation = source.facts.navigation.callableImplementation(origin.subject.node);
           if (implementation.kind !== "resolved") { exact = false; continue; }
           nodes.add(implementation.implementation.declaration);
         }

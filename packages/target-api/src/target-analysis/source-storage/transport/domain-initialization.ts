@@ -1,8 +1,10 @@
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-import type { Node, SourceFile, Type } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
@@ -16,7 +18,7 @@ import type { createSourceStoragePublicationDemands } from "./publication-demand
 import { sourceStorageProjectionSubject, sourceStorageProjectionType } from "../scoped/projection-views.js";
 
 export function createSourceStorageDomainInitialization(input: {
-  readonly source: TargetSourceProgram;
+  readonly source: SourceStorageProgram;
   readonly transport: ReturnType<typeof createSourceStorageTransport>;
   readonly budget: SourceStorageBudget;
   readonly witnesses: ReturnType<typeof createSourceStorageDomainWitnesses>;
@@ -26,9 +28,10 @@ export function createSourceStorageDomainInitialization(input: {
   readonly publicationOriginsIn: (subject: SourceStorageSubject, bindings: SourceStorageScope) => ReadonlySet<SourceStorageScopedSubject> | undefined;
 }) {
   const { source, transport, budget, witnesses, publications, publicationDemands, add, publicationOriginsIn } = input;
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
-    kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
+    kind: SourceStoragePublication["kind"] = "external-write", type?: SourceTypeEvidence, sourceFile?: SourceFile, externalEntry = false,
     inputOwner?: SourceStorageSubject, receiver?: SourceStoragePublication["receiver"],
     bindings?: SourceStorageScope): void => {
     if (subject === undefined) return;
@@ -129,7 +132,7 @@ export function createSourceStorageDomainInitialization(input: {
     for (const boundary of transport.boundaries) {
       if (!budget.step()) return;
       const effect = transport.invocationEffects.get(boundary.invocation);
-      if (effect?.resultAlias === undefined && effect?.resultAllocation === undefined)
+      if (effect?.kind !== "result-alias" && effect?.kind !== "result-allocation")
         add(transport.subject(boundary.invocation), "opaque-result", boundary.invocation);
       for (const expression of transport.invocationArguments.get(boundary.invocation) ?? []) {
         if (!budget.step()) return;

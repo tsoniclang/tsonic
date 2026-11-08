@@ -1,5 +1,7 @@
-import type { AstReader, Node, Type } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageProgram } from "../model/program.js";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { AstReader, Node } from "@tsonic/tsts";
+
 import { Node_Expression, Node_Initializer } from "../../../source-navigation/ast.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import { sourceBindingHasMutableExposure } from "../../../source-navigation/binding-mutation-exposure.js";
@@ -20,7 +22,7 @@ import type { SourceStorageWriteProjection } from "../model/projections.js";
 import type { SourceStorageStore, SourceStorageWrite } from "../model/stores.js";
 
 export function createSourceStorageFormalMemberWrites(
-  source: TargetSourceProgram,
+  source: SourceStorageProgram,
   sourceBudget: SourceStorageBudget,
   createEquations: (budget: SourceStorageBudget) => SourceStorageFixedPointQueries,
   queries: {
@@ -34,10 +36,11 @@ export function createSourceStorageFormalMemberWrites(
     unresolvedFor(invocation: Node): string | undefined;
   },
 ) {
-  const { ast, navigation, semantics } = source;
+  const { ast, semantics } = source;
+  const { navigation } = source.facts;
   let budget = sourceBudget;
   let rows = budget.createRows();
-  const formals = new Map<SourceStorageSubject, { readonly declaration: Node; readonly parameter: Node; readonly type: Type }>();
+  const formals = new Map<SourceStorageSubject, { readonly declaration: Node; readonly parameter: Node; readonly type: SourceTypeEvidence }>();
   const owners = new Map<Node, readonly SourceStorageSubject[]>();
   const seeds = new Map<SourceStorageSubject, Set<Node | string>>();
   const forwards = new Map<SourceStorageSubject, Map<SourceStorageSubject, string | undefined>>();
@@ -221,7 +224,7 @@ export function createSourceStorageFormalMemberWrites(
     return { inputs: inputs ?? [], reason: selected?.reason ?? (inputs?.length === 0 ? undefined
       : "Member-write demand cannot treat an aggregate or captured value as an unqualified parameter binding.") };
   };
-  const membersFor = (formal: SourceStorageSubject, from: Type, member: Node): readonly Node[] | undefined => {
+  const membersFor = (formal: SourceStorageSubject, from: SourceTypeEvidence, member: Node): readonly Node[] | undefined => {
     const selected = formals.get(formal);
     if (selected === undefined || !budget.step()) return undefined;
     const consumer = semantics.forNode(selected.parameter);

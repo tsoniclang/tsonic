@@ -1,6 +1,7 @@
+import type { SourceStorageProgram } from "../model/program.js";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceIndexedStorageProjection } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
@@ -16,7 +17,7 @@ interface SourceStoragePointerLocationQueries {
 
 type SourceStoragePointerLocation = SourceStorageReference | Extract<SourceStorageTerm, { readonly kind: "input-frontier" | "empty" | "unresolved" }>;
 
-export function createSourceStoragePointerLocations(source: TargetSourceProgram, budget: SourceStorageBudget,
+export function createSourceStoragePointerLocations(source: SourceStorageProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, queries: SourceStoragePointerLocationQueries) {
   const address = (operation: Extract<PointerOperationFact, { readonly operation: "address-of" }>,
     scope: SourceStorageScope): readonly SourceStoragePointerLocation[] | undefined => budget.withRows(rows => {

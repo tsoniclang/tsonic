@@ -1,8 +1,9 @@
-import type { Type } from "@tsonic/tsts";
+import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+
 
 export interface SourceStorageEdgeTypes {
-  readonly from: Type;
-  readonly to: Type;
+  readonly from: SourceTypeEvidence;
+  readonly to: SourceTypeEvidence;
 }
 
 export type SourceStorageForwardSelection<Key, Value> =
