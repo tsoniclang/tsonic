@@ -5,7 +5,7 @@ import { sourceApplicationStaticReceiver } from "./application-references.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
 import type { SourceRefusal } from "../../public/source/contracts.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
-  SourceTypeFlowLink, SourceTypeFlowMember, SourceTypeFlowNode, SourceTypeFlowOperator, SourceTypeFlowPathPart,
+  SourceTypeFlowLink, SourceTypeFlowNode, SourceTypeFlowOperator, SourceTypeFlowPathPart,
   SourceTypeFlowProducerInput, SourceTypeFlowTerm, SourceTypeFlowVariable } from "./types.js";
 
 export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContext): SourceTypeFlowGraph {
@@ -129,25 +129,15 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         return result;
       }
       if (ast.is.IsObjectLiteralExpression(node)) {
-        const result = record(node, "value"), members: SourceTypeFlowMember[] = [];
+        const result = record(node, "value"), inputs: SourceTypeFlowVariable[] = [];
         for (const property of ast.properties(node)) {
           if (property === undefined) continue;
           const spread = SpreadAssignment_Expression(ast, property);
-          if (spread !== undefined) { producerInputs.push({ source: value(spread), target: result, site: property, purpose: "value" }); continue; }
-          const nameNode = ast.name(property);
-          const selected = nameNode === undefined ? undefined : context.propertyName(nameNode);
-          if (selected?.kind === "refused") { refusals.push(selected); continue; }
-          const name = selected?.kind === "resolved" && selected.value.kind === "name" ? selected.value.name : undefined;
+          if (spread !== undefined) { inputs.push(value(spread)); continue; }
           const initializer = ObjectLiteralProperty_Value(ast, property) ?? (navigation.callableRoles(property).signature ? property : undefined);
-          if (name === undefined || initializer === undefined) {
-            producerInputs.push({ source: original(property), target: result, site: property, purpose: "value" });
-            continue;
-          }
-          const member = project(result, { kind: "member", name });
-          connect(value(initializer), member, property);
-          members.push({ name, variable: member, declaration: property, optional: false, readonly: false });
+          if (initializer !== undefined) inputs.push(value(initializer));
         }
-        record(node, "value", { kind: "shape", site: node, members });
+        record(node, "value", { kind: "construction", site: node, inputs });
         return result;
       }
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {

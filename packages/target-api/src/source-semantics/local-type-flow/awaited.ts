@@ -28,8 +28,8 @@ export function produceSourceAwaitedType(context: SourceSemanticProduction, sour
     if (arms.kind !== "resolved") return arms;
     const values: SourceProductionResult<SourceTypeEvidence>[] = [];
     for (const arm of arms.value) {
-      const definition = builder.definition(arm);
-      if (definition.kind === "refused") return definition;
+      const definition = builder.produceDefinition(arm);
+      if (definition.kind !== "resolved") return definition;
       const type = definition.value.type;
       if (type.kind === "intrinsic" && type.intrinsic === "never") continue;
       if (type.kind !== "callable" && type.kind !== "shape" || type.calls.length === 0) {
@@ -59,7 +59,8 @@ export function produceSourceAwaitedType(context: SourceSemanticProduction, sour
         const type = builder.projection(value.type, { kind: "awaited" });
         result = { kind: "resolved", value: builder.evidence({ type, component,
           category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
-        [{ selector: { kind: "projection-source" }, value }], undefined, sourceOpenLiteralDomain) };
+        [{ selector: { kind: "projection-source" }, value }], undefined, sourceOpenLiteralDomain,
+        { members: { kind: "definition" }, origins: builder.sourceOriginSubjects(value) }) };
       } else if (value.sum !== undefined) {
         const arms = sourceProductionValues(value.sum.arms.map(produce));
         result = arms.kind === "resolved" ? join(builder.componentIdentity(value.component.root,
@@ -73,13 +74,14 @@ export function produceSourceAwaitedType(context: SourceSemanticProduction, sour
           else {
             const absence = builder.evidence({ type: builder.intrinsic("absence"), component: value.component,
               category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-            { kind: "finite", values: [{ kind: "absence" }] });
+            { kind: "finite", values: [{ kind: "absence" }] },
+            { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(value) });
             result = join(builder.componentIdentity(value.component.root, [...value.component.path, { kind: "awaited" }]), [payload.value, absence]);
           }
         }
       } else {
-        const definition = builder.definition(value);
-        if (definition.kind === "refused") result = definition;
+        const definition = builder.produceDefinition(value);
+        if (definition.kind !== "resolved") result = definition;
         else if (definition.value.type.kind !== "shape") result = { kind: "resolved", value };
         else {
           const member = definition.value.type.members.find(candidate => candidate.name === "then");
@@ -93,8 +95,8 @@ export function produceSourceAwaitedType(context: SourceSemanticProduction, sour
               else {
                 const payloads: SourceProductionResult<SourceTypeEvidence>[] = [];
                 for (const arm of arms.value) {
-                  const callable = builder.definition(arm);
-                  if (callable.kind === "refused") { payloads.push(callable); continue; }
+                  const callable = builder.produceDefinition(arm);
+                  if (callable.kind !== "resolved") { payloads.push(callable); continue; }
                   const type = callable.value.type;
                   if (type.kind !== "shape" && type.kind !== "callable" || type.calls.length === 0) {
                     payloads.push({ kind: "resolved", value });

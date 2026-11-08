@@ -7,11 +7,14 @@ import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceLiteralDomainQueries } from "./literal-domains.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
+import type { SourceObjectProductionQueries } from "../../host-input/program-input.js";
 
 export type SourceTypeFlowProducers = Pick<SourceTypeFlowAnalysisContext,
   "declared" | "value" | "place" | "destination" | "application" | "operation" | "callableReturn"> & {
   readonly hooks: SourceDescriptorProductionHooks;
   readonly syntaxValue: SourceTypeFlowAnalysisContext["value"];
+  readonly memberDestination: SourceObjectProductionQueries["memberDestination"];
+  readonly memberValue: SourceObjectProductionQueries["memberValue"];
 };
 
 export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource,
@@ -20,7 +23,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const nodes: Node[] = [];
   const values: Node[] = [];
   const orders = new WeakMap<Node, number>();
-  const pending = source.sourceFiles.toReversed().map(node => ({ node, typeOnly: false }));
+  const pending: { readonly node: Node; readonly typeOnly: boolean; readonly runtime: boolean }[] =
+    [...source.sourceFiles].reverse().map(node => ({ node, typeOnly: false, runtime: !node.IsDeclarationFile }));
   const seen = new Set<Node>();
   const staticReceivers = new Set<Node>();
   for (const node of source.navigation.nodesForFiles(source.sourceFiles)) {
@@ -39,11 +43,11 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
     const typeOnly = entry.typeOnly || sourceTypeFlowTypeSyntax(ast, node);
     orders.set(node, nodes.length);
     nodes.push(node);
-    if (!typeOnly && !staticReceivers.has(node) && (sourceTypeFlowValueSyntax(ast, node) || ast.is.IsFunctionDeclaration(node))) values.push(node);
+    if (entry.runtime && !typeOnly && !staticReceivers.has(node) && (sourceTypeFlowValueSyntax(ast, node) || ast.is.IsFunctionDeclaration(node))) values.push(node);
     const children = ast.children(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      if (child !== undefined) pending.push({ node: child, typeOnly });
+      if (child !== undefined) pending.push({ node: child, typeOnly, runtime: entry.runtime });
     }
   }
   const literals = analyzeSourceLiteralValues(ast, source.sourceFiles).literalValue;
@@ -51,7 +55,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const domains = createSourceLiteralDomainQueries({ ast, input, builder: source.descriptorBuilder,
     value: node => producers.value(node, []), syntaxValue: node => producers.syntaxValue(node, []) });
   const propertyName = source.createPropertyNameQuery(domains);
-  const objects = source.createObjects({ reader, place: producers.place, value: producers.value, destination: producers.destination, ...domains });
+  const objects = source.createObjects({ place: producers.place, value: producers.value, declared: producers.declared,
+    memberDestination: producers.memberDestination, memberValue: producers.memberValue });
   return Object.freeze({ source, reader, objects, nodes: Object.freeze(nodes), values: Object.freeze(values),
     ...producers, literal: (node: Node) => literals.get(node), propertyName,
     order(node: Node) {

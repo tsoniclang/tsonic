@@ -12,6 +12,7 @@ import { decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator
   type SourcePrimitiveOperatorOperand } from "./operator-decisions.js";
 import { produceSourceAwaitedType } from "./awaited.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { produceSourceEvidenceDetails } from "./member-production.js";
 
 export interface SourceOperationProduction extends SourceSemanticProduction {
   value(node: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -25,12 +26,14 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   const { ast, builder } = context;
   const refusal = (message: string) => sourceSemanticRefusal(occurrence, message);
   const component = builder.componentIdentity(occurrence, []);
+  const details = produceSourceEvidenceDetails(context, occurrence);
+  if (details.kind !== "resolved") return details;
   const primitive = (kind: SourcePrimitiveKind, literal = context.literal(occurrence)): SourceTypeEvidence => {
     const category = kind === "bool" ? "boolean" : kind === "char" ? "string" : "number";
     return builder.evidence({ type: builder.primitive(kind), component,
       category: { kind: "known", category }, numeric: category === "number" ? {
-        producer: occurrence, category: { kind: "known", category }, kind: "computed" } : undefined, sum: undefined },
-    [], undefined, sourceLiteralValueDomain(literal, category, "present"));
+        producer: occurrence, category: { kind: "known", category }, kind: "operation" } : undefined, sum: undefined },
+    [], context.input.syntax(occurrence), sourceLiteralValueDomain(literal, category, "present"), details.value);
   };
   const operand = (node: Node): SourceProductionResult<SourceValueOperand> => {
     const result = context.value(node);
@@ -40,7 +43,7 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   const exactBool = (value: SourceTypeEvidence): boolean => value.type.kind === "primitive" && value.type.primitive === "bool";
   const literalBool = (value: boolean): SourceTypeEvidence => builder.evidence({ type: builder.primitive("bool"), component,
     category: { kind: "known", category: "boolean" }, numeric: undefined, sum: undefined }, [], undefined,
-  sourceFiniteLiteralDomain([{ kind: "boolean", value }]));
+  sourceFiniteLiteralDomain([{ kind: "boolean", value }]), details.value);
 
   function requiredDestination(target: Node): SourceProductionResult<SourceUseDestination> {
     const result = context.destination(target);
@@ -78,8 +81,8 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (syntax?.Operand === undefined || operator === undefined) return refusal("A unary operation requires its original operand and admitted operator.");
     const value = operand(syntax.Operand);
     if (value.kind !== "resolved") return value;
-    const defined = builder.definition(value.value.value);
-    if (defined.kind === "refused") return defined;
+    const defined = builder.produceDefinition(value.value.value);
+    if (defined.kind !== "resolved") return defined;
     const type = defined.value.type;
     const unary = sourcePrimitiveUnaryOperators.find(selected => selected === operator);
     if (unary === undefined) return refusal("This unary operation has no canonical native meaning.");
@@ -87,8 +90,8 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (type.kind === "intrinsic" && type.intrinsic === "bigint") {
       if (operator !== "negate" && operator !== "bit-not" && operator !== "increment" && operator !== "decrement") return refusal("This unary operator has no admitted bigint result.");
       calculation = builder.evidence({ type: builder.intrinsic("bigint"), component, category: { kind: "known", category: "bigint" },
-        numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "computed" }, sum: undefined }, [], undefined,
-      sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"));
+        numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "operation" }, sum: undefined }, [], undefined,
+      sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"), details.value);
     } else {
       if (type.kind !== "primitive") return refusal("A unary operator requires one exact primitive operand.");
       const expected = context.expected(occurrence);
@@ -102,10 +105,10 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
         if (disposition !== "dynamic") calculation = literalBool(disposition !== "true");
       }
     }
-    if (operator === "increment" || operator === "decrement") {
+    if (unary === "increment" || unary === "decrement") {
       const destination = requiredDestination(syntax.Operand);
       if (destination.kind !== "resolved") return destination;
-      return { kind: "resolved", value: { occurrence, kind: "update", operator,
+      return { kind: "resolved", value: { occurrence, kind: "update", operator: unary,
         form: ast.is.IsPrefixUnaryExpression(occurrence) ? "prefix" : "postfix", operand: value.value,
         destination: destination.value, result: destination.value.applied } };
     }
@@ -115,16 +118,17 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   const syntax = ast.as.AsBinaryExpression(occurrence), token = ast.operatorKindName(occurrence) ?? "";
   const operator = sourceTypeFlowBinaryOperators.get(token);
   if (syntax?.Left === undefined || syntax.Right === undefined || operator === undefined) return refusal("A binary operation requires its original operands and admitted operator.");
-  const left = operand(syntax.Left), right = operand(syntax.Right);
-  if (left.kind !== "resolved") return left;
+  const right = operand(syntax.Right);
   if (right.kind !== "resolved") return right;
-  const operands = [left.value, right.value] as const;
-  if (operator === "sequence") return { kind: "resolved", value: { occurrence, kind: "sequence", operands, result: right.value.value } };
   if (operator === "assignment") {
     const destination = requiredDestination(syntax.Left);
     return destination.kind !== "resolved" ? destination : { kind: "resolved", value: { occurrence, kind: "assignment",
       target: syntax.Left, source: right.value, destination: destination.value, result: destination.value.applied } };
   }
+  const left = operand(syntax.Left);
+  if (left.kind !== "resolved") return left;
+  const operands = [left.value, right.value] as const;
+  if (operator === "sequence") return { kind: "resolved", value: { occurrence, kind: "sequence", operands, result: right.value.value } };
   if (operator === "in" || operator === "instanceof") return { kind: "resolved", value: { occurrence, kind: operator,
     left: left.value, right: right.value, result: primitive("bool") } };
   if (operator === "logical-and" || operator === "logical-or") {
@@ -147,8 +151,8 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
       if (receiver !== undefined) {
         const value = context.value(receiver);
         if (value.kind !== "resolved") return value;
-        const definition = builder.definition(value.value);
-        if (definition.kind === "refused") return definition;
+        const definition = builder.produceDefinition(value.value);
+        if (definition.kind !== "resolved") return definition;
         if (definition.value.type.kind === "array" || definition.value.type.kind === "tuple") return refusal(
           "A dense-array element read cannot supply a nullable coalescing read domain.");
       }
@@ -172,20 +176,20 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   }
   const binary = sourcePrimitiveBinaryOperators.find(selected => selected === operator);
   if (binary === undefined) return refusal("This binary operation has no canonical native meaning.");
-  const first = builder.definition(left.value.value), second = builder.definition(right.value.value);
-  if (first.kind === "refused") return first;
-  if (second.kind === "refused") return second;
+  const first = builder.produceDefinition(left.value.value), second = builder.produceDefinition(right.value.value);
+  if (first.kind !== "resolved") return first;
+  if (second.kind !== "resolved") return second;
   const leftType = first.value.type, rightType = second.value.type;
   const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "equal-strict", "not-equal-strict"].includes(binary);
   let calculation: SourceTypeEvidence;
   if (binary === "add" && (leftType.kind === "string" || rightType.kind === "string")) {
     calculation = builder.evidence({ type: builder.string(), component, category: { kind: "known", category: "string" }, numeric: undefined,
-      sum: undefined }, [], undefined, sourcePresentLiteralDomain);
+      sum: undefined }, [], undefined, sourcePresentLiteralDomain, details.value);
   } else if (leftType.kind === "intrinsic" && leftType.intrinsic === "bigint" && rightType.kind === "intrinsic" && rightType.intrinsic === "bigint") {
     if (binary === "power" || binary.startsWith("shift")) return refusal("This binary operator has no admitted bigint result.");
     calculation = comparison ? primitive("bool") : builder.evidence({ type: builder.intrinsic("bigint"), component,
-      category: { kind: "known", category: "bigint" }, numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "computed" }, sum: undefined },
-    [], undefined, sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"));
+      category: { kind: "known", category: "bigint" }, numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "operation" }, sum: undefined },
+    [], undefined, sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"), details.value);
   } else if (leftType.kind === "primitive" && rightType.kind === "primitive") {
     const parameter = (node: Node, primitive: SourcePrimitiveKind): SourcePrimitiveOperatorOperand => {
       const literal = context.unboundLiteral(node);

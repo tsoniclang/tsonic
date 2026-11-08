@@ -38,5 +38,5 @@ export function collectSourceTypeFlowUses(context: SourceTypeFlowAnalysisContext
       }
     }
   }
-  return Object.freeze(uses.toSorted((left, right) => context.order(left.site).preorder - context.order(right.site).preorder));
+  return Object.freeze(uses.sort((left, right) => context.order(left.site).preorder - context.order(right.site).preorder));
 }

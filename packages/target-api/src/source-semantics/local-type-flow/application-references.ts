@@ -21,11 +21,12 @@ export function sourceApplicationStaticReceiver(source: Pick<SourceTypeFlowSourc
     if (operand === undefined) break;
     node = operand;
   }
-  if (!source.ast.is.IsIdentifier(node) && !source.ast.is.IsPropertyAccessExpression(node)) return undefined;
-  if (source.ast.is.IsPropertyAccessExpression(node)) {
-    let base: Node | undefined = node;
-    while (base !== undefined && source.ast.is.IsPropertyAccessExpression(base)) base = source.ast.as.AsPropertyAccessExpression(base)?.Expression;
-    if (base === undefined || !source.ast.is.IsIdentifier(base) || source.navigation.sourceReferenceFor(base) === undefined) return undefined;
+  const selected = source.navigation.sourceReferenceFor(node)?.declaration;
+  if (selected === undefined) return undefined;
+  if (source.ast.is.IsIdentifier(node) && source.ast.is.IsVariableDeclaration(selected) &&
+    source.ast.getSourceFile(selected)?.IsDeclarationFile && source.ast.typeNode(selected) !== undefined) return selected;
+  if (source.ast.is.IsIdentifier(node) || source.ast.is.IsPropertyAccessExpression(node)) {
+    if (source.ast.is.IsModuleDeclaration(selected) || source.ast.is.IsClassDeclaration(selected)) return selected;
   }
-  return source.navigation.sourceReferenceFor(node)?.declaration;
+  return undefined;
 }

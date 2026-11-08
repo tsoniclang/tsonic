@@ -19,7 +19,8 @@ export function sourceKeyEvidence(context: SourceSemanticProduction, original: N
     ? builder.primitive("float64") : builder.intrinsic("symbol"), component: builder.componentIdentity(original, []),
   category: { kind: "known", category: unit.kind }, numeric: unit.kind === "number"
     ? { producer: original, kind: "literal", category: { kind: "known", category: "number" } } : undefined,
-  sum: undefined }, [], undefined, sourceFiniteLiteralDomain([unit]));
+  sum: undefined }, [], undefined, sourceFiniteLiteralDomain([unit]),
+  { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [original] } });
 }
 
 export function sourceMemberKeyDomain(context: SourceSemanticProduction, member: {
@@ -44,8 +45,8 @@ export function produceSourceKeyOfType(context: SourceSyntaxProduction): SourceP
   const source = reader.describeSyntax(operand, context.bindings);
   if (source.kind !== "resolved") return source;
   if (builder.freeParameters(source.value).length > 0) return deferred(context, source.value);
-  const definition = builder.definition(source.value);
-  if (definition.kind === "refused") return definition;
+  const definition = builder.produceDefinition(source.value);
+  if (definition.kind !== "resolved") return definition;
   const type = definition.value.type;
   if (type.kind === "intrinsic" && (type.intrinsic === "never" || type.intrinsic === "unknown")) return builder.join(builder.componentIdentity(syntax, []), "authored", [], context.component);
   if (type.kind !== "shape") return sourceSemanticRefusal(syntax, "This keyof operand requires its original complete Source member and index domain.");
@@ -84,8 +85,8 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
     const values = sourceProductionValues(source.sum.arms.map(arm => indexSource(context, arm, key)));
     return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
   }
-  const definition = builder.definition(source);
-  if (definition.kind === "refused") return definition;
+  const definition = builder.produceDefinition(source);
+  if (definition.kind !== "resolved") return definition;
   const value = definition.value, type = value.type, domain = builder.domain(key);
   if (type.kind === "array") {
     if (key.category.kind !== "known" || key.category.category !== "number") return sourceSemanticRefusal(key.component.root, "An array type index requires its original number key domain.");
@@ -139,5 +140,6 @@ function deferred(context: SourceSyntaxProduction, source: SourceTypeEvidence): 
   const component = builder.componentIdentity(syntax, []);
   return { kind: "resolved", value: builder.evidence({ type: builder.projection(source.type, { kind: "component", component }),
     component, category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
-  [{ selector: { kind: "projection-source" }, value: source }], context.component, sourceOpenLiteralDomain) };
+  [{ selector: { kind: "projection-source" }, value: source }], context.component, sourceOpenLiteralDomain,
+  { members: { kind: "definition" }, origins: { kind: "complete", nodes: [syntax] } }) };
 }

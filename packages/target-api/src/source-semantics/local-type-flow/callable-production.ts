@@ -91,7 +91,8 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass,
       typeArguments: arguments_.map(value => value.type) }), component, category: { kind: "known", category: "object" },
     numeric: undefined, sum: undefined }, arguments_.map((value, index) => ({ selector: { kind: "type-argument" as const,
-      declaration: constructedClass, index }, value })), undefined, sourceOpenLiteralDomain) };
+      declaration: constructedClass, index }, value })), undefined, sourceOpenLiteralDomain,
+    { members: { kind: "definition" }, origins: { kind: "complete", nodes: [constructedClass] } }) };
   } else {
     const declaration = original.declaration ?? inheritedDeclaration("result");
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);

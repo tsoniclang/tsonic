@@ -1,81 +1,48 @@
-import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourcePresence, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
-import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { sourceLiteralDomainIncludes } from "../../source-model/literals/domain.js";
+import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
-import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
-import type { SourceTypeDescriptor } from "./types.js";
 
-export type SourceTypeFlowScalarCalculationArm =
-  | { readonly kind: "resolved"; readonly primitive: SourcePrimitiveKind }
-  | { readonly kind: "unfitted" };
-
-// C-2360 Q5 / C-2361 Q12 / C-2379 H3: int64 first, then fixed integers by width and signedness, then platform integers and C-2339 floats.
-const wholeLiteralUnionArmPriority: Readonly<Record<SourcePrimitiveKind, number>> = Object.freeze({
+const priorities: Readonly<Record<SourcePrimitiveKind, number>> = Object.freeze({
   bool: 0, char: 1, int64: 2, int8: 3, uint8: 4, int16: 5, uint16: 6, int32: 7, uint32: 8, uint64: 9,
   int128: 10, uint128: 11, "native-int": 12, "native-uint": 13, decimal: 14, float16: 15, float32: 16, float64: 17,
 });
 
-export function sourceTypeFlowScalarCalculationArm(
-  type: SourceTypeDescriptor, literal: SourceLiteralValue,
-): SourceTypeFlowScalarCalculationArm {
-  const seen = new Set<SourceTypeDescriptor>();
-  let fixed: SourceTypeDescriptor | undefined = type;
-  while (fixed !== undefined && !seen.has(fixed)) {
-    seen.add(fixed);
-    if (fixed.kind === "primitive") return Object.freeze({ kind: "resolved", primitive: fixed.primitive });
-    fixed = fixed.kind === "declared" ? fixed.definition : fixed.kind === "optional" ? fixed.value : undefined;
-  }
-  const candidates = new Set<SourcePrimitiveKind>();
-  const numericKinds = new Set<SourcePrimitiveKind>();
-  const numeric = literal.form !== "array" && (literal.number !== undefined || literal.integer !== undefined ||
-    literal.integerConstant !== undefined || literal.numeric !== undefined);
-  const pending = [type];
-  seen.clear();
+export function sourceScalarCreationDestination(builder: SourceDescriptorBuilder, destination: SourceTypeEvidence,
+  literal: SourceLiteralValue, category: "number" | "bigint"): SourceProductionResult<SourcePresence<SourceTypeEvidence>> {
+  const pending = [destination];
+  const seen = new Set<SourceTypeEvidence>();
+  const candidates: SourceTypeEvidence[] = [];
+  const fixed = new Map<SourcePrimitiveKind, SourceTypeEvidence>();
   while (pending.length > 0) {
     const selected = pending.pop()!;
     if (seen.has(selected)) continue;
     seen.add(selected);
-    if (selected.kind === "declared" && selected.definition !== undefined) pending.push(selected.definition);
-    else if (selected.kind === "optional") pending.push(selected.value);
-    else if (selected.kind === "union") pending.push(...selected.types);
-    else if (selected.kind === "primitive") {
-      if (numeric && selected.primitive !== "bool" && selected.primitive !== "char") numericKinds.add(selected.primitive);
-      if (sourcePrimitiveOperatorLiteralFits(literal, selected.primitive)) candidates.add(selected.primitive);
+    if (selected.sum !== undefined) { pending.push(...selected.sum.arms); continue; }
+    if (selected.type.kind === "optional") {
+      const payload = builder.component(selected, { kind: "optional-value" });
+      if (payload.kind === "refused") return payload;
+      pending.push(payload.value);
+      continue;
     }
+    const definition = builder.produceDefinition(selected);
+    if (definition.kind !== "resolved") return definition;
+    const value = definition.value;
+    if (value !== selected) { pending.push(value); continue; }
+    if (value.type.kind !== "primitive" || value.type.primitive === "bool" || value.type.primitive === "char" ||
+      value.category.kind !== "known" || value.category.category !== category) continue;
+    fixed.set(value.type.primitive, value);
+    const domain = sourceLiteralValueDomain(literal, category, "present");
+    if (domain.kind === "finite" && !domain.values.every(unit => sourceLiteralDomainIncludes(builder.domain(value), unit))) continue;
+    if (sourcePrimitiveOperatorLiteralFits(literal, value.type.primitive)) candidates.push(value);
   }
-  let primitive: SourcePrimitiveKind | undefined;
-  for (const candidate of candidates) {
-    if (primitive === undefined || wholeLiteralUnionArmPriority[candidate] < wholeLiteralUnionArmPriority[primitive]) primitive = candidate;
-  }
-  if (primitive === undefined && numericKinds.size === 1) primitive = numericKinds.values().next().value;
-  return primitive === undefined ? Object.freeze({ kind: "unfitted" }) : Object.freeze({ kind: "resolved", primitive });
-}
-
-export function sourceTypeFlowConstructionSlot(
-  ast: AstReader, node: Node, type: SourceTypeDescriptor, authority: SourceTypeFlowDeclaredSlot["authority"],
-): SourceTypeFlowDeclaredSlot {
-  if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
-    ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node))) return Object.freeze({ type, authority });
-  let split = false;
-  function branches(selected: SourceTypeDescriptor, original = selected): readonly SourceTypeDescriptor[] {
-    if (selected.kind === "declared" && selected.definition !== undefined) return branches(selected.definition, original);
-    if (selected.kind === "optional") { split = true; return branches(selected.value); }
-    if (selected.kind === "union") { split = true; return selected.types.flatMap(member => branches(member)); }
-    return [original];
-  }
-  function matches(selected: SourceTypeDescriptor): boolean {
-    if (selected.kind === "optional") return matches(selected.value);
-    if (selected.kind === "declared") return selected.definition !== undefined ? matches(selected.definition)
-      : ast.is.IsObjectLiteralExpression(node) &&
-        (ast.is.IsClassDeclaration(selected.declaration) || ast.is.IsInterfaceDeclaration(selected.declaration));
-    if (selected.kind === "intrinsic") return selected.intrinsic === "object" || selected.intrinsic === "unknown" || selected.intrinsic === "any";
-    if (ast.is.IsArrayLiteralExpression(node)) return selected.kind === "array" || selected.kind === "tuple";
-    if (ast.is.IsObjectLiteralExpression(node)) return selected.kind === "shape";
-    return selected.kind === "callable" || selected.kind === "shape" && selected.calls.length > 0;
-  }
-  const alternatives = branches(type);
-  if (!split) return Object.freeze({ type, authority });
-  const candidates = alternatives.filter(matches);
-  return candidates.length === 1 ? Object.freeze({ type: candidates[0]!, authority })
-    : Object.freeze({ refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNION", node), authority });
+  candidates.sort((left, right) => {
+    if (left.type.kind !== "primitive" || right.type.kind !== "primitive") throw new Error("A Source numeric creation candidate must retain its primitive descriptor.");
+    return priorities[left.type.primitive] - priorities[right.type.primitive];
+  });
+  const selected = candidates[0] ?? (fixed.size === 1 ? fixed.values().next().value : undefined);
+  return { kind: "resolved", value: selected === undefined ? { kind: "none" } : { kind: "present", value: selected } };
 }

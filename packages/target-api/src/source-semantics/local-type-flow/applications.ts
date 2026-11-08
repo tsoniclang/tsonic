@@ -86,7 +86,20 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       if (classValue !== undefined) {
         const value = context.value(classValue.occurrence, ordered());
         if (value.kind !== "resolved") return value;
-        if (value.value.type.kind === "declared") {
+        if ((value.value.type.kind === "array" || value.value.type.kind === "tuple") && original.class.arguments.length === 1) {
+          const argument = original.class.arguments[0]!;
+          const elements = value.value.type.kind === "array" ? [builder.component(value.value, { kind: "array-element" })]
+            : value.value.type.elements.map((_, index) => builder.component(value.value, { kind: "tuple-element", index }));
+          const values: SourceTypeEvidence[] = [];
+          for (const element of elements) {
+            if (element.kind === "refused") return element;
+            values.push(element.value);
+          }
+          const joined = builder.join(builder.componentIdentity(invocation, [{ kind: "type-argument", declaration: argument.declaration!, index: 0 }]),
+            "inferred", values, undefined);
+          if (joined.kind === "refused") return joined;
+          bindings.set(argument.declaration!, joined.value);
+        } else if (value.value.type.kind === "declared") {
           const receiverBindings: SourceTypeBinding[] = [];
           for (const [index, declaration] of context.ast.typeParameters(value.value.type.declaration).entries()) {
             if (declaration === undefined) return refusal("A receiver application requires its actual original class binder vector.");
@@ -185,8 +198,9 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     const identity: SourceApplicationIdentity = Object.freeze({ invocation, signature,
       classBindings: Object.freeze(allBindings.slice(0, classCount)),
       signatureBindings: Object.freeze(allBindings.slice(classCount)) });
-    const callee = staticReceiver === undefined ? context.value(original.callee.occurrence, allBindings)
-      : reader.describeComponent(original.callee.component, allBindings);
+    const directCallee = context.navigation.sourceReferenceFor(original.callee.occurrence);
+    const callee = directCallee === undefined && staticReceiver === undefined ? context.value(original.callee.occurrence, allBindings)
+      : context.component(original.callee.component, allBindings, value);
     if (callee.kind !== "resolved") return callee;
     const sourceArguments: SourceAuthoredArgument[] = [];
     for (const argument of value.sourceArguments) {
@@ -215,7 +229,8 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
         sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex,
         parameter: Object.freeze({ signature, index: parameter.index,
           ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }), form: argument.parameterForm }),
-        source: argument.source, destination: Object.freeze({ declaration: slot, applied: argument.destination, application: identity }) }));
+        source: argument.source, destination: Object.freeze({ declaration: slot, applied: argument.destination,
+          application: Object.freeze({ kind: "call", identity }) }) }));
     }
     if (value.arguments.kind === "available") {
       for (const observed of value.arguments.values) {

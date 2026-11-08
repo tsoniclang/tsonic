@@ -87,13 +87,7 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
   }
 
   function destination(value: SourceUseDestination): void {
-    evidence(value.declaration.type);
-    evidence(value.applied);
-    for (const binding of value.application?.classBindings ?? []) evidence(binding.value);
-    for (const binding of value.application?.signatureBindings ?? []) evidence(binding.value);
-    if (value.application === undefined && value.applied !== value.declaration.type) {
-      throw new Error("A nonapplied Source use must retain its exact original declaration evidence.");
-    }
+    builder.assertDestination(value);
   }
 
   validate(types, evidence);
@@ -155,6 +149,8 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
   validate(applications, (application, occurrence) => {
     if (application.identity.invocation !== occurrence) throw new Error("A Source application requires its identical original invocation.");
     evidence(application.result);
+    assertOccurrence(application.callee.occurrence);
+    evidence(application.callee.value);
     for (const binding of [...application.identity.classBindings, ...application.identity.signatureBindings]) evidence(binding.value);
     if (application.receiver.kind === "value") { assertOccurrence(application.receiver.occurrence); evidence(application.receiver.value); }
     for (const argument of application.sourceArguments) {

@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceDeclaredSlot, SourcePresence, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
-import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import type { SourceTypeFlowAnalysisContext } from "./types.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 
@@ -89,9 +89,10 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
     const owner = ast.parent(declaration);
     if (owner === undefined) return none;
     const selected = destination(owner, bindings);
-    if (selected.kind !== "resolved" || selected.value.kind === "none") return selected;
-    const definition = builder.definition(selected.value.value.applied);
-    if (definition.kind === "refused") return definition;
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "none") return none;
+    const definition = builder.produceDefinition(selected.value.value.applied);
+    if (definition.kind !== "resolved") return definition;
     const type = definition.value.type;
     if (type.kind !== "shape" && type.kind !== "callable" || type.calls.length !== 1) return none;
     const signature = type.calls[0]!;
@@ -105,7 +106,8 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
 
   function returned(declaration: Node, bindings: readonly SourceTypeBinding[] = []): SourceProductionResult<SourcePresence<SourceTypeEvidence>> {
     const selected = annotated(declaration, bindings);
-    if (selected.kind !== "resolved" || selected.value.kind === "none") return selected;
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "none") return none;
     return { kind: "resolved", value: { kind: "present", value: selected.value.value.applied } };
   }
 

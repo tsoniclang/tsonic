@@ -92,7 +92,8 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
       : term.kind === "tuple" ? term.elements.map(element => intern(element.variable))
       : term.kind === "shape" ? term.members.map(member => intern(member.variable))
       : term.kind === "declared" ? term.typeArguments.map(intern) : []),
-      ...slot.terms.flatMap(term => term.kind === "template" ? term.bindings.map(binding => intern(binding.variable)) : [])];
+      ...slot.terms.flatMap(term => term.kind === "template" ? term.bindings.map(binding => intern(binding.variable))
+        : term.kind === "construction" ? term.inputs.map(intern) : [])];
   }
   function contains(from: TermSlot, target: TermSlot): boolean {
     const pending = [...children(from)];

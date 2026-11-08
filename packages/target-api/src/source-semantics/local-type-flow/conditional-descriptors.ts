@@ -67,8 +67,8 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
         }));
       }
     }
-    const definition = builder.definition(actual);
-    if (definition.kind === "refused") return definition;
+    const definition = builder.produceDefinition(actual);
+    if (definition.kind !== "resolved") return definition;
     const selected = definition.value, type = selected.type;
     if (ast.is.IsArrayTypeNode(pattern)) {
       const element = ast.as.AsArrayTypeNode(pattern)?.ElementType;
@@ -200,7 +200,8 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
       const component = builder.componentIdentity(syntax, []);
       return { kind: "resolved", value: builder.evidence({ type: builder.projection(actual.type, { kind: "component", component }),
         component, category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
-      [{ selector: { kind: "projection-source" }, value: actual }], context.component, sourceOpenLiteralDomain) };
+        [{ selector: { kind: "projection-source" }, value: actual }], context.component, sourceOpenLiteralDomain,
+      { members: { kind: "definition" }, origins: { kind: "complete", nodes: [syntax] } }) };
     }
     return reader.describeSyntax(matched.value === "yes" ? trueNode : falseNode, bindings());
   }

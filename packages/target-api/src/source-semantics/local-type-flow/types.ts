@@ -5,12 +5,11 @@ import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceLiteralKey } from "../../source-model/literals/key.js";
 import type { SourceJsApiFacts } from "../../target-analysis/source-profile.js";
-import type { SourceMemberCorrespondenceProduction } from "../member-correspondence.js";
-import type { SourceMemberUse } from "../member-use.js";
+import type { SourceObjectProduction, SourceObjectProductionQueries } from "../../host-input/program-input.js";
+import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { SourceApplication, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
-  SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+  SourcePropertyName, SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceProductionResult } from "../descriptor-contracts.js";
 
 export interface SourceTypeFlowSource {
@@ -20,19 +19,13 @@ export interface SourceTypeFlowSource {
   readonly input: SourceDescriptorInput;
   readonly descriptorBuilder: SourceDescriptorBuilder;
   readonly profile: SourcePresence<SourceJsApiFacts>;
-  createObjects(queries: Pick<SourceTypeFlowAnalysisContext, "reader" | "place" | "value" | "destination"> & {
-    literalDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
-    syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
-  }): SourceObjectProduction;
+  readonly protocolInput: SourceInputProtocolQueries;
+  createObjects(queries: SourceObjectProductionQueries): SourceObjectProduction;
   createDescriptorReader(hooks: SourceDescriptorProductionHooks): SourceDescriptorReader;
   createPropertyNameQuery(queries: {
     literalDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
     syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
-  }): (node: Node) => SourceProductionResult<SourceLiteralKey>;
-}
-
-export interface SourceObjectProduction extends SourceMemberCorrespondenceProduction {
-  use(occurrence: Node): SourceProductionResult<SourceMemberUse>;
+  }): (node: Node) => SourceProductionResult<SourcePropertyName>;
 }
 
 export interface SourceTypeFlowOrder {
@@ -55,7 +48,7 @@ export interface SourceTypeFlowAnalysisContext {
   application(occurrence: Node): SourceProductionResult<SourceApplication>;
   operation(occurrence: Node): SourceProductionResult<SourceOperation>;
   callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  propertyName(node: Node): SourceProductionResult<SourceLiteralKey>;
+  propertyName(node: Node): SourceProductionResult<SourcePropertyName>;
 }
 
 export type SourceTypeFlowRefusalCode =
@@ -80,6 +73,7 @@ export type SourceTypeFlowTerm =
   | { readonly kind: "numeric"; readonly site: Node; readonly form: "integer" | "fractional"; readonly literal: SourceLiteralValue }
   | { readonly kind: "fixed"; readonly site: Node; readonly value: SourceTypeEvidence }
   | { readonly kind: "original"; readonly site: Node; readonly component: SourceInputComponent }
+  | { readonly kind: "construction"; readonly site: Node; readonly inputs: readonly SourceTypeFlowVariable[] }
   | { readonly kind: "template"; readonly site: Node; readonly value: SourceTypeEvidence;
       readonly bindings: readonly { readonly declaration: Node; readonly variable: SourceTypeFlowVariable }[] }
   | { readonly kind: "array"; readonly site: Node; readonly element: SourceTypeFlowVariable; readonly readonly: boolean }

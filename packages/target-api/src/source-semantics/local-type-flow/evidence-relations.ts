@@ -64,10 +64,10 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
           { kind: "type-argument", declaration: required.declaration, index })), true);
       }
       if (actual.kind === "declared" || required.kind === "declared") {
-        const first = builder.definition(left);
-        if (first.kind === "refused") return first;
-        const second = builder.definition(right);
-        if (second.kind === "refused") return second;
+        const first = builder.produceDefinition(left);
+        if (first.kind !== "resolved") return first;
+        const second = builder.produceDefinition(right);
+        if (second.kind !== "resolved") return second;
         if (first.value.type === actual && second.value.type === required) return resolved("no");
         return relate(first.value, second.value);
       }

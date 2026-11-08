@@ -24,7 +24,8 @@ function defer(context: SourceSyntaxProduction, source: SourceTypeEvidence): Sou
   const component = builder.componentIdentity(syntax, []);
   return { kind: "resolved", value: builder.evidence({ type: builder.projection(source.type, { kind: "component", component }),
     component, category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
-  [{ selector: { kind: "projection-source" }, value: source }], context.component, sourceOpenLiteralDomain) };
+  [{ selector: { kind: "projection-source" }, value: source }], context.component, sourceOpenLiteralDomain,
+  { members: { kind: "definition" }, origins: { kind: "complete", nodes: [syntax] } }) };
 }
 
 function template(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
@@ -43,7 +44,8 @@ function template(context: SourceSyntaxProduction): SourceProductionResult<Sourc
     const domain = builder.domain(selected.value);
     if (domain.kind === "unreachable") return builder.join(builder.componentIdentity(syntax, []), "authored", [], context.component);
     if (domain.kind !== "finite") return { kind: "resolved", value: builder.evidence({ type: builder.string(), component: builder.componentIdentity(syntax, []),
-      category: { kind: "known", category: "string" }, numeric: undefined, sum: undefined }, [], context.component, sourceOpenLiteralDomain) };
+      category: { kind: "known", category: "string" }, numeric: undefined, sum: undefined }, [], context.component, sourceOpenLiteralDomain,
+    { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [syntax] } }) };
     const units: string[] = [];
     for (const value of domain.values) {
       const key = sourceLiteralUnitKey(value);
@@ -57,7 +59,8 @@ function template(context: SourceSyntaxProduction): SourceProductionResult<Sourc
   }
   return { kind: "resolved", value: builder.evidence({ type: builder.string(), component: builder.componentIdentity(syntax, []),
     category: { kind: "known", category: "string" }, numeric: undefined, sum: undefined }, [], context.component,
-  sourceFiniteLiteralDomain(texts.map(value => ({ kind: "string", value })))) };
+  sourceFiniteLiteralDomain(texts.map(value => ({ kind: "string", value }))),
+  { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [syntax] } }) };
 }
 
 function intersection(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {

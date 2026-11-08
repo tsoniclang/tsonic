@@ -3,7 +3,7 @@ import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
 import type { SourceInputComponent } from "../host-input/identities.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceFiniteLiteralDomain } from "../source-model/literals/domain.js";
-import type { SourceEnumDeclaration, SourceEnumFacts, SourceEnumMember, SourceRefusal, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceEnumDeclaration, SourceEnumFacts, SourceEnumMember, SourceRefusal, SourceResult, SourceTypeComponent, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceDescriptorBuilder } from "./descriptor-contracts.js";
 import { createSourceEnumConstantLedger } from "./enum-constants.js";
 import { sourceSemanticRefusal } from "./local-type-flow/semantic-production.js";
@@ -13,6 +13,7 @@ export function createSourceEnumFacts(input: {
   readonly input: SourceDescriptorInput;
   readonly navigation: SourceNodeNavigationFacts;
   readonly builder: SourceDescriptorBuilder;
+  componentIdentity(component: SourceInputComponent): SourceTypeComponent;
 }): {
   readonly facts: SourceEnumFacts;
   value(component: SourceInputComponent, declaration: Node): SourceResult<SourceTypeEvidence>;
@@ -61,7 +62,7 @@ export function createSourceEnumFacts(input: {
     if (constant === undefined) result = refuse(declaration, "An enum member requires its complete original constant observation.");
     else if (constant.kind === "rejected") result = refuse(declaration, constant.reason);
     else {
-      builder.define(owner, [], () => nativeBase(owner));
+      builder.define(owner, [], () => nativeBase(owner), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
       const category = typeof constant.value === "string" ? "string" : "number";
       const value = builder.evidence({ type: builder.declared({ declaration: owner, typeArguments: [] }),
         component: builder.componentIdentity(declaration, []), category: { kind: "known", category },
@@ -100,12 +101,12 @@ export function createSourceEnumFacts(input: {
       input.input.assertComponent(component);
       if (ast.is.IsEnumMember(node)) {
         const selected = member(node);
-        return selected.kind === "refused" ? selected : builder.join(builder.componentIdentity(component.root, []), "inferred", [selected.value.value], component);
+        return selected.kind === "refused" ? selected : builder.join(input.componentIdentity(component), "inferred", [selected.value.value], component);
       }
       const selected = declaration(node);
       if (selected.kind === "refused") return selected;
-      builder.define(node, [], () => nativeBase(node));
-      const joined = builder.join(builder.componentIdentity(node, []), "authored", selected.value.members.map(member => member.value), component);
+      builder.define(node, [], () => nativeBase(node), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
+      const joined = builder.join(input.componentIdentity(component), "authored", selected.value.members.map(member => member.value), component);
       return joined;
     },
   });

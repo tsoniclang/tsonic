@@ -47,8 +47,8 @@ export function produceSourceArgumentPlaces(context: {
       effective.push({ authored, sourceArgumentIndex, sourceForm: "value", spreadElementIndex: undefined, source: authored.operand.value });
       continue;
     }
-    const definition = builder.definition(authored.operand.value);
-    if (definition.kind === "refused") return definition;
+    const definition = builder.produceDefinition(authored.operand.value);
+    if (definition.kind !== "resolved") return definition;
     const value = definition.value;
     if (value.type.kind !== "tuple") {
       effective.push({ authored, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: undefined, source: authored.operand.value });
@@ -81,8 +81,8 @@ export function produceSourceArgumentPlaces(context: {
       continue;
     }
     if (parameterIndex !== context.parameters.length - 1) throw new Error("A Source rest parameter must be the final original signature parameter.");
-    const definition = builder.definition(parameter.type);
-    if (definition.kind === "refused") return definition;
+    const definition = builder.produceDefinition(parameter.type);
+    if (definition.kind !== "resolved") return definition;
     const rest = definition.value;
     if (rest.type.kind === "tuple") {
       for (const [index, element] of rest.type.elements.entries()) {
@@ -141,8 +141,8 @@ export function produceSourceArgumentPlaces(context: {
   function sequence(value: SourceTypeEvidence, parameter: SourceCallParameter): SourceProductionResult<{
     readonly sequence: SourceTypeEvidence; readonly element: SourceTypeEvidence | undefined;
   }> {
-    const definition = builder.definition(value);
-    if (definition.kind === "refused") return definition;
+    const definition = builder.produceDefinition(value);
+    if (definition.kind !== "resolved") return definition;
     const selected = definition.value;
     if (selected.type.kind === "array") {
       const element = builder.component(selected, { kind: "array-element" });

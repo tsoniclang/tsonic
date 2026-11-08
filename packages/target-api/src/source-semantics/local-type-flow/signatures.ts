@@ -1,6 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
-import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowGraph,
@@ -42,7 +41,6 @@ export function collectSourceTypeFlowSignatures(
   const entries: SignatureVariable[] = [];
   const seeds: { readonly variable: SignatureVariable; readonly origin: SignatureOrigin }[] = [];
   const { ast } = context.source;
-  const declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
 
   const entry = (variable: SourceTypeFlowVariable): SignatureVariable => {
     let path = variables.get(variable.node);
@@ -93,7 +91,7 @@ export function collectSourceTypeFlowSignatures(
     if (!isInference(variable)) return;
     const origin = signatureOrigin(ast, context.source.navigation, node, declaration =>
       context.source.navigation.declarationUseSummary(declaration).exported);
-    if (origin !== undefined && declaredSlots.returned(origin.owner, context.source.semantics.forNode(origin.owner)) === undefined) {
+    if (origin !== undefined && ast.typeNode(origin.owner) === undefined) {
       seeds.push({ variable: entry(variable), origin });
     }
   };
