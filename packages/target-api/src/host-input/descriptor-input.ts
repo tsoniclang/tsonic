@@ -2,6 +2,7 @@ import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
 import type { SourceInputBackingConstraint, SourceInputCallSelection } from "./call-input.js";
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
+import type { SourceInputMarkerQueries } from "./marker-input.js";
 
 export interface SourceInputParameter {
   readonly declaration: Node | undefined;
@@ -73,6 +74,7 @@ export type SourceInputTypeFacts = {
   readonly authoredTypeNode: Node | undefined;
   readonly declaration: Node | undefined;
   readonly definitionOwner: Node | undefined;
+  readonly definitionParameters: readonly Node[] | undefined;
   readonly literal: SourceInputScalarLiteral | undefined;
   readonly primitive: { readonly kind: SourcePrimitiveKind; readonly runtimeBase: "number" | "bigint" | "boolean" | "string" | "object" } | undefined;
 } & (
@@ -87,7 +89,7 @@ export type SourceInputTypeFacts = {
   | { readonly kind: "unavailable"; readonly reason: "missing-original-component" | "unsupported-checked-structure" }
 );
 
-export interface SourceDescriptorInput {
+export interface SourceDescriptorInput extends SourceInputMarkerQueries {
   readonly ast: AstReader;
   assertNode(node: Node): void;
   assertComponent(component: SourceInputComponent): void;

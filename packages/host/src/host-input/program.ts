@@ -1,7 +1,7 @@
 import { providerVirtualDeclarationFactKey, type CheckedSourceProgram, type Diagnostic, type Node, type SourceFile } from "@tsonic/tsts";
 import { createSourceProfileDeclarationQuery, createTargetSourceProgram, createSourceNodeInventory } from "@tsonic/target-api/host";
 import type { SourceFactProduction, SourceJsApiFactsFactory, SourceProgramInput } from "@tsonic/target-api/host";
-import { createSourceCorePointerFacts, selectTsonicFixedArray } from "@tsonic/source-core/host";
+import { createSourceCoreMarkerInput, createSourceCorePointerFacts, selectTsonicFixedArray } from "@tsonic/source-core/host";
 import type { TargetSourceProfileFile } from "../target/source-profile.js";
 import { createSourceDescriptorInput } from "./descriptor-factory.js";
 import { createSourceNodeNavigationFacts } from "./navigation/facts.js";
@@ -29,7 +29,8 @@ export function createHostSourceProgram(options: {
     if (file === undefined) throw new Error("An original Source fact requires its authentic source file.");
     return checked.getSourceFileQueries(file);
   };
-  const raw = createSourceDescriptorInput({ checked, assertNode,
+  const markers = createSourceCoreMarkerInput({ sourceFacts: checked.sourceFacts, assertNode });
+  const raw = createSourceDescriptorInput({ checked, assertNode, markers: markers.markers,
     extent(component, authoredTypeNode, observed) {
       const terminal = observed(component);
       if (terminal === undefined) return undefined;

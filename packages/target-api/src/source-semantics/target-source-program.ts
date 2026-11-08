@@ -1,5 +1,7 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceFactProduction, SourceObjectProduction, SourceObjectProductionQueries, SourceProgramInput } from "../host-input/program-input.js";
+import type { SourceFactProduction, SourceProgramInput } from "../host-input/program-input.js";
+import type { SourceObjectProduction } from "./member-use.js";
+import type { SourceObjectProductionQueries } from "./object-production.js";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
 import type { SourcePropertyName, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceDescriptorReader, SourceProductionResult } from "./descriptor-contracts.js";
@@ -87,8 +89,9 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     if (receiver !== undefined) {
       owner.view.assertEvidence(receiver);
       if (receiver.type.kind === "declared") {
-        for (const [index, declaration] of ast.typeParameters(receiver.type.declaration).entries()) {
-          if (declaration === undefined) throw new Error("An original declared receiver requires its complete binder vector.");
+        const parameters = input.input.describe(input.input.syntax(receiver.type.declaration)).definitionParameters;
+        if (parameters === undefined) throw new Error("An original declared receiver requires its complete authenticated binder inventory.");
+        for (const [index, declaration] of parameters.entries()) {
           const value = owner.view.component(receiver, { kind: "type-argument", declaration: receiver.type.declaration, index });
           if (value.kind === "refused") return owner.observe(value);
           bindings.push({ declaration, value: value.value });

@@ -51,7 +51,7 @@ function fixture() {
       ast: checked.ast, assertNode,
       assertComponent(value) { if (!components.has(value)) throw new Error("Foreign component."); },
       assertSignature(value) { if (!signatures.has(value)) throw new Error("Foreign original signature."); },
-      syntax: original, describe: unexpected, members: unexpected, describeSignature: unexpected,
+      syntax: original, describe: unexpected, members: unexpected, markers: unexpected, describeSignature: unexpected,
       signatureComponent: unexpected, enumDeclaration: unexpected, application: unexpected, constraints: unexpected,
     };
     const owner = createSourceDescriptorOwner({ input, assertNode, members: unexpected, project: unexpected,
@@ -265,6 +265,8 @@ test("authored slot evidence and a receiver application remain distinct from pro
   const broad = local.evidence(local.builder.intrinsic("unknown"), { kind: "dynamic" });
   const receiver = local.evidence(local.builder.declared({ declaration, typeArguments: [broad.type] }), { kind: "known", category: "object" }, declaration,
     sourceOpenLiteralDomain, [{ selector: { kind: "type-argument", declaration, index: 0 }, value: broad }]);
+  local.builder.define(declaration, [binder], () => ({ kind: "resolved", value: receiver }),
+    () => ({ kind: "resolved", value: { kind: "complete", members: [], indexes: [] } }));
   const slot = { origin: { kind: "declaration" as const, declaration }, type: original };
   local.builder.assertDestination({ declaration: slot, applied: resolved(local.view.substitute(original, [{ declaration: binder, value: broad }])),
     application: { kind: "receiver", receiver, bindings: [{ declaration: binder, value: broad }] } });
