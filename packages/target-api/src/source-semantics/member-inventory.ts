@@ -1,10 +1,18 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourcePresence, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
 import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "./member-correspondence.js";
 
-export type SourceMemberInventoryRow = Omit<SourceCorrespondenceMember, "receiver">;
-export type SourceIndexInventoryRow = Omit<SourceCorrespondenceIndex, "receiver">;
+export type SourceMemberInventoryRow = Omit<SourceCorrespondenceMember, "receiver" | "readType" | "writeType"> & {
+  readType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+  writeType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+};
+
+export type SourceIndexInventoryRow = Omit<SourceCorrespondenceIndex, "receiver" | "keyType" | "readType" | "writeType"> & {
+  keyType(): SourceProductionResult<SourceTypeEvidence>;
+  readType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+  writeType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+};
 
 export type SourceMemberInventory =
   | { readonly kind: "complete"; readonly members: readonly SourceMemberInventoryRow[];
@@ -24,4 +32,9 @@ export interface SourceEvidenceDetails {
 
 export interface SourceMemberInventoryQueries {
   members(evidence: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory>;
+  construction(occurrence: Node): SourceProductionResult<SourceMemberInventory>;
 }
+
+export type SourceMemberSubject =
+  | { readonly kind: "evidence"; readonly value: SourceTypeEvidence }
+  | { readonly kind: "construction"; readonly occurrence: Node };
