@@ -24,7 +24,9 @@ const deferred = (indexes: readonly number[]): readonly CallableParameterEffect[
 const array = Object.freeze({
   map: firstSynchronous, filter: firstSynchronous, some: firstSynchronous, every: firstSynchronous,
   find: firstSynchronous, findLast: firstSynchronous, findIndex: firstSynchronous, findLastIndex: firstSynchronous,
-  forEach: firstSynchronous, reduce: synchronous(first, [{ parameterIndex: 1, from: "receiver-element" }]),
+  forEach: firstSynchronous, flatMap: firstSynchronous,
+  reduce: synchronous(first, [{ parameterIndex: 1, from: "receiver-element" }]),
+  reduceRight: synchronous(first, [{ parameterIndex: 1, from: "receiver-element" }]),
 });
 const forEach = Object.freeze({ forEach: synchronous(first) });
 const rejectedInput = Object.freeze([{ parameterIndex: 0, from: "receiver-rejection" as const }]);
@@ -50,8 +52,8 @@ const resumes = Object.freeze({ next: resume, return: resume, throw: Object.free
 }) });
 const effects: Readonly<Record<string, Readonly<Record<string, CallableOperationEffects>>>> = Object.freeze({
   ArrayConstructor: lifetimeRows({ from: secondSynchronous }, second),
-  Array: lifetimeRows({ ...array, sort: comparator }, first),
-  ReadonlyArray: lifetimeRows(array, first),
+  Array: lifetimeRows({ ...array, sort: comparator, toSorted: comparator }, first),
+  ReadonlyArray: lifetimeRows({ ...array, toSorted: comparator }, first),
   Map: lifetimeRows(forEach, first), ReadonlyMap: lifetimeRows(forEach, first),
   Set: lifetimeRows(forEach, first), ReadonlySet: lifetimeRows(forEach, first),
   TypedArray: lifetimeRows({ sort: comparator }, first),
@@ -61,6 +63,7 @@ const effects: Readonly<Record<string, Readonly<Record<string, CallableOperation
     Object.freeze({ parameterIndex: 0, timing: "synchronous" as const, rejection: 1 }),
   ]) }, none, true),
   Generator: resumes, AsyncGenerator: resumes,
+  Global: lifetimeRows({ queueMicrotask: deferred(first) }, none),
 });
 function operationFor(identity: {
   readonly ownerName: string;
@@ -71,35 +74,35 @@ function operationFor(identity: {
   return Object.prototype.hasOwnProperty.call(owner, identity.memberName) ? owner[identity.memberName] : undefined;
 }
 
-export function jsSourceCallableParameterEffects(identity: {
+export function jsProfileCallbackEffects(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): readonly CallableParameterEffect[] | undefined {
   return operationFor(identity)?.entries;
 }
 
-export function jsSourceInvocationOnlyCallableParameters(identity: {
+export function jsProfileInvocationOnlyParameters(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): readonly number[] {
   return operationFor(identity)?.invocationOnly ?? none;
 }
 
-export function jsSourceNativeStorageOperation(identity: {
+export function jsProfileNativeOperation(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): boolean {
   return operationFor(identity)?.native === true;
 }
 
-export function jsSourceReceiverResumeEffect(identity: {
+export function jsProfileReceiverResumeEffect(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): true | undefined {
   return operationFor(identity)?.resumeReceiver;
 }
 
-export function jsSourceCallableRefusal(identity: {
+export function jsProfileCallRefusal(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): CallableOperationEffects["refusal"] {
