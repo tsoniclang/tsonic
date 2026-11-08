@@ -9,6 +9,7 @@ import type { SourceEvidenceComponent, SourceProductionResult } from "./descript
 import type { SourceEvidenceDetails, SourceMemberInventory, SourceMemberInventoryRow } from "./member-inventory.js";
 import { createSourceDescriptorOwner } from "./descriptor-owner.js";
 import { sourceTypeDescriptorDepth } from "./descriptor-metrics.js";
+import { composeSourceTypeBindings } from "./descriptor-details.js";
 import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
 
 function fixture() {
@@ -493,6 +494,30 @@ test("member domains substitute original binders before any read child is produc
   assert.equal(read.kind === "resolved" && read.value.kind === "present" &&
     read.value.value === resolved(local.view.substitute(template, [{ declaration: binder, value: actual }])), true);
   assert.equal(forced, 1);
+});
+
+test("captured member bindings substitute before incoming bindings can shadow their original declaration", () => {
+  const current = fixture(), local = current.createView();
+  const left = current.named("Left", current.checked.ast.is.IsClassDeclaration);
+  const outer = current.named("Outer", current.checked.ast.is.IsTypeAliasDeclaration);
+  const captured = current.checked.ast.typeParameters(left)[0];
+  const indirect = current.checked.ast.typeParameters(outer)[0];
+  if (captured === undefined || indirect === undefined) throw new Error("Both original binders are required.");
+  const none = (): SourceResult<{ readonly kind: "none" }> => ({ kind: "resolved", value: { kind: "none" } });
+  local.builder.parameter(captured, left, 0, [], none, none);
+  const parameter = local.builder.parameter(indirect, outer, 0, [], none, none);
+  const template = local.evidence(parameter.type, { kind: "parameter", declaration: indirect });
+  const number = local.evidence(local.builder.primitive("float64"), { kind: "known", category: "number" });
+  const string = local.evidence(local.builder.string(), { kind: "known", category: "string" });
+  const selected = resolved(composeSourceTypeBindings([{ declaration: captured, value: template }],
+    [{ declaration: captured, value: number }, { declaration: indirect, value: string }], local.view.substitute));
+  assert.equal(selected.length, 2);
+  assert.equal(selected[0]?.declaration === captured && selected[0].value === string, true);
+  assert.equal(selected[1]?.declaration === indirect && selected[1].value === string, true);
+  const opposite = resolved(composeSourceTypeBindings([{ declaration: captured, value: template }],
+    [{ declaration: indirect, value: number }], local.view.substitute));
+  assert.equal(opposite[0]?.declaration === captured && opposite[0].value === number, true);
+  assert.equal(Object.isFrozen(selected) && selected.every(Object.isFrozen), true);
 });
 
 test("lazy member production retries pending and unavailable but snapshots only complete metadata", () => {

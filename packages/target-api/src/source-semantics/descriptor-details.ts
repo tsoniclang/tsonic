@@ -13,7 +13,8 @@ export function composeSourceTypeBindings(original: readonly SourceTypeBinding[]
     if (selected.kind === "refused") return selected;
     environment.set(binding.declaration, Object.freeze({ declaration: binding.declaration, value: selected.value }));
   }
-  for (const binding of applied) environment.set(binding.declaration, Object.freeze({ ...binding }));
+  for (const binding of applied) if (!environment.has(binding.declaration))
+    environment.set(binding.declaration, Object.freeze({ ...binding }));
   return { kind: "resolved", value: Object.freeze([...environment.values()]) };
 }
 
