@@ -3,6 +3,7 @@ import test from "node:test";
 import { sourcePrimitive } from "@tsonic/tsts";
 import { createCsharpTargetPack } from "../../../tsonic-csharp/dist/public/index.js";
 import { checkSourceProgramFixture } from "./source-program-fixture.mjs";
+import { createSourceTypeFlowTerms } from "../../packages/target-api/dist/source-semantics/local-type-flow/term-groups.js";
 
 function fixture(text) {
   const target = { id: "csharp", options: { outputType: "Library" } };
@@ -154,3 +155,56 @@ test("ordinary member origins retain fields, methods and read or write accessor 
   assert.equal(definition.value.type.members.find(member => member.name === "field")?.readonly, true);
   assert.equal(facts.refusals().length, 0);
 });
+
+for (const kind of ["array", "shape"]) {
+  test(`C30 declared ${kind} construction positions do not unite or inherit operand inference`, () => {
+    const current = fixture(`function run(): void {
+      const container: ${kind === "array" ? "float32[]" : "{first:float32;second:int32}"} = ${kind === "array" ? "[1,2]" : "{first:1,second:2}"};
+      const first: float32 = 1; const second: int32 = 2; void container; void first; void second;
+    }`);
+    const { ast, facts } = current.source;
+    const container = { node: current.declaration("container"), path: [] };
+    const first = { node: current.declaration("first"), path: [] };
+    const second = { node: current.declaration("second"), path: [] };
+    const firstPosition = { node: container.node, path: kind === "array" ? [{ kind: "element" }] : [{ kind: "member", name: "first" }] };
+    const secondPosition = kind === "array" ? firstPosition : { node: container.node, path: [{ kind: "member", name: "second" }] };
+    const firstSlot = facts.values.declaredSlot(first.node);
+    const secondSlot = facts.values.declaredSlot(second.node);
+    assert.equal(firstSlot.kind === "resolved" && secondSlot.kind === "resolved", true);
+    assert.equal(firstSlot.value.type.type.kind === "primitive" && firstSlot.value.type.type.primitive === "float32", true);
+    assert.equal(secondSlot.value.type.type.kind === "primitive" && secondSlot.value.type.type.primitive === "int32", true);
+    const literal = ast.as.AsVariableDeclaration(container.node)?.Initializer;
+    const member = name => {
+      const declaration = ast.properties(literal).find(node => node !== undefined && ast.text(ast.name(node)) === name);
+      assert.equal(declaration !== undefined, true, `the original construction member ${name} is retained`);
+      return declaration;
+    };
+    const term = kind === "array" ? { kind, site: container.node, readonly: false, element: firstPosition }
+      : { kind, site: container.node, members: [
+        { name: "first", declaration: member("first"), readonly: false, optional: false, variable: firstPosition },
+        { name: "second", declaration: member("second"), readonly: false, optional: false, variable: secondPosition },
+      ] };
+    const root = ast.getSourceFile(container.node);
+    assert.equal(root !== undefined, true);
+    const entries = [
+      { node: container.node, root, variable: container, kind: "fixed", publish: true, term },
+      { node: first.node, root, variable: first, kind: "open-local", publish: true,
+        term: { kind: "fixed", site: first.node, value: firstSlot.value.type } },
+      { node: second.node, root, variable: second, kind: "fixed", publish: true,
+        term: { kind: "fixed", site: second.node, value: secondSlot.value.type } },
+    ];
+    const links = [{ source: first, target: firstPosition, site: first.node }, { source: second, target: secondPosition, site: second.node }];
+    const graph = nodes => ({ roots: [root], nodes, links, producerInputs: [], derived: [], calls: [], refusals: [] });
+    const terms = createSourceTypeFlowTerms(ast, graph(entries));
+    assert.equal(terms.group(first).variable === terms.group(firstPosition).variable, false);
+    assert.equal(terms.group(second).variable === terms.group(secondPosition).variable, false);
+    assert.equal(terms.group(first).variable === terms.group(second).variable, false);
+    assert.equal(terms.isInference(first), true);
+    for (const variable of [container, firstPosition, secondPosition, second]) assert.equal(terms.isInference(variable), false);
+    assert.equal(terms.group(container).terms[0] === term, true);
+    const open = createSourceTypeFlowTerms(ast, graph([{ ...entries[0], kind: "open-local" }, ...entries.slice(1)]));
+    assert.equal(open.group(first).variable === open.group(firstPosition).variable, true);
+    assert.equal(open.group(second).variable === open.group(secondPosition).variable, true);
+    assert.equal(open.isInference(container), true);
+  });
+}
