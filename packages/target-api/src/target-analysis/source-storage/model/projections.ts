@@ -1,4 +1,4 @@
-import type { SourceStorageProgram } from "./program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "./program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
@@ -26,41 +26,41 @@ export function createSourceStorageProjectionFlow(
   unresolved: (subject: SourceStorageSubject, reason: string) => void,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
 ) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const project = (owner: SourceStorageSubject | undefined, component: SourceStorageProjection):
     SourceStorageSubject | undefined => owner === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, component]);
   const indexed = (node: Node, location = false): SourceStorageSubject | undefined => {
-    const queries = semantics.forNode(node);
-    const property = ast.is.IsPropertyAccessExpression(node) ? queries.operations.propertyAccess(node) : undefined;
-    const element = ast.is.IsElementAccessExpression(node) ? queries.operations.elementAccess(node) : undefined;
-    const access = property ?? element;
-    const component = element === undefined ? undefined
-      : sourceIndexedStorageProjection(element.receiver.type, element.argument.expression, queries, ast);
-    const declaration = access?.selectedDeclaration;
-    if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
-      sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
-      return subject(node);
-    if (component === undefined && sourceStorageDynamicMemberKey(source, node) !== undefined)
-      return subject(node);
-    const value = component === undefined ? subject(node)
-      : project((location ? locationFor : subjectFor)(access?.receiver.expression), component);
-    if (value !== undefined && component === undefined)
-      unresolved(value, "An indexed value has no exact checked storage component.");
+    const access = sourceStorageValue(source.facts.objects.use(node));
+    const components = sourceIndexedStorageProjection(source, node);
+    if (components.length === 0) {
+      const value = subject(node);
+      if (!access.selectedDeclarations.some(declaration => sourceStorageIsDataMember(declaration, ast) ||
+        sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)) &&
+        sourceStorageDynamicMemberKey(source, node) === undefined && value !== undefined)
+        unresolved(value, "An indexed value has no exact checked storage component.");
+      return value;
+    }
+    const receiver = (location ? locationFor : subjectFor)(access.receiver.occurrence);
+    if (components.length === 1) return project(receiver, components[0]!);
+    const value = subject(node);
+    for (const component of components) {
+      if (!step()) return undefined;
+      connect(project(receiver, component), value);
+    }
     return value;
   };
   const patternComponent = (originalOwner: SourceStorageSubject, reference: Node): SourceStorageWriteProjection | undefined => {
     const pattern = ast.parent(reference);
     if (pattern === undefined) return undefined;
-    const queries = semantics.forNode(reference);
     const binding = ast.is.IsBindingElement(reference) ? ast.as.AsBindingElement(reference) : undefined;
     const rawType = sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
-    const ownerType = rawType === undefined ? undefined : sourcePresentStorageType(rawType, queries) ?? rawType;
+    const ownerType = rawType === undefined ? undefined : sourcePresentStorageType(rawType, source) ?? rawType;
     if (ast.is.IsObjectBindingPattern(pattern) && binding?.DotDotDotToken !== undefined) {
       const value = subject(reference);
       const resultType = value === undefined ? undefined : sourceStorageSubjectType(source, value, sourceFileFor(value));
       const members = ownerType === undefined || resultType === undefined ? undefined
-        : queries.types.structuralMembers(ownerType, resultType, "read");
+        : sourceStorageValue(source.facts.objects.correspondence(ownerType, resultType, "read"));
       if (value === undefined || members?.kind !== "available") return undefined;
       const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
       for (const member of members.members) {
@@ -83,15 +83,25 @@ export function createSourceStorageProjectionFlow(
     }
     if (ast.is.IsObjectBindingPattern(pattern) || ast.is.IsObjectLiteralExpression(pattern)) {
       const name = binding?.PropertyName ?? ast.name(reference);
-      const selected = name === undefined ? undefined : queries.operations.propertyName(name);
-      const properties = ownerType === undefined || selected === undefined ? undefined : queries.types.propertyInfos(ownerType)
-        .filter(property => property.name === selected.name);
-      const declarations = properties?.flatMap(property => [...new Set([property.symbol, ...property.rootSymbols]
-        .flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]).filter(declaration =>
-        sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration));
-      if (declarations === undefined || declarations.length === 0) {
-        return undefined;
+      const selected = name === undefined ? undefined : sourceStorageValue(source.facts.objects.propertyName(name));
+      if (ownerType === undefined || selected === undefined || selected.kind === "unproven") return undefined;
+      const key = selected.kind === "name" ? Object.freeze({ kind: "name" as const, name: selected.name })
+        : Object.freeze({ kind: "symbol" as const, declaration: selected.declaration });
+      const declarations = new Set<Node>();
+      for (const arm of ownerType.sum?.arms ?? [ownerType]) {
+        if (!step()) return undefined;
+        const members = sourceStorageValue(source.analysis.settle(source.analysis.objects.named(arm, key)));
+        if (members.kind !== "available") return undefined;
+        for (const member of members.members) {
+          if (!step() || member.read === "unavailable") return undefined;
+          for (const declaration of member.read === "accessor" ? member.getters : member.declarations) {
+            if (!step()) return undefined;
+            if (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) ||
+              ast.is.IsGetAccessorDeclaration(declaration)) declarations.add(declaration);
+          }
+        }
       }
+      if (declarations.size === 0) return undefined;
       const values = new Set<SourceStorageSubject>();
       for (const declaration of declarations) {
         if (!step()) return undefined;
@@ -103,25 +113,33 @@ export function createSourceStorageProjectionFlow(
     }
     if (!ast.is.IsArrayBindingPattern(pattern) && !ast.is.IsArrayLiteralExpression(pattern)) return undefined;
     const index = ast.elements(pattern).indexOf(reference);
-    const component: SourceStorageProjection | undefined = ownerType === undefined || index < 0 ? undefined
-      : queries.types.isTuple(ownerType) ? { kind: "tuple-element", index }
-        : queries.types.isArrayLike(ownerType) ? { kind: "array-element" } : undefined;
+    if (ownerType === undefined || index < 0) return undefined;
+    const components = [...sourceStorageComponents(ownerType, source)]
+      .filter(component => component.kind === "array-element" || component.kind === "tuple-element" && component.index === index);
     const rest = binding?.DotDotDotToken !== undefined || ast.is.IsSpreadElement(reference);
-    if (component === undefined) return undefined;
+    if (components.length === 0 && (!rest || !(ownerType.sum?.arms ?? [ownerType]).every(arm =>
+      sourceStorageValue(source.facts.descriptors.definition(arm)).type.kind === "tuple"))) return undefined;
     if (!rest) {
-      const value = project(originalOwner, component);
-      return value === undefined ? undefined : Object.freeze({ subjects: Object.freeze([value]) });
+      const values: SourceStorageSubject[] = [];
+      for (const component of components) {
+        if (!step()) return undefined;
+        const value = project(originalOwner, component);
+        if (value === undefined) return undefined;
+        values.push(value);
+      }
+      return Object.freeze({ subjects: Object.freeze(values) });
     }
     const value = subject(reference);
     if (value === undefined || ownerType === undefined) return undefined;
-    const resultType = sourceStorageSubjectType(source, value, sourceFileFor(value));
-    if (resultType === undefined) return undefined;
+    const result = sourceStorageSubjectType(source, value, sourceFileFor(value));
+    if (result === undefined) return undefined;
+    const resultType = sourceStorageValue(source.facts.descriptors.definition(result));
     const birth: NonNullable<SourceStorageWriteProjection["birth"]>[number][] = [];
-    for (const original of sourceStorageComponents(ownerType, queries)) {
+    for (const original of sourceStorageComponents(ownerType, source)) {
       if (!step()) return undefined;
       if (original.kind === "tuple-element" && original.index < index) continue;
       const origin = project(originalOwner, original);
-      const destination = project(value, original.kind === "tuple-element" && queries.types.isTuple(resultType)
+      const destination = project(value, original.kind === "tuple-element" && resultType.type.kind === "tuple"
         ? { kind: "tuple-element", index: original.index - index } : { kind: "array-element" });
       if (origin === undefined || destination === undefined) return undefined;
       connect(origin, destination);
@@ -151,10 +169,9 @@ export function createSourceStorageProjectionFlow(
     let offset = 0;
     if (input.kind !== "value") {
       const type = sourceStorageSubjectType(source, original, sourceFileFor(original));
-      const queries = semantics.forNode(input.expression);
       if (input.kind === "iteration-key" || type === undefined) return undefined;
       const values: SourceStorageSubject[] = [];
-      for (const component of sourceStorageComponents(type, queries)) {
+      for (const component of sourceStorageComponents(type, source)) {
         if (!step()) return undefined;
         const value = project(original, component);
         if (value === undefined) return undefined;
@@ -187,18 +204,18 @@ export function createSourceStorageProjectionFlow(
   };
   const literal = (node: Node): void => {
     const owner = subjectFor(node);
-    const queries = semantics.forNode(node);
-    const type = sourceStorageArrayLiteralType(source, node, step);
-    const tuple = type !== undefined && queries.types.isTuple(type);
+    const type = sourceStorageValue(source.facts.descriptors.definition(sourceStorageArrayLiteralType(source, node)));
+    const tuple = type.type.kind === "tuple";
     let tupleIndex = 0;
     for (const element of ast.elements(node)) {
       if (!step()) break;
       if (element === undefined || ast.is.IsOmittedExpression(element)) { tupleIndex += 1; continue; }
       if (ast.is.IsSpreadElement(element)) {
         const spread = subjectFor(Node_Expression(ast, element));
-        const spreadType = spread === undefined ? undefined : sourceStorageSubjectType(source, spread, sourceFileFor(spread));
-        if (spreadType !== undefined && (!tuple || queries.types.isTuple(spreadType))) {
-          for (const component of sourceStorageComponents(spreadType, queries)) {
+        const original = spread === undefined ? undefined : sourceStorageSubjectType(source, spread, sourceFileFor(spread));
+        const spreadType = original === undefined ? undefined : sourceStorageValue(source.facts.descriptors.definition(original));
+        if (spreadType !== undefined && (!tuple || spreadType.type.kind === "tuple")) {
+          for (const component of sourceStorageComponents(spreadType, source)) {
             if (!step()) break;
             connect(project(spread, component), project(owner, tuple
               ? { kind: "tuple-element", index: tupleIndex++ } : { kind: "array-element" }));
@@ -210,7 +227,7 @@ export function createSourceStorageProjectionFlow(
   };
   const ownerFor = (node: Node, projection?: readonly SourceStorageProjection[]): SourceStorageSubject | undefined => {
     const file = ast.getSourceFile(node);
-    if (file === undefined || !semantics.includes(file)) return undefined;
+    if (file === undefined || !source.facts.navigation.includes(node)) return undefined;
     const syntaxProjection: SourceStorageProjection[] = [];
     while (IsTypeSyntaxNode(ast, node)) {
       if (!step()) return undefined;

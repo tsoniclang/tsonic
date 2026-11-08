@@ -1,8 +1,5 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
-
-
-import { ElementAccessExpression_ArgumentExpression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
   sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -25,10 +22,9 @@ export function createSourceStoragePublicationDemands(source: SourceStorageProgr
   const retain = (receiver: SourceStorageSubject, type: SourceTypeEvidence, components: readonly SourceStorageProjection[]): void => budget.withRows(temporary => {
     const selectedComponents: { readonly component: SourceStorageProjection; readonly type: SourceTypeEvidence;
       readonly subject: SourceStorageSubject | undefined }[] = [];
-    const semantics = source.semantics.forNode(receiver.node);
     for (const component of components) {
       if (!budget.step()) return;
-      const memberType = sourceStorageComponentType(type, component, semantics, source.ast);
+      const memberType = sourceStorageComponentType(type, component, source);
       if (memberType === undefined) continue;
       const member = sourceStorageIsMemberProjection(component);
       const subject = member ? sourceStorageMemberSubject(component.declaration, source.ast, transport.subject) : undefined;
@@ -84,24 +80,18 @@ export function createSourceStoragePublicationDemands(source: SourceStorageProgr
       if (!rows.add(1)) return;
       projected.push(subject);
     }
-    const { ast, semantics } = source;
+    const { ast } = source;
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsPropertyAccessExpression(node) && !ast.is.IsElementAccessExpression(node)) continue;
-      const context = semantics.forNode(node);
-      const access = ast.is.IsPropertyAccessExpression(node)
-        ? context.operations.propertyAccess(node) : context.operations.elementAccess(node);
-      const receiver = access === undefined ? undefined : transport.subjectFor(access.receiver.expression);
-      if (access === undefined || receiver === undefined) continue;
+      const access = sourceStorageValue(source.facts.objects.use(node));
+      const receiver = transport.subjectFor(access.receiver.occurrence);
+      if (receiver === undefined) continue;
       const declarations = new Set([...sourceStorageAccessDeclarations(source, node, "read") ?? [],
         ...sourceStorageAccessDeclarations(source, node, "write") ?? []]);
       const components: SourceStorageProjection[] = [...declarations].map(declaration => ({ kind: "member", declaration }));
-      if (ast.is.IsElementAccessExpression(node)) {
-        const component = sourceIndexedStorageProjection(access.receiver.type,
-          ElementAccessExpression_ArgumentExpression(ast, node), context, ast);
-        if (component !== undefined) components.push(component);
-      }
-      retain(receiver, access.receiver.type, components);
+      if (ast.is.IsElementAccessExpression(node)) components.push(...sourceIndexedStorageProjection(source, node));
+      retain(receiver, access.receiver.value, components);
     }
     for (const subject of projected) {
       if (!budget.step()) return;

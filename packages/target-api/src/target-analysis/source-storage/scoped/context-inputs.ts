@@ -1,6 +1,6 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
+import { sourceLexicalCaptures, sourceReceiverOwner } from "../../../source-navigation/index.js";
 
 import { sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -36,7 +36,7 @@ export function createSourceStorageContextInputs(
     if (!budget.step()) return undefined;
     const cached = selections.get(origin);
     if (cached !== undefined) return cached;
-    const { ast, semantics } = source;
+    const { ast } = source;
     const { navigation } = source.facts;
     const node = origin.node;
     if ((origin.kind === "input" || origin.kind === "receiver") && origin.projection.length !== 0) {
@@ -48,9 +48,7 @@ export function createSourceStorageContextInputs(
     }
     const invocation = queries.isInvocation(node);
     const access = origin.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
-    const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
-      ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
-    if (access && member === undefined) return undefined;
+    const member = access ? sourceStorageValue(source.facts.objects.use(node)) : undefined;
     const incoming = invocation || access ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
@@ -67,7 +65,7 @@ export function createSourceStorageContextInputs(
         add(input);
       }
       if (member !== undefined) {
-        const receiver = queries.subjectFor(member.receiver.expression);
+        const receiver = queries.subjectFor(member.receiver.occurrence);
         if (receiver === undefined) return undefined;
         add(receiver);
       }
@@ -79,13 +77,13 @@ export function createSourceStorageContextInputs(
         if (ast.is.IsArrayLiteralExpression(node)) {
           const file = queries.sourceFileFor(origin);
           const type = sourceStorageSubjectType(source, origin, file);
-          if (file !== undefined && type !== undefined) for (const component of sourceStorageComponents(type, semantics.forFile(file))) {
+          if (file !== undefined && type !== undefined) for (const component of sourceStorageComponents(type, source)) {
             if (!budget.step()) return undefined;
             add(queries.subject(node, "value", [component]));
           }
         }
         if (ast.body(node) !== undefined || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-          const captures = sourceLexicalCaptures(node, [node], ast, navigation, "source");
+          const captures = sourceLexicalCaptures(node, [node], ast, navigation, "source", source.work);
           for (const capture of captures.captures) {
             if (!budget.step()) return undefined;
             add(queries.subjectFor(capture.declaration));
@@ -100,11 +98,10 @@ export function createSourceStorageContextInputs(
           }
         }
       }
-      if (invocation) {
-        const call = semantics.forNode(node).operations.call(node);
-        add(queries.subjectFor(Node_Expression(ast, node)));
-        add(queries.subjectFor(call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-          ?? semantics.forNode(node).operations.propertyAccess(node)?.receiver.expression));
+      if (invocation && member === undefined) {
+        const call = sourceStorageValue(source.facts.applications.application(node));
+        add(queries.subjectFor(call.callee.occurrence));
+        if (call.receiver.kind === "value") add(queries.subjectFor(call.receiver.occurrence));
       }
       if (budget.failure() !== undefined) return undefined;
       selections.set(origin, inputs);

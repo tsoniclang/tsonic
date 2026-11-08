@@ -1,6 +1,6 @@
-import type { SourceStorageProgram } from "../model/program.js";
-import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
+import { sourceStorageOriginalSignature } from "../model/components.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -44,13 +44,13 @@ export function createSourceStorageContextApplications(source: SourceStorageProg
   const ownsPort = (subject: SourceStorageSubject, candidate: Node): boolean | undefined => {
     if (subject.kind === "receiver") return subject.node === candidate;
     if (subject.kind !== "input" || source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) return false;
-    const parameters = sourceCallableValueParameters(source.ast, candidate, source.semantics.forNode(candidate),
-      { kind: "declaration" });
-    if (parameters === undefined) {
+    const head = sourceStorageOriginalSignature(source, candidate,
+      source.facts.navigation.callableRoles(candidate).body ? "body" : "signature");
+    if (head === undefined || head.signature.parameters.some(parameter => parameter.declaration === undefined)) {
       budget.reject("Source storage context ports require their exact checked value parameters.");
       return undefined;
     }
-    return parameters.includes(subject.node);
+    return head.signature.parameters.some(parameter => parameter.declaration === subject.node);
   };
   const binding = (subject: SourceStorageSubject, candidate: Node, invocation: Node): ContextBinding | undefined => {
     const candidates = bindings.get(subject);
@@ -114,7 +114,7 @@ export function createSourceStorageContextApplications(source: SourceStorageProg
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
     const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async") ||
-      source.semantics.forNode(candidate).operations.generator(candidate) !== undefined);
+      sourceStorageValue(source.facts.protocols.generator(candidate)).kind === "present");
     if (deferred && !emit(current)) return false;
     if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node) || deferred) {
       for (const expression of queries.argumentsFor(current.node)) {
@@ -130,7 +130,7 @@ export function createSourceStorageContextApplications(source: SourceStorageProg
     for (const candidate of candidates) {
       if (!budget.step()) return false;
       if (source.ast.hasModifierKind(candidate, "async") ||
-        source.semantics.forNode(candidate).operations.generator(candidate) !== undefined) continue;
+        sourceStorageValue(source.facts.protocols.generator(candidate)).kind === "present") continue;
       const result = queries.subject(candidate, "return", current.projection);
       const projection = projectionFor(current, candidate, current.node);
       if (result === undefined || projection === undefined) {
