@@ -17,8 +17,8 @@ const integral = new Set<SourcePrimitiveKind>([...small, "int32", "uint32", "int
 const shiftCount = new Set<SourcePrimitiveKind>([...small, "int32", "int64"]);
 const nonMixing = new Set<SourcePrimitiveKind>(["float16", "native-int", "native-uint", "int128", "uint128"]);
 const decimalIntegral = new Set<SourcePrimitiveKind>([...small, "int32", "uint32", "int64", "uint64"]);
-const comparisons = new Set<SourcePrimitiveBinaryOperator>(["less", "less-equal", "greater", "greater-equal", "equal", "not-equal"]);
-const equalities = new Set<SourcePrimitiveBinaryOperator>(["equal", "not-equal"]);
+const comparisons = new Set<SourcePrimitiveBinaryOperator>(["less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "equal-strict", "not-equal-strict"]);
+const equalities = new Set<SourcePrimitiveBinaryOperator>(["equal", "not-equal", "equal-strict", "not-equal-strict"]);
 const bitwise = new Set<SourcePrimitiveBinaryOperator>(["bit-and", "bit-or", "bit-xor"]);
 const shifts = new Set<SourcePrimitiveBinaryOperator>(["shift-left", "shift-right", "shift-right-unsigned"]);
 

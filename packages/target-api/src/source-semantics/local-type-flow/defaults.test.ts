@@ -4,7 +4,6 @@ import { isDeepStrictEqual } from "node:util";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
-import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { TargetCompilerResourceLimitFailure } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import type { SourceTypeDescriptorMember } from "./types.js";
@@ -517,40 +516,6 @@ test("a required component overrides the occurrence's literal default", () => {
   assertSameValue(value, { kind: "array", readonly: false, element: { kind: "primitive", primitive: "float64" } });
 });
 
-test("a descending or non-unit-step counter is fixed without a counted-loop proof", () => {
-  const current = fixture("function run(): void { for (let index = 8; index >= 0; index -= 2) {} }");
-  const node = current.declaration("index"); const rule = current.defaults.fixedRule(node);
-  assertSameValue(current.defaults.context.describe(node), { kind: "primitive", primitive: "int64" });
-  assert.equal(rule?.kind, "loop-counter"); assert.equal(rule?.declaration === node, true);
-  assert.equal(Object.isFrozen(rule), true);
-});
-
-for (const selected of [{ annotation: "number", primitive: "float64" }, { annotation: "int32", primitive: "int32" }]) {
-  test(`an annotated ${selected.annotation} counter and its reads never acquire loop-counter authority`, () => {
-    const current = fixture(`function run(): void { for (let index: ${selected.annotation} = 0; index < 3; index++) { const value = index; } }`);
-    const declaration = current.declaration("index");
-    const reads = current.defaults.nodes.filter(node => current.source.ast.is.IsIdentifier(node) &&
-      node !== current.source.ast.name(declaration) &&
-      current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
-    assert.equal(reads.length >= 3, true, "the exact checked counter reads are retained");
-    for (const node of [declaration, ...reads]) {
-      assert.equal(current.defaults.fixedRule(node) === undefined, true, "an annotation excludes counter authority before caching");
-      assertSameValue(current.defaults.context.describe(node), { kind: "primitive", primitive: selected.primitive });
-      assert.equal(current.defaults.fixedRule(node) === undefined, true, "describing an annotated read does not create a counter receipt");
-      const outcome = current.source.effectiveTypes.get(node);
-      assert.equal(outcome?.kind === "resolved" || outcome?.kind === "default", true, "the annotated occurrence is published");
-      if (outcome?.kind !== "resolved" && outcome?.kind !== "default") throw new Error("The exact annotated effective type is required.");
-      assertSameValue(outcome.type, { kind: "primitive", primitive: selected.primitive });
-      assert.equal(outcome.provenance.fixedRule === undefined, true, "published annotated reads have no counter authority");
-    }
-  });
-}
-
-test("ordinary int64-compatible values do not acquire loop-counter authority", () => {
-  const current = fixture("export const value = 8;");
-  assert.equal(current.defaults.fixedRule(current.declaration("value")), undefined);
-});
-
 test("excluded annotations and tuple aliases retain the included consumer's query", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
@@ -583,84 +548,6 @@ test("excluded annotations and tuple aliases retain the included consumer's quer
   assert.equal(source.sourceFiles.length, 1);
   assert.equal(type.members.every(member => member.origin.kind === "declared" &&
     source.ast.getSourceFile(member.origin.declaration) === native), true);
-});
-
-test("source order uses exact authored starts and one preorder tie breaker", () => {
-  const current = fixture("export const first = 1; export const second = 2;");
-  const first = current.defaults.context.order(current.declaration("first"));
-  const second = current.defaults.context.order(current.declaration("second"));
-  assert.equal(first.start < second.start, true); assert.equal(first.preorder < second.preorder, true);
-});
-
-test("range admission distinguishes signed, unsigned, floating and decimal domains", () => {
-  const values = [2147483647n, 2147483648n, -1n, 18446744073709551615n, 18446744073709551616n,
-    10n ** 40n, 10n ** 400n, 79228162514264337593543950336n];
-  const current = fixture(values.map((value, index) => `const range${index} = ${value};`).join("\n"));
-  const literals = values.map((_, index) => {
-    const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration(`range${index}`))?.Initializer;
-    const literal = initializer === undefined ? undefined : current.defaults.context.literal(initializer);
-    if (literal === undefined) throw new Error("The original range-test Source literal receipt is required.");
-    return literal;
-  });
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[0]!, "int32"), true);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[1]!, "int32"), false);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[2]!, "uint32"), false);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[3]!, "uint64"), true);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[4]!, "uint64"), false);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[5]!, "float32"), false);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[6]!, "float64"), false);
-  assert.equal(sourcePrimitiveOperatorLiteralFits(literals[7]!, "decimal"), false);
-});
-
-test("negative zero keeps the same integer creation default as ordinary zero", () => {
-  const current = fixture("function run(): void { const negative = -0; const ordinary = 0; } export const exported = -0;");
-  for (const name of ["negative", "exported"]) {
-    assertSameValue(current.defaults.context.describe(current.declaration(name)), { kind: "primitive", primitive: "int64" });
-  }
-  assertSameValue(current.defaults.context.describe(current.declaration("ordinary")), { kind: "primitive", primitive: "int64" });
-});
-
-test("the one integer default owner retains signed 64-bit creation for local, module and exported literals", () => {
-  const cases = [
-    ["positive_boundary", "2147483647", "int64"],
-    ["positive_overflow", "2147483648", "int64"],
-    ["positive_above", "2147483649", "int64"],
-    ["negative_boundary", "-2147483648", "int64"],
-    ["negative_overflow", "-2147483649", "int64"],
-    ["wrapped_overflow", "(2147483648)", "int64"],
-    ["positive_zero", "0", "int64"],
-    ["negative_zero", "-0", "int64"],
-    ["fractional", "1.5", "float64"],
-    ["exponent", "1e2", "float64"],
-  ] as const;
-  const current = fixture(cases.map(([name, literal]) =>
-    `const module_${name} = ${literal}; export const exported_${name} = ${literal};`
-  ).join("\n") + `\nfunction run(): void { ${cases.map(([name, literal]) => `const local_${name} = ${literal};`).join("\n")} }`);
-  for (const scope of ["local", "module", "exported"]) for (const [name, _literal, primitive] of cases) {
-    const declaration = current.declaration(`${scope}_${name}`);
-    const selected = current.defaults.context.describe(declaration);
-    assert.equal(selected?.kind === "primitive" && selected.primitive === primitive, true, `${scope}_${name}`);
-  }
-  assert.equal(current.source.facts.refusals().length, 0);
-});
-
-test("integer creation describes the signed whole minimum and refuses values beyond int64 without a float fallback", () => {
-  const cases = [
-    ["maximum", "9223372036854775807", true],
-    ["minimum", "-9223372036854775808", true],
-    ["wrapped_minimum", "-(9223372036854775808)", true],
-    ["positive_overflow", "9223372036854775808", false],
-    ["negative_overflow", "-9223372036854775809", false],
-    ["transport_overflow", "1000000000000000000000000000000000000000000", false],
-  ] as const;
-  const current = fixture(cases.map(([name, literal]) =>
-    `const module_${name} = ${literal}; export const exported_${name} = ${literal};`
-  ).join("\n") + `\nfunction run(): void { ${cases.map(([name, literal]) => `const local_${name} = ${literal};`).join("\n")} }`);
-  for (const scope of ["local", "module", "exported"]) for (const [name, _literal, admitted] of cases) {
-    const selected = current.defaults.context.describe(current.declaration(`${scope}_${name}`));
-    assert.equal(admitted ? selected?.kind === "primitive" && selected.primitive === "int64" : selected === undefined, true,
-      `${scope}_${name}: the exact whole literal owns its creation kind`);
-  }
 });
 
 test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {

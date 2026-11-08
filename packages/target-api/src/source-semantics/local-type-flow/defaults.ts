@@ -71,7 +71,8 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       input.assertNode(node);
       const preorder = orders.get(node);
       if (preorder === undefined) throw new Error("A Source graph ordering question requires its enrolled original node.");
-      return Object.freeze({ start: preorder, preorder });
+      const range = ast.authoredRange(node);
+      return Object.freeze({ start: range.kind === "authored" ? range.start : ast.pos(node), preorder });
     },
   });
 }
