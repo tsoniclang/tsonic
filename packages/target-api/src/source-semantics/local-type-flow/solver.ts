@@ -223,8 +223,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   protocols = createSourceSolvedProtocolFacts({ ...declarationProduction, protocolInput: source.protocolInput,
     signature: (original, bindings, root) => produceSourceCallableSignature(declarationProduction!, original, bindings, undefined, root) });
   const collected = collectSourceTypeFlowEdges(context);
-  graph = createSourceGraphSolver(context, collected, collectSourceTypeFlowUses(context, collected),
-    node => value(node, []), node => contextual(node, []));
+  const uses = collectSourceTypeFlowUses(context, collected);
+  graph = createSourceGraphSolver(context, collected, uses, node => value(node, []), node => contextual(node, []));
 
   function inferred(node: Node): SourceProductionResult<SourceTypeEvidence> {
     if (graph === undefined) return pending(node);
@@ -400,5 +400,6 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     return context.reader.describeSyntax(node, bindings);
   } });
   return Object.freeze({ ...published, ...domains, enums: enums.facts, protocols: protocols.facts,
+    analysis: Object.freeze({ context, graph: collected, uses }),
     dischargedDiagnostics: Object.freeze([...diagnostics]) });
 }
