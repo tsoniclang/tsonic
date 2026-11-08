@@ -11,7 +11,7 @@ function fixture(text) {
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(issue => issue !== undefined)).slice(0, 2048));
   assert.equal(checked.extensionDiagnostics.length, 0, "the checked fixture has no extension refusal");
-  const { program: source, flow } = sourceFlowOwnerFixture({ checked, apiFacts: undefined, profileFiles: [] });
+  const { program: source, flow } = sourceFlowOwnerFixture({ checked, apiFacts: undefined, profileFiles: [], safetyProviders: [] });
   const { context } = flow;
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
