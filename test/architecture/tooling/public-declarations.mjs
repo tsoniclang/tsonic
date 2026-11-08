@@ -62,14 +62,6 @@ export function collectConsumedPublicExports(sources) {
 }
 
 export function publicModuleDependency(ast, node) {
-  const importedName = element => {
-    const selected = ast.is.IsImportSpecifier(element) ? ast.as.AsImportSpecifier(element)
-      : ast.is.IsExportSpecifier(element) ? ast.as.AsExportSpecifier(element) : undefined;
-    if (selected === undefined) throw new Error("Invalid public dependency specifier.");
-    const original = selected.PropertyName ?? ast.name(element);
-    if (original === undefined) throw new Error("Missing original public dependency name.");
-    return ast.text(original);
-  };
   if (ast.is.IsImportDeclaration(node)) {
     const declaration = ast.as.AsImportDeclaration(node);
     if (declaration.ModuleSpecifier === undefined) throw new Error("Missing public import module.");
@@ -80,7 +72,7 @@ export function publicModuleDependency(ast, node) {
     if (clause.NamedBindings !== undefined) {
       if (ast.is.IsNamespaceImport(clause.NamedBindings)) return { specifier: declaration.ModuleSpecifier, names: "all" };
       if (!ast.is.IsNamedImports(clause.NamedBindings)) throw new Error("Invalid public import bindings.");
-      names.push(...ast.elements(clause.NamedBindings).map(importedName));
+      names.push(...ast.elements(clause.NamedBindings).map(element => publicImportedName(ast, element)));
     }
     return { specifier: declaration.ModuleSpecifier, names };
   }
@@ -90,7 +82,7 @@ export function publicModuleDependency(ast, node) {
     const clause = declaration.ExportClause;
     if (clause === undefined || ast.is.IsNamespaceExport(clause)) return { specifier: declaration.ModuleSpecifier, names: "all" };
     if (!ast.is.IsNamedExports(clause)) throw new Error("Invalid public export bindings.");
-    return { specifier: declaration.ModuleSpecifier, names: ast.elements(clause).map(importedName) };
+    return { specifier: declaration.ModuleSpecifier, names: ast.elements(clause).map(element => publicImportedName(ast, element)) };
   }
   if (ast.is.IsImportTypeNode(node)) {
     const selected = ast.as.AsImportTypeNode(node);
@@ -104,4 +96,13 @@ export function publicModuleDependency(ast, node) {
     return { specifier, names: [ast.text(qualifier)] };
   }
   return undefined;
+}
+
+function publicImportedName(ast, element) {
+  const selected = ast.is.IsImportSpecifier(element) ? ast.as.AsImportSpecifier(element)
+    : ast.is.IsExportSpecifier(element) ? ast.as.AsExportSpecifier(element) : undefined;
+  if (selected === undefined) throw new Error("Invalid public dependency specifier.");
+  const original = selected.PropertyName ?? ast.name(element);
+  if (original === undefined) throw new Error("Missing original public dependency name.");
+  return ast.text(original);
 }

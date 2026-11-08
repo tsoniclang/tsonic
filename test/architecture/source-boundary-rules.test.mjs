@@ -21,9 +21,25 @@ test("checker vocabulary belongs only to the actual Host input adapter, not mere
 test("module-owned WeakMap/WeakSet and mutated Map/Set caches cannot hold per-program Source identities", () => {
   for (const text of ["const cache = new WeakMap();", "export const identities = new WeakSet();",
     "const cache = new Map(); export function retain(node) { cache.set(node, 1); }",
-    "const cache = new Set(); export function retain(node) { cache.add(node); }"]) {
+    "const cache = new Set(); export function retain(node) { cache.add(node); }",
+    "class Registry { static cache = new WeakMap(); }",
+    "class Registry { static cache = new WeakSet(); }",
+    "class Registry { static { const cache = new WeakMap(); } }",
+    "class Registry { static cache = new Map(); static retain(node) { this.cache.set(node, 1); } }",
+    "class Registry { static cache = new Set(); } export function retain(node) { Registry.cache.add(node); }"]) {
     assert.equal(findings(text).some(row => row.rule === "module-owned-mutable-cache"), true);
   }
+});
+
+test("checker import types and reexports obey the same original module boundary as imports", () => {
+  for (const text of [
+    'export type { Type as Hidden } from "@tsonic/tsts";',
+    'export * as Raw from "@tsonic/tsts";',
+    'type Hidden = import("@tsonic/tsts").Signature;',
+    'type Hidden = import("@tsonic/tsts/internal/checker").Type;',
+  ]) assert.equal(findings(text).some(row => row.rule === "checker-type-or-query-import" ||
+    row.rule === "checker-namespace-import" || row.rule === "private-checker-entry"), true);
+  assert.deepEqual(findings('type Site = import("@tsonic/tsts").Node; type Syntax = import("@tsonic/tsts/target-ast").Node;'), []);
 });
 
 test("one per-view factory and immutable metadata do not become module ownership violations", () => {
@@ -31,6 +47,11 @@ test("one per-view factory and immutable metadata do not become module ownership
     const labels = new Map([["kind", "value"]]);
     export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
     function unrelated() { const labels = new Map(); labels.set("local", 1); }
+    class View { cache = new WeakMap(); retain(node) { this.cache.set(node, 1); } }
+    class Metadata { static labels = new Map([["kind", "value"]]); }
+    export function createClassView() {
+      return class View { static cache = new WeakMap(); static retain(node) { this.cache.set(node, 1); } };
+    }
   `), []);
 });
 

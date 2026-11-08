@@ -1,3 +1,5 @@
+import { publicModuleDependency } from "./public-declarations.mjs";
+
 const checkerNames = new Set([
   "Type", "Signature", "Symbol", "CheckedSourceProgram", "TypeCheckerQueries", "TypeShapeQueries",
   "SourceFileQueries", "SourceProgramQueries", "CompilerSession", "Program", "CompilerHost",
@@ -5,7 +7,7 @@ const checkerNames = new Set([
 ]);
 const scopedOwners = new Set([
   "KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor",
-  "KindClassDeclaration", "KindClassExpression", "KindGetAccessor", "KindSetAccessor", "KindClassStaticBlockDeclaration",
+  "KindGetAccessor", "KindSetAccessor",
 ]);
 
 export function checkerImportFindings(source, file) {
@@ -15,35 +17,16 @@ export function checkerImportFindings(source, file) {
   const findings = [];
   const forbidden = name => checkerNames.has(name) || /^ResolvedSource.*Info$/u.test(name ?? "");
   const visit = node => {
-    if (ast.is.IsImportDeclaration(node) || ast.is.IsExportDeclaration(node)) {
-      const declaration = ast.is.IsImportDeclaration(node) ? ast.as.AsImportDeclaration(node) : ast.as.AsExportDeclaration(node);
-      const specifier = declaration?.ModuleSpecifier;
-      const name = specifier === undefined ? undefined : ast.text(specifier);
-      if (name?.startsWith("@tsonic/tsts/") && name !== "@tsonic/tsts/target-ast") findings.push(finding(ast, file, node, "private-checker-entry"));
+    const dependency = publicModuleDependency(ast, node);
+    if (dependency !== undefined) {
+      const name = ast.text(dependency.specifier);
+      if (name.startsWith("@tsonic/tsts/") && name !== "@tsonic/tsts/target-ast") findings.push(finding(ast, file, node, "private-checker-entry"));
       if (name === "@tsonic/tsts") {
-        const imported = child => {
-          const kind = ast.kindName(child);
-          if (kind === "KindNamespaceImport" || kind === "KindNamespaceExport") findings.push(finding(ast, file, child, "checker-namespace-import"));
-          if (kind === "KindImportSpecifier" || kind === "KindExportSpecifier") {
-            const selected = kind === "KindImportSpecifier" ? ast.as.AsImportSpecifier(child) : ast.as.AsExportSpecifier(child);
-            const original = selected?.PropertyName ?? ast.name(child);
-            if (original !== undefined && forbidden(ast.text(original))) findings.push(finding(ast, file, child, "checker-type-or-query-import"));
+        if (dependency.names === "all") {
+          if (!ast.is.IsImportDeclaration(node) || ast.as.AsImportDeclaration(node).ImportClause !== undefined) {
+            findings.push(finding(ast, file, node, "checker-namespace-import"));
           }
-          ast.forEachChild(child, nested => { if (nested !== undefined) imported(nested); });
-        };
-        imported(node);
-        if (ast.is.IsExportDeclaration(node) && declaration?.ExportClause === undefined) findings.push(finding(ast, file, node, "checker-namespace-import"));
-      }
-    }
-    if (ast.kindName(node) === "KindImportType") {
-      const selected = ast.as.AsImportTypeNode(node);
-      const argument = selected?.Argument;
-      const literal = argument !== undefined && ast.kindName(argument) === "KindLiteralType" ? ast.as.AsLiteralTypeNode(argument)?.Literal : undefined;
-      const qualifier = selected?.Qualifier;
-      const name = qualifier === undefined ? undefined : ast.is.IsIdentifier(qualifier) ? ast.text(qualifier)
-        : ast.kindName(qualifier) === "KindQualifiedName" ? ast.text(ast.as.AsQualifiedName(qualifier).Right) : undefined;
-      if (literal !== undefined && ast.text(literal) === "@tsonic/tsts" && (qualifier === undefined || forbidden(name))) {
-        findings.push(finding(ast, file, node, "checker-type-or-query-import"));
+        } else if (dependency.names.some(forbidden)) findings.push(finding(ast, file, node, "checker-type-or-query-import"));
       }
     }
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
@@ -60,12 +43,14 @@ export function moduleLifetimeFindings(source, file) {
   const moduleOwned = node => {
     for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
       if (scopedOwners.has(ast.kindName(parent))) return false;
+      if (ast.is.IsPropertyDeclaration(parent) && !ast.hasModifierKind(parent, "static")) return false;
     }
     return true;
   };
   const visit = node => {
-    if (ast.is.IsVariableDeclaration(node) && moduleOwned(node)) {
-      const declaration = ast.as.AsVariableDeclaration(node);
+    const declaration = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)
+      : ast.is.IsPropertyDeclaration(node) && ast.hasModifierKind(node, "static") ? ast.as.AsPropertyDeclaration(node) : undefined;
+    if (declaration !== undefined && moduleOwned(node)) {
       const initializer = declaration.Initializer;
       const name = ast.name(node);
       if (initializer !== undefined && ast.is.IsNewExpression(initializer) && name !== undefined) {
@@ -88,8 +73,10 @@ export function moduleLifetimeFindings(source, file) {
       const callee = ast.as.AsCallExpression(node).Expression;
       if (ast.is.IsPropertyAccessExpression(callee)) {
         const access = ast.as.AsPropertyAccessExpression(callee);
-        if (ast.is.IsIdentifier(access.Expression) && ["set", "add", "delete", "clear"].includes(ast.text(ast.name(callee)))) {
-          const owner = caches.get(checker.getSymbolAtLocation(access.Expression));
+        const subject = ast.is.IsIdentifier(access.Expression) ? access.Expression
+          : ast.is.IsPropertyAccessExpression(access.Expression) ? ast.name(access.Expression) : undefined;
+        if (subject !== undefined && ["set", "add", "delete", "clear"].includes(ast.text(ast.name(callee)))) {
+          const owner = caches.get(checker.getSymbolAtLocation(subject));
           if (owner !== undefined && !owner.kind.startsWith("Weak")) findings.push(finding(ast, file, node, "module-owned-mutable-cache"));
         }
       }
