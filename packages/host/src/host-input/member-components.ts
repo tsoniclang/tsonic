@@ -1,5 +1,5 @@
-import type { AstReader, Node, Type, TypeCheckerQueries, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputComponentPart, SourceInputCorrespondenceMember } from "@tsonic/target-api/host";
+import type { AstReader, Node, Signature, Type, TypeCheckerQueries, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
+import type { SourceInputComponent, SourceInputComponentPart, SourceInputCorrespondenceMember, SourceInputSignature } from "@tsonic/target-api/host";
 import type { SourceLiteralKey } from "@tsonic/target-api/source";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
 
@@ -47,15 +47,15 @@ export function createSourceInputMemberPublisher(input: {
   readonly types: TypeShapeQueries;
   readonly identities: SourceInputIdentityOwner;
   readonly assertNode: (node: Node) => void;
+  readonly originalSignature: (kind: "call" | "construct", original: Signature) => SourceInputSignature;
 }): (receiver: SourceInputComponent, selected: SourceStructuralMember) => SourceInputCorrespondenceMember | undefined {
-  const { ast, checker, types, identities, assertNode } = input;
+  const { ast, checker, types, identities, assertNode, originalSignature } = input;
   const members = new WeakMap<SourceInputComponent, WeakMap<SourceStructuralMember, SourceInputCorrespondenceMember>>();
-  const signaturePart = (receiver: SourceInputComponent, declaration: Node,
+  const signaturePart = (declaration: Node,
     role: "read" | "write"): SourceInputComponentPart | undefined => {
     const selected = types.getDeclarationSignatureInfo(declaration);
     if (selected === undefined) return undefined;
-    const parameters = ast.typeParameters(declaration).filter((node): node is Node => node !== undefined);
-    const signature = identities.signature(receiver.root, "call", selected.signature, declaration, parameters);
+    const signature = originalSignature("call", selected.signature);
     return role === "read" ? Object.freeze({ kind: "result", signature })
       : Object.freeze({ kind: "parameter", signature, index: 0 });
   };
@@ -79,7 +79,7 @@ export function createSourceInputMemberPublisher(input: {
     let write: SourceInputComponent | undefined;
     if (selected.read !== "unavailable") {
       if (readDeclaration === undefined) return undefined;
-      const part = selected.read === "accessor" ? signaturePart(receiver, readDeclaration, "read") : undefined;
+      const part = selected.read === "accessor" ? signaturePart(readDeclaration, "read") : undefined;
       if (selected.read === "accessor" && part === undefined) return undefined;
       read = identities.component(receiver.root, [...receiver.path,
         { kind: "member", declaration: readDeclaration, access: "read" }, ...(part === undefined ? [] : [part])], selected.property.type);
@@ -87,7 +87,7 @@ export function createSourceInputMemberPublisher(input: {
     if (!selected.property.readonly && writeDeclaration !== undefined) {
       const terminal = checker.getWriteTypeOfSymbol(selected.property.symbol);
       if (terminal === undefined) return undefined;
-      const part = selected.setters.length > 0 ? signaturePart(receiver, writeDeclaration, "write") : undefined;
+      const part = selected.setters.length > 0 ? signaturePart(writeDeclaration, "write") : undefined;
       if (selected.setters.length > 0 && part === undefined) return undefined;
       write = identities.component(receiver.root, [...receiver.path,
         { kind: "member", declaration: writeDeclaration, access: "write" }, ...(part === undefined ? [] : [part])], terminal);
