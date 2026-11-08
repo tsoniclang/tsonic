@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 
@@ -26,24 +26,31 @@ export interface SourceUnappliedArgumentPlace {
 
 export interface SourceEffectiveArgument {
   readonly authored: SourceAuthoredArgument;
+  readonly operand: SourceValueOperand;
   readonly sourceArgumentIndex: number;
   readonly sourceForm: SourceArgumentPlace["sourceForm"];
   readonly spreadElementIndex: number | undefined;
   readonly source: SourceTypeEvidence;
 }
 
+export type SourceArgumentPlacement =
+  | { readonly kind: "placed"; readonly values: readonly SourceUnappliedArgumentPlace[] }
+  | { readonly kind: "not-applicable"; readonly site: Node; readonly message: string };
+
 export function produceSourceArgumentPlaces(context: {
   readonly builder: SourceDescriptorBuilder;
   readonly invocation: Node;
   readonly sourceArguments: readonly SourceAuthoredArgument[];
   readonly parameters: readonly SourceCallParameter[];
-}): SourceProductionResult<readonly SourceUnappliedArgumentPlace[]> {
+}): SourceProductionResult<SourceArgumentPlacement> {
   const { builder, invocation } = context;
   const expanded = produceSourceEffectiveArguments(builder, context.sourceArguments);
   if (expanded.kind !== "resolved") return expanded;
   const effective = expanded.value;
   const result: SourceUnappliedArgumentPlace[] = [];
   const refusal = (message: string) => sourceSemanticRefusal(invocation, message, "TSONIC_LOCAL_TYPE_GENERIC");
+  const mismatch = (message: string): SourceProductionResult<SourceArgumentPlacement> =>
+    ({ kind: "resolved", value: { kind: "not-applicable", site: invocation, message } });
   let effectiveIndex = 0;
   for (const [parameterIndex, parameter] of context.parameters.entries()) {
     if (parameter.index !== parameterIndex) throw new Error("Source call parameters require their exact original contiguous index vector.");
@@ -51,7 +58,7 @@ export function produceSourceArgumentPlaces(context: {
     const argument = effective[effectiveIndex];
     if (parameter.kind !== "rest") {
       if (argument === undefined) {
-        if (parameter.kind === "required") return refusal("A Source application omits an original required parameter.");
+        if (parameter.kind === "required") return mismatch("A Source application omits an original required parameter.");
         continue;
       }
       if (argument.sourceForm === "spread-sequence") return refusal("A variable-length spread cannot establish one original fixed parameter place.");
@@ -66,7 +73,9 @@ export function produceSourceArgumentPlaces(context: {
       if (slot.kind === "rest") {
         const suffix = slots.value.length - index - 1;
         const boundary = effective.length - suffix;
-        if (boundary < effectiveIndex) return refusal("A Source rest-tuple application omits an original required suffix.");
+        if (boundary < effectiveIndex) return effective.some(argument => argument.sourceForm === "spread-sequence")
+          ? refusal("A variable-length spread cannot prove the original required rest-tuple suffix.")
+          : mismatch("A Source rest-tuple application omits an original required suffix.");
         if (suffix > 0 && effective.slice(boundary).some(argument => argument.sourceForm === "spread-sequence"))
           return refusal("A variable-length spread cannot fabricate the original fixed rest-tuple suffix places.");
         while (effectiveIndex < boundary) {
@@ -78,7 +87,7 @@ export function produceSourceArgumentPlaces(context: {
           }
         }
       } else if (argument === undefined) {
-        if (slot.kind === "required") return refusal("A Source application omits an original required rest-tuple element.");
+        if (slot.kind === "required") return mismatch("A Source application omits an original required rest-tuple element.");
       } else if (argument.sourceForm === "spread-sequence") {
         if (effectiveIndex !== effective.length - 1 || slot.container === undefined || slot.container.value.type.kind !== "tuple")
           return refusal("A variable-length spread cannot fabricate this original fixed rest-tuple place.");
@@ -90,14 +99,16 @@ export function produceSourceArgumentPlaces(context: {
       } else result.push(place(argument, effectiveIndex++, parameter, "rest-element", slot.type, slot.path));
     }
   }
-  return effectiveIndex === effective.length ? { kind: "resolved", value: Object.freeze(result) }
-    : refusal("A Source application has an argument outside its original parameter domain.");
+  return effectiveIndex === effective.length ? { kind: "resolved", value: { kind: "placed", values: Object.freeze(result) } }
+    : effective.slice(effectiveIndex).some(argument => argument.sourceForm === "spread-sequence")
+      ? refusal("A variable-length spread cannot prove that no argument exceeds the original parameter domain.")
+      : mismatch("A Source application has an argument outside its original parameter domain.");
 
   function place(argument: SourceEffectiveArgument, effectiveArgumentIndex: number, parameter: SourceCallParameter,
     parameterForm: SourceArgumentPlace["parameter"]["form"], destination: SourceTypeEvidence,
     parameterPath: readonly SourceComponentSelector[]): SourceUnappliedArgumentPlace {
     return Object.freeze({ sourceArgument: argument.authored.occurrence, sourceArgumentIndex: argument.sourceArgumentIndex,
-      effectiveArgument: argument.authored.operand.occurrence, effectiveArgumentIndex,
+      effectiveArgument: argument.operand.occurrence, effectiveArgumentIndex,
       sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex,
       source: argument.source, parameter, parameterForm, destination, parameterPath: Object.freeze(parameterPath) });
   }
@@ -144,26 +155,28 @@ export function produceSourceEffectiveArguments(builder: SourceDescriptorBuilder
   sourceArguments: readonly SourceAuthoredArgument[]): SourceProductionResult<readonly SourceEffectiveArgument[]> {
   const effective: SourceEffectiveArgument[] = [];
   for (const [sourceArgumentIndex, authored] of sourceArguments.entries()) {
-    builder.assertEvidence(authored.operand.value);
+    if (authored.operand.kind === "refused") return authored.operand;
+    const operand = authored.operand.value;
+    builder.assertEvidence(operand.value);
     if (authored.form === "value") {
-      effective.push({ authored, sourceArgumentIndex, sourceForm: "value", spreadElementIndex: undefined, source: authored.operand.value });
+      effective.push({ authored, operand, sourceArgumentIndex, sourceForm: "value", spreadElementIndex: undefined, source: operand.value });
       continue;
     }
-    const definition = builder.produceDefinition(authored.operand.value);
+    const definition = builder.produceDefinition(operand.value);
     if (definition.kind !== "resolved") return definition;
     const value = definition.value;
     if (value.type.kind !== "tuple") {
-      effective.push({ authored, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: undefined, source: authored.operand.value });
+      effective.push({ authored, operand, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: undefined, source: operand.value });
       continue;
     }
     for (const [index, element] of value.type.elements.entries()) {
       const source = builder.component(value, { kind: "tuple-element", index });
       if (source.kind === "refused") return source;
-      if (element.kind === "required") effective.push({ authored, sourceArgumentIndex, sourceForm: "spread-element", spreadElementIndex: index, source: source.value });
+      if (element.kind === "required") effective.push({ authored, operand, sourceArgumentIndex, sourceForm: "spread-element", spreadElementIndex: index, source: source.value });
       else {
         const tail = builder.component(value, { kind: "tuple-slice", start: index, endCount: 0, readonly: value.type.readonly });
         if (tail.kind === "refused") return tail;
-        effective.push({ authored, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: index, source: tail.value });
+        effective.push({ authored, operand, sourceArgumentIndex, sourceForm: "spread-sequence", spreadElementIndex: index, source: tail.value });
         break;
       }
     }

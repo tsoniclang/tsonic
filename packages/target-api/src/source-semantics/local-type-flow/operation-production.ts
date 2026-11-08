@@ -1,5 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
-import type { SourceOperation, SourcePresence, SourceTypeEvidence, SourceUseDestination, SourceValueOperand } from "../../public/source/contracts.js";
+import type { SourceOperation, SourcePresence, SourceResult, SourceTypeEvidence, SourceUseDestination, SourceValueOperand, SourceValueSelection } from "../../public/source/contracts.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { sourceBooleanLiteralDisposition, sourceFiniteLiteralDomain, sourcePresenceLiteralDisposition,
   sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
@@ -40,10 +40,16 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     const result = context.value(node);
     return result.kind === "resolved" ? { kind: "resolved", value: { occurrence: node, value: result.value } } : result;
   };
-  const join = (values: readonly SourceTypeEvidence[]) => builder.join(component, "inferred", values, undefined);
+  const branch = (node: Node, demanded: boolean): SourceProductionResult<SourceResult<SourceValueOperand>> => {
+    const selected = operand(node);
+    if (selected.kind === "pending") return selected;
+    if (selected.kind === "refused" && (demanded || selected.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED")) return selected;
+    return { kind: "resolved", value: selected };
+  };
+  const join = (values: readonly SourceTypeEvidence[]) => builder.join(component, "inferred", values, context.input.syntax(occurrence));
   const exactBool = (value: SourceTypeEvidence): boolean => value.type.kind === "primitive" && value.type.primitive === "bool";
   const literalBool = (value: boolean): SourceTypeEvidence => builder.evidence({ type: builder.primitive("bool"), component,
-    category: { kind: "known", category: "boolean" }, numeric: undefined, sum: undefined }, [], undefined,
+    category: { kind: "known", category: "boolean" }, numeric: undefined, sum: undefined }, [], context.input.syntax(occurrence),
   sourceFiniteLiteralDomain([{ kind: "boolean", value }]), details.value);
 
   function requiredDestination(target: Node): SourceProductionResult<SourceUseDestination> {
@@ -58,12 +64,17 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     const control = operand(selected.Condition);
     if (control.kind !== "resolved") return control;
     if (!exactBool(control.value.value)) return refusal("A conditional operator requires an exact bool condition.");
-    const whenTrue = operand(selected.WhenTrue), whenFalse = operand(selected.WhenFalse);
+    const disposition = sourceBooleanLiteralDisposition(builder.domain(control.value.value));
+    const whenTrue = branch(selected.WhenTrue, disposition !== "false"), whenFalse = branch(selected.WhenFalse, disposition !== "true");
     if (whenTrue.kind !== "resolved") return whenTrue;
     if (whenFalse.kind !== "resolved") return whenFalse;
-    const disposition = sourceBooleanLiteralDisposition(builder.domain(control.value.value));
-    const result = join(disposition === "true" ? [whenTrue.value.value] : disposition === "false" ? [whenFalse.value.value]
-      : [whenTrue.value.value, whenFalse.value.value]);
+    const values = [disposition !== "false" ? whenTrue.value : undefined, disposition !== "true" ? whenFalse.value : undefined];
+    const produced: SourceTypeEvidence[] = [];
+    for (const value of values) if (value !== undefined) {
+      if (value.kind === "refused") return value;
+      produced.push(value.value.value);
+    }
+    const result = join(produced);
     return result.kind === "refused" ? result : { kind: "resolved", value: { occurrence, kind: "conditional", disposition,
       control: control.value, whenTrue: whenTrue.value, whenFalse: whenFalse.value, result: result.value } };
   }
@@ -87,7 +98,7 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (enumOperation.value.kind === "enum") {
       const result = builder.evidence({ ...enumOperation.value.value, component,
         numeric: { producer: occurrence, category: enumOperation.value.value.category, kind: "operation" } },
-      [], undefined, sourcePresentLiteralDomain, details.value);
+      [], context.input.syntax(occurrence), sourcePresentLiteralDomain, details.value);
       if (operator !== "bit-not") throw new Error("An admitted original unary enum operation must be its complement operation.");
       return { kind: "resolved", value: { occurrence, kind: "unary", operator, operands: [value.value], result } };
     }
@@ -100,7 +111,7 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (type.kind === "intrinsic" && type.intrinsic === "bigint") {
       if (operator !== "negate" && operator !== "bit-not" && operator !== "increment" && operator !== "decrement") return refusal("This unary operator has no admitted bigint result.");
       calculation = builder.evidence({ type: builder.intrinsic("bigint"), component, category: { kind: "known", category: "bigint" },
-        numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "operation" }, sum: undefined }, [], undefined,
+        numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "operation" }, sum: undefined }, [], context.input.syntax(occurrence),
       sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"), details.value);
     } else {
       if (type.kind !== "primitive") return refusal("A unary operator requires one exact primitive operand.");
@@ -128,6 +139,67 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   const syntax = ast.as.AsBinaryExpression(occurrence), token = ast.operatorKindName(occurrence) ?? "";
   const operator = sourceTypeFlowBinaryOperators.get(token);
   if (syntax?.Left === undefined || syntax.Right === undefined || operator === undefined) return refusal("A binary operation requires its original operands and admitted operator.");
+  if (operator === "logical-and" || operator === "logical-or" || operator === "coalesce") {
+    const left = operand(syntax.Left);
+    if (left.kind !== "resolved") return left;
+    const control = left.value.value;
+    const selectionAssignment = token === "KindAmpersandAmpersandEqualsToken" || token === "KindBarBarEqualsToken" ||
+      token === "KindQuestionQuestionEqualsToken";
+    const finish = (selection: Exclude<SourceValueSelection, { readonly kind: "await" | "conditional" }>): SourceProductionResult<SourceOperation> => {
+      if (!selectionAssignment) return { kind: "resolved", value: selection };
+      const destination = requiredDestination(syntax.Left!);
+      return destination.kind !== "resolved" ? destination : { kind: "resolved", value: { occurrence, kind: "selection-assignment",
+        target: syntax.Left!, destination: destination.value, selection, result: selection.result } };
+    };
+    if (operator === "logical-and" || operator === "logical-or") {
+      if (!exactBool(control)) return refusal("A logical operator requires an exact bool left operand.");
+      const selected = sourceBooleanLiteralDisposition(builder.domain(control));
+      const and = operator === "logical-and";
+      const disposition = selected === "dynamic" ? "dynamic" : (selected === "true") === and ? "right" : "left";
+      const right = branch(syntax.Right, disposition !== "left");
+      if (right.kind !== "resolved") return right;
+      if (right.value.kind === "refused" && disposition !== "left") return right.value;
+      const values = disposition === "left" ? [control] : right.value.kind === "refused" ? []
+        : disposition === "right" ? [right.value.value.value] : [literalBool(!and), right.value.value.value];
+      const result = disposition === "left" ? { kind: "resolved" as const, value: control } : join(values);
+      if (result.kind === "refused") return result;
+      return finish(and ? { occurrence, kind: "and", disposition, control: left.value, whenTrue: right.value,
+        whenFalse: "control-false", result: result.value } : { occurrence, kind: "or", disposition, control: left.value,
+        whenTrue: "control-true", whenFalse: right.value, result: result.value });
+    }
+    if (ast.is.IsElementAccessExpression(syntax.Left)) {
+      const receiver = ast.as.AsElementAccessExpression(syntax.Left)?.Expression;
+      if (receiver !== undefined) {
+        const value = context.value(receiver);
+        if (value.kind !== "resolved") return value;
+        const definition = builder.produceDefinition(value.value);
+        if (definition.kind !== "resolved") return definition;
+        if (definition.value.type.kind === "array" || definition.value.type.kind === "tuple") return refusal(
+          "A dense-array element read cannot supply a nullable coalescing read domain.");
+      }
+    }
+    const selected = sourcePresenceLiteralDisposition(builder.domain(control));
+    const disposition = selected === "present" ? "left" : selected === "absent" ? "right" : "dynamic";
+    const right = branch(syntax.Right, disposition !== "left");
+    if (right.kind !== "resolved") return right;
+    if (right.value.kind === "refused" && disposition !== "left") return right.value;
+    if (disposition === "left") return finish({ occurrence, kind: "coalesce", disposition, control: left.value,
+      whenPresent: control, whenAbsent: right.value, result: control });
+    let present = control;
+    if (control.type.kind === "optional") {
+      const selected = builder.component(control, { kind: "optional-value" });
+      if (selected.kind === "refused") return selected;
+      present = selected.value;
+    } else if (control.sum !== undefined) {
+      const selected = join(control.sum.arms.filter(arm => !(arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence")));
+      if (selected.kind === "refused") return selected;
+      present = selected.value;
+    }
+    if (right.value.kind === "refused") return right.value;
+    const result = join(disposition === "right" ? [right.value.value.value] : [present, right.value.value.value]);
+    return result.kind === "refused" ? result : finish({ occurrence, kind: "coalesce", disposition, control: left.value,
+      whenPresent: present, whenAbsent: right.value, result: result.value });
+  }
   const right = operand(syntax.Right);
   if (right.kind !== "resolved") return right;
   if (operator === "assignment") {
@@ -143,49 +215,6 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   if (operator === "sequence") return { kind: "resolved", value: { occurrence, kind: "sequence", operands, result: right.value.value } };
   if (operator === "in" || operator === "instanceof") return { kind: "resolved", value: { occurrence, kind: operator,
     left: left.value, right: right.value, result: primitive("bool") } };
-  if (operator === "logical-and" || operator === "logical-or") {
-    if (!exactBool(left.value.value)) return refusal("A logical operator requires an exact bool left operand.");
-    const selected = sourceBooleanLiteralDisposition(builder.domain(left.value.value));
-    const and = operator === "logical-and";
-    const disposition = selected === "dynamic" ? "dynamic" : (selected === "true") === and ? "right" : "left";
-    const controlResult = literalBool(!and);
-    const result = join(disposition === "left" ? [controlResult] : disposition === "right" ? [right.value.value] : [controlResult, right.value.value]);
-    if (result.kind === "refused") return result;
-    return { kind: "resolved", value: and ? { occurrence, kind: "and", disposition, control: left.value, whenTrue: right.value,
-      whenFalse: "control-false", result: result.value } : { occurrence, kind: "or", disposition, control: left.value,
-      whenTrue: "control-true", whenFalse: right.value, result: result.value } };
-  }
-  if (operator === "coalesce") {
-    const control = left.value.value;
-    const disposition = sourcePresenceLiteralDisposition(builder.domain(control));
-    if (ast.is.IsElementAccessExpression(syntax.Left)) {
-      const receiver = ast.as.AsElementAccessExpression(syntax.Left)?.Expression;
-      if (receiver !== undefined) {
-        const value = context.value(receiver);
-        if (value.kind !== "resolved") return value;
-        const definition = builder.produceDefinition(value.value);
-        if (definition.kind !== "resolved") return definition;
-        if (definition.value.type.kind === "array" || definition.value.type.kind === "tuple") return refusal(
-          "A dense-array element read cannot supply a nullable coalescing read domain.");
-      }
-    }
-    if (disposition === "present") return { kind: "resolved", value: { occurrence, kind: "coalesce", disposition: "left",
-      control: left.value, whenPresent: control, whenAbsent: right.value, result: control } };
-    let present = control;
-    if (control.type.kind === "optional") {
-      const selected = builder.component(control, { kind: "optional-value" });
-      if (selected.kind === "refused") return selected;
-      present = selected.value;
-    } else if (control.sum !== undefined) {
-      const selected = join(control.sum.arms.filter(arm => !(arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence")));
-      if (selected.kind === "refused") return selected;
-      present = selected.value;
-    } else if (control.type.kind === "primitive") return refusal("A coalescing operator requires a nullable or runtime-union left operand.");
-    const result = join(disposition === "absent" ? [right.value.value] : [present, right.value.value]);
-    return result.kind === "refused" ? result : { kind: "resolved", value: { occurrence, kind: "coalesce",
-      disposition: disposition === "absent" ? "right" : "dynamic", control: left.value, whenPresent: present,
-      whenAbsent: right.value, result: result.value } };
-  }
   const binary = sourcePrimitiveBinaryOperators.find(selected => selected === operator);
   if (binary === undefined) return refusal("This binary operation has no canonical native meaning.");
   const enumOperation = sourceEnumOperator(context, binary, [left.value.value, right.value.value], occurrence);
@@ -199,15 +228,15 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   if (enumOperation.value.kind === "comparison") calculation = primitive("bool");
   else if (enumOperation.value.kind === "enum") calculation = builder.evidence({ ...enumOperation.value.value, component,
     numeric: { producer: occurrence, category: enumOperation.value.value.category, kind: "operation" } },
-  [], undefined, sourcePresentLiteralDomain, details.value);
+  [], context.input.syntax(occurrence), sourcePresentLiteralDomain, details.value);
   else if (binary === "add" && (leftType.kind === "string" || rightType.kind === "string")) {
     calculation = builder.evidence({ type: builder.string(), component, category: { kind: "known", category: "string" }, numeric: undefined,
-      sum: undefined }, [], undefined, sourcePresentLiteralDomain, details.value);
+      sum: undefined }, [], context.input.syntax(occurrence), sourcePresentLiteralDomain, details.value);
   } else if (leftType.kind === "intrinsic" && leftType.intrinsic === "bigint" && rightType.kind === "intrinsic" && rightType.intrinsic === "bigint") {
     if (binary === "power" || binary.startsWith("shift")) return refusal("This binary operator has no admitted bigint result.");
     calculation = comparison ? primitive("bool") : builder.evidence({ type: builder.intrinsic("bigint"), component,
       category: { kind: "known", category: "bigint" }, numeric: { producer: occurrence, category: { kind: "known", category: "bigint" }, kind: "operation" }, sum: undefined },
-    [], undefined, sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"), details.value);
+    [], context.input.syntax(occurrence), sourceLiteralValueDomain(context.literal(occurrence), "bigint", "present"), details.value);
   } else if (leftType.kind === "primitive" && rightType.kind === "primitive") {
     const parameter = (node: Node, primitive: SourcePrimitiveKind): SourcePrimitiveOperatorOperand => {
       const literal = context.unboundLiteral(node);

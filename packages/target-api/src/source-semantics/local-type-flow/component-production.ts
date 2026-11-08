@@ -6,6 +6,7 @@ import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.j
 import { produceSourceArgumentPlaces, produceSourceEffectiveArguments } from "./argument-places.js";
 import { produceSourceCallableSignature, type SourceCallableProduction } from "./callable-production.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
+import { sourceTypeFlowTypeSyntax } from "./value-syntax.js";
 
 export function produceSourceApplicationComponent(context: SourceCallableProduction, original: SourceInputComponent,
   bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<SourceTypeEvidence> {
@@ -21,7 +22,7 @@ export function produceSourceApplicationComponent(context: SourceCallableProduct
     for (const argument of candidate.sourceArguments) {
       const value = context.value(argument.expression, bindings);
       if (value.kind !== "resolved") return value;
-      arguments_.push({ occurrence: argument.occurrence, form: argument.form, operand: { occurrence: argument.expression, value: value.value } });
+      arguments_.push({ occurrence: argument.occurrence, form: argument.form, operand: { kind: "resolved", value: { occurrence: argument.expression, value: value.value } } });
     }
     const expanded = produceSourceEffectiveArguments(builder, arguments_);
     if (expanded.kind !== "resolved") return expanded;
@@ -37,19 +38,21 @@ export function produceSourceApplicationComponent(context: SourceCallableProduct
       if (signature.kind !== "resolved") return signature;
       const places = produceSourceArgumentPlaces({ builder, invocation: original.root, sourceArguments: arguments_, parameters: signature.value.parameters });
       if (places.kind !== "resolved") return places;
+      if (places.value.kind === "not-applicable") return sourceSemanticRefusal(places.value.site, places.value.message, "TSONIC_LOCAL_TYPE_GENERIC");
       if (first.kind === "parameter-place") {
-        const selected = places.value.find(place => place.effectiveArgumentIndex === first.index);
+        const selected = places.value.values.find(place => place.effectiveArgumentIndex === first.index);
         if (selected === undefined) return sourceSemanticRefusal(original.root, "An original formal component lies outside its complete Source parameter-place vector.");
         value = { kind: "resolved", value: selected.destination };
       } else if (first.kind === "parameter-tail") {
         const start = first.start;
-        value = tuple(places.value.filter(place => place.effectiveArgumentIndex >= start).map(place => ({
+        value = tuple(places.value.values.filter(place => place.effectiveArgumentIndex >= start).map(place => ({
           kind: place.parameterForm === "rest-sequence" ? "rest" : "required", value: place.destination,
         })));
       } else throw new Error("An original formal component requires its exact place or tail selector.");
     }
     offset = 1;
-  } else value = context.value(original.root, bindings);
+  } else value = sourceTypeFlowTypeSyntax(context.ast, original.root)
+    ? reader.describeSyntax(original.root, bindings) : context.value(original.root, bindings);
   if (value.kind !== "resolved") return value;
   for (let index = offset; index < original.path.length; index++) {
     const part = original.path[index]!;

@@ -62,8 +62,10 @@ export function createSourceTypeFlowDeclaredSlotReader(context: SourceTypeFlowAn
       if (invocation !== undefined && (ast.is.IsCallExpression(invocation) || ast.is.IsNewExpression(invocation))) {
         const application = context.application(invocation);
         if (application.kind !== "resolved") return application;
-        const places = application.value.arguments.filter(argument => argument.effectiveArgument === node ||
-          application.value.sourceArguments[argument.sourceArgumentIndex]?.operand.occurrence === current);
+        const places = application.value.arguments.filter(argument => {
+          const original = application.value.sourceArguments[argument.sourceArgumentIndex]?.operand;
+          return argument.effectiveArgument === node || original?.kind === "resolved" && original.value.occurrence === current;
+        });
         if (places.length === 1) return { kind: "resolved", value: { kind: "present", value: places[0]!.destination } };
         if (places.length > 1 && places.every(place => place.destination.applied === places[0]!.destination.applied)) {
           return { kind: "resolved", value: { kind: "present", value: places[0]!.destination } };

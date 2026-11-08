@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type {
   SourceApplication, SourceApplicationFacts, SourceConstruction, SourceDeclaredSlot, SourceOperation,
   SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeEvidence,
-  SourceUseDestination, SourceValueFacts,
+  SourceUseDestination, SourceValueFacts, SourceValueOperand, SourceValueSelection,
 } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
 
@@ -45,6 +45,7 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
   const returns = new Map(publication.returns);
   const applications = new Map(publication.applications);
   const applicationMembership = new Set<SourceApplication>();
+  const refusalMembership = new Set(publication.refusals);
   const none: SourceResult<SourcePresence<never>> = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) });
 
   function assertOccurrence(occurrence: Node): void {
@@ -90,6 +91,30 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
     builder.assertDestination(value);
   }
 
+  function operand(value: SourceValueOperand): void {
+    assertOccurrence(value.occurrence);
+    evidence(value.value);
+  }
+
+  function branch(value: SourceResult<SourceValueOperand>, demanded: boolean): void {
+    if (value.kind === "resolved") { operand(value.value); return; }
+    assertOriginal(value.site);
+    if (demanded || value.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED" || !refusalMembership.has(value))
+      throw new Error("A resolved selection may retain only the identical unselected Source FORM refusal from its published inventory.");
+  }
+
+  function selection(value: SourceValueSelection): void {
+    evidence(value.result);
+    if (value.kind === "await") { operand(value.operand); evidence(value.completion); return; }
+    operand(value.control);
+    if (value.kind === "conditional") {
+      branch(value.whenTrue, value.disposition !== "false");
+      branch(value.whenFalse, value.disposition !== "true");
+    } else if (value.kind === "and") branch(value.whenTrue, value.disposition !== "left");
+    else if (value.kind === "or") branch(value.whenFalse, value.disposition !== "left");
+    else { evidence(value.whenPresent); branch(value.whenAbsent, value.disposition !== "left"); }
+  }
+
   validate(types, evidence);
   validate(contextual, validatePresence(evidence));
   for (const [declaration, slot] of slots) {
@@ -118,27 +143,12 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
       destination(operation.destination);
     } else if ("left" in operation) {
       for (const operand of [operation.left, operation.right]) { assertOccurrence(operand.occurrence); evidence(operand.value); }
-    } else if (operation.kind === "await") {
-      assertOccurrence(operation.operand.occurrence);
-      evidence(operation.operand.value);
-      evidence(operation.completion);
-    } else {
-      assertOccurrence(operation.control.occurrence);
-      evidence(operation.control.value);
-      if (operation.kind === "conditional") {
-        for (const branch of [operation.whenTrue, operation.whenFalse]) { assertOccurrence(branch.occurrence); evidence(branch.value); }
-      } else if (operation.kind === "and") {
-        assertOccurrence(operation.whenTrue.occurrence);
-        evidence(operation.whenTrue.value);
-      } else if (operation.kind === "or") {
-        assertOccurrence(operation.whenFalse.occurrence);
-        evidence(operation.whenFalse.value);
-      } else {
-        evidence(operation.whenPresent);
-        assertOccurrence(operation.whenAbsent.occurrence);
-        evidence(operation.whenAbsent.value);
-      }
-    }
+    } else if (operation.kind === "selection-assignment") {
+      assertOriginal(operation.target);
+      destination(operation.destination);
+      if (operation.selection.occurrence !== occurrence) throw new Error("A logical assignment retains the identical original selection occurrence.");
+      selection(operation.selection);
+    } else selection(operation);
   });
   validate(constructions, validatePresence((construction, occurrence) => {
     if (construction.occurrence !== occurrence) throw new Error("A Source construction requires its original occurrence.");
@@ -170,13 +180,15 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
     if (application.receiver.kind === "value") { assertOccurrence(application.receiver.occurrence); evidence(application.receiver.value); }
     for (const argument of application.sourceArguments) {
       assertOriginal(argument.occurrence);
-      assertOccurrence(argument.operand.occurrence);
-      evidence(argument.operand.value);
+      branch(argument.operand, application.argumentDisposition !== "skip");
     }
+    if (application.argumentDisposition === "skip" && application.arguments.length !== 0)
+      throw new Error("A statically skipped application has an empty effective binding domain without dropping authored arguments.");
     for (const argument of application.arguments) {
       assertOriginal(argument.sourceArgument);
       const original = application.sourceArguments[argument.sourceArgumentIndex];
       if (original?.occurrence !== argument.sourceArgument) throw new Error("A Source argument binding must retain its exact authored evaluation vector entry.");
+      if (original.operand.kind !== "resolved") throw new Error("An effective Source argument requires its produced authored operand.");
       assertOccurrence(argument.effectiveArgument);
       evidence(argument.source);
       destination(argument.destination);

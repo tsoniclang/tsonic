@@ -58,7 +58,7 @@ export function produceSourceArgumentContext(context: SourceCallableProduction, 
       if (argument.form === "value") continue;
       const value = context.value(argument.expression, bindings);
       if (value.kind !== "resolved") return value;
-      before.push({ occurrence: argument.occurrence, form: "spread", operand: { occurrence: argument.expression, value: value.value } });
+      before.push({ occurrence: argument.occurrence, form: "spread", operand: { kind: "resolved", value: { occurrence: argument.expression, value: value.value } } });
     }
     const expanded = produceSourceEffectiveArguments(builder, before);
     if (expanded.kind !== "resolved") return expanded;

@@ -13,6 +13,9 @@ import { produceSourceCallableSignature, produceSourceHeritageBindings, type Sou
 import { produceSourceArgumentPlaces, produceSourceDeclaredParameterPlace } from "./argument-places.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import type { SourceTypeFlowSource } from "./types.js";
+import { selectSourceCallCandidate, type SourceCallCandidateEvaluation } from "./call-selection.js";
+import { sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
+import { produceSourceEvidenceDetails } from "./member-production.js";
 
 export interface SourceApplicationProduction extends SourceCallableProduction {
   readonly profile: SourceTypeFlowSource["profile"];
@@ -32,12 +35,14 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
   const refusal = (message: string) => sourceSemanticRefusal(invocation, message, "TSONIC_LOCAL_TYPE_GENERIC");
   if (selected.kind === "untyped") return refusal("This application has no original callable candidate to authenticate.");
 
-  function candidate(value: SourceInputCallCandidate): SourceProductionResult<SourceProducedApplication> {
+  function candidate(value: SourceInputCallCandidate): SourceProductionResult<SourceCallCandidateEvaluation> {
     const original = value.application;
     if (original.invocation !== invocation || value.identity.invocation !== invocation) {
       throw new Error("A Source call candidate requires its identical original invocation.");
     }
     input.assertSignature(original.signature);
+    const notApplicable = (site: Node, message: string): SourceProductionResult<SourceCallCandidateEvaluation> =>
+      ({ kind: "resolved", value: { kind: "not-applicable", candidate: value, site, message } });
     const signature = builder.signature(original.signature.owner, original.signature.signatureKind, original.signature,
       original.signature.declaration, original.signature.typeParameters);
     if (original.signatureArguments.length !== signature.typeParameters.length ||
@@ -190,7 +195,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       if (applied.kind === "refused") return applied;
       const admission = context.admits(bindings.get(parameter.declaration!)!, applied.value, invocation);
       if (admission.kind !== "resolved") return admission;
-      if (!admission.value) return refusal("An original Source generic argument does not satisfy its applied declared constraint.");
+      if (!admission.value) return notApplicable(invocation, "An original Source generic argument does not satisfy its applied declared constraint.");
     }
 
     const classCount = original.class?.arguments.length ?? 0;
@@ -202,12 +207,40 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     const callee = directCallee === undefined && staticReceiver === undefined ? context.value(original.callee.occurrence, allBindings)
       : context.component(original.callee.component, allBindings, value);
     if (callee.kind !== "resolved") return callee;
+    const optionalCall = context.ast.is.IsCallExpression(invocation) &&
+      context.ast.as.AsCallExpression(invocation)?.QuestionDotToken !== undefined;
+    let argumentDisposition: SourceApplication["argumentDisposition"] = "evaluate";
+    function guard(evidence: SourceTypeEvidence): void {
+      const presence = sourcePresenceLiteralDisposition(builder.domain(evidence));
+      if (presence === "absent") argumentDisposition = "skip";
+      else if (presence === "dynamic" && argumentDisposition !== "skip") argumentDisposition = "dynamic";
+    }
+    if (optionalCall) guard(callee.value);
+    if (context.ast.is.IsPropertyAccessExpression(original.callee.occurrence) || context.ast.is.IsElementAccessExpression(original.callee.occurrence)) {
+      const member = context.objects.use(original.callee.occurrence);
+      if (member.kind !== "resolved") return member;
+      if (member.value.optionalChain || member.value.chainContinuation) guard(member.value.receiver.value);
+    }
     const sourceArguments: SourceAuthoredArgument[] = [];
     for (const argument of value.sourceArguments) {
       const source = context.value(argument.expression, allBindings);
-      if (source.kind !== "resolved") return source;
+      if (source.kind === "pending") return source;
+      if (source.kind === "refused" && (argumentDisposition !== "skip" || source.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED")) return source;
       sourceArguments.push(Object.freeze({ occurrence: argument.occurrence, form: argument.form,
-        operand: Object.freeze({ occurrence: argument.expression, value: source.value }) }));
+        operand: source.kind === "refused" ? source : Object.freeze({ kind: "resolved", value: Object.freeze({ occurrence: argument.expression, value: source.value }) }) }));
+    }
+    const absent = (): SourceProductionResult<SourceTypeEvidence> => {
+      const details = produceSourceEvidenceDetails(context, invocation, allBindings);
+      return details.kind !== "resolved" ? details : { kind: "resolved", value: builder.evidence({ type: builder.intrinsic("absence"),
+        component: builder.componentIdentity(invocation, []), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
+      [], input.syntax(invocation), { kind: "finite", values: [{ kind: "absence" }] }, details.value) };
+    };
+    if (argumentDisposition === "skip") {
+      const result = absent();
+      if (result.kind !== "resolved") return result;
+      return { kind: "resolved", value: { kind: "applicable", candidate: value, proven: [], application: Object.freeze({ identity,
+        kind: original.kind, optionalCall, argumentDisposition, callee: { occurrence: original.callee.occurrence, value: callee.value },
+        receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze([]), result: result.value }) } };
     }
     const arguments_: SourceArgumentPlace[] = [];
     const declaredSignature = produceSourceCallableSignature(context, original.signature, [], original.class?.declaration);
@@ -216,7 +249,8 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     if (appliedSignature.kind !== "resolved") return appliedSignature;
     const places = produceSourceArgumentPlaces({ builder, invocation, sourceArguments, parameters: appliedSignature.value.parameters });
     if (places.kind !== "resolved") return places;
-    for (const argument of places.value) {
+    if (places.value.kind === "not-applicable") return notApplicable(places.value.site, places.value.message);
+    for (const argument of places.value.values) {
       const parameter = declaredSignature.value.parameters[argument.parameter.index];
       if (parameter === undefined || parameter.index !== argument.parameter.index) throw new Error("An applied Source parameter requires its original authored declaration slot.");
       const declaredPlace = produceSourceDeclaredParameterPlace(builder, parameter, argument.parameterPath);
@@ -225,7 +259,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
         index: parameter.index, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) }), type: declaredPlace.value });
       const admission = context.admits(argument.source, argument.destination, argument.effectiveArgument);
       if (admission.kind !== "resolved") return admission;
-      if (!admission.value) return refusal("A Source argument does not fit its exact applied parameter destination.");
+      if (!admission.value) return notApplicable(argument.effectiveArgument, "A Source argument does not fit its exact applied parameter destination.");
       arguments_.push(Object.freeze({ sourceArgument: argument.sourceArgument, sourceArgumentIndex: argument.sourceArgumentIndex,
         effectiveArgument: argument.effectiveArgument, effectiveArgumentIndex: argument.effectiveArgumentIndex,
         sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex,
@@ -244,33 +278,27 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
         }
       }
     }
-    const diagnostics = new Set<SourceInputDiagnosticIdentity>();
+    const proven: SourceInputBackingConstraint[] = [];
     for (const constraint of value.constraints) {
       const proof = context.proves(constraint, allBindings, value);
       if (proof.kind !== "resolved") return proof;
-      if (!proof.value) return refusal("An original checker backing constraint has no authenticated Source proof.");
-      diagnostics.add(constraint.diagnostic);
+      if (!proof.value) return notApplicable(constraint.site, "An original checker backing constraint is not satisfied by this Source application.");
+      proven.push(constraint);
     }
-    if (value.diagnostics.some(diagnostic => !diagnostics.has(diagnostic))) {
-      return refusal("An original callable candidate retains a checker diagnostic not covered by its exact Source constraints.");
+    let result = appliedSignature.value.result;
+    if (argumentDisposition === "dynamic") {
+      const absence = absent();
+      if (absence.kind !== "resolved") return absence;
+      const selected = builder.join(builder.componentIdentity(invocation, []), "inferred", [result, absence.value], input.syntax(invocation));
+      if (selected.kind === "refused") return selected;
+      result = selected.value;
     }
-    return { kind: "resolved", value: Object.freeze({ application: Object.freeze({ identity,
-      kind: original.kind, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
-      receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), result: appliedSignature.value.result }),
-    diagnostics: Object.freeze([...diagnostics]) }) };
+    return { kind: "resolved", value: Object.freeze({ kind: "applicable", candidate: value, proven: Object.freeze(proven),
+      application: Object.freeze({ identity,
+      kind: original.kind, optionalCall, argumentDisposition, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
+      receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), result }),
+    }) };
   }
 
-  if (selected.kind === "applicable") return candidate(selected.selection);
-  const candidates = selected.candidates.map(candidate);
-  const pending = candidates.filter(value => value.kind === "pending");
-  if (pending.length > 0) return { kind: "pending", dependencies: Object.freeze([...new Set(pending.flatMap(value => value.dependencies))]) };
-  const admitted = candidates.filter(value => value.kind === "resolved");
-  if (admitted.length === 0) return candidates.find(value => value.kind === "refused") ?? refusal("No original conditional call candidate has an authenticated Source application.");
-  if (admitted.length !== 1) return refusal("Several original conditional call candidates remain admitted without one canonical Source selection.");
-  const result = admitted[0]!;
-  const discharged = new Set(result.value.diagnostics);
-  if (selected.diagnostics.some(diagnostic => !discharged.has(diagnostic))) {
-    return refusal("This conditional call retains an unrelated original checker diagnostic.");
-  }
-  return result;
+  return selectSourceCallCandidate(selected, invocation, candidate);
 }

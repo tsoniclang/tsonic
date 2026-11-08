@@ -146,6 +146,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]) { return returns.query(signature, bindings); }
 
   const hooks: SourceDescriptorProductionHooks = {
+    literalDomain: (component, bindings) => produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, component, bindings),
     declaredValue: (component, declaration, bindings) => declarationProduction === undefined ? pending(component.root)
       : produceSourceDeclaredComponent(declarationProduction, component, declaration, bindings),
     signatureRefusal: signature => signatureRefusals.get(signature),
@@ -276,8 +277,10 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   }
   function proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<boolean> {
     if (constraint.application !== undefined && constraint.application !== candidate.application) return { kind: "resolved", value: false };
+    const original = (component: SourceInputComponent) => declarationProduction === undefined ? pending(component.root)
+      : produceSourceApplicationComponent(declarationProduction, component, bindings, candidate);
     if (constraint.kind === "write-fit") {
-      const source = place(constraint.source, bindings), destination = place(constraint.destination, bindings);
+      const source = original(constraint.source), destination = original(constraint.destination);
       if (source.kind !== "resolved") return source;
       if (destination.kind !== "resolved") return destination;
       return admits(source.value, destination.value, constraint.site);
@@ -286,7 +289,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       const result = operation(constraint.operation);
       return result.kind !== "resolved" ? result : { kind: "resolved", value: true };
     }
-    const receiver = place(constraint.receiver, bindings), key = place(constraint.index, bindings);
+    const receiver = original(constraint.receiver), key = original(constraint.index);
     if (receiver.kind !== "resolved") return receiver;
     if (key.kind !== "resolved") return key;
     const result = indexSource(semantic(), receiver.value, key.value);

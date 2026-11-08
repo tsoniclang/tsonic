@@ -83,10 +83,12 @@ export function produceSourceCallableCompletion(production: SourceDeclarationPro
   if (ast.body(declaration) === undefined) return sourceSemanticRefusal(declaration,
     "An original bodyless callable requires its authored return component or an authenticated original target signature.", "TSONIC_LOCAL_TYPE_SIGNATURE");
   const returned = sourceTypeFlowCallableReturns(production.context.source, declaration);
+  if (returned.canFallThrough === undefined) return sourceSemanticRefusal(declaration,
+    "An original callable body requires its complete original completion receipt.", "TSONIC_LOCAL_TYPE_SIGNATURE");
   const values = sourceProductionValues(returned.returned.map(node => production.value(node, bindings)));
   if (values.kind !== "resolved") return values;
   const roles = [...values.value];
-  if (returned.absent || returned.returned.length === 0) roles.push(builder.evidence({ type: builder.intrinsic("void"),
+  if (returned.absent || returned.canFallThrough) roles.push(builder.evidence({ type: builder.intrinsic("void"),
     component: builder.componentIdentity(declaration, []), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
   [], undefined, { kind: "finite", values: [{ kind: "absence" }] },
   { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [declaration] } }));
