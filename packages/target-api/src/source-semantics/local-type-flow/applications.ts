@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type {
-  SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity, SourceInputTypeArgument,
+  SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity, SourceInputTypeArgument,
 } from "../../host-input/call-input.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type {
@@ -16,6 +16,7 @@ import type { SourceTypeFlowSource } from "./types.js";
 import { selectSourceCallCandidate, type SourceCallCandidateEvaluation } from "./call-selection.js";
 import { sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
+import { produceSourceSerializationResult } from "./serialization-presence.js";
 
 export interface SourceApplicationProduction extends SourceCallableProduction {
   readonly profile: SourceTypeFlowSource["profile"];
@@ -26,6 +27,7 @@ export interface SourceApplicationProduction extends SourceCallableProduction {
 
 export interface SourceProducedApplication {
   readonly application: SourceApplication;
+  readonly original: SourceInputApplication;
   readonly diagnostics: readonly SourceInputDiagnosticIdentity[];
 }
 
@@ -279,6 +281,13 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       proven.push(constraint);
     }
     let result = appliedSignature.value.result;
+    const profileMember = original.signature.declaration === undefined || context.profile.kind === "none"
+      ? undefined : context.profile.value.member(original.signature.declaration);
+    if (profileMember?.resultPresence.kind === "serialization") {
+      const selected = produceSourceSerializationResult(context, profileMember.resultPresence, invocation, arguments_, result);
+      if (selected.kind !== "resolved") return selected;
+      result = selected.value;
+    }
     if (argumentDisposition === "dynamic") {
       const absence = absent();
       if (absence.kind !== "resolved") return absence;

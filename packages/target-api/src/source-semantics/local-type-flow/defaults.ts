@@ -8,6 +8,7 @@ import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syn
 import { createSourceLiteralDomainQueries } from "./literal-domains.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import type { SourceObjectProductionQueries } from "../../host-input/program-input.js";
+import { createSourceValueGuardQueries } from "../guard-queries.js";
 
 export type SourceTypeFlowProducers = Pick<SourceTypeFlowAnalysisContext,
   "declared" | "value" | "place" | "destination" | "application" | "operation" | "callableReturn"> & {
@@ -57,7 +58,13 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const propertyName = source.createPropertyNameQuery(domains);
   const objects = source.createObjects({ place: producers.place, value: producers.value, declared: producers.declared,
     memberDestination: producers.memberDestination, memberValue: producers.memberValue });
-  return Object.freeze({ source, reader, objects, nodes: Object.freeze(nodes), values: Object.freeze(values),
+  const guards = createSourceValueGuardQueries({ ast, navigation: source.navigation, view: source.descriptorBuilder,
+    flowConditions: source.protocolInput.flowConditions, syntaxDomain: domains.syntaxDomain,
+    protocols: {
+      argumentPassing: node => ({ kind: "resolved", value: source.protocolInput.argumentPassing(node) }),
+      pointerOperation: node => ({ kind: "resolved", value: input.markers(node).pointer }),
+    } });
+  return Object.freeze({ source, reader, objects, guards, nodes: Object.freeze(nodes), values: Object.freeze(values),
     ...producers, literal: (node: Node) => literals.get(node), propertyName,
     order(node: Node) {
       input.assertNode(node);

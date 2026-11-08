@@ -1,10 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputCallSelection,
-  SourceInputDiagnosticCoverage, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
+} from "../../host-input/call-input.js";
 import type { SourceApplication } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceProducedApplication } from "./applications.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
+import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";
 
 export type SourceCallCandidateEvaluation =
   | { readonly kind: "not-applicable"; readonly candidate: SourceInputCallCandidate; readonly site: Node; readonly message: string }
@@ -41,22 +42,12 @@ export function selectSourceCallCandidate(selection: SourceInputCallSelection, i
   }
   if (!candidates.includes(winner.candidate) || winner.candidate.application.invocation !== invocation ||
     winner.application.identity.invocation !== invocation) throw new Error("A Source winner requires its exact original invocation and candidate attempt.");
-  const records = new Map<SourceInputDiagnosticIdentity, SourceInputDiagnosticCoverage[]>();
-  for (const candidate of candidates) for (const coverage of [...candidate.diagnosticCoverage, ...candidate.constraints.map(constraint => constraint.rootCoverage)]) {
-    let values = records.get(coverage.root);
-    if (values === undefined) { values = []; records.set(coverage.root, values); }
-    values.push(coverage);
-  }
   const applications = new Set(candidates.map(candidate => candidate.application));
-  const proven = winner.proven;
-  const covered = (coverage: SourceInputDiagnosticCoverage): boolean => {
-    if (coverage.kind !== "complete" || coverage.obligations.length === 0) return false;
-    if (selection.kind === "conditional-candidates" && coverage.purpose.kind === "alternative-applicability" &&
-      coverage.purpose.invocation === invocation) return coverage.obligations.every(obligation => obligation.kind === "applicability" &&
-        obligation.application !== undefined && applications.has(obligation.application) && obligation.application.invocation === invocation);
-    return coverage.obligations.every(obligation => proven.some(constraint => constraint.diagnostic === obligation.diagnostic &&
-      constraint.rootDiagnostic === coverage.root && constraint.application === obligation.application));
-  };
-  const diagnostics = [...records].filter(([, values]) => values.every(covered)).map(([root]) => root);
-  return { kind: "resolved", value: Object.freeze({ application: winner.application, diagnostics: Object.freeze(diagnostics) }) };
+  const diagnostics = sourceProvenDiagnosticRoots(candidates.flatMap(candidate => [...candidate.diagnosticCoverage,
+    ...candidate.constraints.map(constraint => constraint.rootCoverage)]), winner.proven,
+  coverage => selection.kind === "conditional-candidates" && coverage.purpose.kind === "alternative-applicability" &&
+    coverage.purpose.invocation === invocation && coverage.obligations.every(obligation => obligation.kind === "applicability" &&
+      obligation.application !== undefined && applications.has(obligation.application) && obligation.application.invocation === invocation));
+  return { kind: "resolved", value: Object.freeze({ application: winner.application,
+    original: winner.candidate.application, diagnostics }) };
 }

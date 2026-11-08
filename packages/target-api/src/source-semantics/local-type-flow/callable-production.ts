@@ -3,7 +3,7 @@ import type { SourceInputComponent, SourceInputSignature } from "../../host-inpu
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
-import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
+import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import type { SourceCallParameter } from "./argument-places.js";
 import { produceSourceDefinitionParameters } from "./definition-parameters.js";
@@ -94,7 +94,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass,
       typeArguments: arguments_.map(value => value.type) }), component, category: { kind: "known", category: "object" },
     numeric: undefined, sum: undefined }, arguments_.map((value, index) => ({ selector: { kind: "type-argument" as const,
-      declaration: constructedClass, index }, value })), input.syntax(constructedClass), sourceOpenLiteralDomain,
+      declaration: constructedClass, index }, value })), input.syntax(constructedClass), sourcePresentLiteralDomain,
     { members: { kind: "definition" }, origins: { kind: "complete", nodes: [constructedClass] } }) };
   } else {
     const declaration = original.declaration ?? inheritedDeclaration("result");

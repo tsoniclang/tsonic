@@ -28,7 +28,9 @@ import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { indexSource } from "./type-keys.js";
 import { produceSourceArgumentContext, sourceArgumentContextSite } from "./argument-context.js";
-import { produceSourceApplicationComponent } from "./component-production.js";
+import { produceSourceOriginalComponent } from "./component-production.js";
+import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";
+import { produceSourceGuardPredicate } from "./guard-predicates.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
@@ -208,7 +210,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value.element : undefined };
     } };
   applicationProduction = { ...declarationProduction, profile: source.profile,
-    component: (component, bindings, candidate) => produceSourceApplicationComponent(declarationProduction!, component, bindings, candidate),
+    component: (component, bindings, candidate) => produceSourceOriginalComponent(declarationProduction!, component, bindings, candidate),
     admits, proves };
   construction = createSourceConstructionProduction({ ...semantic(), value: node => value(node, []),
     completion, literalDomain: (component, bindings) => produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, component, bindings),
@@ -234,11 +236,18 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
           const initializer = Node_Initializer(ast, reference);
           if (initializer !== undefined) return value(initializer, []);
         }
-        return { kind: "resolved", value: slot.value.type };
+        const guarded = context.guards.members(node, slot.value.type, (member, guard) =>
+          produceSourceGuardPredicate({ builder, syntaxDomain: contextLiteralDomain }, member, guard));
+        if (guarded.kind !== "resolved") return guarded;
+        return guarded.value === undefined ? { kind: "resolved", value: slot.value.type }
+          : builder.join(dependency(node), "inferred", guarded.value, input.syntax(node));
       }
     }
     const variable = graph.variable(node);
     return variable === undefined ? sourceUnresolvedDeclaration(declarationProduction!, node) : graph.resolve(variable);
+  }
+  function contextLiteralDomain(node: Node) {
+    return produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, input.syntax(node), []);
   }
   function expected(node: Node, bindings: readonly SourceTypeBinding[] = []): SourceProductionResult<SourceTypeEvidence | undefined> {
     const selected = graph?.expected(node);
@@ -275,10 +284,10 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     }
     return { kind: "resolved", value: false };
   }
-  function proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<boolean> {
-    if (constraint.application !== undefined && constraint.application !== candidate.application) return { kind: "resolved", value: false };
+  function proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate?: SourceInputCallCandidate): SourceProductionResult<boolean> {
+    if (constraint.application !== undefined && constraint.application !== candidate?.application) return { kind: "resolved", value: false };
     const original = (component: SourceInputComponent) => declarationProduction === undefined ? pending(component.root)
-      : produceSourceApplicationComponent(declarationProduction, component, bindings, candidate);
+      : produceSourceOriginalComponent(declarationProduction, component, bindings, candidate);
     if (constraint.kind === "write-fit") {
       const source = original(constraint.source), destination = original(constraint.destination);
       if (source.kind !== "resolved") return source;
@@ -296,6 +305,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     return result.kind !== "resolved" ? result : { kind: "resolved", value: true };
   }
 
+  const constraints = [...new Set(context.nodes.flatMap(node => input.constraints(node)))].filter(constraint => constraint.application === undefined);
   const revision = () => values.revision() + declarations.revision() + completions.revision() + applications.revision() + operations.revision() + destinations.revision();
   let previous = -1;
   while (previous !== revision()) {
@@ -311,6 +321,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       if (ast.is.IsYieldExpression(node)) protocols.yield(node);
     }
     for (const signature of signatures) callableReturn(signature, []);
+    for (const constraint of constraints) proves(constraint, []);
     graph.invalidate();
   }
 
@@ -370,6 +381,11 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   }
   const returnFacts = new Map<SourceSignatureIdentity, SourceResult<SourceTypeEvidence>>();
   for (const signature of signatures) returnFacts.set(signature, settle(signature.declaration ?? signature.owner, callableReturn(signature, [])));
+  const proven = constraints.filter(constraint => {
+    const result = proves(constraint, []);
+    return result.kind === "resolved" && result.value;
+  });
+  for (const root of sourceProvenDiagnosticRoots(constraints.map(constraint => constraint.rootCoverage), proven)) diagnostics.add(root);
   const published = createSourceSolvedFacts(builder, { originals: context.nodes, occurrences: context.values,
     types, slots: slotFacts, contextual: contextualFacts, destinations: destinationFacts, operations: operationFacts,
     constructions: constructionFacts, applications: applicationFacts, returns: returnFacts, refusals: [...issues] });

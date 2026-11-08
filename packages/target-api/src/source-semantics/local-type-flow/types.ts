@@ -8,6 +8,7 @@ import type { SourceLiteralDomain } from "../../source-model/literals/domain.js"
 import type { SourceJsApiFacts } from "../../target-analysis/source-profile.js";
 import type { SourceObjectProduction, SourceObjectProductionQueries } from "../../host-input/program-input.js";
 import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
+import type { createSourceValueGuardQueries } from "../guard-queries.js";
 import type { SourceApplication, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
   SourcePropertyName, SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceProductionResult } from "../descriptor-contracts.js";
@@ -37,6 +38,7 @@ export interface SourceTypeFlowAnalysisContext {
   readonly source: SourceTypeFlowSource;
   readonly reader: SourceDescriptorReader;
   readonly objects: SourceObjectProduction;
+  readonly guards: ReturnType<typeof createSourceValueGuardQueries>;
   readonly nodes: readonly Node[];
   readonly values: readonly Node[];
   literal(node: Node): SourceLiteralValue | undefined;

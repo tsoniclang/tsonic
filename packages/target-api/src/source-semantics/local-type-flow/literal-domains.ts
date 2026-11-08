@@ -75,7 +75,7 @@ export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node,
   if (facts.kind === "scalar") {
     if (facts.scalar === "never") return sourceUnreachableLiteralDomain;
     if (facts.scalar === "absence" || facts.scalar === "void") return sourceFiniteLiteralDomain([{ kind: "absence" }]);
-    if (facts.scalar === "number" || facts.scalar === "bigint" || facts.scalar === "boolean") return sourcePresentLiteralDomain;
+    if (facts.scalar === "number" || facts.scalar === "bigint" || facts.scalar === "boolean" || facts.scalar === "string") return sourcePresentLiteralDomain;
   }
   return sourceOpenLiteralDomain;
 }

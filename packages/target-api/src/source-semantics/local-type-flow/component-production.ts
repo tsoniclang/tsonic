@@ -8,8 +8,8 @@ import { produceSourceCallableSignature, type SourceCallableProduction } from ".
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceTypeFlowTypeSyntax } from "./value-syntax.js";
 
-export function produceSourceApplicationComponent(context: SourceCallableProduction, original: SourceInputComponent,
-  bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<SourceTypeEvidence> {
+export function produceSourceOriginalComponent(context: SourceCallableProduction, original: SourceInputComponent,
+  bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate | undefined): SourceProductionResult<SourceTypeEvidence> {
   const { input, builder, reader, objects } = context;
   input.assertComponent(original);
   const component = reader.componentIdentity(original);
@@ -17,6 +17,7 @@ export function produceSourceApplicationComponent(context: SourceCallableProduct
   let value: SourceProductionResult<SourceTypeEvidence>;
   let offset = 0;
   if (first?.kind === "argument-place" || first?.kind === "argument-tail" || first?.kind === "parameter-place" || first?.kind === "parameter-tail") {
+    if (candidate === undefined) return sourceSemanticRefusal(original.root, "An original call-place component requires its exact candidate application witness.");
     if (original.root !== candidate.application.invocation) throw new Error("An original call-place component must belong to its exact candidate invocation.");
     const arguments_: SourceAuthoredArgument[] = [];
     for (const argument of candidate.sourceArguments) {
