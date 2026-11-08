@@ -31,6 +31,7 @@ import { produceSourceArgumentContext, sourceArgumentContextSite } from "./argum
 import { produceSourceOriginalComponent } from "./component-production.js";
 import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";
 import { produceSourceGuardPredicate } from "./guard-predicates.js";
+import { produceSourceMemberValue } from "./member-value.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
@@ -177,14 +178,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     memberDestination: (occurrence, receiver, member) => declarationProduction === undefined ? pending(occurrence)
       : produceSourceMemberDestination(declarationProduction, occurrence, receiver, member),
     memberValue(occurrence, receiver, purpose, arms, optionalChain) {
-      builder.assertEvidence(receiver);
-      const values = [...arms];
-      if (purpose === "read" && optionalChain && (receiver.type.kind === "optional" || receiver.sum?.arms.some(arm =>
-        arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence"))) values.push(builder.evidence({ type: builder.intrinsic("absence"),
-        component: dependency(occurrence), category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined },
-      [], undefined, { kind: "finite", values: [{ kind: "absence" }] },
-      { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [occurrence] } }));
-      return builder.join(dependency(occurrence), "inferred", values, undefined);
+      return produceSourceMemberValue({ input, builder }, occurrence, receiver, purpose, arms, optionalChain);
     },
   });
   slots = createSourceTypeFlowDeclaredSlotReader(context, expected);

@@ -7,6 +7,21 @@ export function sourceKeyDomainContains(builder: SourceDescriptorBuilder, destin
   builder.assertEvidence(destination);
   builder.assertEvidence(source);
   if (builder.freeParameters(destination).length > 0 || builder.freeParameters(source).length > 0) return { kind: "resolved", value: "deferred" };
+  const combine = (values: readonly SourceProductionResult<"yes" | "no" | "deferred">[], every: boolean):
+    SourceProductionResult<"yes" | "no" | "deferred"> => {
+    let deferred = false;
+    const dependencies = new Set<SourceTypeEvidence["component"]>();
+    for (const value of values) {
+      if (value.kind === "refused") return value;
+      if (value.kind === "pending") { value.dependencies.forEach(dependency => dependencies.add(dependency)); continue; }
+      if (value.value === (every ? "no" : "yes")) return value;
+      deferred ||= value.value === "deferred";
+    }
+    return dependencies.size > 0 ? { kind: "pending", dependencies: [...dependencies] }
+      : { kind: "resolved", value: deferred ? "deferred" : every ? "yes" : "no" };
+  };
+  if (destination.sum !== undefined) return combine(destination.sum.arms.map(arm => sourceKeyDomainContains(builder, arm, source)), true);
+  if (source.sum !== undefined) return combine(source.sum.arms.map(arm => sourceKeyDomainContains(builder, destination, arm)), false);
   const selected = builder.domain(destination), admitted = builder.domain(source);
   if (selected.kind === "unreachable") return { kind: "resolved", value: "yes" };
   if (selected.kind === "finite") {

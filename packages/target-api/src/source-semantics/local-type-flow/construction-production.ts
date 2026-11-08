@@ -8,6 +8,7 @@ import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-
 import { Node_Expression, ObjectLiteralProperty_Value, SpreadAssignment_Expression } from "../../source-navigation/ast.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import { produceSourceConstructionDestination } from "./construction-destinations.js";
+import { sourceMemberKeyFromUnit } from "./type-keys.js";
 
 export interface SourceConstructionProduction extends SourceSemanticProduction {
   value(node: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -203,7 +204,17 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
       if (selected === undefined || row.origins.length === 0) return sourceSemanticRefusal(occurrence, "A constructed member requires its actual read or write component and original origin.");
       const origin = read.value.kind === "present" ? row.readOrigins[0] : row.writeOrigins[0];
       if (origin === undefined) throw new Error("An original constructed member component requires its role-specific origin.");
-      members.push({ name: row.name, origin, optional: row.optional, readonly: row.readonly, type: selected.type });
+      let key = origin.kind === "mapped" ? origin.key : undefined;
+      if (key === undefined && origin.kind === "class-prototype") key = { kind: "string", value: row.name };
+      if (key === undefined && origin.kind === "declared") {
+        const name = ast.name(origin.declaration);
+        if (name === undefined) return sourceSemanticRefusal(origin.declaration, "An original constructed member requires its exact original key.");
+        const domain = context.literalDomain(input.syntax(name), []);
+        if (domain.kind !== "resolved") return domain;
+        if (domain.value.kind === "finite" && domain.value.values.length === 1) key = sourceMemberKeyFromUnit(domain.value.values[0]!);
+      }
+      if (key === undefined) return sourceSemanticRefusal(occurrence, "An original constructed member requires its canonical literal or symbol key evidence.");
+      members.push({ name: row.name, key, origin, optional: row.optional, readonly: row.readonly, type: selected.type });
       if (read.value.kind === "present") for (const origin of row.readOrigins)
         children.push({ selector: { kind: "member", origin }, value: read.value.value });
       if (write.value.kind === "present") for (const origin of row.writeOrigins) {

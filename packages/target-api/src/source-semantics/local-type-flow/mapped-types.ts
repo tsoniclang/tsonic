@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceMemberOrigin, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain, sourcePresentLiteralDomain, type SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
 import { sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
-import { sourceKeyEvidence, sourceMemberKeyDomain } from "./type-keys.js";
-import type { SourceMemberInventoryRow } from "../member-inventory.js";
+import { sourceKeyEvidence, sourceMemberKeyFromUnit, sourceMemberKeyUnit } from "./type-keys.js";
+import type { SourceIndexInventoryRow, SourceMemberInventoryRow } from "../member-inventory.js";
 import { produceSourceMemberInventory } from "./member-production.js";
 
 export function produceSourceMappedType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
@@ -89,14 +89,17 @@ export function produceSourceMappedType(context: SourceSyntaxProduction): Source
   }
 
   const keys: { readonly unit: SourceLiteralUnit; readonly original: SourceTypeDescriptorMember | undefined }[] = [];
+  const indexKeys: { readonly value: SourceTypeEvidence; readonly declaration: Node; readonly readonly: boolean }[] = [];
   if (sourceType?.kind === "shape") {
     for (const member of sourceType.members) {
-      const key = sourceMemberKeyDomain(context, member);
-      if (key.kind !== "resolved") return key;
-      keys.push({ unit: key.value, original: member });
+      keys.push({ unit: sourceMemberKeyUnit(member.key), original: member });
     }
-    if (sourceType.indexes.length > 0) return sourceSemanticRefusal(syntax,
-      "This mapped type requires its original complete finite key domain before member publication.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    for (const index of sourceType.indexes) {
+      if (sourceValue === undefined) throw new Error("A homomorphic mapped index requires its original Source receiver.");
+      const key = builder.component(sourceValue, { kind: "index-key", declaration: index.declaration });
+      if (key.kind === "refused") return key;
+      indexKeys.push({ value: key.value, declaration: index.declaration, readonly: index.readonly });
+    }
   } else {
     const keyType = reader.describeSyntax(constraint, context.bindings);
     if (keyType.kind !== "resolved") return keyType;
@@ -110,13 +113,14 @@ export function produceSourceMappedType(context: SourceSyntaxProduction): Source
     if (domain.kind === "unreachable") return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members: [], indexes: [], calls: [], constructs: [] }),
       component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, [], context.component, sourceOpenLiteralDomain,
     { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [syntax] } }) };
-    if (domain.kind !== "finite") return sourceSemanticRefusal(syntax,
-      "This mapped type requires its original complete finite key domain before member publication.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
-    for (const unit of domain.values) keys.push({ unit, original: undefined });
+    if (domain.kind === "finite") for (const unit of domain.values) keys.push({ unit, original: undefined });
+    else indexKeys.push({ value: keyType.value, declaration: syntax, readonly: false });
   }
   const children: SourceEvidenceComponent[] = [];
   const members: SourceTypeDescriptorMember[] = [];
   const rows: SourceMemberInventoryRow[] = [];
+  const indexes: Extract<SourceTypeDescriptor, { readonly kind: "shape" }>["indexes"][number][] = [];
+  const indexRows: SourceIndexInventoryRow[] = [];
   const names = new Set<string | Node>();
   for (const key of keys) {
     const keyValue = sourceKeyEvidence(context, parameter, key.unit);
@@ -134,14 +138,13 @@ export function produceSourceMappedType(context: SourceSyntaxProduction): Source
     if (names.has(identity)) return sourceSemanticRefusal(syntax,
       `Mapped member '${name.kind === "name" ? name.name : "unique symbol"}' has several original key producers.`, "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
     names.add(identity);
-    const mappedKey: SourceMemberKey = unit.kind === "symbol" ? { kind: "unique-symbol", declaration: unit.declaration }
-      : unit.kind === "number" ? { kind: "number", value: unit.value }
-      : unit.kind === "string" ? { kind: "string", value: unit.value } : (() => { throw new Error("An admitted mapped key requires its exact key category."); })();
+    const mappedKey = sourceMemberKeyFromUnit(unit);
+    if (mappedKey === undefined) throw new Error("An admitted mapped key requires its exact key category.");
     const origin: SourceMemberOrigin = mapped.NameType === undefined && key.original !== undefined
       ? key.original.origin : { kind: "mapped", owner: syntax, key: mappedKey };
     const value = valueFor(keyValue, key.original?.optional ?? false);
     if (value.kind !== "resolved") return value;
-    const member: SourceTypeDescriptorMember = { name: name.kind === "name" ? name.name : "", origin,
+    const member: SourceTypeDescriptorMember = { name: name.kind === "name" ? name.name : "", key: mappedKey, origin,
       optional: optional(key.original?.optional ?? false), readonly: readonly(key.original?.readonly ?? false), type: value.value.type };
     members.push(member);
     children.push({ selector: { kind: "member", origin }, value: value.value });
@@ -155,7 +158,25 @@ export function produceSourceMappedType(context: SourceSyntaxProduction): Source
         return applied.kind === "refused" ? applied : { kind: "resolved", value: builder.domain(applied.value) };
       } });
   }
-  return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members, indexes: [], calls: [], constructs: [] }),
+  for (const index of indexKeys) {
+    if (mapped.NameType !== undefined) return sourceSemanticRefusal(syntax,
+      "An open mapped key remapping requires one authenticated original key-to-member relation.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    const keyArms = index.value.sum?.arms ?? [index.value];
+    if (keyArms.some(value => value.category.kind !== "known" || value.category.category !== "string" &&
+      value.category.category !== "number" && value.category.category !== "symbol")) return sourceSemanticRefusal(syntax,
+      "A mapped index requires its exact original string, number or symbol key domain.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    const value = valueFor(index.value, false);
+    if (value.kind !== "resolved") return value;
+    const isReadonly = readonly(index.readonly);
+    indexes.push({ declaration: index.declaration, key: index.value.type, value: value.value.type, readonly: isReadonly });
+    children.push({ selector: { kind: "index-key", declaration: index.declaration }, value: index.value },
+      { selector: { kind: "index-value", declaration: index.declaration }, value: value.value });
+    indexRows.push({ declarations: [index.declaration], readonly: isReadonly,
+      keyType: () => ({ kind: "resolved", value: index.value }),
+      readType: () => ({ kind: "resolved", value: { kind: "present", value: value.value } }),
+      writeType: () => ({ kind: "resolved", value: isReadonly ? { kind: "none" } : { kind: "present", value: value.value } }) });
+  }
+  return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members, indexes, calls: [], constructs: [] }),
     component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, context.component, sourceOpenLiteralDomain,
-  { members: { kind: "complete", members: rows, indexes: [] }, origins: { kind: "complete", nodes: [syntax] } }) };
+  { members: { kind: "complete", members: rows, indexes: indexRows }, origins: { kind: "complete", nodes: [syntax] } }) };
 }

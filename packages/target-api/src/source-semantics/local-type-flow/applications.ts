@@ -295,6 +295,10 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       if (selected.kind === "refused") return selected;
       result = selected.value;
     }
+    const observedResult = selected.kind === "applicable" && selected.selection === value ? selected.selection.result : undefined;
+    const occurrenceResult = builder.join(builder.componentIdentity(invocation, []), "inferred", [result], observedResult);
+    if (occurrenceResult.kind === "refused") return occurrenceResult;
+    result = occurrenceResult.value;
     return { kind: "resolved", value: Object.freeze({ kind: "applicable", candidate: value, proven: Object.freeze(proven),
       application: Object.freeze({ identity,
       kind: original.kind, optionalCall, argumentDisposition, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),

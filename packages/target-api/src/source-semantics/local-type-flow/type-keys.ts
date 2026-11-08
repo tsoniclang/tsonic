@@ -4,12 +4,18 @@ import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain } from "../../source
 import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
 import type { SourceMemberKey, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
-import { produceSourceScalarLiteralDomain } from "./literal-domains.js";
+import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction, type SourceSyntaxProduction } from "./semantic-production.js";
 
 export function sourceMemberKeyUnit(key: SourceMemberKey): SourceLiteralUnit {
   return key.kind === "unique-symbol" ? { kind: "symbol", declaration: key.declaration }
     : key.kind === "number" ? { kind: "number", value: key.value } : { kind: "string", value: key.value };
+}
+
+export function sourceMemberKeyFromUnit(unit: SourceLiteralUnit): SourceMemberKey | undefined {
+  return unit.kind === "symbol" ? { kind: "unique-symbol", declaration: unit.declaration }
+    : unit.kind === "number" ? { kind: "number", value: unit.value }
+    : unit.kind === "string" ? { kind: "string", value: unit.value } : undefined;
 }
 
 export function sourceKeyEvidence(context: SourceSemanticProduction, original: Node, unit: SourceLiteralUnit): SourceTypeEvidence {
@@ -21,20 +27,6 @@ export function sourceKeyEvidence(context: SourceSemanticProduction, original: N
     ? { producer: original, kind: "literal", category: { kind: "known", category: "number" } } : undefined,
   sum: undefined }, [], undefined, sourceFiniteLiteralDomain([unit]),
   { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [original] } });
-}
-
-export function sourceMemberKeyDomain(context: SourceSemanticProduction, member: {
-  readonly name: string; readonly origin: import("../../public/source/contracts.js").SourceMemberOrigin;
-}): SourceProductionResult<SourceLiteralUnit> {
-  if (member.origin.kind === "mapped") return { kind: "resolved", value: sourceMemberKeyUnit(member.origin.key) };
-  if (member.origin.kind === "class-prototype") return { kind: "resolved", value: { kind: "string", value: member.name } };
-  const name = context.ast.name(member.origin.declaration);
-  if (name === undefined) return sourceSemanticRefusal(member.origin.declaration, "An original member key has no original name component.");
-  if (context.ast.is.IsIdentifier(name) || context.ast.is.IsStringLiteral(name)) return { kind: "resolved", value: { kind: "string", value: context.ast.text(name) } };
-  const facts = context.input.describe(context.input.syntax(name));
-  const domain = produceSourceScalarLiteralDomain(context.ast, name, facts);
-  return domain.kind === "finite" && domain.values.length === 1 ? { kind: "resolved", value: domain.values[0]! }
-    : sourceSemanticRefusal(name, "An original member key requires its exact finite literal or symbol component.");
 }
 
 export function produceSourceKeyOfType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
@@ -52,9 +44,7 @@ export function produceSourceKeyOfType(context: SourceSyntaxProduction): SourceP
   if (type.kind !== "shape") return sourceSemanticRefusal(syntax, "This keyof operand requires its original complete Source member and index domain.");
   const keys: SourceTypeEvidence[] = [];
   for (const member of type.members) {
-    const unit = sourceMemberKeyDomain(context, member);
-    if (unit.kind !== "resolved") return unit;
-    keys.push(sourceKeyEvidence(context, syntax, unit.value));
+    keys.push(sourceKeyEvidence(context, syntax, sourceMemberKeyUnit(member.key)));
   }
   for (const index of type.indexes) {
     const value = builder.component(definition.value, { kind: "index-key", declaration: index.declaration });
@@ -85,6 +75,10 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
     const values = sourceProductionValues(source.sum.arms.map(arm => indexSource(context, arm, key)));
     return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
   }
+  if (key.sum !== undefined) {
+    const values = sourceProductionValues(key.sum.arms.map(arm => indexSource(context, source, arm)));
+    return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
+  }
   const definition = builder.produceDefinition(source);
   if (definition.kind !== "resolved") return definition;
   const value = definition.value, type = value.type, domain = builder.domain(key);
@@ -97,20 +91,13 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
     if (type.kind === "tuple" && key.category.kind === "known" && key.category.category === "number") {
       return sourceProductionValues(type.elements.map((_, index) => builder.component(value, { kind: "tuple-element", index })));
     }
-    if (type.kind === "shape") {
-      const index = type.indexes.find(index => index.key === key.type);
-      if (index !== undefined) {
-        const selected = builder.component(value, { kind: "index-value", declaration: index.declaration });
-        return selected.kind === "refused" ? selected : { kind: "resolved", value: [selected.value] };
-      }
-    }
-    return sourceSemanticRefusal(key.component.root, "An indexed type requires its original finite key or exact declared index domain.");
   }
-  const values: SourceTypeEvidence[] = [];
-  for (const unit of domain.values) {
+  if (type.kind === "tuple" && domain.kind === "finite") {
+    const values: SourceTypeEvidence[] = [];
+    for (const unit of domain.values) {
     const name = sourceLiteralUnitKey(unit);
     if (name === undefined) return sourceSemanticRefusal(key.component.root, "This indexed type has a non-property key domain.");
-    if (type.kind === "tuple" && name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
+    if (name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
       const ordinal = BigInt(name.name);
       if (ordinal >= BigInt(type.elements.length)) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
       const selected = builder.component(value, { kind: "tuple-element", index: Number(ordinal) });
@@ -118,19 +105,24 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
       values.push(selected.value);
       continue;
     }
-    if (type.kind !== "shape") return sourceSemanticRefusal(source.component.root, "This indexed type requires its original Source member definition.");
-    const matching = [];
-    for (const member of type.members) {
-      const original = sourceMemberKeyDomain(context, member);
-      if (original.kind !== "resolved") return original;
-      const memberName = sourceLiteralUnitKey(original.value);
-      if (name.kind === "name" ? memberName?.kind === "name" && memberName.name === name.name
-        : memberName?.kind === "symbol" && memberName.declaration === name.declaration) matching.push(member);
+    return sourceSemanticRefusal(key.component.root, "A tuple type index requires its exact original numeric ordinal.");
     }
-    if (matching.length !== 1) return sourceSemanticRefusal(key.component.root, "An indexed type requires one exact original member for each selected key.");
-    const selected = builder.component(value, { kind: "member", origin: matching[0]!.origin });
-    if (selected.kind === "refused") return selected;
-    values.push(selected.value);
+    return { kind: "resolved", value: Object.freeze(values) };
+  }
+  if (domain.kind === "finite" && domain.values.length > 1) {
+    const values = sourceProductionValues(domain.values.map(unit => indexSource(context, value, sourceKeyEvidence(context, key.component.root, unit))));
+    return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
+  }
+  const selected = context.objects.indexed(value, key, (destination, source) => sourceKeyDomainContains(builder, destination, source));
+  if (selected.kind !== "resolved") return selected;
+  if (selected.value.kind === "unavailable") return sourceSemanticRefusal(key.component.root,
+    `This indexed type has no complete canonical Source member selection: ${selected.value.reason}.`);
+  const values: SourceTypeEvidence[] = [];
+  for (const row of [...selected.value.members, ...selected.value.indexes]) {
+    const read = row.readType();
+    if (read.kind !== "resolved") return read;
+    if (read.value.kind === "none") return sourceSemanticRefusal(key.component.root, "An indexed type requires each selected original readable component.");
+    values.push(read.value.value);
   }
   return { kind: "resolved", value: Object.freeze(values) };
 }
