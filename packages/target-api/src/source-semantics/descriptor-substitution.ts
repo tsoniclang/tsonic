@@ -8,6 +8,7 @@ import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
 import type { SourceEvidenceOwner } from "./descriptor-evidence.js";
 import type { SourceDescriptorInterner } from "./descriptor-interner.js";
 import type { SourceParameterOwner } from "./descriptor-parameters.js";
+import { substituteSourceEvidenceDetails } from "./descriptor-details.js";
 
 export function createSourceSubstitution(input: {
   components: SourceComponentOwner;
@@ -45,7 +46,7 @@ export function createSourceSubstitution(input: {
       const declaration = value.type.declaration;
       const binding = selectedBindings.find(candidate => candidate.declaration === declaration);
       if (binding === undefined || binding.value === value) {
-        const retained = input.evidence.create(value, [...record.components.values()], record.original, record.domain, requirementBindings);
+        const retained = input.evidence.create(value, [...record.components.values()], record.original, record.domain, requirementBindings, record.details);
         const selected = { kind: "resolved" as const, value: retained };
         entries.set(identity, selected);
         return selected;
@@ -56,7 +57,7 @@ export function createSourceSubstitution(input: {
       else {
         const source = input.evidence.record(replacement.value);
         result = { kind: "resolved", value: input.evidence.create({ ...replacement.value, component: value.component },
-          [...source.components.values()], source.original, source.domain, source.requirementBindings) };
+          [...source.components.values()], source.original, source.domain, source.requirementBindings, source.details) };
       }
     } else {
       const children: SourceEvidenceComponent[] = [];
@@ -69,6 +70,8 @@ export function createSourceSubstitution(input: {
         children.push({ selector: child.selector, value: selected.value });
       }
       const childMap = new Map(children.map(child => [input.components.selectorKey(child.selector), child.value]));
+      const details = substituteSourceEvidenceDetails(record.details, child => substitute(child, selectedBindings),
+        child => input.evidence.record(child).domain);
       function child(selector: SourceComponentSelector, original: SourceTypeDescriptor): SourceTypeDescriptor {
         const key = input.components.selectorKey(selector);
         const prior = record.components.get(key);
@@ -89,18 +92,18 @@ export function createSourceSubstitution(input: {
           else {
             const record = input.evidence.record(projected.value);
             result = { kind: "resolved", value: input.evidence.create({ ...projected.value, component: value.component },
-              [...record.components.values()], record.original, record.domain, record.requirementBindings) };
+              [...record.components.values()], record.original, record.domain, record.requirementBindings, record.details) };
           }
         } else result = { kind: "resolved", value: input.evidence.create({ ...value,
           type: input.interner.projection(selected.type, value.type.projection),
-          category: input.parameters.category(value.category, selectedBindings) }, children, record.original, record.domain, requirementBindings) };
+          category: input.parameters.category(value.category, selectedBindings) }, children, record.original, record.domain, requirementBindings, details) };
       } else {
         const type = rebuild(value.type, child, input.interner);
         const category = input.parameters.category(value.category, selectedBindings);
         const numeric = value.numeric === undefined ? undefined
           : { ...value.numeric, category: input.parameters.category(value.numeric.category, selectedBindings) };
         result = { kind: "resolved", value: input.evidence.create({ type, component: value.component,
-          category, numeric, sum: undefined }, children, record.original, record.domain, requirementBindings) };
+          category, numeric, sum: undefined }, children, record.original, record.domain, requirementBindings, details) };
       }
     }
     entries.set(identity, result);

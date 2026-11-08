@@ -11,6 +11,13 @@ export interface SourceInputDiagnosticIdentity {
   readonly site: Node | undefined;
 }
 
+export type SourceInputDiagnosticCoverage =
+  | { readonly kind: "complete"; readonly root: SourceInputDiagnosticIdentity; readonly obligations: readonly {
+    readonly diagnostic: SourceInputDiagnosticIdentity;
+    readonly application: SourceInputApplication | undefined;
+  }[] }
+  | { readonly kind: "unavailable"; readonly root: SourceInputDiagnosticIdentity };
+
 export interface SourceInputTypeArgument {
   readonly parameter: SourceInputComponent;
   readonly declaration: Node | undefined;
@@ -74,6 +81,8 @@ export type SourceInputBackingConstraint = {
   readonly site: Node;
   readonly diagnostic: SourceInputDiagnosticIdentity;
   readonly rootDiagnostic: SourceInputDiagnosticIdentity;
+  readonly rootCoverage: SourceInputDiagnosticCoverage;
+  readonly application: SourceInputApplication | undefined;
 } & (
   | { readonly kind: "operator"; readonly operation: Node; readonly left: SourceInputComponent; readonly right: SourceInputComponent }
   | { readonly kind: "index"; readonly access: Node; readonly receiver: SourceInputComponent; readonly index: SourceInputComponent }
@@ -88,6 +97,7 @@ export interface SourceInputCallCandidate {
   readonly inferenceContributions: SourceInputInferenceContributions;
   readonly constraints: readonly SourceInputBackingConstraint[];
   readonly diagnostics: readonly SourceInputDiagnosticIdentity[];
+  readonly diagnosticCoverage: readonly SourceInputDiagnosticCoverage[];
 }
 
 export type SourceInputCallSelection =

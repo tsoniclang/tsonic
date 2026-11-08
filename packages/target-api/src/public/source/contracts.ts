@@ -1,5 +1,6 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
+export type { SourcePropertyName } from "../../source-model/property-names.js";
 
 export interface SourceRefusal {
   readonly kind: "refused";
@@ -17,6 +18,10 @@ export type SourceResult<Value> =
 export type SourcePresence<Value> =
   | { readonly kind: "none" }
   | { readonly kind: "present"; readonly value: Value };
+
+export interface SourceAdmissionFacts {
+  form(original: Node): SourceResult<{ readonly kind: "supported" }>;
+}
 
 export type SourceCategory =
   | "number" | "bigint" | "string" | "boolean" | "symbol"
@@ -191,8 +196,12 @@ export interface SourceDeclaredSlot {
 export interface SourceUseDestination {
   readonly declaration: SourceDeclaredSlot;
   readonly applied: SourceTypeEvidence;
-  readonly application: SourceApplicationIdentity | undefined;
+  readonly application: SourceUseApplication | undefined;
 }
+
+export type SourceUseApplication =
+  | { readonly kind: "call"; readonly identity: SourceApplicationIdentity }
+  | { readonly kind: "receiver"; readonly receiver: SourceTypeEvidence; readonly bindings: readonly SourceTypeBinding[] };
 
 export interface SourceApplicationIdentity {
   readonly invocation: Node;
@@ -209,6 +218,7 @@ export type SourceApplicationReceiver =
 export interface SourceApplication {
   readonly identity: SourceApplicationIdentity;
   readonly kind: "call" | "construct" | "function-value";
+  readonly callee: SourceValueOperand;
   readonly receiver: SourceApplicationReceiver;
   /** Authored evaluation order, including empty spreads. Emit each operand once from this vector only. */
   readonly sourceArguments: readonly SourceAuthoredArgument[];
@@ -318,9 +328,28 @@ export interface SourceApplicationFacts {
   application(occurrence: Node): SourceResult<SourceApplication>;
 }
 
+export interface SourceEnumMember {
+  readonly declaration: Node;
+  readonly owner: Node;
+  readonly value: SourceTypeEvidence;
+  readonly constant: bigint | string;
+}
+
+export interface SourceEnumDeclaration {
+  readonly declaration: Node;
+  readonly underlying: SourceTypeEvidence;
+  readonly members: readonly SourceEnumMember[];
+}
+
+export interface SourceEnumFacts {
+  declaration(declaration: Node): SourceResult<SourceEnumDeclaration>;
+  member(declaration: Node): SourceResult<SourceEnumMember>;
+}
+
 export interface SourceDescriptorView {
   assertEvidence(value: SourceTypeEvidence): void;
   assertDescriptor(value: SourceTypeDescriptor): void;
+  scalarLiteral(value: SourceTypeEvidence): SourcePresence<SourceLiteralUnit>;
   component(value: SourceTypeEvidence, selector: SourceComponentSelector): SourceResult<SourceTypeEvidence>;
   substitute(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence>;
   definition(value: SourceTypeEvidence): SourceResult<SourceTypeEvidence>;
