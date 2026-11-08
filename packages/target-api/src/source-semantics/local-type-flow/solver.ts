@@ -47,6 +47,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const demandedDeclarations = new Set<Node>();
   const signatures = new Set<SourceSignatureIdentity>();
   const signatureResults = new Map<SourceSignatureIdentity, SourceTypeEvidence>();
+  const signatureRoots = new Map<SourceSignatureIdentity, Node>();
   const signatureRefusals = new Map<SourceSignatureIdentity, Extract<SourceResult<never>, { kind: "refused" }>>();
   const diagnostics = new Set<SourceInputDiagnosticIdentity>();
   const dependency = (node: Node) => builder.componentIdentity(node, []);
@@ -80,12 +81,12 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const completions = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
     produce: (node, bindings) => declarationProduction === undefined ? pending(node) : produceSourceCallableCompletion(declarationProduction, node, bindings) });
   const returns = createSourceProductionCache<SourceSignatureIdentity, SourceTypeEvidence>({
-    dependency: signature => dependency(signature.declaration ?? signature.owner),
+    dependency: signature => dependency(signatureRoot(signature)),
     produce(signature, bindings) {
       signatures.add(signature);
       const published = signatureResults.get(signature);
       if (published !== undefined) return builder.substitute(published, bindings);
-      if (signature.declaration === undefined) return sourceSemanticRefusal(signature.owner,
+      if (signature.declaration === undefined) return sourceSemanticRefusal(signatureRoot(signature),
         "An original nonsyntax callable result requires its authenticated signature component.", "TSONIC_LOCAL_TYPE_SIGNATURE");
       return completions.query(signature.declaration, bindings);
     } });
@@ -114,6 +115,11 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function semantic() {
     return { ast, input, builder, reader: context.reader, objects: context.objects };
   }
+  function signatureRoot(signature: SourceSignatureIdentity): Node {
+    const root = signature.declaration ?? signature.owner ?? signatureRoots.get(signature);
+    if (root === undefined) throw new Error("A composite callable query requires its actual registered original component root, not an invented owner.");
+    return root;
+  }
   function observeHead(value: SourceTypeEvidence): void {
     if (value.sum !== undefined) { for (const arm of value.sum.arms) observeHead(arm); return; }
     if (value.type.kind !== "shape" && value.type.kind !== "callable") return;
@@ -121,6 +127,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       const result = builder.component(value, { kind: "result", signature: signature.identity });
       if (result.kind === "refused") throw new Error("A published callable head must retain its authenticated original result edge.");
       signatures.add(signature.identity);
+      if (!signatureRoots.has(signature.identity)) signatureRoots.set(signature.identity, value.component.root);
       if (!signatureResults.has(signature.identity)) signatureResults.set(signature.identity, result.value);
     }
   }
@@ -190,8 +197,9 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       return contextual.value.kind === "present" ? { kind: "resolved", value: contextual.value.value }
         : sourceSemanticRefusal(declaration, `The original formal parameter at index ${index} has no authored or solved contextual component.`, "TSONIC_LOCAL_TYPE_SIGNATURE");
     }, completion, inferred, enumValue: enums.value,
-    observeSignature(signature, result, bindings) {
+    observeSignature(signature, result, bindings, root) {
       signatures.add(signature);
+      if (!signatureRoots.has(signature)) signatureRoots.set(signature, root);
       if (bindings.length === 0 && !signatureResults.has(signature)) signatureResults.set(signature, result);
     },
     iteration(declaration) {
@@ -213,7 +221,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   for (const node of context.nodes) if (ast.is.IsObjectLiteralExpression(node) && !ast.getSourceFile(node)?.IsDeclarationFile)
     builder.registerConstruction(node, () => construction!.metadata(node));
   protocols = createSourceSolvedProtocolFacts({ ...declarationProduction, protocolInput: source.protocolInput,
-    signature: (original, bindings) => produceSourceCallableSignature(declarationProduction!, original, bindings, undefined) });
+    signature: (original, bindings, root) => produceSourceCallableSignature(declarationProduction!, original, bindings, undefined, root) });
   const collected = collectSourceTypeFlowEdges(context);
   graph = createSourceGraphSolver(context, collected, collectSourceTypeFlowUses(context, collected),
     node => value(node, []), node => contextual(node, []));
@@ -374,7 +382,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     }
   }
   const returnFacts = new Map<SourceSignatureIdentity, SourceResult<SourceTypeEvidence>>();
-  for (const signature of signatures) returnFacts.set(signature, settle(signature.declaration ?? signature.owner, callableReturn(signature, [])));
+  for (const signature of signatures) returnFacts.set(signature, settle(signatureRoot(signature), callableReturn(signature, [])));
   const proven = constraints.filter(constraint => {
     const result = proves(constraint, []);
     return result.kind === "resolved" && result.value;

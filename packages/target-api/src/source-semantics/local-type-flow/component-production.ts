@@ -35,7 +35,7 @@ export function produceSourceOriginalComponent(context: SourceCallableProduction
       kind: argument.sourceForm === "spread-sequence" ? "rest" : "required", value: argument.source,
     })));
     else {
-      const signature = produceSourceCallableSignature(context, candidate.application.signature, bindings, candidate.application.class?.declaration);
+      const signature = produceSourceCallableSignature(context, candidate.application.signature, bindings, candidate.application.class?.declaration, original.root);
       if (signature.kind !== "resolved") return signature;
       const places = produceSourceArgumentPlaces({ builder, invocation: original.root, sourceArguments: arguments_, parameters: signature.value.parameters });
       if (places.kind !== "resolved") return places;

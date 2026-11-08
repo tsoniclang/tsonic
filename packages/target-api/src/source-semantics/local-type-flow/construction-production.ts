@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceConstruction, SourcePresence, SourcePropertyName, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+import type { SourceConstruction, SourcePresence, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralKey } from "../../source-model/literals/key.js";
 import { sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type SourceLiteralDomain } from "../../source-model/literals/domain.js";

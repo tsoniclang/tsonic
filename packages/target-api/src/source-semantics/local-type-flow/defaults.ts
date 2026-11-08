@@ -7,7 +7,7 @@ import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceLiteralDomainQueries } from "./literal-domains.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
-import type { SourceObjectProductionQueries } from "../../host-input/program-input.js";
+import type { SourceObjectProductionQueries } from "../object-production.js";
 import { createSourceValueGuardQueries } from "../guard-queries.js";
 
 export type SourceTypeFlowProducers = Pick<SourceTypeFlowAnalysisContext,

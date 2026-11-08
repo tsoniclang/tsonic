@@ -14,7 +14,7 @@ import { produceSourceSequenceElements } from "./tuple-layout.js";
 
 interface SourceProtocolProduction extends SourceCallableProduction {
   readonly protocolInput: SourceInputProtocolQueries;
-  signature(original: SourceInputSignature, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceProducedSignature>;
+  signature(original: SourceInputSignature, bindings: readonly SourceTypeBinding[], root: Node): SourceProductionResult<SourceProducedSignature>;
 }
 
 interface SourceProducedIteration {
@@ -139,7 +139,7 @@ export function createSourceSolvedProtocolFacts(context: SourceProtocolProductio
     if (memberComponent === undefined) return sourceSemanticRefusal(occurrence, "An original selected iterator has no readable member component.");
     const member = context.place(memberComponent, bindings.value);
     if (member.kind !== "resolved") return member;
-    const calls = sourceProductionValues(mechanism.protocol.calls.map(original => context.signature(original, bindings.value)));
+    const calls = sourceProductionValues(mechanism.protocol.calls.map(original => context.signature(original, bindings.value, occurrence)));
     if (calls.kind !== "resolved") return calls;
     const iterator = builder.join(dependency(occurrence), "inferred", calls.value.map(call => call.result), undefined);
     if (iterator.kind === "refused") return iterator;

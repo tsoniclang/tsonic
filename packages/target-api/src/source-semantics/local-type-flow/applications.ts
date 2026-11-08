@@ -8,6 +8,7 @@ import type {
   SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence,
 } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceObjectProduction } from "../member-use.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceCallableSignature, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { produceSourceArgumentPlaces, produceSourceDeclaredParameterPlace } from "./argument-places.js";
@@ -19,6 +20,7 @@ import { produceSourceEvidenceDetails } from "./member-production.js";
 import { produceSourceSerializationResult } from "./serialization-presence.js";
 
 export interface SourceApplicationProduction extends SourceCallableProduction {
+  readonly objects: SourceObjectProduction;
   readonly profile: SourceTypeFlowSource["profile"];
   component(component: SourceInputComponent, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<SourceTypeEvidence>;
   admits(source: SourceTypeEvidence, destination: SourceTypeEvidence, site: Node): SourceProductionResult<boolean>;
@@ -261,9 +263,9 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     if (authoredArguments.kind !== "resolved") return authoredArguments;
     const sourceArguments = authoredArguments.value;
     const arguments_: SourceArgumentPlace[] = [];
-    const declaredSignature = produceSourceCallableSignature(context, original.signature, [], original.class?.declaration);
+    const declaredSignature = produceSourceCallableSignature(context, original.signature, [], original.class?.declaration, invocation);
     if (declaredSignature.kind !== "resolved") return declaredSignature;
-    const appliedSignature = produceSourceCallableSignature(context, original.signature, allBindings, original.class?.declaration);
+    const appliedSignature = produceSourceCallableSignature(context, original.signature, allBindings, original.class?.declaration, invocation);
     if (appliedSignature.kind !== "resolved") return appliedSignature;
     const places = produceSourceArgumentPlaces({ builder, invocation, sourceArguments, parameters: appliedSignature.value.parameters });
     if (places.kind !== "resolved") return places;

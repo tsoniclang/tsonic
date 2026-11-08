@@ -6,11 +6,13 @@ import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceJsApiFacts } from "../../target-analysis/source-profile.js";
-import type { SourceObjectProduction, SourceObjectProductionQueries } from "../../host-input/program-input.js";
+import type { SourceObjectProduction } from "../member-use.js";
+import type { SourceObjectProductionQueries } from "../object-production.js";
+import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { createSourceValueGuardQueries } from "../guard-queries.js";
 import type { SourceApplication, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
-  SourcePropertyName, SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+  SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceProductionResult } from "../descriptor-contracts.js";
 
 export interface SourceTypeFlowSource {

@@ -15,7 +15,7 @@ export interface SourceCallableProduction extends SourceSemanticProduction {
   parameter(component: SourceInputComponent, declaration: Node | undefined, signature: SourceSignatureIdentity, index: number,
     bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   completion(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  observeSignature(signature: SourceSignatureIdentity, result: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): void;
+  observeSignature(signature: SourceSignatureIdentity, result: SourceTypeEvidence, bindings: readonly SourceTypeBinding[], root: Node): void;
 }
 
 export interface SourceProducedSignature {
@@ -41,9 +41,10 @@ export function produceSourceParameterPresence(context: Pick<SourceSemanticProdu
 }
 
 export function produceSourceCallableSignature(context: SourceCallableProduction, original: SourceInputSignature,
-  bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined): SourceProductionResult<SourceProducedSignature> {
+  bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined, root: Node): SourceProductionResult<SourceProducedSignature> {
   const { ast, input, builder, reader } = context;
   input.assertSignature(original);
+  input.assertNode(root);
   const shape = input.describeSignature(original);
   if (shape.identity !== original) throw new Error("A Source callable shape requires its exact original signature witness.");
   for (const declaration of original.typeParameters) {
@@ -75,7 +76,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
   const parameters: SourceCallParameter[] = [];
   for (const parameter of shape.parameters) {
     if (parameter.index !== parameters.length) throw new Error("A Source signature requires its original complete formal ordinal vector.");
-    const component = input.signatureComponent(original, { kind: "parameter", index: parameter.index });
+    const component = input.signatureComponent(original, root, { kind: "parameter", index: parameter.index });
     const declaration = parameter.declaration ?? inheritedDeclaration(parameter.index);
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     const value = annotation === undefined ? context.parameter(component, declaration, identity, parameter.index, activeBindings)
@@ -89,7 +90,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
   if (shape.receiver !== undefined) {
     const declaration = shape.receiver.declaration ?? inheritedDeclaration("receiver");
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
-    const value = annotation === undefined ? context.place(input.signatureComponent(original, { kind: "receiver" }), activeBindings)
+    const value = annotation === undefined ? context.place(input.signatureComponent(original, root, { kind: "receiver" }), activeBindings)
       : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
     receiver = { declaration, value: value.value };
@@ -107,7 +108,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
         arguments_.push(parameter.value);
       } else arguments_.push(value);
     }
-    const component = builder.componentIdentity(original.owner, [{ kind: "result", signature: identity }]);
+    const component = builder.componentIdentity(root, [{ kind: "result", signature: identity }]);
     result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass,
       typeArguments: arguments_.map(value => value.type) }), component, category: { kind: "known", category: "object" },
     numeric: undefined, sum: undefined }, arguments_.map((value, index) => ({ selector: { kind: "type-argument" as const,
@@ -117,11 +118,11 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     const declaration = original.declaration ?? inheritedDeclaration("result");
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     result = annotation !== undefined ? reader.describeSyntax(annotation, activeBindings)
-      : declaration === undefined ? context.place(input.signatureComponent(original, { kind: "result" }), activeBindings)
+      : declaration === undefined ? context.place(input.signatureComponent(original, root, { kind: "result" }), activeBindings)
         : context.completion(declaration, activeBindings);
   }
   if (result.kind !== "resolved") return result;
-  context.observeSignature(identity, result.value, bindings);
+  context.observeSignature(identity, result.value, bindings, root);
   return { kind: "resolved", value: Object.freeze({ identity, receiver, parameters: Object.freeze(parameters), result: result.value }) };
 }
 
