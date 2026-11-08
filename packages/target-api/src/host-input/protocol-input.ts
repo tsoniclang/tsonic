@@ -1,4 +1,4 @@
-import type { Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
+import type { ArgumentPassingMode, Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
 import type { SourceInputCorrespondenceMember } from "./member-input.js";
@@ -44,9 +44,31 @@ export interface SourceInputYield {
   readonly mechanism: SourcePresence<SourceInputIterationMechanism>;
 }
 
+export interface SourceInputDisposalAlternative {
+  readonly kind: "sync" | "async";
+  readonly declarations: readonly Node[];
+  readonly signatures: readonly SourceInputSignature[];
+}
+
+export interface SourceInputResourceManagement {
+  readonly declaration: Node;
+  readonly kind: "using" | "await using";
+  readonly acquisition: { readonly kind: "initializer"; readonly expression: Node }
+    | { readonly kind: "iteration"; readonly statement: Node };
+  readonly disposal: { readonly kind: "selected"; readonly alternatives: readonly SourceInputDisposalAlternative[] }
+    | { readonly kind: "untyped-dynamic" | "unavailable" };
+}
+
+export type SourceInputArgumentPassing =
+  | { readonly role: "declaration"; readonly mode: ArgumentPassingMode }
+  | { readonly role: "argument"; readonly mode: ArgumentPassingMode; readonly storageExpression: Node };
+
 export interface SourceInputProtocolQueries {
   iteration(occurrence: Node): SourcePresence<SourceInputIteration>;
   generator(declaration: Node): SourcePresence<SourceInputGenerator>;
   yield(occurrence: Node): SourcePresence<SourceInputYield>;
+  resourceManagement(declaration: Node): SourcePresence<SourceInputResourceManagement>;
+  callableCompletion(declaration: Node): SourcePresence<{ readonly declaration: Node; readonly canFallThrough: boolean }>;
+  argumentPassing(occurrence: Node): SourcePresence<SourceInputArgumentPassing>;
   flowConditions(reference: Node): SourcePresence<ResolvedSourceFlowConditionInfo>;
 }
