@@ -207,7 +207,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       (input.ast.is.IsMethodDeclaration(declaration) || input.ast.is.IsMethodSignatureDeclaration(declaration));
     if (declaration !== undefined && input.ast.typeNode(declaration) === undefined && !methodHead &&
       (last?.kind === "result" || last?.kind === "parameter" || last?.kind === "receiver" || last?.kind === "member" ||
-        facts.component.path.length === 0 && (input.ast.is.IsVariableDeclaration(declaration) || input.ast.is.IsParameter(declaration) ||
+        facts.component.path.length === 0 && (input.ast.is.IsVariableDeclaration(declaration) || input.ast.is.IsParameterDeclaration(declaration) ||
           input.ast.is.IsPropertyDeclaration(declaration) || input.ast.is.IsPropertySignatureDeclaration(declaration))))
       return hooks.declaredValue(facts.component, declaration, bindings);
     const definitionOwner = facts.definitionOwner;

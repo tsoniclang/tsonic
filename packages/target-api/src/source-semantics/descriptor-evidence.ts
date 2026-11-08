@@ -158,6 +158,11 @@ export function createSourceEvidenceOwner(input: {
       case "tuple":
         for (const [index, element] of type.elements.entries()) child({ kind: "tuple-element", index }, element.type);
         break;
+      case "intersection":
+        for (const [index, part] of type.types.entries()) child({ kind: "intersection-member", index }, part);
+        if (!entries.has(input.components.selectorKey({ kind: "intersection-result" })))
+          throw new Error("A Source conjunction requires its exact registered canonical reduction evidence.");
+        break;
       case "declared":
         for (const [index, argument] of type.typeArguments.entries()) child({ kind: "type-argument", declaration: type.declaration, index }, argument);
         break;

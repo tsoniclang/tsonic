@@ -46,7 +46,7 @@ export function createSourceDescriptorFacts(options: {
     const previous = syntaxCache.get(node);
     if (previous !== undefined) return previous;
     const { checker } = queries(node);
-    const annotation = ast.is.IsVariableDeclaration(node) || ast.is.IsParameter(node) ||
+    const annotation = ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
       ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsTypeAliasDeclaration(node)
       ? ast.typeNode(node) : isTypeSyntaxNode(ast, node) ? node : undefined;
     const classLike = ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node);
@@ -206,7 +206,7 @@ export function createSourceDescriptorFacts(options: {
       : last?.kind === "parameter" ? signatureShape?.parameters[last.index]?.declaration
       : last?.kind === "receiver" ? signatureShape?.receiver?.declaration
       : last?.kind === "result" ? signatureShape?.identity.declaration
-      : component.path.length === 0 && (ast.is.IsVariableDeclaration(component.root) || ast.is.IsParameter(component.root) || ast.is.IsPropertyDeclaration(component.root) || ast.is.IsPropertySignatureDeclaration(component.root)) ? component.root : undefined;
+      : component.path.length === 0 && (ast.is.IsVariableDeclaration(component.root) || ast.is.IsParameterDeclaration(component.root) || ast.is.IsPropertyDeclaration(component.root) || ast.is.IsPropertySignatureDeclaration(component.root)) ? component.root : undefined;
     const methodHead = last?.kind === "member" && selectedDeclaration !== undefined &&
       (ast.is.IsMethodDeclaration(selectedDeclaration) || ast.is.IsMethodSignatureDeclaration(selectedDeclaration));
     const annotation = selectedDeclaration === undefined || methodHead ? undefined : ast.typeNode(selectedDeclaration);

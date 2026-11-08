@@ -553,3 +553,93 @@ test("declared member keys preserve original numeric category, signed zero and e
   assert.equal(key?.kind === "number" && key.value.kind === "authored" && key.value.token.coefficient === 9007199254740993n &&
     Object.isFrozen(key.value.token), true);
 });
+
+test("conjunction publication retains every ordered original part and only its authenticated reduction", () => {
+  const current = fixture(), local = current.createView(), foreign = current.createView();
+  const root = current.named("Left", current.checked.ast.is.IsClassDeclaration);
+  const scalar = local.evidence(local.builder.primitive("int32"), { kind: "known", category: "number" });
+  const brand = local.evidence(local.builder.shape({ members: [], indexes: [], calls: [], constructs: [] }),
+    { kind: "known", category: "object" });
+  const component = local.builder.componentIdentity(root, []);
+  const original = local.original(root);
+  const parts = [scalar, brand, scalar];
+  const value = local.builder.intersection(component, parts, scalar, original);
+  parts.pop();
+  assert.equal(value.type.kind === "intersection" && value.type.types.length === 3 &&
+    value.type.types[0] === scalar.type && value.type.types[1] === brand.type && value.type.types[2] === scalar.type, true);
+  assert.equal(value.type.kind === "intersection" && Object.isFrozen(value.type.types), true);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-member", index: 0 })) === scalar, true);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-member", index: 2 })) === scalar, true);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-result" })) === scalar, true);
+  assert.equal(resolved(local.view.definition(value)) === scalar && value.category === scalar.category, true);
+  assert.equal(local.builder.originalComponent(value).kind === "present", true);
+  const reversed = local.builder.intersection(component, [brand, scalar, scalar], scalar, original);
+  assert.equal(reversed.type === value.type, false, "original conjunction order is not normalized away");
+  assert.throws(() => local.builder.intersection(component, [scalar, { ...brand }], scalar, original), /exact descriptor view/);
+  assert.throws(() => local.builder.intersection(component, [scalar, brand], { ...scalar }, original), /exact descriptor view/);
+  assert.throws(() => local.builder.intersection(component, [scalar, brand], scalar, { ...original }), /Foreign component/);
+  const other = foreign.evidence(foreign.builder.string(), { kind: "known", category: "string" });
+  assert.throws(() => local.builder.intersection(component, [scalar, other], scalar, original), /exact descriptor view/);
+  assert.throws(() => local.builder.intersection(component, [scalar], scalar, original), /complete original ordered part vector/);
+});
+
+test("conjunction substitution retains original parts before applying the reduction's sum family", () => {
+  const current = fixture(), local = current.createView();
+  const declaration = current.named("Left", current.checked.ast.is.IsClassDeclaration);
+  const parameter = current.checked.ast.typeParameters(declaration)[0];
+  if (parameter === undefined) throw new Error("The original generic class binder is required.");
+  local.builder.parameter(parameter, declaration, 0, [], () => ({ kind: "resolved", value: { kind: "none" } }),
+    () => ({ kind: "resolved", value: { kind: "none" } }));
+  const free = local.evidence(local.builder.typeParameter(parameter).type, { kind: "parameter", declaration: parameter });
+  const brand = local.evidence(local.builder.shape({ members: [], indexes: [], calls: [], constructs: [] }),
+    { kind: "known", category: "object" });
+  const absent = local.evidence(local.builder.intrinsic("absence"), { kind: "known", category: "absence" }, current.file,
+    sourceFiniteLiteralDomain([{ kind: "absence" }]));
+  const component = local.builder.componentIdentity(declaration, []);
+  const reduction = resolved(local.builder.join(component, "authored", [free, absent], undefined));
+  const conjunction = local.builder.intersection(component, [free, brand, free], reduction, local.original(declaration));
+  const actual = local.evidence(local.builder.string(), { kind: "known", category: "string" }, current.file,
+    sourceFiniteLiteralDomain([{ kind: "string", value: "exact" }]));
+  const value = resolved(local.view.substitute(conjunction, [{ declaration: parameter, value: actual }]));
+  assert.equal(value.type.kind === "intersection" && value.type.types.length === 3, true);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-member", index: 0 })).type === actual.type, true);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-member", index: 2 })).type === actual.type, true);
+  const selected = resolved(local.view.definition(value));
+  assert.equal(value.sum !== undefined && selected.sum !== undefined && value.sum === selected.sum &&
+    selected.sum.family === reduction.sum?.family, true, "the same reduction family survives inside the conjunction");
+  assert.equal(local.view.freeParameters(value).length, 0);
+  assert.equal(resolved(local.view.component(value, { kind: "intersection-result" })) === selected, true);
+  const nested = local.builder.intersection(component, [value, brand], value, local.original(declaration));
+  assert.equal(resolved(local.view.component(nested, { kind: "intersection-member", index: 0 })) === value &&
+    resolved(local.view.definition(nested)) === value, true, "nested original provenance does not collide with outer selector ordinals");
+});
+
+test("synthetic tuple and formal tails retain exact children without borrowing their parent's marker subjects", () => {
+  const current = fixture(), local = current.createView();
+  const declaration = current.named("Left", current.checked.ast.is.IsClassDeclaration);
+  const callable = current.named("run", current.checked.ast.is.IsFunctionDeclaration);
+  const signature = local.signature(callable);
+  const child = local.evidence(local.builder.primitive("int32"), { kind: "known", category: "number" }, current.file,
+    sourceFiniteLiteralDomain([{ kind: "number", value: { kind: "integer", value: 7n } }]));
+  const details: SourceEvidenceDetails = { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [declaration] } };
+  const tuple = local.evidence(local.builder.tuple([{ kind: "required", type: child.type }, { kind: "required", type: child.type }], true),
+    { kind: "known", category: "object" }, declaration, sourceOpenLiteralDomain,
+    [{ selector: { kind: "tuple-element", index: 0 }, value: child }, { selector: { kind: "tuple-element", index: 1 }, value: child }], details);
+  const head = local.evidence(local.builder.callable({ calls: [{ identity: signature,
+    parameters: [{ kind: "required", type: child.type }], result: child.type }], constructs: [] }),
+  { kind: "known", category: "function" }, callable, sourceOpenLiteralDomain,
+  [{ selector: { kind: "parameter", signature, index: 0 }, value: child }, { selector: { kind: "result", signature }, value: child }], details);
+  for (const [parent, selector] of [[tuple, { kind: "tuple-slice", start: 1, endCount: 0, readonly: false }],
+    [head, { kind: "signature-tail", signature, start: 0, readonly: false }]] as const) {
+    const value = resolved(local.view.component(parent, selector));
+    assert.equal(resolved(local.view.component(parent, selector)) === value, true, "one authenticated derived component per view");
+    assert.equal(value.type.kind === "tuple" && value.type.elements.length === 1 && !value.type.readonly, true);
+    assert.equal(resolved(local.view.component(value, { kind: "tuple-element", index: 0 })) === child, true);
+    assert.equal(local.builder.originalComponent(value).kind, "none", "no fabricated observed checked tuple");
+    const origins = local.builder.sourceOriginSubjects(value);
+    assert.equal(origins.kind === "complete" && origins.nodes.length === 0, true,
+      "a newly assembled aggregate container has no borrowed parent Type/Symbol/declaration markers");
+    const original = local.builder.sourceOriginSubjects(parent);
+    assert.equal(original.kind === "complete" && original.nodes[0] === declaration, true);
+  }
+});

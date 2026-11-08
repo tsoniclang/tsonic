@@ -10,7 +10,7 @@ export function sourceTypeDescriptorDepth(type: SourceTypeDescriptor): number {
     active.add(value);
     const signatures = value.kind === "shape" || value.kind === "callable" ? [...value.calls, ...value.constructs] : [];
     const children = value.kind === "array" ? [value.element] : value.kind === "optional" ? [value.value]
-      : value.kind === "projection" ? [value.source] : value.kind === "union" ? value.types
+      : value.kind === "projection" ? [value.source] : value.kind === "union" || value.kind === "intersection" ? value.types
       : value.kind === "tuple" ? value.elements.map(element => element.type) : value.kind === "declared" ? value.typeArguments
       : value.kind === "shape" ? [...value.members.map(member => member.type), ...value.indexes.flatMap(index => [index.key, index.value])] : [];
     let result = -1;

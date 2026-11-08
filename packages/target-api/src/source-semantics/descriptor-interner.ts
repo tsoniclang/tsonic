@@ -24,6 +24,7 @@ export interface SourceDescriptorInterner {
   parameter(declaration: Node): SourceParameterDescriptor;
   optional(value: SourceTypeDescriptor): SourceTypeDescriptor;
   union(values: readonly SourceTypeDescriptor[]): SourceTypeDescriptor;
+  intersection(values: readonly SourceTypeDescriptor[]): SourceTypeDescriptor;
   array(element: SourceTypeDescriptor, isReadonly: boolean): SourceTypeDescriptor;
   tuple(elements: Extract<SourceTypeDescriptor, { readonly kind: "tuple" }>["elements"], isReadonly: boolean): SourceTypeDescriptor;
   shape(value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "shape" }>, "kind">): SourceTypeDescriptor;
@@ -198,6 +199,12 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
       intern(JSON.stringify(["parameter", nodeKey(declaration)]), () => ({ kind: "parameter", declaration })),
     optional,
     union,
+    intersection: (values: readonly SourceTypeDescriptor[]): SourceTypeDescriptor => {
+      if (values.length < 2) throw new Error("A Source conjunction requires its complete original ordered part vector.");
+      const keys = values.map(key);
+      return intern(JSON.stringify(["intersection", keys]),
+        () => ({ kind: "intersection", types: Object.freeze([...values]) }));
+    },
     array: (element: SourceTypeDescriptor, isReadonly: boolean): SourceTypeDescriptor =>
       intern(JSON.stringify(["array", isReadonly, key(element)]),
         () => ({ kind: "array", readonly: isReadonly, element })),

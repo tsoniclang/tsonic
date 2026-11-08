@@ -109,6 +109,7 @@ export type SourceTypeDescriptor =
   | { readonly kind: "string" }
   | { readonly kind: "intrinsic"; readonly intrinsic: "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol" }
   | { readonly kind: "union"; readonly types: readonly SourceTypeDescriptor[] }
+  | { readonly kind: "intersection"; readonly types: readonly SourceTypeDescriptor[] }
   | { readonly kind: "optional"; readonly value: SourceTypeDescriptor }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceTypeDescriptor }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly { readonly kind: "required" | "optional" | "rest"; readonly declaration?: Node; readonly type: SourceTypeDescriptor }[] }
@@ -127,6 +128,8 @@ export type SourceComponentSelector =
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
   | { readonly kind: "union-member" | "argument-place" | "parameter-place"; readonly index: number }
+  | { readonly kind: "intersection-member"; readonly index: number }
+  | { readonly kind: "intersection-result" }
   | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
   | { readonly kind: "member"; readonly origin: SourceMemberOrigin }
   | { readonly kind: "index-key" | "index-value"; readonly declaration: Node }
