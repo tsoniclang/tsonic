@@ -95,17 +95,17 @@ export function indexSource(context: SourceSemanticProduction, source: SourceTyp
   if (type.kind === "tuple" && domain.kind === "finite") {
     const values: SourceTypeEvidence[] = [];
     for (const unit of domain.values) {
-    const name = sourceLiteralUnitKey(unit);
-    if (name === undefined) return sourceSemanticRefusal(key.component.root, "This indexed type has a non-property key domain.");
-    if (name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
-      const ordinal = BigInt(name.name);
-      if (ordinal >= BigInt(type.elements.length)) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
-      const selected = builder.component(value, { kind: "tuple-element", index: Number(ordinal) });
-      if (selected.kind === "refused") return selected;
-      values.push(selected.value);
-      continue;
-    }
-    return sourceSemanticRefusal(key.component.root, "A tuple type index requires its exact original numeric ordinal.");
+      const name = sourceLiteralUnitKey(unit);
+      if (name === undefined) return sourceSemanticRefusal(key.component.root, "This indexed type has a non-property key domain.");
+      if (name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
+        const ordinal = BigInt(name.name);
+        if (ordinal >= BigInt(type.elements.length)) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
+        const selected = builder.component(value, { kind: "tuple-element", index: Number(ordinal) });
+        if (selected.kind === "refused") return selected;
+        values.push(selected.value);
+        continue;
+      }
+      return sourceSemanticRefusal(key.component.root, "A tuple type index requires its exact original numeric ordinal.");
     }
     return { kind: "resolved", value: Object.freeze(values) };
   }
