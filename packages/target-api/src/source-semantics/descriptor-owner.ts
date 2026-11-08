@@ -306,8 +306,9 @@ export function createSourceDescriptorOwner(input: {
         const direct: SourceTypeBinding[] = [];
         if (receiver.type.kind === "declared") {
           const declaration = receiver.type.declaration;
-          for (const [index, parameter] of input.input.ast.typeParameters(declaration).entries()) {
-            if (parameter === undefined) throw new Error("An original receiver requires its complete ordered class binder vector.");
+          const definition = definitions.get(declaration);
+          if (definition === undefined) throw new Error("An original receiver requires its registered declaration and complete binder inventory.");
+          for (const [index, parameter] of definition.parameters.entries()) {
             const child = record.components.get(components.selectorKey({ kind: "type-argument", declaration, index }));
             if (child === undefined) throw new Error("An original receiver application requires its actual registered argument evidence.");
             direct.push({ declaration: parameter, value: child.value });

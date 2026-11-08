@@ -201,7 +201,8 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     const definitionOwner = facts.definitionOwner;
     if (!defining && definitionOwner !== undefined && (input.ast.is.IsClassDeclaration(definitionOwner) ||
       input.ast.is.IsClassExpression(definitionOwner) || input.ast.is.IsInterfaceDeclaration(definitionOwner))) {
-      const parameters = input.ast.typeParameters(definitionOwner).filter((value): value is Node => value !== undefined);
+      const parameters = facts.definitionParameters;
+      if (parameters === undefined) return unsupported(facts.component);
       parameters.forEach(register);
       builder.define(definitionOwner, parameters, () => read(facts, [], true), () => describeMembers(facts.component, []));
       const children: SourceEvidenceComponent[] = [];

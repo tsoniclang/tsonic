@@ -1,10 +1,8 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceApplication, SourceApplicationFacts, SourceDeclaredSlot, SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination, SourceValueFacts } from "../public/source/contracts.js";
+import type { SourceApplication, SourceApplicationFacts, SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeEvidence, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceJsApiFacts } from "../target-analysis/source-profile.js";
 import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
-import type { SourceProductionResult } from "../source-semantics/descriptor-contracts.js";
-import type { SourceCorrespondenceMember } from "../source-semantics/member-correspondence.js";
 import type { SourceOriginSubjects } from "../source-semantics/member-inventory.js";
 import type { SourcePointerFacts } from "../target-analysis/source-pointers.js";
 import type { SourceMarkerFacts } from "../target-analysis/source-markers.js";
@@ -14,8 +12,6 @@ import type { SourceInputDiagnosticIdentity } from "./call-input.js";
 import type { SourceInputMemberUseSelection } from "./member-input.js";
 import type { SourceInputProtocolQueries } from "./protocol-input.js";
 import type { SourcePropertyNameFacts } from "./property-name-input.js";
-
-export type { SourceObjectProduction } from "../source-semantics/member-use.js";
 
 export interface SourceOriginalNodeInventory {
   readonly nodes: readonly Node[];
@@ -40,15 +36,6 @@ export interface SourceFactProduction {
   publish(component: SourceInputComponent, receiver?: SourceTypeEvidence): SourceResult<SourceTypeEvidence>;
   signature(original: SourceInputSignature): SourceSignatureIdentity;
   unavailable(node: Node, reason: string): SourceRefusal;
-}
-
-export interface SourceObjectProductionQueries {
-  value(occurrence: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  place(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  declared(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceDeclaredSlot>;
-  memberDestination(occurrence: Node, receiver: SourceTypeEvidence, member: SourceCorrespondenceMember): SourceProductionResult<SourceUseDestination>;
-  memberValue(occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write",
-    values: readonly SourceTypeEvidence[], optionalChain: boolean): SourceProductionResult<SourceTypeEvidence>;
 }
 
 export interface SourceProgramInput {
