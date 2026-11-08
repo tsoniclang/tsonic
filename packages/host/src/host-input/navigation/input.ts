@@ -1,42 +1,30 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { CheckedSourceProgram, Node, Signature, SourceFile } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputSignature } from "@tsonic/target-api/host";
+import type { SourceInputComponent, SourceInputSignature, SourceInputNodeNavigationQueries, SourceInputConstructors,
+  SourceInputHeritage, SourceInputHeritageEdge } from "@tsonic/target-api/host";
 import { sourceBindingWriteAtReference, sourceReferenceMeaning } from "@tsonic/target-api/host";
-import type { SourceCallableRole, SourceNodeConstructors, SourceNodeHeritage, SourceNodeHeritageEdge,
-  SourceNodeNavigationFacts, SourceNodeReference, SourceNodeWrite, SourceResult, SourceSignatureIdentity,
-  SourceTypeEvidence, SourcePresence, SourceProfileDeclarationIdentity } from "@tsonic/target-api/source";
+import type { SourceNodeNavigationFacts, SourceNodeReference, SourceNodeWrite } from "@tsonic/target-api/source";
 import type { SourceInputIdentityOwner } from "../identity-owner.js";
 import { createSourceProgramNavigation } from "./navigation.js";
 import type { SourceDeclarationReference, SourceDeclaredHeritageEdge } from "./types.js";
 
-export interface SourceNodeNavigationOwner {
-  readonly facts: SourceNodeNavigationFacts;
-  readonly analysis: {
-    enclosing(node: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean): Node | undefined;
-  };
-}
-
-export function createSourceNodeNavigationFacts(input: {
+export function createSourceNodeNavigationInput(input: {
   readonly checked: CheckedSourceProgram;
   readonly sourceFiles: readonly SourceFile[];
   readonly inventory: { readonly nodes: readonly Node[]; readonly nodesForFiles: (files: readonly SourceFile[]) => readonly Node[];
     readonly contains: (node: Node) => boolean };
   readonly assertNode: (node: Node) => void;
   readonly identities: SourceInputIdentityOwner;
-  readonly originalSignature: (owner: Node, kind: "call" | "construct", original: Signature) => SourceInputSignature;
-  readonly signature: (original: SourceInputSignature) => SourceSignatureIdentity;
-  readonly publish: (component: SourceInputComponent, receiver?: SourceTypeEvidence) => SourceResult<SourceTypeEvidence>;
-  readonly profileDeclaration: (node: Node) => SourcePresence<SourceProfileDeclarationIdentity>;
-}): SourceNodeNavigationOwner {
-  const { checked, sourceFiles, inventory, assertNode, identities, originalSignature, signature, publish } = input;
+  readonly originalSignature: (kind: "call" | "construct", original: Signature) => SourceInputSignature;
+}): SourceInputNodeNavigationQueries {
+  const { checked, sourceFiles, inventory, assertNode, identities, originalSignature } = input;
   const { ast } = checked;
   const raw = createSourceProgramNavigation(checked, { sourceFiles, ...inventory });
   const references = new WeakMap<Node, SourceNodeReference | null>();
   const projectReferences = new WeakMap<Node, SourceNodeReference | null>();
-  const constructors = new WeakMap<Node, SourceResult<SourceNodeConstructors>>();
-  const heritages = new WeakMap<Node, SourceResult<SourceNodeHeritage>>();
-  const paths = new WeakMap<Node, WeakMap<Node, ReturnType<SourceNodeNavigationFacts["declaredHeritagePath"]>>>();
-  const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
+  const constructors = new WeakMap<Node, SourceInputConstructors>();
+  const heritages = new WeakMap<Node, SourceInputHeritage>();
+  const paths = new WeakMap<Node, WeakMap<Node, ReturnType<SourceInputNodeNavigationQueries["declaredHeritagePath"]>>>();
   const originalReference = (value: SourceDeclarationReference, occurrence: Node): SourceNodeReference => {
     assertNode(value.declaration);
     return Object.freeze({ meaning: sourceReferenceMeaning(ast, occurrence), declaration: value.declaration,
@@ -54,30 +42,20 @@ export function createSourceNodeNavigationFacts(input: {
     cache.set(node, result ?? null);
     return result;
   };
-  const edge = (value: SourceDeclaredHeritageEdge): SourceResult<SourceNodeHeritageEdge> => {
+  const edge = (value: SourceDeclaredHeritageEdge): SourceInputHeritageEdge => {
     assertNode(value.heritage);
-    const selected = publish(identities.component(value.heritage, [], value.selectedType));
-    if (selected.kind === "refused") return selected;
-    const arguments_: SourceTypeEvidence[] = [];
+    const selected = identities.component(value.heritage, [], value.selectedType);
+    const arguments_: SourceInputComponent[] = [];
     for (let index = 0; index < value.selectedTypeArguments.length; index += 1) {
-      const argument = publish(identities.component(value.heritage,
+      arguments_.push(identities.component(value.heritage,
         [{ kind: "type-argument", declaration: value.target.declaration, index }], value.selectedTypeArguments[index]));
-      if (argument.kind === "refused") return argument;
-      arguments_.push(argument.value);
     }
-    return resolved(Object.freeze({ kind: value.kind, sourceDeclaration: value.sourceDeclaration,
+    return Object.freeze({ kind: value.kind, sourceDeclaration: value.sourceDeclaration,
       heritage: value.heritage, target: originalReference(value.target, value.heritage),
-      typeArguments: value.typeArguments, selected: selected.value, arguments: Object.freeze(arguments_) }));
+      typeArguments: value.typeArguments, selected, arguments: Object.freeze(arguments_) });
   };
-  const edges = (values: readonly SourceDeclaredHeritageEdge[]): SourceResult<SourceNodeHeritage> => {
-    const selected: SourceNodeHeritageEdge[] = [];
-    for (const value of values) {
-      const current = edge(value);
-      if (current.kind === "refused") return current;
-      selected.push(current.value);
-    }
-    return resolved(Object.freeze({ kind: "resolved", edges: Object.freeze(selected) }));
-  };
+  const edges = (values: readonly SourceDeclaredHeritageEdge[]): SourceInputHeritage =>
+    Object.freeze({ kind: "resolved", edges: Object.freeze(values.map(edge)) });
   const within = (node: Node, root: Node): boolean => {
     const seen = new Set<Node>();
     let current: Node | undefined = node;
@@ -96,11 +74,8 @@ export function createSourceNodeNavigationFacts(input: {
     return selected.kind !== "resolved" ? selected : Object.freeze({ kind: "resolved",
       contractDeclaration: selected.contractDeclaration, implementation: originalReference(selected.implementation, declaration) });
   };
-  const facts: SourceNodeNavigationFacts = Object.freeze({
+  const facts: SourceInputNodeNavigationQueries = Object.freeze({
     sourceFiles, nodes: inventory.nodes, referenceIndexStatistics: raw.referenceIndexStatistics, includes: inventory.contains,
-    profileDeclaration: input.profileDeclaration,
-    callableRoles: (node: Node) => { assertNode(node); return raw.callableRoles(node); },
-    enclosing: (node: Node | undefined, role: SourceCallableRole) => raw.enclosing(node, role),
     nodesForFiles: inventory.nodesForFiles,
     sourceReferenceFor: (node: Node | undefined) => reference(node, false),
     referenceFor: (node: Node | undefined) => reference(node, true),
@@ -115,53 +90,51 @@ export function createSourceNodeNavigationFacts(input: {
     memberImplementation: (declaration: Node, contract: Node) => implementation(declaration, contract),
     memberContracts: (declaration: Node) => raw.memberContracts(declaration),
     callableImplementation: (declaration: Node) => implementation(declaration),
-    classConstructors(declaration: Node): SourceResult<SourceNodeConstructors> {
+    classConstructors(declaration: Node): SourceInputConstructors {
       assertNode(declaration);
       const existing = constructors.get(declaration);
       if (existing !== undefined) return existing;
       const original = raw.classConstructors(declaration);
-      if (original.kind === "unresolved") return resolved(original);
-      const signatures: Extract<SourceNodeConstructors, { readonly kind: "resolved" }>["signatures"][number][] = [];
+      if (original.kind === "unresolved") return original;
+      const signatures: Extract<SourceInputConstructors, { readonly kind: "resolved" }>["signatures"][number][] = [];
       for (const selected of original.signatures) {
-        const originalIdentity = originalSignature(declaration, "construct", selected.signature);
-        const identity = signature(originalIdentity);
+        const originalIdentity = originalSignature("construct", selected.signature);
         const parameters: typeof signatures[number]["parameters"][number][] = [];
         for (const parameter of selected.parameters) {
-          const value = publish(identities.component(declaration,
-            [{ kind: "parameter", signature: originalIdentity, index: parameter.parameterIndex }], parameter.selectedType));
-          if (value.kind === "refused") return value;
+          const value = identities.component(declaration,
+            [{ kind: "parameter", signature: originalIdentity, index: parameter.parameterIndex }], parameter.selectedType);
           parameters.push(Object.freeze({ parameterIndex: parameter.parameterIndex, parameterName: parameter.parameterName,
             parameterDeclaration: parameter.parameterDeclaration,
-            ...(parameter.authoredTypeNode === undefined ? {} : { authoredTypeNode: parameter.authoredTypeNode }),
-            value: value.value, acceptsOmission: parameter.acceptsOmission, rest: parameter.rest }));
+            authoredTypeNode: parameter.authoredTypeNode,
+            value, acceptsOmission: parameter.acceptsOmission, rest: parameter.rest }));
         }
         const base = selected.base === undefined ? Object.freeze({ kind: "none" } as const)
           : Object.freeze({ kind: "present" as const, value: Object.freeze({ declaration: selected.base.declaration,
-            identity: signature(originalSignature(selected.base.declaration, "construct", selected.base.signature)) }) });
-        signatures.push(Object.freeze({ identity, base, parameters: Object.freeze(parameters) }));
+            identity: originalSignature("construct", selected.base.signature) }) });
+        signatures.push(Object.freeze({ identity: originalIdentity, base, parameters: Object.freeze(parameters) }));
       }
-      const result = resolved(Object.freeze({ kind: "resolved", declaration,
-        witness: original.implicit ? "implicit" : "declared", signatures: Object.freeze(signatures) } as const));
+      const result: SourceInputConstructors = Object.freeze({ kind: "resolved", declaration,
+        witness: original.implicit ? "implicit" : "declared", signatures: Object.freeze(signatures) });
       constructors.set(declaration, result);
       return result;
     },
-    declaredHeritage(declaration: Node): SourceResult<SourceNodeHeritage> {
+    declaredHeritage(declaration: Node): SourceInputHeritage {
       assertNode(declaration);
       const existing = heritages.get(declaration);
       if (existing !== undefined) return existing;
       const original = raw.declaredHeritage(declaration);
-      const result = original.kind === "unresolved" ? resolved(original) : edges(original.edges);
+      const result = original.kind === "unresolved" ? original : edges(original.edges);
       heritages.set(declaration, result);
       return result;
     },
-    declaredHeritagePath(source: Node, target: Node): ReturnType<SourceNodeNavigationFacts["declaredHeritagePath"]> {
+    declaredHeritagePath(source: Node, target: Node): ReturnType<SourceInputNodeNavigationQueries["declaredHeritagePath"]> {
       assertNode(source);
       assertNode(target);
       let targets = paths.get(source);
       const existing = targets?.get(target);
       if (existing !== undefined) return existing;
       const original = raw.declaredHeritagePath(source, target);
-      const result = original.kind === "related" ? edges(original.edges) : resolved(original);
+      const result = original.kind === "related" ? edges(original.edges) : original;
       if (targets === undefined) { targets = new WeakMap(); paths.set(source, targets); }
       targets.set(target, result);
       return result;
@@ -201,7 +174,5 @@ export function createSourceNodeNavigationFacts(input: {
       return selected === undefined ? Object.freeze({ kind: "none" }) : Object.freeze({ kind: "present", value: selected });
     },
   });
-  return Object.freeze({ facts, analysis: Object.freeze({
-    enclosing: (node: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean) => raw.enclosing(node, role, visit),
-  }) });
+  return facts;
 }

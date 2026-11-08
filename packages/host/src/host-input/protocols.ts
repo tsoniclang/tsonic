@@ -17,7 +17,7 @@ export function createSourceProtocolInput(input: {
   readonly identities: SourceInputIdentityOwner;
   readonly assertNode: (node: Node) => void;
   readonly syntax: (node: Node) => SourceInputComponent;
-  readonly originalSignature: (owner: Node, kind: "call" | "construct", original: Signature) => SourceInputSignature;
+  readonly originalSignature: (kind: "call" | "construct", original: Signature) => SourceInputSignature;
 }): SourceInputProtocolQueries {
   const { checked, identities, assertNode, syntax, originalSignature } = input;
   const { ast } = checked;
@@ -47,7 +47,7 @@ export function createSourceProtocolInput(input: {
     if (member?.read === undefined) return undefined;
     const signatures = types.getCallSignatures(candidates[0]!.type);
     if (signatures.length === 0 || signatures.some(signature => signature === undefined)) return undefined;
-    const calls = signatures.map(signature => originalSignature(checker.getSignatureDeclaration(signature) ?? receiver.root, "call", signature!));
+    const calls = signatures.map(signature => originalSignature("call", signature!));
     const originalDeclarations = selected.resolutionKind === "known-iterable-instantiation"
       ? selected.iterableDeclarations : selected.iteratorMethodDeclarations;
     const declarations = Object.freeze(originalDeclarations.filter((declaration): declaration is Node => declaration !== undefined));
@@ -114,7 +114,7 @@ export function createSourceProtocolInput(input: {
       const resultDeclaration = resultSymbol === undefined ? undefined : checker.getPrimarySymbolDeclaration(resultSymbol);
       if (resultDeclaration !== undefined) assertNode(resultDeclaration);
       const result = original === undefined || signature === undefined ? none : present(Object.freeze({ declaration,
-        kind: original.generatorKind, signature: originalSignature(declaration, "call", signature),
+        kind: original.generatorKind, signature: originalSignature("call", signature),
         resultDeclaration: resultDeclaration === undefined || !ast.is.IsInterfaceDeclaration(resultDeclaration) &&
           !ast.is.IsClassDeclaration(resultDeclaration) ? none : present(resultDeclaration),
         returnTypeBinding: original.returnTypeBinding === undefined ? none : present(original.returnTypeBinding.declaration) }));
@@ -165,8 +165,7 @@ export function createSourceProtocolInput(input: {
           if (signatures.length === 0 || signatures.some(signature => signature === undefined))
             throw new Error("A selected original disposer requires its complete original signature inventory.");
           alternatives.push(Object.freeze({ kind: alternative.kind, declarations,
-            signatures: Object.freeze(signatures.map(signature => originalSignature(
-              checker.getSignatureDeclaration(signature) ?? declaration, "call", signature!))) }));
+            signatures: Object.freeze(signatures.map(signature => originalSignature("call", signature!))) }));
         }
         disposal = Object.freeze({ kind: "selected", alternatives: Object.freeze(alternatives) });
       }

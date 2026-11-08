@@ -21,7 +21,6 @@ import { sourceExpressionEffects } from "./expression-effects.js";
 import { sourceCountedLoop } from "./counted-loops.js";
 import { sourceExpressionValueFlow } from "@tsonic/target-api/host";
 import type { SourceProgramNavigation } from "./types.js";
-import { createSourceEnclosingQuery, sourceCallableRoles, type SourceCallableRole } from "@tsonic/target-api/host";
 
 export function sourceProjectFiles(source: CheckedSourceProgram): readonly SourceFile[] {
   const selected: SourceFile[] = [];
@@ -52,7 +51,6 @@ export function createSourceProgramNavigation(
   const requireFile = (file: SourceFile): void => {
     if (!source.containsSourceFile(file)) throw new Error("Source navigation requires its exact checked source-file identity.");
   };
-  const enclosing = createSourceEnclosingQuery(source.ast);
   const references = createSourceReferenceNavigation(source, sourceFiles, nodeInventory.contains);
   const declarationSymbol = createSourceDeclarationSymbolQuery(source, references);
   const dispatch = createSourceMemberDispatchNavigation(
@@ -258,16 +256,6 @@ export function createSourceProgramNavigation(
   return Object.freeze({
     sourceFiles,
     nodes: nodeInventory.nodes,
-    callableRoles(node: Node) {
-      requireNode(node);
-      return sourceCallableRoles(source.ast, node);
-    },
-    enclosing(node: Node | undefined, role: SourceCallableRole, visit?: (node: Node) => boolean) {
-      if (node !== undefined) requireNode(node);
-      const owner = enclosing(node, role, visit);
-      if (owner !== undefined) requireNode(owner);
-      return owner;
-    },
     nodesForFiles: nodeInventory.nodesForFiles,
     referenceIndexStatistics: references.referenceIndexStatistics,
     sourceReferenceFor: references.sourceReferenceFor,
