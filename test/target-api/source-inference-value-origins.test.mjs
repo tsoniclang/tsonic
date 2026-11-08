@@ -115,8 +115,12 @@ test("literal defaults select checked member symbols only from their own retaine
   const queries = original.checked.getSourceFileQueries(file);
   const propertiesBySymbol = queries.typeShape.getPropertyInfos(original.identities.checkedComponent(component));
   const originalProperties = original.ast.properties(originalLiteral);
-  for (const [index, member] of inventory.members.entries()) {
-    const property = originalProperties[index];
+  assert.equal(originalProperties.length, 3, "the original literal retains every authored property");
+  assert.deepEqual(inventory.members.map(member => member.name), ["value", "quoted-value", "7"],
+    "the factual member inventory retains all original properties in authored order");
+  for (const [index, property] of originalProperties.entries()) {
+    const member = inventory.members[index];
+    assert.equal(member !== undefined, true, "every original property has its factual member row");
     const selected = propertiesBySymbol.find(candidate => queries.checker.getSymbolDeclarations(candidate.symbol).includes(property));
     assert.equal(selected !== undefined && selected.name === member.name && member.declarations.includes(property), true,
       `member ${index}: factual publication keeps the symbol from its own original checked tuple`);
