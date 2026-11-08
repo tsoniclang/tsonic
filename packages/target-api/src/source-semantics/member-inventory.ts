@@ -1,11 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourcePresence, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "./member-correspondence.js";
 
 export type SourceMemberInventoryRow = Omit<SourceCorrespondenceMember, "receiver" | "readType" | "writeType"> & {
   readType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
   writeType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;
+  readDomain(): SourcePresence<SourceLiteralDomain>;
 };
 
 export type SourceIndexInventoryRow = Omit<SourceCorrespondenceIndex, "receiver" | "keyType" | "readType" | "writeType"> & {
