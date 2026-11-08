@@ -35,6 +35,15 @@ export function createSourcePointerOperationQuery(input: SourcePointerProduction
     if (previous !== undefined) return previous;
     const original = core.operation(occurrence);
     if (original.kind === "none") { const result = resolved(none); retained.set(occurrence, result); return result; }
+    const application = applications.application(occurrence);
+    if (application.kind === "refused") return application;
+    if (application.value.identity.invocation !== occurrence)
+      throw new Error("Pointer semantics require the same original Source application.");
+    if (application.value.argumentDisposition === "skip") {
+      const result = resolved(none);
+      retained.set(occurrence, result);
+      return result;
+    }
     const selected = original.value;
     const typed = selected.family === "typed-location" && selected.operation !== "view" ? selected : undefined;
     let addressed: SourceStoragePlace | undefined;
@@ -52,11 +61,12 @@ export function createSourcePointerOperationQuery(input: SourcePointerProduction
         addressed = place.value.value;
       }
     }
-    const application = applications.application(occurrence);
-    if (application.kind === "refused") return application;
-    if (application.value.identity.invocation !== occurrence)
-      throw new Error("Pointer semantics require the same original Source application.");
-    const authored = new Set(application.value.sourceArguments.map(argument => argument.operand.occurrence));
+    const authoredOperands: SourceValueOperand[] = [];
+    for (const argument of application.value.sourceArguments) {
+      if (argument.operand.kind === "refused") return argument.operand;
+      authoredOperands.push(argument.operand.value);
+    }
+    const authored = new Set(authoredOperands.map(argument => argument.occurrence));
     const operands = new Map<Node, SourceValueOperand>();
     let expressions: readonly Node[];
     if (typed !== undefined) {
@@ -64,7 +74,7 @@ export function createSourcePointerOperationQuery(input: SourcePointerProduction
         : typed.operation === "bind-pointer" || typed.operation === "project-pointer" ? 3 : 1;
       if (typed.arguments.length !== count || application.value.sourceArguments.length !== count ||
         application.value.sourceArguments.some((argument, index) => argument.form !== "value" ||
-          argument.occurrence !== typed.arguments[index] || argument.operand.occurrence !== typed.arguments[index]))
+          argument.occurrence !== typed.arguments[index] || authoredOperands[index]!.occurrence !== typed.arguments[index]))
         return unavailable(occurrence, `${typed.exportName}(...) requires ${count} exact original value argument${count === 1 ? "" : "s"}.`);
       expressions = typed.arguments;
     } else if (selected.family === "raw-address") expressions = selected.operation === "bind-raw-pointer" ? [selected.identity]

@@ -52,10 +52,6 @@ export { sourceExpressionCallArgument, sourceCallArgumentCorrespondences } from 
 export type { SourceClosedCallableArgument, SourceCallArgumentCorrespondence } from "./callable-arguments.js";
 export { createSourceArrayDensityQuery } from "./array-density.js";
 export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
-export { analyzeSourceIntegerRanges } from "./integer-ranges/index.js";
-export { sourceIntegerInduction } from "./integer-ranges/induction.js";
-export { sourceIntegerIsNonnegative } from "./integer-ranges/guards.js";
-export type { SourceIntegerRange, SourceIntegerRangeOptions, SourceIntegerRangeQueries } from "./integer-ranges/index.js";
 export { sourceSequenceInputChoice, sourceSequenceConsumptionRoot, sourceSequenceInputIsEmpty } from "./sequence-inputs.js";
 export type { SourceSequenceInputChoice } from "./sequence-inputs.js";
 export { sourceControlTransferTarget, sourceLabeledStatementTarget, sourceNodeIsIteration } from "./control-targets.js";

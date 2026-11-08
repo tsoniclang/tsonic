@@ -129,11 +129,11 @@ export function createSourceAnalysisFacts(options: {
   };
   const facts: SourceAnalysisFacts = Object.freeze({
     controlFlow,
-    iteration(occurrence) { assertNode(occurrence); return solved.iteration(occurrence); },
-    generator(declaration) { assertNode(declaration); return solved.generator(declaration); },
-    yield(occurrence) { assertNode(occurrence); return solved.yield(occurrence); },
-    storage(occurrence) { return settle(places.storage(occurrence)); },
-    argumentPassing(occurrence) {
+    iteration(occurrence: Node) { assertNode(occurrence); return solved.iteration(occurrence); },
+    generator(declaration: Node) { assertNode(declaration); return solved.generator(declaration); },
+    yield(occurrence: Node) { assertNode(occurrence); return solved.yield(occurrence); },
+    storage(occurrence: Node) { return settle(places.storage(occurrence)); },
+    argumentPassing(occurrence: Node) {
       assertNode(occurrence);
       const previous = passing.get(occurrence);
       if (previous !== undefined) return previous;
@@ -156,7 +156,7 @@ export function createSourceAnalysisFacts(options: {
       passing.set(occurrence, selected);
       return selected;
     },
-    callableCompletion(declaration) {
+    callableCompletion(declaration: Node) {
       assertNode(declaration);
       const previous = completions.get(declaration);
       if (previous !== undefined) return previous;
@@ -164,7 +164,7 @@ export function createSourceAnalysisFacts(options: {
       completions.set(declaration, selected);
       return selected;
     },
-    resourceManagement(declaration) {
+    resourceManagement(declaration: Node) {
       assertNode(declaration);
       const previous = resources.get(declaration);
       if (previous !== undefined) return previous;
@@ -172,10 +172,10 @@ export function createSourceAnalysisFacts(options: {
       resources.set(declaration, selected);
       return selected;
     },
-    pointerType(value) { view.assertEvidence(value); return pointers.pointerType(value); },
-    pointerOperation(occurrence) { assertNode(occurrence); return pointers.pointerOperation(occurrence); },
-    typeMarkers(value) { view.assertEvidence(value); return pointers.typeMarkers(value); },
-    declarationMarkers(occurrence) { assertNode(occurrence); return pointers.declarationMarkers(occurrence); },
+    pointerType(value: SourceTypeEvidence) { view.assertEvidence(value); return pointers.pointerType(value); },
+    pointerOperation(occurrence: Node) { assertNode(occurrence); return pointers.pointerOperation(occurrence); },
+    typeMarkers(value: SourceTypeEvidence) { view.assertEvidence(value); return pointers.typeMarkers(value); },
+    declarationMarkers(occurrence: Node) { assertNode(occurrence); return pointers.declarationMarkers(occurrence); },
   });
   return facts;
 }

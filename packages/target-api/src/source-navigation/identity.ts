@@ -52,7 +52,7 @@ export function projectSourceNodeIdentity(
 }
 
 export function sourceNodesEqual(
-  ast: AstReader,
+  _ast: AstReader,
   left: Node | undefined,
   right: Node | undefined,
 ): boolean {

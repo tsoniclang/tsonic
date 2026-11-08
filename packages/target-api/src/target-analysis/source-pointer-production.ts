@@ -63,7 +63,7 @@ export function createSourcePointerFacts(input: SourcePointerProductionInput): S
       const pointee = publish(original.pointee, value);
       result = pointee.kind === "refused" ? pointee : resolved(present(Object.freeze({ kind: "typed-location", value,
         pointee: pointee.value, mutability: original.mutability })));
-    } else {
+    } else if (original.kind === "function-pointer") {
       assertNode(original.declaration);
       const parameters: SourceTypeEvidence[] = [];
       for (const parameter of original.parameters) {
@@ -77,7 +77,7 @@ export function createSourcePointerFacts(input: SourcePointerProductionInput): S
         declaration: original.declaration, signature: none, parameters: Object.freeze(parameters),
         result: completion.value, abi: original.abi });
       result = resolved(present(pointer));
-    }
+    } else throw new Error("A Source pointer type requires one canonical original representation.");
     types.set(value, result);
     return result;
   };
