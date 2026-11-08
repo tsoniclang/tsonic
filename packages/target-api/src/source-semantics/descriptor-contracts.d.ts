@@ -49,7 +49,8 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
   declared(value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor;
   projection(source: SourceTypeDescriptor, projection: SourceDeferredProjection): SourceTypeDescriptor;
   componentIdentity(root: Node, path: readonly SourceComponentSelector[]): SourceTypeComponent;
-  evidence(value: SourceTypeEvidence, components: readonly SourceEvidenceComponent[]): SourceTypeEvidence;
+  evidence(value: SourceTypeEvidence, components: readonly SourceEvidenceComponent[], original: SourceCheckedComponent | undefined): SourceTypeEvidence;
+  originalComponent(value: SourceTypeEvidence): SourceCheckedComponent;
   signature(owner: Node, kind: "call" | "construct", original: Signature, declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
   define(declaration: Node, parameters: readonly Node[], definition: () => SourceProductionResult<SourceTypeEvidence>): void;
   publishFamily(component: SourceTypeComponent, origin: "authored" | "inferred", parameters: readonly Node[], roles: readonly SourceTypeEvidence[]): SourceSumFamily;
@@ -93,13 +94,14 @@ export interface SourceCheckedComponent {
 export type SourceCheckedComponentPart =
   | { readonly kind: "parameter"; readonly owner: Type; readonly signature: Signature; readonly index: number; readonly declaration: Node | undefined }
   | { readonly kind: "receiver"; readonly owner: Type; readonly signature: Signature; readonly declaration: Node | undefined }
-  | { readonly kind: "signature-tail"; readonly owner: Type; readonly signature: Signature; readonly start: number }
+  | { readonly kind: "signature-tail"; readonly owner: Type; readonly signature: Signature; readonly signatureKind: "call" | "construct"; readonly start: number; readonly readonly: boolean }
   | { readonly kind: "result"; readonly owner: Type; readonly signature: Signature }
   | { readonly kind: "type-argument"; readonly owner: Type; readonly parameter: Type; readonly index: number }
   | { readonly kind: "member"; readonly owner: Type; readonly declaration: Node }
   | { readonly kind: "element"; readonly owner: Type }
   | { readonly kind: "optional-value"; readonly owner: Type }
-  | { readonly kind: "tuple-element"; readonly owner: Type; readonly index: number };
+  | { readonly kind: "tuple-element"; readonly owner: Type; readonly index: number }
+  | { readonly kind: "tuple-slice"; readonly owner: Type; readonly start: number; readonly readonly: boolean };
 
 export interface SourceCheckedArgumentBinding {
   readonly sourceArgument: Node;
