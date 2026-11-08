@@ -1469,7 +1469,7 @@ export declare function Checker_checkThisExpression(receiver: GoPtr<Checker>, no
 export declare function Checker_checkBinaryExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryLikeExpression","kind":"method","status":"implemented","sigHash":"058951d0c451f4334faaa90f108eb88c838ea7af7a55bddace4da2ff77570115","bodyHash":"35a4d3d98cecf55f83774842062fdfe4dbc8bb5d764df060a73c2c94e942e66b"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Configured primitive shift operands retain their existing exact declaration facts instead of inheriting backing number/bigint incompatibilities; the Host remains the sole native operator-admission owner and ordinary number/bigint checking is unchanged."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retain the already-checked original operator operands and Diagnostic relation through the shared iterative and ordinary binary worker; ordinary checker admission is unchanged and only the Host may prove a backed constraint."}
  *
  * Go source:
  * func (c *Checker) checkBinaryLikeExpression(left *ast.Node, operatorToken *ast.Node, right *ast.Node, checkMode CheckMode, errorNode *ast.Node) *Type {

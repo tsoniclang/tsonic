@@ -2,9 +2,6 @@ import { Node_Expression, Node_Locals, Node_Members, Node_ModifierFlags, Node_Pa
 import { Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { ModifierFlagsPrivate, ModifierFlagsReadonly, ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
-import { IsVariableLike, SkipParentheses, SkipTypeParentheses } from "../internal/ast/utilities.js";
-import { AsImportTypeNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { IsGetAccessorDeclaration, IsImportTypeNode, IsTypeAliasDeclaration, IsTypeReferenceNode } from "../internal/ast/generated/predicates.js";
 import * as utf8 from "../go/unicode/utf8.js";
 import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindCallSignature, KindBigIntKeyword, KindBooleanKeyword, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindNeverKeyword, KindNumberKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindStringKeyword, KindTypeAliasDeclaration, KindTypeLiteral, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { argumentPassingFactKey, canonicalIdentityFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, } from "./facts.js";
@@ -31,70 +28,6 @@ export function finalizeExtensionSemantics(program) {
     extensionHost[extensionHostRunSourceAnalysis]();
     extensionHost.finalizeSemantics();
     return extensionHost;
-}
-export function configuredSourcePrimitiveOperand(program, operand, selectedSymbol) {
-    const host = getExtensionHost(program);
-    if (host === undefined || operand === undefined)
-        return undefined;
-    const active = new Set();
-    const annotation = (input) => {
-        if (input === undefined)
-            return undefined;
-        const node = SkipTypeParentheses(input);
-        if (node === undefined || active.has(node))
-            return undefined;
-        const fact = host.facts.get(node, sourcePrimitiveFactKey);
-        if (fact !== undefined)
-            return fact;
-        active.add(node);
-        try {
-            if (IsTypeReferenceNode(node)) {
-                const reference = AsTypeReferenceNode(node);
-                return reference.TypeName !== undefined && (reference.TypeArguments?.Nodes.length ?? 0) === 0
-                    ? declaration(selectedSymbol(reference.TypeName)) : undefined;
-            }
-            if (IsImportTypeNode(node)) {
-                const imported = AsImportTypeNode(node);
-                return !imported.IsTypeOf && imported.Qualifier !== undefined && (imported.TypeArguments?.Nodes.length ?? 0) === 0
-                    ? declaration(selectedSymbol(imported.Qualifier)) : undefined;
-            }
-            return undefined;
-        }
-        finally {
-            active.delete(node);
-        }
-    };
-    const declaration = (symbol) => {
-        if (symbol === undefined || active.has(symbol))
-            return undefined;
-        const fact = host.facts.get(symbol, sourcePrimitiveFactKey);
-        if (fact !== undefined)
-            return fact;
-        if (symbol.Declarations === undefined || symbol.Declarations.length === 0)
-            return undefined;
-        active.add(symbol);
-        try {
-            let selected;
-            for (const origin of symbol.Declarations) {
-                if (!IsVariableLike(origin) && !IsTypeAliasDeclaration(origin) && !IsGetAccessorDeclaration(origin))
-                    return undefined;
-                const current = annotation(Node_Type(origin));
-                if (current === undefined || (selected !== undefined && !sourcePrimitiveFactKey.equals(selected, current))) {
-                    return undefined;
-                }
-                selected = current;
-            }
-            return selected;
-        }
-        finally {
-            active.delete(symbol);
-        }
-    };
-    const expression = SkipParentheses(operand);
-    if (expression === undefined)
-        return undefined;
-    const explicit = Node_Type(expression);
-    return explicit === undefined ? declaration(selectedSymbol(expression)) : annotation(explicit);
 }
 function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
     const evidence = getProviderVirtualModuleEvidence(virtualModule);
@@ -513,7 +446,7 @@ function recordProviderVirtualParameterFacts(extensionHost, signatureDeclaration
         if (parameterDeclaration === undefined) {
             throw new Error(`Provider virtual signature lost parameter declaration ${index}.`);
         }
-        const fact = { mode };
+        const fact = { role: "declaration", mode };
         extensionHost[extensionHostSetFact](parameterDeclaration, argumentPassingFactKey, fact, evidence);
         const parameterSymbol = Node_Symbol(parameterDeclaration);
         if (parameterSymbol !== undefined) {

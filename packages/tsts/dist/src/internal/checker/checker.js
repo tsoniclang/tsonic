@@ -1,3 +1,4 @@
+import { observeBackingDiagnostic, observePublishedDiagnostic } from "./checker/backing-constraint-evidence.js";
 import * as core from "../core/core.js";
 import { Node_ForEachChild, Node_Name } from "../ast/spine.js";
 import { Node_Decorators, Node_Members, Node_Type, SourceFile_FileName, SourceFile_Path, AsSourceFile } from "../ast/ast.js";
@@ -271,6 +272,8 @@ export function Checker_checkCollisionWithGlobalObjectInGeneratedCode(receiver, 
 export function Checker_addDiagnostic(receiver, diagnostic) {
     // Discard diagnostics created while at the maximum number of recursive TypeToString invocations.
     if (receiver.serializationLevel < maxSerializationLevel) {
+        observeBackingDiagnostic(receiver, diagnostic);
+        observePublishedDiagnostic(receiver, diagnostic);
         DiagnosticsCollection_Add(receiver.diagnostics, diagnostic);
     }
 }

@@ -1,5 +1,6 @@
 import type { bool, int, uint } from "../../../go/scalars.js";
 import type { SelectedCallEvidenceTransactionState } from "./selected-call-evidence-transaction.js";
+import type { BackingConstraintEvidenceState } from "./backing-constraint-evidence.js";
 import type { GoComparable, GoConstraint, GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import type { Hasher, Uint128 } from "../../../go/github.com/zeebo/xxh3.js";
@@ -1183,7 +1184,7 @@ export interface Host extends ModuleSpecifierGenerationHost {
 export declare let nextCheckerID: Uint32;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::type::Checker","kind":"type","status":"implemented","sigHash":"e4967269fbe71279dee2e723a062b8b622327a2bcc4a9a6ef1d5a2445b4d0a13","bodyHash":"8aab79756b2cdc4b710a0bc8e9882716aa7b86edf09b3586aab083c9e6c9a6d5"}
- * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Retain one target-neutral transactional journal on the owning checker so overload selection publishes exact source evidence atomically with the canonical TS-Go signature cache.","goSignatureHash":"sha256:f666d9aff0841e40ecb7aa8984e27a1e1836e4505fc625965ee7566e3fbc0ca2","tsSignatureHash":"sha256:eaf5a138bd46171eaeec6a85b59558a2813c00f1a2c1f6f17dcafaf7852f55ec"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Retain the target-neutral journal and backing constraints on the owning checker; immutable numeric producer identity replaces query registration, and native arena retention is unnecessary for stable JS objects.","goSignatureHash":"sha256:f666d9aff0841e40ecb7aa8984e27a1e1836e4505fc625965ee7566e3fbc0ca2","tsSignatureHash":"sha256:7dede7509548b15ad2fa9092e8cc6953801d89e40709e631c7e22826e4b7e50c"}
  *
  * Go source:
  * Checker struct {
@@ -1507,7 +1508,8 @@ export declare let nextCheckerID: Uint32;
  */
 export interface Checker {
     selectedCallEvidenceTransactionState: SelectedCallEvidenceTransactionState | undefined;
-    id: uint;
+    backingConstraintEvidenceState?: BackingConstraintEvidenceState;
+    readonly id: uint;
     program: Program;
     compilerOptions: GoPtr<CompilerOptions>;
     files: GoSlice<GoPtr<SourceFile>>;
@@ -1587,8 +1589,6 @@ export interface Checker {
     propertiesTypes: GoMap<PropertiesTypesKey, GoPtr<Type>>;
     diagnostics: DiagnosticsCollection;
     suggestionDiagnostics: DiagnosticsCollection;
-    symbolArena: Arena<Symbol>;
-    signatureArena: Arena<Signature>;
     indexInfoArena: Arena<IndexInfo>;
     mergedSymbols: GoMap<GoPtr<Symbol>, GoPtr<Symbol>>;
     factory: NodeFactory;

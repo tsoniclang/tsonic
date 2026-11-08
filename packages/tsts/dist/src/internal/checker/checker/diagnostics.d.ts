@@ -1,4 +1,5 @@
 import type { bool } from "../../../go/scalars.js";
+import type { ResolvedCallApplicationEvidence } from "../types.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import type { Node, SourceFile } from "../../ast/ast.js";
@@ -592,7 +593,7 @@ export declare function Checker_getDiagnosticHeadMessageForDecoratorResolution(r
  * 	}
  * }
  */
-export declare function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, node: GoPtr<Node>, s: GoPtr<CallState>, signatures: GoSlice<GoPtr<Signature>>, headMessage: GoPtr<Message>): void;
+export declare function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, node: GoPtr<Node>, s: GoPtr<CallState>, signatures: GoSlice<GoPtr<Signature>>, headMessage: GoPtr<Message>, applications?: readonly ResolvedCallApplicationEvidence[]): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getArgumentArityError","kind":"method","status":"implemented","sigHash":"9e7ce0219f8b08877783ae7a37fe95f4e5e7be8d5dc6f7b0b397f6a1b8469a09","bodyHash":"36e6c5b4c20539e0755113da7a5c81a0082a31f2b905e8ed9c7b54b2f91ad008"}
  *

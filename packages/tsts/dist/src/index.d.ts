@@ -19,8 +19,11 @@ export type { TypeIndexInfo, TypeIntrinsicNullishFlags, TypeMappedPropertyInfo, 
 export type { TypeAliasApplicationInfo, TypeAliasConditionalStep } from "./services/type-applications.js";
 export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedAccessSelection } from "./services/type-indexed-access.js";
 export type { Node, SourceFile } from "./internal/ast/ast.js";
+export type { Diagnostic } from "./internal/ast/diagnostic.js";
 export type { Symbol } from "./internal/ast/symbol.js";
 export * from "./internal/ast/symbolflags.js";
 export type { ContextFlags, Signature, Type } from "./internal/checker/types.js";
-export { ContextFlagsSkipBindingPatterns } from "./internal/checker/types.js";
+export type { ResolvedCallApplicationEvidence, ResolvedCallArgumentEvidence, ResolvedCallArgumentMap, ResolvedCallEvidence, ResolvedCallInferenceContribution, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, ResolvedCallSelectionEvidence, ResolvedCallTypeArgumentEvidence, ResolvedCheckedCallCandidateEvidence, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedCheckerDiagnosticOwnership, ResolvedCheckerDiagnosticCoverage, ResolvedOriginalSignatureEvidence, } from "./internal/checker/types.js";
+export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
+export { ContextFlagsSkipBindingPatterns, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
 //# sourceMappingURL=index.d.ts.map

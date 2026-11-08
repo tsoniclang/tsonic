@@ -1,3 +1,4 @@
+import type { ResolvedCheckerBackingConstraint } from "../internal/checker/types.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
@@ -59,6 +60,7 @@ export interface ResolvedSourceStorageInfo {
     readonly writable: boolean;
 }
 export interface TypeCheckerQueries {
+    readonly getBackingConstraints: () => readonly ResolvedCheckerBackingConstraint[];
     readonly getGlobalValueSymbol: (name: string) => GoPtr<Symbol>;
     readonly isDefaultLibraryDeclaration: (node: GoPtr<Node>) => boolean;
     readonly getAwaitedType: (type: GoPtr<Type>) => GoPtr<Type>;

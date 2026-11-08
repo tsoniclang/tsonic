@@ -807,6 +807,7 @@ export interface CheckedCallSourceSelectionProvenance {
     readonly authoredTypeNode?: Node;
 }
 export interface CheckedCallSelectionSeed {
+    readonly argumentOrigins?: readonly EffectiveCallArgumentOrigin[];
     readonly calleeProvenance?: CheckedCallSourceSelectionProvenance;
     readonly receiver?: ResolvedCallSourceValueEvidence;
     readonly calleeAccess?: ResolvedCallCalleeAccessEvidence;
@@ -837,23 +838,8 @@ export type ResolvedCallCalleeAccessEvidence = {
     readonly selectedSymbol?: Symbol_62f2f8bf;
     readonly selectedDeclaration?: Node;
 };
-export interface ResolvedCallArgumentEvidence {
-    readonly sourceArgumentIndex: number;
-    readonly effectiveArgumentIndex: number;
-    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
-    readonly spreadElementIndex?: number;
-    readonly sourceParameterIndex: number;
-    readonly sourceParameterForm: "parameter" | "rest-element" | "rest-sequence";
-    readonly selectedArgumentType: Type;
-    readonly selectedParameterType: Type;
-}
-export interface ResolvedCallSelectedMethodTypeArgumentEvidence {
-    readonly typeParameterName: string;
-    readonly typeParameter: Type;
-    readonly selectedType: Type;
-    readonly explicitTypeNode?: Node;
-    readonly defaultTypeNode?: Node;
-}
+import type { EffectiveCallArgumentOrigin, ResolvedCallEvidence, ResolvedCallSelectionEvidence } from "./selected-call-contracts.js";
+export type { EffectiveCallArgumentOrigin, ResolvedCallApplicationEvidence, ResolvedCallArgumentEvidence, ResolvedCallArgumentMap, ResolvedCallEvidence, ResolvedCallSelectionEvidence, ResolvedCallTypeArgumentEvidence, ResolvedCheckedCallCandidateEvidence, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, ResolvedCheckerDiagnosticOwnership, ResolvedCheckerDiagnosticCoverage, ResolvedOriginalSignatureEvidence, } from "./selected-call-contracts.js";
 export interface ResolvedCallSelectedSignatureParameterEvidence {
     readonly parameterIndex: number;
     readonly parameterName: string;
@@ -864,26 +850,99 @@ export interface ResolvedCallSelectedSignatureParameterEvidence {
     readonly acceptsOmission: boolean;
     readonly rest: boolean;
 }
-export interface ResolvedCallSelectionEvidence {
-    readonly outcome: "applicable" | "untyped";
-    readonly call: Node;
-    readonly optionalChain: boolean;
-    readonly selectedSignature: Signature;
-    readonly sourceSelectedSignatureKind: "resolved" | "untyped";
-    readonly sourceSelectedMethodTypeArguments?: readonly ResolvedCallSelectedMethodTypeArgumentEvidence[];
-    readonly sourceSelectedSignatureParameters: readonly ResolvedCallSelectedSignatureParameterEvidence[];
-    readonly sourceCallee: ResolvedCallSourceValueEvidence;
-    readonly sourceArguments: readonly ResolvedCallSourceValueEvidence[];
-    readonly sourceArgumentBindings: readonly ResolvedCallArgumentEvidence[];
-    readonly sourceReceiver?: ResolvedCallSourceValueEvidence;
-    readonly sourceCalleeAccess?: ResolvedCallCalleeAccessEvidence;
+export type ResolvedCallInferencePathPart = {
+    readonly kind: "element";
+    readonly owner: Type;
+} | {
+    readonly kind: "tuple";
+    readonly owner: Type;
+    readonly index: number;
+} | {
+    readonly kind: "tuple-slice";
+    readonly owner: Type;
+    readonly start: number;
+    readonly endCount: number;
+    readonly readonly: boolean;
+} | {
+    readonly kind: "type-argument";
+    readonly owner: Type;
+    readonly index: number;
+} | {
+    readonly kind: "member";
+    readonly owner: Type;
+    readonly symbol: Symbol_62f2f8bf;
+    readonly declaration: Node;
+} | {
+    readonly kind: "index";
+    readonly owner: Type;
+    readonly key: Type;
+    readonly declaration: Node;
+} | {
+    readonly kind: "callable-result";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly signatureKind: "call" | "construct";
+    readonly declaration?: Node;
+} | {
+    readonly kind: "callable-parameter";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly signatureKind: "call" | "construct";
+    readonly index: number;
+    readonly declaration?: Node;
+} | {
+    readonly kind: "callable-receiver";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly signatureKind: "call" | "construct";
+    readonly declaration?: Node;
+} | {
+    readonly kind: "signature-tail";
+    readonly owner: Type;
+    readonly signature: Signature;
+    readonly signatureKind: "call" | "construct";
+    readonly start: number;
+    readonly readonly: boolean;
+} | {
+    readonly kind: "union-member";
+    readonly owner: Type;
+    readonly member: Type;
+    readonly index: number;
+};
+export type ResolvedCallInferenceOrigin = {
+    readonly kind: "argument";
+    readonly subject: Node;
+    readonly effectiveArgumentIndex: number;
+    readonly parameterIndex: number;
+} | {
+    readonly kind: "argument-tail";
+    readonly subject: Node;
+    readonly effectiveArgumentIndex: number;
+    readonly parameterIndex: number;
+} | {
+    readonly kind: "receiver";
+    readonly subject: Node;
+} | {
+    readonly kind: "contextual-result";
+    readonly subject: Node;
+};
+export interface ResolvedCallInferenceContribution {
+    readonly typeParameter: Type;
+    readonly origin: ResolvedCallInferenceOrigin;
+    readonly sourceRootType: Type;
+    readonly formalRootType: Type;
+    readonly sourcePath: readonly ResolvedCallInferencePathPart[];
+    readonly formalPath: readonly ResolvedCallInferencePathPart[];
 }
-export interface ResolvedCallEvidence extends ResolvedCallSelectionEvidence {
-    readonly sourceResultType: Type;
-}
+export type ResolvedCallInferenceEvidence = {
+    readonly kind: "available";
+    readonly contributions: readonly ResolvedCallInferenceContribution[];
+} | {
+    readonly kind: "unavailable";
+};
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SignatureLinks","kind":"type","status":"implemented","sigHash":"a347e845fe887e23f08134d6a7c13472dcdb4602c6c632618c72b27e056bdc28","bodyHash":"4bf2baf0e113cf93bff152edafa4b1d395e4fdfca289065c748d902c87e78b3e"}
- * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected call evidence beside TS-Go's resolvedSignature without changing signature resolution or cache semantics.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::ResolvedCallEvidence>;resolvedCallSelectionEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::ResolvedCallSelectionEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected call evidence beside TS-Go's resolvedSignature without changing signature resolution or cache semantics.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/selected-call-contracts.ts::ResolvedCallEvidence>;resolvedCallEvidenceSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallSelectionEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/selected-call-contracts.ts::ResolvedCallSelectionEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
  *
  * Go source:
  * SignatureLinks struct {
@@ -898,6 +957,7 @@ export interface SignatureLinks {
     decoratorSignature: GoPtr<Signature>;
     checkedCallSelectionSeed: GoPtr<CheckedCallSelectionSeed>;
     resolvedCallSelectionEvidence: GoPtr<ResolvedCallSelectionEvidence>;
+    resolvedCallEvidenceSignature: GoPtr<Signature>;
     resolvedCallEvidence: GoPtr<ResolvedCallEvidence>;
 }
 /**
@@ -2675,6 +2735,7 @@ export declare const SignatureFlagsPropagatingFlags: int;
 export declare const SignatureFlagsCallChainFlags: int;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::Signature","kind":"type","status":"implemented","sigHash":"d3a5a81eee7b1c3e3b367d3032eca4dea84378962d4e3644796db04c13f6e1c7","bodyHash":"2aa635e4411e9fe6132f76a0e64405f097e606ec5723eb3a6914d5e1f8a7c779"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Constructs immutable factual original constructor-class provenance before publishing each native Signature; ordinary clones preserve it and derived implicit constructors receive their actual producer class, without a Source answer or lazy Type query.","goSignature":"interface{Declaration?:()=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;Flags?:()=>packages/tsts/src/internal/checker/types.ts::SignatureFlags;HasRestParameter?:()=>packages/tsts/src/go/scalars.ts::bool;MinArgumentCount?:()=>packages/tsts/src/go/scalars.ts::int;Parameters?:()=>packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>>;Target?:()=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;ThisParameter?:()=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;TypeParameters?:()=>packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>;composite:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CompositeSignature>;declaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;flags:packages/tsts/src/internal/checker/types.ts::SignatureFlags;isolatedSignatureType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>;mapper:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/mapper.ts::TypeMapper>;minArgumentCount:packages/tsts/src/go/scalars.ts::int;parameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>>;resolvedMinArgumentCount:packages/tsts/src/go/scalars.ts::int;resolvedReturnType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>;resolvedTypePredicate:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::TypePredicate>;target:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;thisParameter:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;typeParameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>}","tsSignature":"interface{checkerId:packages/tsts/src/go/scalars.ts::uint;composite:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CompositeSignature>;constructorClass:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;declaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;flags:packages/tsts/src/internal/checker/types.ts::SignatureFlags;isolatedSignatureType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>;mapper:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/mapper.ts::TypeMapper>;minArgumentCount:packages/tsts/src/go/scalars.ts::int;parameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>>;resolvedMinArgumentCount:packages/tsts/src/go/scalars.ts::int;resolvedReturnType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>;resolvedTypePredicate:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::TypePredicate>;target:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;thisParameter:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;typeParameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>}"}
  *
  * Go source:
  * Signature struct {
@@ -2694,6 +2755,8 @@ export declare const SignatureFlagsCallChainFlags: int;
  * }
  */
 export interface Signature {
+    readonly checkerId: uint;
+    readonly constructorClass: GoPtr<Node>;
     flags: SignatureFlags;
     minArgumentCount: int;
     resolvedMinArgumentCount: int;

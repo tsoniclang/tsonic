@@ -1,3 +1,4 @@
+import { activeBackingCandidate, checkedComponent, withBackingConstraint } from "./backing-constraint-evidence.js";
 import { Checker_instantiateTypeWorkerWithCapture } from "./types.js";
 import { recordProviderStructuredTypeDemand } from "../../../extensions/provider-materialization-integration.js";
 import { callEvidenceWantedForCallee, retainElementCallCalleeEvidence, retainIdentifierCallCalleeEvidence, retainPropertyCallCalleeEvidence, } from "./call-evidence.js";
@@ -8218,7 +8219,7 @@ export function Checker_getReferencedValueOrAliasSymbol(receiver, reference) {
  */
 export function Checker_newSymbol(receiver, flags, name) {
     receiver.SymbolCount++;
-    const result = Arena_New(receiver.symbolArena);
+    const result = { checkerId: receiver.id };
     result.Flags = (flags | SymbolFlagsTransient);
     result.Name = name;
     return result;
@@ -13963,7 +13964,7 @@ export function Checker_resolveIntersectionTypeMembers(receiver, t) {
             let signatures = Checker_getSignaturesOfType(receiver, type_, SignatureKindConstruct);
             if (signatures.length !== 0 && mixinCount > 0) {
                 signatures = Map(signatures, (signature) => {
-                    const clone = Checker_cloneSignature(receiver, signature);
+                    const clone = Checker_cloneSignature(receiver, signature, signature.constructorClass);
                     clone.resolvedReturnType = Checker_includeMixinType(receiver, Checker_getReturnTypeOfSignature(receiver, signature), types, mixinFlags, i);
                     return clone;
                 });
@@ -17069,6 +17070,19 @@ export function Checker_getPropertyTypeForIndexType(receiver, originalObjectType
     return getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags);
 }
 function getPropertyTypeForIndexTypeWithEvidence(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected) {
+    const operation = () => getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected);
+    if (accessNode === undefined || !IsElementAccessExpression(accessNode) || originalObjectType === undefined || indexType === undefined) {
+        return operation();
+    }
+    const expression = Node_Expression(accessNode);
+    const argument = AsElementAccessExpression(accessNode).ArgumentExpression;
+    if (expression === undefined || argument === undefined)
+        return operation();
+    return withBackingConstraint(receiver, { kind: "index", access: accessNode, site: accessNode,
+        application: activeBackingCandidate(receiver), receiver: checkedComponent(expression, originalObjectType),
+        index: checkedComponent(argument, indexType) }, operation);
+}
+function getPropertyTypeForIndexTypeObserved(receiver, originalObjectType, objectType, indexType, fullIndexType, accessNode, accessFlags, selected) {
     let accessExpression = undefined;
     if (accessNode !== undefined && accessNode.Kind === KindElementAccessExpression) {
         accessExpression = accessNode;

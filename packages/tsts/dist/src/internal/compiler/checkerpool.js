@@ -15,7 +15,16 @@ export let __34031131_0 = checkerPool_as_compiler_CheckerPool(undefined);
 export function checkerPool_as_compiler_CheckerPool(receiver) {
     return {
         GetChecker: (ctx, file) => checkerPool_GetChecker(receiver, ctx, file),
+        GetCheckerById: (ctx, checkerId) => checkerPool_getCheckerById(receiver, ctx, checkerId),
     };
+}
+export function checkerPool_getCheckerById(receiver, _ctx, checkerId) {
+    checkerPool_createCheckers(receiver);
+    const index = receiver.checkers.findIndex(checker => checker?.id === checkerId);
+    if (index < 0)
+        return [undefined, noop];
+    receiver.locks[index].Lock();
+    return [receiver.checkers[index], OnceFunc(() => receiver.locks[index].Unlock())];
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::func::newCheckerPool","kind":"func","status":"implemented","sigHash":"166e4959543a17d547b22ee4264d922ed4cabd9adeaa8a75759e6f7392883bdf","bodyHash":"8889d04f05490b17ee812701674dde250bb3c02bd6bc663f542f2fd7033faf19"}

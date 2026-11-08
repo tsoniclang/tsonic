@@ -1,3 +1,4 @@
+import { checkerBackingConstraints } from "../internal/checker/checker/backing-constraint-evidence.js";
 import { Background } from "../go/context.js";
 import { Node_Symbol, Node_Text, SourceFile_FileName, SourceFile_Path } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
@@ -6,11 +7,11 @@ import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
-import { Program_GetSourceFile, Program_GetTypeChecker, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
-import { CheckerLifetimeAPI, WithCheckerLifetime } from "../internal/core/context.js";
+import { Program_GetSourceFile, Program_GetTypeChecker, Program_GetTypeCheckerById, Program_GetTypeCheckerForFile, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
+import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
-import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
+import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedCallSelectionEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getContextualType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
@@ -42,6 +43,16 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const wellKnownSymbolInfos = new WeakMap();
     const resourceManagementInfos = new WeakMap();
     const queries = {
+        getBackingConstraints() {
+            const constraints = withCheckedFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
+                if (checker === undefined)
+                    throw new Error("Backing-constraint queries require the original checked program.");
+                return checkerBackingConstraints(checker);
+            });
+            if (constraints === undefined)
+                throw new Error("Backing-constraint queries lost their checked lifetime.");
+            return constraints;
+        },
         getGlobalValueSymbol(name) {
             if (Program_GetSourceFile(program, SourceFile_FileName(defaultOptions.sourceFile)) !== defaultOptions.sourceFile)
                 return undefined;
@@ -119,11 +130,14 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             : undefined),
         getResolvedSymbol: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => getDiagnosticFreeResolvedSymbol(checker, node)),
         getResolvedSymbolOrNil: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSymbolOrNil(checker, node)),
-        getAliasedSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_GetAliasedSymbol(checker, symbol)),
+        getAliasedSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => {
+            const target = Checker_GetAliasedSymbol(checker, symbol);
+            return target === checker?.unknownSymbol ? undefined : target;
+        }),
         getTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
         getWriteTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getWriteTypeOfSymbol(checker, symbol)),
         getDeclaredTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getDeclaredTypeOfSymbol(checker, symbol)),
-        getResolvedSignature: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal)),
+        getResolvedSignature: (node) => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal)),
         getSignatureFromDeclaration(declaration) {
             if (!IsFunctionLike(declaration))
                 return undefined;
@@ -132,11 +146,14 @@ export function createTypeCheckerQueries(program, defaultOptions) {
                 return undefined;
             return withChecker(program, sourceFile, defaultOptions, checker => Checker_GetSignatureFromDeclaration(checker, declaration));
         },
-        getResolvedCallInfo: (node) => memoizeResolvedNodeQuery(callInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
+        getResolvedCallInfo: (node) => memoizeResolvedNodeQuery(callInfos, node, () => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => {
             if (!IsCallOrNewExpression(node)) {
                 return undefined;
             }
             Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
+            const selection = Checker_getResolvedCallSelectionEvidence(checker, node);
+            if (selection?.kind !== "applicable")
+                return selection;
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);
             return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
         })),
@@ -144,7 +161,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node, objectLiteralElementSymbols))),
-        getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
+        getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
         getResolvedCallableCompletionInfo: (node) => memoizeResolvedNodeQuery(callableCompletionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceCallableCompletionInfo(checker, node))),
         getResolvedFlowConditionInfo: (node) => memoizeResolvedNodeQuery(flowConditionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceFlowConditionInfo(checker, node))),
         getResolvedGeneratorInfo: (node) => memoizeResolvedNodeQuery(generatorInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceGeneratorInfo(checker, node))),
@@ -424,6 +441,9 @@ function withCheckerForSymbol(program, symbol, defaultOptions, callback) {
     if (symbol === undefined) {
         return undefined;
     }
+    if (symbol.checkerId !== undefined) {
+        return withCheckerById(program, symbol.checkerId, defaultOptions, callback);
+    }
     return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForType(program, type, defaultOptions, callback) {
@@ -439,7 +459,34 @@ function withCheckerForSignature(program, signature, defaultOptions, callback) {
     if (signature === undefined) {
         return undefined;
     }
-    return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
+    return withCheckerById(program, signature.checkerId, defaultOptions, callback);
+}
+function withCheckerById(program, checkerId, defaultOptions, callback) {
+    const sourceFile = defaultOptions.sourceFile;
+    if (program === undefined || sourceFile === undefined ||
+        Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
+        return undefined;
+    const context = defaultOptions.context ?? Background();
+    const [checker, done] = Program_GetTypeCheckerById(program, WithCheckerLifetime(context, CheckerLifetimeAPI), checkerId);
+    try {
+        return checker !== undefined && checker.id === checkerId ? callback(checker) : undefined;
+    }
+    finally {
+        done();
+    }
+}
+function withCheckedFile(program, sourceFile, defaultOptions, callback) {
+    if (program === undefined || sourceFile === undefined ||
+        Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
+        return undefined;
+    const context = defaultOptions.context ?? Background();
+    const [checker, done] = Program_GetTypeCheckerForFile(program, WithCheckerLifetime(context, CheckerLifetimeDiagnostics), sourceFile);
+    try {
+        return callback(checker);
+    }
+    finally {
+        done();
+    }
 }
 function withChecker(program, sourceFile, defaultOptions, callback) {
     if (program === undefined || sourceFile === undefined ||

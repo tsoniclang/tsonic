@@ -1,4 +1,4 @@
-import type { bool, int } from "../../go/scalars.js";
+import type { bool, int, uint } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Context } from "../../go/context.js";
 import { Mutex, Once } from "../../go/sync.js";
@@ -9,6 +9,7 @@ import type { Tracing } from "../tracing/tracing.js";
 import type { Program } from "./program.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::type::CheckerPool","kind":"type","status":"implemented","sigHash":"0ae9932ac5eea7302f43fdaded6b82addcb4d06b9f9209ed8ff2be51bb7f7d16","bodyHash":"c982af3c817df71dc9ae1af140208863183d3eaa1e11d94bfdcf98a350318845"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Resolve immutable producer identities against actual existing pool membership, independent of service query history and without retaining checker object backpointers.","goSignature":"interface{GetChecker:(packages/tsts/src/go/context.ts::Context,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/generated/unions.ts::SourceFileNode>)=>[packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,()=>void]}","tsSignature":"interface{GetChecker:(packages/tsts/src/go/context.ts::Context,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/generated/unions.ts::SourceFileNode>)=>[packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,()=>void];GetCheckerById:(packages/tsts/src/go/context.ts::Context,packages/tsts/src/go/scalars.ts::uint)=>[packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,()=>void]}"}
  *
  * Go source:
  * CheckerPool interface {
@@ -17,6 +18,7 @@ import type { Program } from "./program.js";
  */
 export interface CheckerPool {
     GetChecker(ctx: Context, file: GoPtr<SourceFile>): [GoPtr<Checker>, () => void];
+    GetCheckerById(ctx: Context, checkerId: uint): [GoPtr<Checker>, () => void];
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::type::checkerPool","kind":"type","status":"implemented","sigHash":"d37f5b7033c0ac566bfcbd9a2b4cdeda82ec5bb8ce63f72a6bfd20b94d11f46d","bodyHash":"1586bb5506912830f0532ac797eda4f3701bf2b9daa7da79ac8f2b61ca699bbf"}
@@ -48,6 +50,7 @@ export interface checkerPool {
  */
 export declare let __34031131_0: CheckerPool;
 export declare function checkerPool_as_compiler_CheckerPool(receiver: GoPtr<checkerPool>): CheckerPool;
+export declare function checkerPool_getCheckerById(receiver: GoPtr<checkerPool>, _ctx: Context, checkerId: uint): [GoPtr<Checker>, () => void];
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::func::newCheckerPool","kind":"func","status":"implemented","sigHash":"166e4959543a17d547b22ee4264d922ed4cabd9adeaa8a75759e6f7392883bdf","bodyHash":"8889d04f05490b17ee812701674dde250bb3c02bd6bc663f542f2fd7033faf19"}
  *

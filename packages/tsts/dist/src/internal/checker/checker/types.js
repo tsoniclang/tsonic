@@ -2674,7 +2674,7 @@ export function Checker_checkFunctionExpressionOrObjectLiteralMethod(receiver, n
                     return cached;
                 }
                 const returnType = Checker_getReturnTypeFromBody(receiver, node, checkMode);
-                const returnOnlySignature = Checker_newSignature(receiver, SignatureFlagsIsNonInferrable, undefined, [], undefined, [], returnType, undefined, 0);
+                const returnOnlySignature = Checker_newSignature(receiver, SignatureFlagsIsNonInferrable, undefined, [], undefined, [], returnType, undefined, 0, undefined);
                 const returnOnlyType = Checker_newAnonymousType(receiver, Node_Symbol(node), undefined, [returnOnlySignature], undefined, undefined);
                 returnOnlyType.objectFlags |= ObjectFlagsNonInferrableType;
                 receiver.contextFreeTypes.set(node, returnOnlyType);

@@ -1,7 +1,7 @@
 import type { ExtensionFactSubject } from "./host.js";
 import { type ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import type { Node } from "../internal/ast/ast.js";
-import type { Symbol } from "../internal/ast/symbol.js";
+import type { ResolvedCallEvidence } from "../internal/checker/selected-call-contracts.js";
 import type { Type } from "../internal/checker/types.js";
 import { type ArgumentPassingMode } from "./argument-passing.js";
 export type { ArgumentPassingMode } from "./argument-passing.js";
@@ -34,10 +34,14 @@ export interface SourcePrimitiveFact {
     readonly width?: number;
     readonly runtimeBase: "boolean" | "number" | "bigint" | "string" | "object";
 }
-export interface ArgumentPassingFact {
+export type ArgumentPassingFact = {
+    readonly role: "declaration";
     readonly mode: ArgumentPassingMode;
-    readonly storageExpression?: Node;
-}
+} | {
+    readonly role: "argument";
+    readonly mode: ArgumentPassingMode;
+    readonly storageExpression: Node;
+};
 export interface FunctionPointerFact {
     readonly parameters: readonly Node[];
     readonly result: Node;
@@ -50,64 +54,28 @@ export interface PointerFact {
 export interface RawPointerFact {
     readonly representation: "opaque-identity";
 }
-interface PointerOperationFactBase {
+export interface PointerOperationFact {
+    readonly operation: "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer";
+    readonly exportName: string;
     readonly call: Node;
-    readonly pointeeType: Type;
-    readonly explicitPointeeTypeNode?: Node;
-    readonly resultType: Type;
+    readonly arguments: readonly Node[];
+    readonly typeArguments: readonly Node[];
+    readonly selection: {
+        readonly kind: "observed";
+        readonly value: ResolvedCallEvidence;
+    } | {
+        readonly kind: "unavailable";
+        readonly reason: "unvisited";
+    };
+    readonly pointee: {
+        readonly kind: "available";
+        readonly type: Type;
+        readonly explicitTypeNode: Node | undefined;
+    } | {
+        readonly kind: "unavailable";
+        readonly reason: "unvisited" | "not-applicable" | "missing";
+    };
 }
-export type PointerOperationFact = PointerOperationFactBase & ({
-    readonly operation: "address-of";
-    readonly storageExpression: Node;
-    readonly storageType: Type;
-    readonly storageSymbol?: Symbol;
-    readonly storageDeclaration?: Node;
-    readonly locationIdentity: Node;
-} | {
-    readonly operation: "allocate";
-    readonly initialExpression: Node;
-    readonly initialType: Type;
-    readonly locationIdentity: Node;
-} | {
-    readonly operation: "load";
-    readonly pointerExpression: Node;
-    readonly pointerType: Type;
-} | {
-    readonly operation: "store";
-    readonly pointerExpression: Node;
-    readonly pointerType: Type;
-    readonly valueExpression: Node;
-    readonly valueType: Type;
-} | {
-    readonly operation: "equal-pointer";
-    readonly leftExpression: Node;
-    readonly leftType: Type;
-    readonly rightExpression: Node;
-    readonly rightType: Type;
-} | {
-    readonly operation: "hash-pointer";
-    readonly pointerExpression: Node;
-    readonly pointerType: Type;
-} | {
-    readonly operation: "bind-pointer";
-    readonly identityExpression: Node;
-    readonly identityType: Type;
-    readonly readExpression: Node;
-    readonly readType: Type;
-    readonly writeExpression: Node;
-    readonly writeType: Type;
-    readonly locationIdentity: Node;
-} | {
-    readonly operation: "project-pointer";
-    readonly sourcePointeeType: Type;
-    readonly explicitSourcePointeeTypeNode?: Node;
-    readonly pointerExpression: Node;
-    readonly pointerType: Type;
-    readonly fromSourceExpression: Node;
-    readonly fromSourceType: Type;
-    readonly toSourceExpression: Node;
-    readonly toSourceType: Type;
-});
 interface RawPointerOperationFactBase {
     readonly call: Node;
     readonly resultType: Type;

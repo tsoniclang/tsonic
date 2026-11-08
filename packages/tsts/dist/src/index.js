@@ -5,5 +5,6 @@ export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export * from "./internal/ast/symbolflags.js";
-export { ContextFlagsSkipBindingPatterns } from "./internal/checker/types.js";
+export { readOriginalSignature } from "./internal/checker/original-signature-evidence.js";
+export { ContextFlagsSkipBindingPatterns, TypeFlagsUniqueESSymbol } from "./internal/checker/types.js";
 //# sourceMappingURL=index.js.map

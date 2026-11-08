@@ -1036,6 +1036,9 @@ export function Program_GetTypeChecker(receiver, ctx) {
     }
     return receiver.checkerPool.GetChecker(ctx, undefined);
 }
+export function Program_GetTypeCheckerById(receiver, ctx, checkerId) {
+    return receiver.checkerPool.GetCheckerById(ctx, checkerId);
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::Program.ForEachCheckerParallel","kind":"method","status":"implemented","sigHash":"5a3006370d25c05251a48a40a185f9e41f887e1fbbc47f61a778ef9ad9ac33d5","bodyHash":"98d0a408c865da878b147713646aa4a39db708358c2756f15f0dfb3e307145ea"}
  *

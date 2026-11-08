@@ -1,4 +1,4 @@
-import type { bool, int } from "../../go/scalars.js";
+import type { bool, int, uint } from "../../go/scalars.js";
 import type { GoError, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Context } from "../../go/context.js";
 import type { Writer } from "../../go/io.js";
@@ -739,6 +739,7 @@ export declare function Program_BindSourceFiles(receiver: GoPtr<Program>): void;
  * }
  */
 export declare function Program_GetTypeChecker(receiver: GoPtr<Program>, ctx: Context): [GoPtr<Checker>, () => void];
+export declare function Program_GetTypeCheckerById(receiver: GoPtr<Program>, ctx: Context, checkerId: uint): [GoPtr<Checker>, () => void];
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::Program.ForEachCheckerParallel","kind":"method","status":"implemented","sigHash":"5a3006370d25c05251a48a40a185f9e41f887e1fbbc47f61a778ef9ad9ac33d5","bodyHash":"98d0a408c865da878b147713646aa4a39db708358c2756f15f0dfb3e307145ea"}
  *

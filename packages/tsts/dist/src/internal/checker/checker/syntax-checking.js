@@ -1,5 +1,5 @@
 import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
-import { configuredSourcePrimitiveOperand } from "../../../extensions/compiler-integration.js";
+import { activeBackingCandidate, checkedComponent, withBackingConstraint } from "./backing-constraint-evidence.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import { Contains as slicesContains } from "../../../go/slices.js";
 import { AsBinaryExpression, AsSyntheticExpression, AsIfStatement, AsForStatement, AsForInOrOfStatement, AsSwitchStatement, AsTryStatement, AsCatchClause, AsLabeledStatement, AsCaseOrDefaultClause, AsCaseBlock, AsVariableStatement, AsVariableDeclarationList, AsPrefixUnaryExpression, AsPostfixUnaryExpression, AsYieldExpression, AsConditionalExpression, AsNumericLiteral, AsBigIntLiteral, } from "../../ast/generated/casts.js";
@@ -32,7 +32,7 @@ import { Checker_checkForOfIterationWithExtensionSelection, Checker_checkIterate
 import { Checker_isReachableFlowNode, Checker_hasMatchingArgument, Checker_getSymbolHasInstanceMethodOfObjectType } from "../flow.js";
 import { Checker_TypeToString } from "../printer.js";
 import { Checker_checkClassExpression, Checker_checkClassExpressionDeferred, Checker_checkThisInStaticClassFieldInitializerInDecoratedClass } from "./classes.js";
-import { Checker_checkTypeParameterDeferred, Checker_resolveUntypedCall, Checker_resolveUntypedCallWithEvidence, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getReturnTypeOfSignature, Checker_getReturnTypeFromAnnotation, Checker_unwrapReturnType, Checker_isUnwrappedReturnTypeUndefinedVoidOrAny, Checker_isIndirectCall, Checker_instantiateTypeWithSingleGenericCallSignature, Checker_checkGeneratorInstantiationAssignabilityToReturnType, Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getIterationTypeOfGeneratorFunctionReturnType, Checker_tryGetThisTypeAt, Checker_tryGetThisTypeAtEx, Checker_getSignaturesOfType, Checker_isUntypedFunctionCall, Checker_isConstructorAccessible, Checker_resolveCall, Checker_resolveCallWithEvidence, Checker_typeHasCallOrConstructSignatures, Checker_checkImportCallExpression, Checker_checkCallExpression, Checker_checkExpressionWithTypeArguments, Checker_isInConstructorArgumentInitializer, Checker_getBaseConstructorTypeOfClass, Checker_getTypeWithThisArgument, } from "./signatures.js";
+import { Checker_checkTypeParameterDeferred, Checker_resolveUntypedCall, Checker_resolveUntypedCallWithEvidence, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getReturnTypeOfSignature, Checker_finalizeResolvedCallEvidence, Checker_getReturnTypeFromAnnotation, Checker_unwrapReturnType, Checker_isUnwrappedReturnTypeUndefinedVoidOrAny, Checker_isIndirectCall, Checker_instantiateTypeWithSingleGenericCallSignature, Checker_checkGeneratorInstantiationAssignabilityToReturnType, Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getIterationTypeOfGeneratorFunctionReturnType, Checker_tryGetThisTypeAt, Checker_tryGetThisTypeAtEx, Checker_getSignaturesOfType, Checker_isUntypedFunctionCall, Checker_isConstructorAccessible, Checker_resolveCall, Checker_resolveCallWithEvidence, Checker_typeHasCallOrConstructSignatures, Checker_checkImportCallExpression, Checker_checkCallExpression, Checker_checkExpressionWithTypeArguments, Checker_isInConstructorArgumentInitializer, Checker_getBaseConstructorTypeOfClass, Checker_getTypeWithThisArgument, } from "./signatures.js";
 import { Checker_checkJsxSelfClosingElementDeferred, Checker_checkJsxElementDeferred, Checker_checkJsxExpression, Checker_checkJsxElement, Checker_checkJsxSelfClosingElement, Checker_checkJsxFragment, Checker_checkJsxAttributes, } from "../jsx.js";
 import { CheckModeTypeOnly, TypeFactsEQUndefinedOrNull, UnionReductionSubtype, createDiagnosticForNode, everyContainedType, hasCommonDomTypeName, isConstEnumObjectType } from "./state.js";
 import { Every, FirstOrNil, IfElse, OrElse } from "../../core/core.js";
@@ -1201,6 +1201,9 @@ export function Checker_checkExpressionEx(receiver, node, checkMode) {
     const t = Checker_instantiateTypeWithSingleGenericCallSignature(receiver, node, uninstantiatedType, checkMode);
     if (isConstEnumObjectType(t)) {
         Checker_checkConstEnumAccess(receiver, node, t);
+    }
+    if (checkMode === CheckModeNormal && receiver.flowLoopStack.length === 0 && IsCallOrNewExpression(node)) {
+        Checker_finalizeResolvedCallEvidence(receiver, node, t);
     }
     receiver.currentNode = saveCurrentNode;
     return t;
@@ -2596,7 +2599,7 @@ function isIterativelyCheckableNonLogicalBinaryExpression(node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryLikeExpression","kind":"method","status":"implemented","sigHash":"058951d0c451f4334faaa90f108eb88c838ea7af7a55bddace4da2ff77570115","bodyHash":"35a4d3d98cecf55f83774842062fdfe4dbc8bb5d764df060a73c2c94e942e66b"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Configured primitive shift operands retain their existing exact declaration facts instead of inheriting backing number/bigint incompatibilities; the Host remains the sole native operator-admission owner and ordinary number/bigint checking is unchanged."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retain the already-checked original operator operands and Diagnostic relation through the shared iterative and ordinary binary worker; ordinary checker admission is unchanged and only the Host may prove a backed constraint."}
  *
  * Go source:
  * func (c *Checker) checkBinaryLikeExpression(left *ast.Node, operatorToken *ast.Node, right *ast.Node, checkMode CheckMode, errorNode *ast.Node) *Type {
@@ -2824,25 +2827,17 @@ export function Checker_checkBinaryLikeExpression(receiver, left, operatorToken,
     const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
     return Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, leftType, rightType);
 }
-function Checker_checkBinaryLikeExpressionWithSelectedTypes(receiver, left, operatorToken, right, checkMode, errorNode) {
-    const operator = operatorToken.Kind;
-    if (operator === KindEqualsToken && (left.Kind === KindObjectLiteralExpression || left.Kind === KindArrayLiteralExpression)) {
-        const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
-        return Object.freeze({
-            result: Checker_checkDestructuringAssignment(receiver, left, rightType, checkMode, right.Kind === KindThisKeyword),
-            leftType: undefined,
-            rightType,
-        });
-    }
-    const leftType = Checker_checkExpressionEx(receiver, left, checkMode);
-    const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
-    return Object.freeze({
-        result: Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, leftType, rightType),
-        leftType,
-        rightType,
-    });
-}
 function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, initialLeftType, initialRightType) {
+    const operation = () => checkBinaryLikeExpressionTypeRelation(receiver, left, operatorToken, right, checkMode, errorNode, initialLeftType, initialRightType);
+    return left !== undefined && right !== undefined && errorNode !== undefined && initialLeftType !== undefined && initialRightType !== undefined
+        ? withBackingConstraint(receiver, operatorToken.Kind === KindEqualsToken
+            ? { kind: "write-fit", site: errorNode, application: activeBackingCandidate(receiver),
+                source: checkedComponent(right, initialRightType), destination: checkedComponent(left, initialLeftType) }
+            : { kind: "operator", site: errorNode, application: activeBackingCandidate(receiver), operation: errorNode,
+                left: checkedComponent(left, initialLeftType), right: checkedComponent(right, initialRightType) }, operation)
+        : operation();
+}
+function checkBinaryLikeExpressionTypeRelation(receiver, left, operatorToken, right, checkMode, errorNode, initialLeftType, initialRightType) {
     const operator = operatorToken.Kind;
     let leftType = initialLeftType;
     let rightType = initialRightType;
@@ -2899,18 +2894,6 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
             }
             const leftOk = Checker_checkArithmeticOperandType(receiver, left, leftType, The_left_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type, true);
             const rightOk = Checker_checkArithmeticOperandType(receiver, right, rightType, The_right_hand_side_of_an_arithmetic_operation_must_be_of_type_any_number_bigint_or_an_enum_type, true);
-            const shift = IsShiftOperator(operator) || operator === KindLessThanLessThanEqualsToken
-                || operator === KindGreaterThanGreaterThanEqualsToken || operator === KindGreaterThanGreaterThanGreaterThanEqualsToken;
-            const originalSymbol = (node) => {
-                const symbol = Checker_GetSymbolAtLocation(receiver, node);
-                return symbol !== undefined && (symbol.Flags & SymbolFlagsAlias) !== 0
-                    ? Checker_resolveAlias(receiver, symbol) : symbol;
-            };
-            const configuredLeft = shift ? configuredSourcePrimitiveOperand(receiver.program, left, originalSymbol) : undefined;
-            const configuredRight = shift ? configuredSourcePrimitiveOperand(receiver.program, right, originalSymbol) : undefined;
-            const configuredShift = configuredLeft !== undefined && configuredRight !== undefined
-                && (configuredLeft.runtimeBase === "number" || configuredLeft.runtimeBase === "bigint")
-                && (configuredRight.runtimeBase === "number" || configuredRight.runtimeBase === "bigint");
             let resultType;
             if ((Checker_isTypeAssignableToKind(receiver, leftType, TypeFlagsAnyOrUnknown) && Checker_isTypeAssignableToKind(receiver, rightType, TypeFlagsAnyOrUnknown)) ||
                 (!Checker_maybeTypeOfKind(receiver, leftType, TypeFlagsBigIntLike) && !Checker_maybeTypeOfKind(receiver, rightType, TypeFlagsBigIntLike))) {
@@ -2920,8 +2903,7 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
                 switch (operator) {
                     case KindGreaterThanGreaterThanGreaterThanToken:
                     case KindGreaterThanGreaterThanGreaterThanEqualsToken:
-                        if (!configuredShift)
-                            Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, undefined);
+                        Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, undefined);
                         break;
                     case KindAsteriskAsteriskToken:
                     case KindAsteriskAsteriskEqualsToken:
@@ -2931,9 +2913,6 @@ function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToke
                         break;
                 }
                 resultType = receiver.bigintType;
-            }
-            else if (configuredShift) {
-                resultType = configuredLeft.runtimeBase === "bigint" ? receiver.bigintType : receiver.numberType;
             }
             else {
                 Checker_reportOperatorError(receiver, leftType, operator, rightType, errorNode, (leftOperand, rightOperand) => Checker_bothAreBigIntLike(receiver, leftOperand, rightOperand));

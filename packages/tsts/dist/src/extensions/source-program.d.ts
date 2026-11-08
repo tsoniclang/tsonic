@@ -2,6 +2,7 @@ import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
+import type { ResolvedCheckerBackingConstraint } from "../internal/checker/types.js";
 import { type Program } from "../internal/compiler/program.js";
 import { type AstReader } from "../services/ast-reader.js";
 import { type TypeCheckerQueries } from "../services/type-checker.js";
@@ -16,10 +17,12 @@ export interface SourceFileQueries {
 }
 export interface SourceProgramQueries {
     readonly ast: AstReader;
+    readonly programSourceFiles: readonly SourceFile[];
     readonly containsSourceFile: (sourceFile: GoPtr<SourceFile>) => boolean;
     readonly getSourceFiles: () => readonly GoPtr<SourceFile>[];
     readonly getSourceFile: (fileName: string) => GoPtr<SourceFile>;
     readonly getSourceFileQueries: (sourceFile: GoPtr<SourceFile>) => SourceFileQueries;
+    readonly getBackingConstraints: () => readonly ResolvedCheckerBackingConstraint[];
     readonly resolveModuleSourceFile: (moduleSpecifier: GoPtr<Node>) => GoPtr<SourceFile>;
 }
 export interface CheckedSourceProgram extends SourceProgramQueries {

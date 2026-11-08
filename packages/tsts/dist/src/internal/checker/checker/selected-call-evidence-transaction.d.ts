@@ -1,6 +1,7 @@
 import type { Checker, InferenceContext } from "./state.js";
 import type { Signature, SignatureLinks, Type } from "../types.js";
 import type { Node } from "../../ast/spine.js";
+import type { SelectedCallInferenceJournal, SelectedCallInferenceSignatureObservation } from "./selected-call-inference-evidence.js";
 export type SelectedCallEvidenceFrameKind = "signature-resolution" | "overload-candidate" | "discard";
 export interface SelectedCallEvidenceFrame {
     readonly kind: SelectedCallEvidenceFrameKind;
@@ -11,6 +12,7 @@ interface SignatureLinksSnapshot {
     readonly resolvedSignature: SignatureLinks["resolvedSignature"];
     readonly checkedCallSelectionSeed: SignatureLinks["checkedCallSelectionSeed"];
     readonly resolvedCallSelectionEvidence: SignatureLinks["resolvedCallSelectionEvidence"];
+    readonly resolvedCallEvidenceSignature: SignatureLinks["resolvedCallEvidenceSignature"];
     readonly resolvedCallEvidence: SignatureLinks["resolvedCallEvidence"];
 }
 interface SelectedCallEvidenceFrameRecord extends SelectedCallEvidenceFrame {
@@ -19,6 +21,7 @@ interface SelectedCallEvidenceFrameRecord extends SelectedCallEvidenceFrame {
     candidate: Signature | undefined;
     readonly contexts: InferenceContext[];
     readonly defaults: SelectedDefaultContribution[];
+    readonly inference: SelectedCallInferenceJournal;
 }
 interface SelectedDefaultContribution {
     readonly context: InferenceContext | undefined;
@@ -30,6 +33,11 @@ export interface SelectedCallEvidenceTransactionState {
     failed: boolean;
     readonly frames: SelectedCallEvidenceFrameRecord[];
     entryCount: number;
+    inferenceEntryCount: number;
+    revision: number;
+    lookupRevision: number;
+    lookupInferences: InferenceContext["inferences"] | undefined;
+    lookupJournal: SelectedCallInferenceJournal | undefined;
 }
 export declare function beginSelectedCallEvidenceFrame(checker: Checker, kind: SelectedCallEvidenceFrameKind): SelectedCallEvidenceFrame | undefined;
 export declare function commitSelectedCallEvidenceFrame(checker: Checker, frame: SelectedCallEvidenceFrame | undefined): void;
@@ -37,8 +45,12 @@ export declare function rollbackSelectedCallEvidenceFrame(checker: Checker, fram
 export declare function journalSelectedCallEvidence(checker: Checker, links: SignatureLinks): void;
 export declare function bindSelectedCallDefaultOwner(checker: Checker, frame: SelectedCallEvidenceFrame | undefined, candidate: Signature): void;
 export declare function bindSelectedCallDefaultContext(checker: Checker, frame: SelectedCallEvidenceFrame | undefined, context: InferenceContext): void;
+export declare function bindSelectedCallInferenceContext(checker: Checker, context: InferenceContext): void;
 export declare function retainSelectedCallDefault(checker: Checker, context: InferenceContext | undefined, parameter: Type, selectedType: Type, defaultTypeNode: Node | undefined): void;
 export declare function selectedCallDefaultNode(checker: Checker, context: InferenceContext | undefined, parameter: Type, selectedType: Type): Node | undefined;
 export declare function copySelectedCallDefaults(checker: Checker, source: InferenceContext, destination: InferenceContext): void;
+export declare function selectedCallInferenceJournal(checker: Checker, inferences: InferenceContext["inferences"]): SelectedCallInferenceJournal | undefined;
+export declare function selectedCallFrameInferenceJournal(checker: Checker, frame: SelectedCallEvidenceFrame | undefined): SelectedCallInferenceJournal | undefined;
+export declare function selectedCallInferenceSignatureObservation(checker: Checker, source: Signature, formal: Signature): SelectedCallInferenceSignatureObservation | undefined;
 export {};
 //# sourceMappingURL=selected-call-evidence-transaction.d.ts.map

@@ -2421,7 +2421,7 @@ export function Checker_createSignatureForJSXIntrinsic(receiver, node, result) {
     // declaration := factory.createFunctionTypeNode(...)
     const parameterSymbol = Checker_newSymbol(receiver, SymbolFlagsFunctionScopedVariable, "props");
     LinkStore_Get(receiver.valueSymbolLinks, parameterSymbol).resolvedType = result;
-    return Checker_newSignature(receiver, SignatureFlagsNone, undefined, [], undefined, [parameterSymbol], elementType, undefined, 1);
+    return Checker_newSignature(receiver, SignatureFlagsNone, undefined, [], undefined, [parameterSymbol], elementType, undefined, 1, undefined);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.getIntrinsicAttributesTypeFromJsxOpeningLikeElement","kind":"method","status":"implemented","sigHash":"29e3be6469930ce3ba51c0f4958a577be88e4bba16d0fbb71a3817b6bbc1866e","bodyHash":"3d074b6b267651537229248017388a13cef0d42cadb68f5a7c2e5ec1004ed5a5"}

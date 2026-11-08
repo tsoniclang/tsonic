@@ -4791,7 +4791,7 @@ export function NodeBuilderImpl_addPropertyToElementList(receiver, propertySymbo
                 (propertySymbol.Parent.Flags & SymbolFlagsClass) !== 0 &&
                 propDeclaration !== undefined &&
                 Some(Node_ModifierNodes(propDeclaration) ?? [], (modifier) => modifier.Kind === KindAccessorKeyword)) {
-                const fakeGetterSignature = Checker_newSignature(receiver.ch, SignatureFlagsNone, undefined, [], undefined, [], propertyType, undefined, 0);
+                const fakeGetterSignature = Checker_newSignature(receiver.ch, SignatureFlagsNone, undefined, [], undefined, [], propertyType, undefined, 0, undefined);
                 const fakeGetterDeclaration = NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver, fakeGetterSignature, KindGetAccessor, {
                     modifiers: [],
                     name: propertyName,
@@ -4801,7 +4801,7 @@ export function NodeBuilderImpl_addPropertyToElementList(receiver, propertySymbo
                 typeElements.push(fakeGetterDeclaration);
                 const setterParam = Checker_newSymbol(receiver.ch, SymbolFlagsFunctionScopedVariable, "arg");
                 LinkStore_Get(receiver.ch.valueSymbolLinks, setterParam).resolvedType = writeType;
-                const fakeSetterSignature = Checker_newSignature(receiver.ch, SignatureFlagsNone, undefined, [], undefined, [setterParam], receiver.ch.voidType, undefined, 0);
+                const fakeSetterSignature = Checker_newSignature(receiver.ch, SignatureFlagsNone, undefined, [], undefined, [setterParam], receiver.ch.voidType, undefined, 0, undefined);
                 const fakeSetterDeclaration = NodeBuilderImpl_signatureToSignatureDeclarationHelper(receiver, fakeSetterSignature, KindSetAccessor, {
                     modifiers: [],
                     name: propertyName,

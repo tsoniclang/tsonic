@@ -1,4 +1,4 @@
-import type { bool } from "../../go/scalars.js";
+import type { bool, uint } from "../../go/scalars.js";
 import type { GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { Uint64 } from "../../go/sync/atomic.js";
 import type { CheckFlags } from "./checkflags.js";
@@ -6,6 +6,7 @@ import type { Node } from "./spine.js";
 import type { SymbolFlags } from "./symbolflags.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/symbol.go::type::Symbol","kind":"type","status":"implemented","sigHash":"f6832f7bb71206a127c501f5d4064938e8afd0bedacfd35c03d28bf509c5d808","bodyHash":"634d78d7441a3106cbf21cb5830bb90f8e16c4650bdf3684c32205cdd58172c8"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Checker-created transient symbols retain their actual producer's immutable numeric identity; bound and other genuinely shared symbols have no checker owner.","goSignature":"interface{CheckFlags:packages/tsts/src/internal/ast/checkflags.ts::CheckFlags;CombinedLocalAndExportSymbolFlags?:()=>packages/tsts/src/internal/ast/generated/flags.ts::SymbolFlags;Declarations:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>>;ExportSymbol:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;Exports:packages/tsts/src/internal/ast/symbol.ts::SymbolTable;Flags:packages/tsts/src/internal/ast/generated/flags.ts::SymbolFlags;IsExternalModule?:()=>packages/tsts/src/go/scalars.ts::bool;IsStatic?:()=>packages/tsts/src/go/scalars.ts::bool;Members:packages/tsts/src/internal/ast/symbol.ts::SymbolTable;Name:string;Parent:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;ValueDeclaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;id:packages/tsts/src/go/sync/atomic.ts::Uint64}","tsSignature":"interface{CheckFlags:packages/tsts/src/internal/ast/checkflags.ts::CheckFlags;Declarations:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>>>;ExportSymbol:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;Exports:packages/tsts/src/internal/ast/symbol.ts::SymbolTable;Flags:packages/tsts/src/internal/ast/generated/flags.ts::SymbolFlags;Members:packages/tsts/src/internal/ast/symbol.ts::SymbolTable;Name:string;Parent:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;ValueDeclaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>;checkerId?:packages/tsts/src/go/scalars.ts::uint;id:packages/tsts/src/go/sync/atomic.ts::Uint64}"}
  *
  * Go source:
  * Symbol struct {
@@ -22,6 +23,7 @@ import type { SymbolFlags } from "./symbolflags.js";
  * }
  */
 export interface Symbol {
+    readonly checkerId?: uint;
     Flags: SymbolFlags;
     CheckFlags: CheckFlags;
     Name: string;

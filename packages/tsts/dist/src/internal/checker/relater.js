@@ -1,7 +1,8 @@
+import { observeBackingDiagnostic, observePublishedDiagnostic, withBackingWriteFit } from "./checker/backing-constraint-evidence.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import { Node_Name } from "../ast/spine.js";
 import { Node_ModifierFlags } from "../ast/ast.js";
-import { NewDiagnosticChain, Diagnostic_SetRelatedInfo, Diagnostic_AddRelatedInfo } from "../ast/diagnostic.js";
+import { NewDiagnosticChain, Diagnostic_SetRelatedInfo, Diagnostic_AddRelatedInfo, DiagnosticsCollection_Add } from "../ast/diagnostic.js";
 import { Checker_addDiagnostic } from "./checker.js";
 import { CombineSurrogatePairs } from "../stringutil/util.js";
 import { ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsIn, ModifierFlagsOut, ModifierFlagsConst, ModifierFlagsNonPublicAccessibilityModifier } from "../ast/modifierflags.js";
@@ -869,11 +870,13 @@ export function createDiagnosticChainFromErrorChain(chain, errorNode, relatedInf
  */
 export function Checker_reportDiagnostic(receiver, diagnostic, diagnosticOutput) {
     if (diagnostic !== undefined) {
+        observeBackingDiagnostic(receiver, diagnostic);
         if (diagnosticOutput !== undefined) {
             diagnosticOutput.push(diagnostic);
         }
         else {
-            Checker_addDiagnostic(receiver, diagnostic);
+            observePublishedDiagnostic(receiver, diagnostic);
+            DiagnosticsCollection_Add(receiver.diagnostics, diagnostic);
         }
     }
 }
@@ -886,7 +889,7 @@ export function Checker_reportDiagnostic(receiver, diagnostic, diagnosticOutput)
  * }
  */
 export function Checker_checkTypeAssignableToAndOptionallyElaborate(receiver, source, target, errorNode, expr, headMessage, diagnosticOutput) {
-    return Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
+    return withBackingWriteFit(receiver, expr, source, target, () => Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver.assignableRelation, errorNode, expr, headMessage, diagnosticOutput));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.checkTypeRelatedToAndOptionallyElaborate","kind":"method","status":"implemented","sigHash":"3be8c70b5de92c27dbd732a2715271d8d1f11bddde43258ac9bc64bddbe4f952","bodyHash":"4435d044edba7a4f83ee4486f165036629f497be74b0b8cb6bbfe4e8297943ee"}
@@ -4516,7 +4519,7 @@ export function Checker_compareSignaturesIdentical(receiver, source, target, par
                 return TernaryFalse;
             }
         }
-        src = Checker_instantiateSignatureEx(receiver, source, mapper, true);
+        src = Checker_instantiateSignatureEx(receiver, source, mapper, true, source.constructorClass);
     }
     let result = TernaryTrue;
     if (!ignoreThisTypes) {
