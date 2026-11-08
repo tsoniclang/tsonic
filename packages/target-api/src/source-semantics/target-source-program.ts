@@ -10,7 +10,7 @@ import { createSourceTypeDescriptorReader } from "./local-type-flow/descriptors.
 import { produceSourceScalarLiteralDomain } from "./local-type-flow/literal-domains.js";
 import { produceSourceProjection } from "./local-type-flow/projections.js";
 import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js";
-import { sourceEvidenceExtends } from "./local-type-flow/evidence-relations.js";
+import { sourceKeyDomainContains } from "./local-type-flow/key-domains.js";
 import { analyzeSourceTypeFlow } from "./local-type-flow/solver.js";
 import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
 import { createSourceMemberUseQueries } from "./member-use.js";
@@ -124,7 +124,8 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
       profileDeclaration: input.profileDeclaration }) });
   const correspondence = createSourceMemberCorrespondenceQueries({ view: owner.view,
     inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode, domain: owner.builder.domain });
-  solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
+  solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, enclosing: navigationOwner.analysis.enclosing,
+    input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
     createDescriptorReader(hooks) {
       if (reader !== undefined) throw new Error("A Source solve must create exactly one descriptor reader for its view.");
       reader = createSourceTypeDescriptorReader({ input: input.input, builder: owner.builder, hooks, observe: owner.observe,
@@ -154,8 +155,8 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   const completePropertyName = propertyName;
   if (completeObjects === undefined || completePropertyName === undefined)
     throw new Error("A Source solve must establish its required object and property-name owners before publication.");
-  const keyContains = (destination: SourceTypeEvidence, source: SourceTypeEvidence) => sourceEvidenceExtends(
-    { builder: owner.builder, objects: completeObjects }, destination, source);
+  const keyContains = (destination: SourceTypeEvidence, source: SourceTypeEvidence) =>
+    sourceKeyDomainContains(owner.builder, destination, source);
   const objects: SourceObjectFacts = Object.freeze({
     correspondence: (source, destination, purpose) => settle(completeObjects.correspondence(source, destination, purpose, keyContains)),
     correspondingMember: (source, destination, declaration, purpose) => settle(completeObjects.correspondingMember(source, destination, declaration, purpose, keyContains)),
