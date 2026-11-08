@@ -176,6 +176,146 @@ const receiverExamples = [
     return new Local(value); }` },
 ];
 
+test("C2428 aliased generic method callbacks publish the original selected binder's exact argument", () => {
+  const current = fixture(`export function run<Value>(values: Value[]): Value[] {
+    const mapper = (value: Value): Value => value;
+    const alias = mapper; const mapped = values.map(alias); return mapped;
+  }`);
+  const { ast, facts } = current.source;
+  const call = current.nodes.find(node => ast.is.IsCallExpression(node));
+  const owner = current.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "run");
+  const parameter = ast.typeParameters(owner)[0];
+  assert.equal(call !== undefined && parameter !== undefined, true);
+  const outcome = facts.values.type(call);
+  const selected = facts.applications.application(call);
+  assert.equal(outcome.kind === "resolved" && selected.kind === "resolved", true);
+  assert.equal(outcome.value.type.kind === "array" && outcome.value.type.element.kind === "parameter" &&
+    outcome.value.type.element.declaration === parameter, true,
+  "the result contains the project's original parameter, never the uninstantiated library method parameter");
+  assert.equal(selected.value.identity.signatureBindings.length, 1);
+  const argument = selected.value.identity.signatureBindings[0].value;
+  assert.equal(argument.type.kind === "parameter" && argument.type.declaration === parameter &&
+    argument.type === outcome.value.type.element && selected.value.result === outcome.value, true,
+  "the result and same-call method argument retain identical original declaration and canonical geometry");
+  assert.equal(facts.refusals().length, 0);
+});
+
+test("C2429 only a published winning default contributes its original authored primitive component", () => {
+  const current = fixture(`declare function create<Value = int32>(): Value;
+    declare function infer<Value = int32>(value: Value): Value;
+    function run(narrow: float32, wide: number): void {
+      const chosen = create(); const explicit = create<float32>();
+      const authored = infer(narrow); const equalBacking = infer(wide); const fractional = infer(1.5);
+      void chosen; void explicit; void authored; void equalBacking; void fractional;
+    }`);
+  const { ast, facts } = current.source;
+  for (const [name, primitive, origin] of [["chosen", "int32", "default"], ["explicit", "float32", "explicit"],
+    ["authored", "float32", "inferred"], ["equalBacking", "float64", "inferred"], ["fractional", "float64", "inferred"]]) {
+    const declaration = current.declaration(name);
+    const call = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    assert.equal(call !== undefined, true, name);
+    const selected = facts.applications.application(call);
+    assert.equal(selected.kind, "resolved", name);
+    assert.equal(selected.value.identity.signatureBindings.length, 1, name);
+    const binding = selected.value.identity.signatureBindings[0];
+    assert.equal(binding.declaration === selected.value.identity.signature.typeParameters[0], true, `${name}: the exact original selected binder`);
+    const originalDefault = ast.as.AsTypeParameterDeclaration(binding.declaration)?.DefaultType;
+    assert.equal(originalDefault !== undefined && ast.text(originalDefault) === "int32", true, name);
+    assert.equal(ast.typeArguments(call).length > 0, origin === "explicit", `${name}: only original explicit syntax is explicit`);
+    assert.equal(selected.value.sourceArguments.length === 0, origin !== "inferred", `${name}: defaults never replace actual inference inputs`);
+    const value = current.slot(name);
+    assert.equal(value.type.kind === "primitive" && value.type.primitive === primitive && binding.value.type === value.type &&
+      selected.value.result.type === value.type, true, `${name}: value, actual result and same-call binder retain the original Source primitive`);
+  }
+  assert.equal(facts.refusals().length, 0);
+});
+
+test("C2431 typeof object members retain their original authored value producers", () => {
+  const current = fixture(`declare function produced<Value>(): Value;
+    const original = { exact: produced<int32>(), floating: produced<number>(), integer: 7 };
+    type Snapshot = typeof original; declare const selected: Snapshot;`);
+  const definition = current.source.facts.descriptors.definition(current.slot("selected"));
+  assert.equal(definition.kind === "resolved" && definition.value.type.kind === "shape", true);
+  for (const [name, primitive] of [["exact", "int32"], ["floating", "float64"], ["integer", "int64"]]) {
+    const member = definition.value.type.members.find(member => member.name === name);
+    assert.equal(member?.type.kind === "primitive" && member.type.primitive === primitive && member.origin.kind === "declared" &&
+      current.source.ast.is.IsPropertyAssignment(member.origin.declaration), true,
+    `${name}: the original member initializer owns its native type without reopening a backing Type`);
+  }
+});
+
+test("conditional structural infer patterns retain exact member callback widths and recursive applications", () => {
+  for (const primitive of ["int32", "float32"]) {
+    const current = fixture(`interface Thenable<Value> { then(callback: (value: Value) => void): void; }
+      type Payload<Value> = Value extends object & { then(callback: infer Callback): void }
+        ? Callback extends (value: infer Result) => void ? Result : never : never;
+      declare const selected: Payload<Thenable<${primitive}>>;
+      declare const recursive: Awaited<Promise<Promise<${primitive}>>>;
+      declare const unrelated: Payload<{ other: ${primitive} }>;
+      declare const optionalCallback: Awaited<{ then(callback?: ((value: ${primitive}) => void) | undefined): void }>;
+      declare const keyed: { key: ${primitive} };`);
+    for (const name of ["selected", "recursive", "optionalCallback"]) {
+      const result = current.source.facts.descriptors.definition(current.slot(name));
+      assert.equal(result.kind === "resolved" && result.value.type.kind === "primitive" && result.value.type.primitive === primitive, true,
+        `${name}: structural inference and recursive alias applications preserve ${primitive}`);
+    }
+    const unrelated = current.source.facts.descriptors.definition(current.slot("unrelated"));
+    assert.equal(unrelated.kind === "resolved" && unrelated.value.type.kind === "intrinsic" && unrelated.value.type.intrinsic === "never", true,
+      "a false structural branch never borrows an unrelated member");
+    assert.equal(current.slot("keyed").type.kind, "shape", "a conditional binding scope never contaminates a sibling");
+  }
+});
+
+test("conditional distribution selects retained presence and absence without erasing exact primitive widths", () => {
+  const current = fixture(`type Split<Value> = Value extends null | undefined ? int32 : Value;
+    type Keep<Value> = Value extends null | undefined ? Value : Value;
+    declare const split: Split<float32 | null | undefined>; declare const kept: Keep<float32 | null | undefined>;`);
+  const split = current.source.facts.descriptors.definition(current.slot("split"));
+  assert.equal(split.kind === "resolved" && split.value.type.kind === "union" && split.value.type.types.length === 2 &&
+    split.value.type.types.every(type => type.kind === "primitive") &&
+    split.value.type.types.some(type => type.kind === "primitive" && type.primitive === "int32") &&
+    split.value.type.types.some(type => type.kind === "primitive" && type.primitive === "float32"), true,
+  "a checked numeric union cannot erase either authored Source primitive");
+  const kept = current.source.facts.descriptors.definition(current.slot("kept"));
+  assert.equal(kept.kind === "resolved" && kept.value.type.kind === "optional" && kept.value.type.value.kind === "primitive" &&
+    kept.value.type.value.primitive === "float32", true, "both nullish branches retain one native absence and the original present descriptor");
+  assert.equal(current.source.facts.refusals().length, 0);
+});
+
+test("C2373 distributed callback inference retains its lexical scope through every sibling and recursive tail", () => {
+  const current = fixture(`type Unwrap<Value> = Value extends { then(callback: infer Callback): void }
+      ? Callback extends ((value: infer Inner) => void) ? Unwrap<Inner> : never : Value;
+    interface Layer<Value> { then(callback?: ((value: Value) => void) | null): void; }
+    declare const first: Unwrap<Layer<Layer<int32>>>; declare const second: Unwrap<Layer<float32>>;
+    declare const nested: Awaited<Promise<Promise<float32>>>; declare const sibling: int32;
+    interface NativeIndex { readonly [key: int32]: float32; } declare const indexed: NativeIndex;`);
+  for (const [name, primitive] of [["first", "int32"], ["second", "float32"], ["nested", "float32"], ["sibling", "int32"]]) {
+    const result = current.source.facts.descriptors.definition(current.slot(name));
+    assert.equal(result.kind === "resolved" && result.value.type.kind === "primitive" && result.value.type.primitive === primitive, true,
+      `${name}: the actual inferred width survives every captured branch`);
+  }
+  const indexed = current.source.facts.descriptors.definition(current.slot("indexed"));
+  assert.equal(indexed.kind === "resolved" && indexed.value.type.kind === "shape" && indexed.value.type.indexes.length === 1 &&
+    indexed.value.type.indexes[0]?.key.kind === "primitive" && indexed.value.type.indexes[0].key.primitive === "int32" &&
+    indexed.value.type.indexes[0].value.kind === "primitive" && indexed.value.type.indexes[0].value.primitive === "float32", true,
+  "an authored native index retains its exact key and value kinds");
+  assert.equal(current.source.facts.refusals().length, 0);
+});
+
+test("tail conditional applications retain their successive exact Source binder scopes", () => {
+  for (const primitive of ["int32", "float32"]) {
+    const current = fixture(`interface Layer<Value> { item: Value; }
+      type Peel<Value> = Value extends Layer<infer Inner> ? Peel<Inner> : Value;
+      declare const first: Peel<Layer<Layer<Layer<${primitive}>>>>; declare const sibling: ${primitive};`);
+    for (const name of ["first", "sibling"]) {
+      const result = current.source.facts.descriptors.definition(current.slot(name));
+      assert.equal(result.kind === "resolved" && result.value.type.kind === "primitive" && result.value.type.primitive === primitive, true,
+        `${name}: the captured tail application retains its exact Source argument`);
+    }
+    assert.equal(current.source.facts.refusals().length, 0);
+  }
+});
+
 for (const example of receiverExamples) test(`a ${example.name} this-type retains the complete original checked binder vector`, () => {
   const current = fixture(example.text);
   const { ast, facts } = current.source;

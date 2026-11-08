@@ -30,28 +30,6 @@ function fixture(text: string, noImplicitAny = true) {
   return { source, defaults, declaration };
 }
 
-test("C2428 aliased generic method callbacks publish the original selected binder's exact argument", () => {
-  const current = fixture(`export function run<Value>(values: Value[]): Value[] {
-    const mapper = (value: Value): Value => value;
-    const alias = mapper;
-    const mapped = values.map(alias);
-    return mapped;
-  }`);
-  const { ast } = current.source;
-  const call = current.defaults.nodes.find(node => ast.is.IsCallExpression(node));
-  const outcome = call === undefined ? undefined : current.source.effectiveTypes.get(call);
-  const selected = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
-  const owner = current.defaults.nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "run");
-  const parameter = owner === undefined ? undefined : ast.typeParameters(owner)[0];
-  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
-    outcome.type.element.kind === "declared" && outcome.type.element.declaration === parameter, true,
-  "the result contains the project's original generic parameter, never the uninstantiated library method parameter");
-  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "array" &&
-    selected?.method.length === 1 && selected.method[0]?.type.kind === "declared" &&
-    selected.method[0].type.declaration === parameter && sourceTypeDescriptorsEqual(outcome.type.element, selected.method[0].type), true,
-  "the result and the same call's method argument retain the identical original declaration and full descriptor");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
 
 test("C2446 narrowed callable reads retain their original authored branch without retargeting union storage", () => {
   const current = fixture(`function run(values: int32[]): void {
@@ -128,50 +106,7 @@ test("C2446 union occurrence projection preserves subsets and refuses to guess e
   "the original parameter remains absence-capable storage with both authored present branches");
 });
 
-test("C2429 only a published winning default contributes its original authored primitive component", () => {
-  const current = fixture(`declare function create<Value = int32>(): Value;
-    declare function infer<Value = int32>(value: Value): Value;
-    function run(narrow: float32, wide: number): void {
-      const chosen = create(); const explicit = create<float32>();
-      const authored = infer(narrow); const equalBacking = infer(wide); const fractional = infer(1.5);
-      void chosen; void explicit; void authored; void equalBacking; void fractional;
-    }`);
-  const { ast } = current.source;
-  const expected = [["chosen", "int32", "default"], ["explicit", "float32", "explicit"],
-    ["authored", "float32", "inferred"], ["equalBacking", "float64", "inferred"], ["fractional", "float64", "inferred"]] as const;
-  for (const [name, primitive, origin] of expected) {
-    const declaration = current.declaration(name);
-    const callNode = ast.as.AsVariableDeclaration(declaration)?.Initializer;
-    const call = callNode === undefined ? undefined : current.source.semantics.forNode(callNode).operations.call(callNode);
-    const argument = call?.sourceSelectedMethodTypeArguments?.[0];
-    const outcome = current.source.effectiveTypes.get(declaration);
-    const selected = callNode === undefined ? undefined : current.source.effectiveTypes.callInstantiation(callNode);
-    assert.equal(argument !== undefined && (argument.defaultTypeNode !== undefined) === (origin === "default") &&
-      (argument.explicitTypeNode !== undefined) === (origin === "explicit"), true,
-    name + ": only the checked selected contribution supplies authored syntax");
-    assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
-      outcome.type.primitive === primitive && selected?.method.length === 1 && selected.method[0]?.type.kind === "primitive" &&
-      selected.method[0].type.primitive === primitive, true, name + ": value and same-call binder retain the original Source primitive");
-  }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
 
-test("C2431 typeof object members retain their original authored value producers", () => {
-  const current = fixture(`declare function produced<Value>(): Value;
-    const original = { exact: produced<int32>(), floating: produced<number>(), integer: 7 };
-    type Snapshot = typeof original;
-    declare const selected: Snapshot;`);
-  const type = current.defaults.context.describe(current.declaration("selected"));
-  const shape = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
-  assert.equal(shape?.kind === "shape", true, "the original object's alias has one canonical member inventory");
-  if (shape?.kind !== "shape") throw new Error("The retained original member inventory is required.");
-  for (const [name, expected] of [["exact", "int32"], ["floating", "float64"], ["integer", "int64"]] as const) {
-    const selectedMember: SourceTypeDescriptorMember | undefined = shape.members.find(candidate => candidate.name === name);
-    assert.equal(selectedMember?.type.kind === "primitive" && selectedMember.type.primitive === expected &&
-      selectedMember.origin.kind === "declared" && current.source.ast.is.IsPropertyAssignment(selectedMember.origin.declaration), true,
-    name + ": the original member initializer owns its native type without reopening its backing Type");
-  }
-});
 
 test("an unresolved foreign conditional alias is not an identity-only nominal cut", () => {
   const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
@@ -227,72 +162,8 @@ test("a closed foreign conditional alias publishes its exact primitive result in
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("conditional structural infer patterns retain exact member callback widths and recursive applications", () => {
-  for (const primitive of ["int32", "float32"] as const) {
-    const current = fixture(`interface Thenable<Value> { then(callback: (value: Value) => void): void; }
-      type Payload<Value> = Value extends object & { then(callback: infer Callback): void }
-        ? Callback extends (value: infer Result) => void ? Result : never : never;
-      declare const selected: Payload<Thenable<${primitive}>>;
-      declare const recursive: Awaited<Promise<Promise<${primitive}>>>;
-      declare const unrelated: Payload<{ other: ${primitive} }>;
-      declare const optionalCallback: Awaited<{ then(callback?: ((value: ${primitive}) => void) | undefined): void }>;
-      declare const keyed: { key: ${primitive} };`);
-    for (const name of ["selected", "recursive", "optionalCallback"]) {
-      const descriptor = current.defaults.context.describe(current.declaration(name));
-      const result = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
-      assert.equal(result?.kind === "primitive" && result.primitive === primitive, true,
-        `${name}: structural inference and recursive alias applications preserve ${primitive}`);
-    }
-    const unrelated = current.defaults.context.describe(current.declaration("unrelated"));
-    const result = unrelated === undefined ? undefined : sourceTypeDescriptorStructure(unrelated);
-    assert.equal(result?.kind === "intrinsic" && result.intrinsic === "never", true,
-      "a false structural branch never borrows an unrelated member");
-    const keyed = current.defaults.context.describe(current.declaration("keyed"));
-    assert.equal(keyed !== undefined, true, "the preceding conditional binding scope never contaminates a sibling read");
-  }
-});
 
-test("conditional distribution selects retained presence and absence without erasing exact primitive widths", () => {
-  const current = fixture(`type Split<Value> = Value extends null | undefined ? int32 : Value;
-    type Keep<Value> = Value extends null | undefined ? Value : Value;
-    declare const split: Split<float32 | null | undefined>;
-    declare const kept: Keep<float32 | null | undefined>;`);
-  const split = current.defaults.context.describe(current.declaration("split"));
-  const result = split === undefined ? undefined : sourceTypeDescriptorStructure(split);
-  assert.equal(result?.kind === "union" && result.types.length === 2 &&
-    result.types.every(type => type.kind === "primitive") &&
-    result.types.some(type => type.kind === "primitive" && type.primitive === "int32") &&
-    result.types.some(type => type.kind === "primitive" && type.primitive === "float32"), true,
-  "a checked numeric union cannot erase either authored Source primitive");
-  const kept = current.defaults.context.describe(current.declaration("kept"));
-  const optional = kept === undefined ? undefined : sourceTypeDescriptorStructure(kept);
-  assert.equal(optional?.kind === "optional" && optional.value.kind === "primitive" && optional.value.primitive === "float32", true,
-    "both checked nullish branches retain the one native absence and original present descriptor");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
 
-test("C2373 distributed callback inference retains its lexical scope through every sibling and recursive tail", () => {
-  const current = fixture(`type Unwrap<Value> = Value extends { then(callback: infer Callback): void }
-      ? Callback extends ((value: infer Inner) => void) ? Unwrap<Inner> : never : Value;
-    interface Layer<Value> { then(callback?: ((value: Value) => void) | null): void; }
-    declare const first: Unwrap<Layer<Layer<int32>>>;
-    declare const second: Unwrap<Layer<float32>>;
-    declare const nested: Awaited<Promise<Promise<float32>>>;
-    declare const sibling: int32;
-    interface NativeIndex { readonly [key: int32]: float32; }
-    declare const indexed: NativeIndex;`);
-  for (const [name, primitive] of [["first", "int32"], ["second", "float32"], ["nested", "float32"], ["sibling", "int32"]] as const) {
-    const type = current.defaults.context.describe(current.declaration(name));
-    const value = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
-    assert.equal(value?.kind === "primitive" && value.primitive === primitive, true, name + ": the actual inferred width survives each captured branch");
-  }
-  const indexed = current.defaults.context.describe(current.declaration("indexed"));
-  const shape = indexed === undefined ? undefined : sourceTypeDescriptorStructure(indexed);
-  assert.equal(shape?.kind === "shape" && shape.indexes.length === 1 && shape.indexes[0]?.key.kind === "primitive" &&
-    shape.indexes[0].key.primitive === "int32" && shape.indexes[0]?.value.kind === "primitive" && shape.indexes[0].value.primitive === "float32", true,
-  "an authored native index retains its exact key and value kinds");
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
 
 test("normalized mapped union bodies do not reopen their own alias on an object constituent", () => {
   for (const alias of [false, true]) {
@@ -319,21 +190,6 @@ test("normalized mapped union bodies do not reopen their own alias on an object 
   }
 });
 
-test("tail conditional applications retain their successive exact Source binder scopes", () => {
-  for (const primitive of ["int32", "float32"] as const) {
-    const current = fixture(`interface Layer<Value> { item: Value; }
-      type Peel<Value> = Value extends Layer<infer Inner> ? Peel<Inner> : Value;
-      declare const first: Peel<Layer<Layer<Layer<${primitive}>>>>;
-      declare const sibling: ${primitive};`);
-    for (const name of ["first", "sibling"]) {
-      const descriptor = current.defaults.context.describe(current.declaration(name));
-      const structure = descriptor === undefined ? undefined : sourceTypeDescriptorStructure(descriptor);
-      assert.equal(structure?.kind === "primitive" && structure.primitive === primitive, true,
-        `${name}: the captured tail application and its exact Source argument describe the same scope`);
-    }
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
-  }
-});
 
 test("normalized mapped definitions exclude all enclosing alias metadata but retain genuine member recursion", () => {
   const current = fixture(`type Input = readonly (string | float32)[] | { readonly value: float32 };
