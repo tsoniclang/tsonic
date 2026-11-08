@@ -1,20 +1,20 @@
 import type { Node, Signature, Type } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputComponentPart, SourceInputSignature } from "./identities.js";
+import type { SourceInputComponent, SourceInputComponentPart, SourceInputSignature } from "@tsonic/target-api/host";
 
 export interface SourceInputIdentityOwner {
   assertComponent(component: SourceInputComponent): void;
   assertSignature(signature: SourceInputSignature): void;
-  checkedComponent(component: SourceInputComponent): Type;
+  checkedComponent(component: SourceInputComponent): Type | undefined;
   checkedSignature(signature: SourceInputSignature): Signature;
-  component(root: Node, path: readonly SourceInputComponentPart[], terminal: Type): SourceInputComponent;
+  component(root: Node, path: readonly SourceInputComponentPart[], terminal: Type | undefined): SourceInputComponent;
   signature(owner: Node, kind: "call" | "construct", original: Signature,
     declaration: Node | undefined, parameters: readonly Node[]): SourceInputSignature;
 }
 
 export function createSourceInputIdentityOwner(assertNode: (node: Node) => void): SourceInputIdentityOwner {
-  const componentTypes = new WeakMap<SourceInputComponent, Type>();
+  const componentTypes = new WeakMap<SourceInputComponent, Type | undefined>();
   const signatureTypes = new WeakMap<SourceInputSignature, Signature>();
-  const components = new WeakMap<Node, WeakMap<Type, Map<string, SourceInputComponent>>>();
+  const components = new WeakMap<Node, Map<Type | undefined, Map<string, SourceInputComponent>>>();
   const signatures = new WeakMap<Signature, Map<string, SourceInputSignature>>();
   const ids = new WeakMap<object, number>();
   let nextId = 0;
@@ -32,10 +32,9 @@ export function createSourceInputIdentityOwner(assertNode: (node: Node) => void)
     return id(node);
   }
 
-  function checkedComponent(component: SourceInputComponent): Type {
-    const selected = componentTypes.get(component);
-    if (selected === undefined) throw new Error("An original Source component must belong to this exact input view.");
-    return selected;
+  function checkedComponent(component: SourceInputComponent): Type | undefined {
+    if (!componentTypes.has(component)) throw new Error("An original Source component must belong to this exact input view.");
+    return componentTypes.get(component);
   }
 
   function checkedSignature(signature: SourceInputSignature): Signature {
@@ -61,7 +60,7 @@ export function createSourceInputIdentityOwner(assertNode: (node: Node) => void)
         case "argument-tail": case "parameter-tail": return [part.kind, part.start];
         case "element": case "optional-value": return [part.kind];
         case "tuple-element": case "union-member": return [part.kind, part.index];
-        case "tuple-slice": return [part.kind, part.start, part.readonly];
+        case "tuple-slice": return [part.kind, part.start, part.endCount, part.readonly];
         case "signature-tail": return [part.kind, signatureId(part.signature), part.start, part.readonly];
       }
     }));
@@ -72,11 +71,11 @@ export function createSourceInputIdentityOwner(assertNode: (node: Node) => void)
     assertSignature: (signature: SourceInputSignature): void => { checkedSignature(signature); },
     checkedComponent,
     checkedSignature,
-    component: (root: Node, path: readonly SourceInputComponentPart[], terminal: Type): SourceInputComponent => {
+    component: (root: Node, path: readonly SourceInputComponentPart[], terminal: Type | undefined): SourceInputComponent => {
       nodeId(root);
       const identity = pathKey(path);
       let byType = components.get(root);
-      if (byType === undefined) { byType = new WeakMap(); components.set(root, byType); }
+      if (byType === undefined) { byType = new Map(); components.set(root, byType); }
       let byPath = byType.get(terminal);
       if (byPath === undefined) { byPath = new Map(); byType.set(terminal, byPath); }
       const existing = byPath.get(identity);

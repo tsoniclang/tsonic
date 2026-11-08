@@ -8,6 +8,7 @@ import type { SourceDescriptorInterner } from "./descriptor-interner.js";
 
 export interface SourceParameterOwner {
   register(declaration: Node, owner: Node, index: number,
+    captures: readonly Node[],
     constraint: () => SourceResult<SourceTypeParameterRequirement>,
     defaultType: () => SourceResult<SourceTypeParameterRequirement>): SourceTypeParameter;
   get(declaration: Node): SourceTypeParameter;
@@ -26,6 +27,7 @@ export function createSourceParameterOwner(input: {
 }): SourceParameterOwner {
   interface ParameterRecord {
     readonly value: SourceTypeParameter;
+    readonly captures: readonly Node[];
     readonly constraint: () => SourceResult<SourceTypeParameterRequirement>;
     readonly defaultType: () => SourceResult<SourceTypeParameterRequirement>;
     constraintResult?: SourceResult<SourceTypeParameterRequirement>;
@@ -71,11 +73,30 @@ export function createSourceParameterOwner(input: {
     const found: SourceTypeParameter[] = [];
     const seen = new Set<Node>();
     const visited = new Set<SourceTypeEvidence>();
+    const requirements = new Set<Node>();
+    const resolving = new Set<Node>();
+    let environment: ReadonlyMap<Node, SourceTypeEvidence> = new Map();
+    function captured(declaration: Node, bound: ReadonlySet<Node>): void {
+      const record = parameterRecord(get(declaration));
+      if (requirements.has(declaration)) return;
+      requirements.add(declaration);
+      for (const dependency of record.captures) append(dependency, bound);
+      requirements.delete(declaration);
+    }
     function append(declaration: Node, bound: ReadonlySet<Node>): void {
-      if (bound.has(declaration) || seen.has(declaration)) return;
+      if (bound.has(declaration)) { captured(declaration, bound); return; }
+      const replacement = environment.get(declaration);
+      if (replacement !== undefined && !resolving.has(declaration)) {
+        resolving.add(declaration);
+        visit(replacement, bound);
+        resolving.delete(declaration);
+        return;
+      }
+      if (seen.has(declaration)) return;
       const selected = get(declaration);
       seen.add(declaration);
       found.push(selected);
+      captured(declaration, bound);
     }
     function categoryParameters(category: SourceCategoryDomain, bound: ReadonlySet<Node>): void {
       if (category.kind === "parameter") append(category.declaration, bound);
@@ -84,6 +105,8 @@ export function createSourceParameterOwner(input: {
     function visit(selected: SourceTypeEvidence, bound: ReadonlySet<Node>): void {
       if (visited.has(selected)) return;
       visited.add(selected);
+      const previousEnvironment = environment;
+      environment = new Map([...environment, ...input.evidence.record(selected).requirementBindings.map(binding => [binding.declaration, binding.value] as const)]);
       if (selected.type.kind === "parameter") append(selected.type.declaration, bound);
       categoryParameters(selected.category, bound);
       for (const child of input.evidence.record(selected).components.values()) {
@@ -91,9 +114,11 @@ export function createSourceParameterOwner(input: {
         const signature = selector.kind === "parameter" || selector.kind === "receiver" || selector.kind === "result" || selector.kind === "signature-tail"
           ? selector.signature : undefined;
         const childBound = signature === undefined ? bound : new Set([...bound, ...signature.typeParameters]);
+        if (signature !== undefined) for (const parameter of signature.typeParameters) captured(parameter, childBound);
         visit(child.value, childBound);
       }
       if (selected.sum !== undefined) for (const arm of selected.sum.arms) visit(arm, bound);
+      environment = previousEnvironment;
       visited.delete(selected);
     }
     visit(value, new Set());
@@ -135,18 +160,22 @@ export function createSourceParameterOwner(input: {
   return Object.freeze({
     get, free, category, bindings,
     register(declaration: Node, owner: Node, index: number,
+      captures: readonly Node[],
       constraint: () => SourceResult<SourceTypeParameterRequirement>,
       defaultType: () => SourceResult<SourceTypeParameterRequirement>): SourceTypeParameter {
       input.assertNode(declaration);
       input.assertNode(owner);
+      captures.forEach(input.assertNode);
       if (!Number.isSafeInteger(index) || index < 0) throw new Error("An original Source binder requires its exact nonnegative ordinal.");
       const previous = declarations.get(declaration);
       if (previous !== undefined) {
         if (previous.value.owner !== owner || previous.value.index !== index) throw new Error("An original Source binder has one owner and ordinal.");
+        if (previous.captures.length !== captures.length || previous.captures.some((value, ordinal) => value !== captures[ordinal]))
+          throw new Error("An original Source binder has one exact requirement capture inventory.");
         return previous.value;
       }
       const value = Object.freeze({ declaration, owner, index, type: input.interner.parameter(declaration) });
-      const record: ParameterRecord = { value, constraint, defaultType };
+      const record: ParameterRecord = { value, captures: Object.freeze([...captures]), constraint, defaultType };
       declarations.set(declaration, record);
       parameters.set(value, record);
       return value;

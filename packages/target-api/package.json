@@ -34,6 +34,10 @@
       "types": "./dist/public/provider.d.ts",
       "default": "./dist/public/provider.js"
     },
+    "./host": {
+      "types": "./dist/public/host.d.ts",
+      "default": "./dist/public/host.js"
+    },
     "./source": {
       "types": "./dist/public/source.d.ts",
       "default": "./dist/public/source.js"

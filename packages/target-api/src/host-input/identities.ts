@@ -27,5 +27,5 @@ export type SourceInputComponentPart =
   | { readonly kind: "argument-place" | "parameter-place"; readonly index: number }
   | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
   | { readonly kind: "tuple-element"; readonly index: number }
-  | { readonly kind: "tuple-slice"; readonly start: number; readonly readonly: boolean }
+  | { readonly kind: "tuple-slice"; readonly start: number; readonly endCount: number; readonly readonly: boolean }
   | { readonly kind: "signature-tail"; readonly signature: SourceInputSignature; readonly start: number; readonly readonly: boolean };

@@ -96,7 +96,7 @@ export function createSourceFamilyOwner(input: {
         append(child.value, indexes, true);
         const absence = input.evidence.create({ type: input.interner.intrinsic("absence"), component: value.component,
           category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-        sourceFiniteLiteralDomain([{ kind: "absence" }]));
+        sourceFiniteLiteralDomain([{ kind: "absence" }]), []);
         append(absence, indexes);
         return;
       }
@@ -104,7 +104,7 @@ export function createSourceFamilyOwner(input: {
       const selected = value.type.kind === "intrinsic" && value.type.intrinsic === "void" && unionContext
         ? input.evidence.create({ type: input.interner.intrinsic("absence"), component: value.component,
           category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-        sourceFiniteLiteralDomain([{ kind: "absence" }]))
+        sourceFiniteLiteralDomain([{ kind: "absence" }]), [])
         : value;
       let index = arms.indexOf(selected);
       if (index < 0) { index = arms.length; arms.push(selected); }

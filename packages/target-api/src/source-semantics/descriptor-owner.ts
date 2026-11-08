@@ -82,12 +82,12 @@ export function createSourceDescriptorOwner(input: {
       return evidence.create({ type, component,
         category: parameters.category({ kind: "choice", alternatives: application.arms.map(arm => arm.category) }, []),
         numeric: application.arms.length === 1 ? application.arms[0]!.numeric : undefined, sum: application },
-      [...children, payload], original, sourceLiteralDomainUnion(application.arms.map(arm => evidence.record(arm).domain)));
+      [...children, payload], original, sourceLiteralDomainUnion(application.arms.map(arm => evidence.record(arm).domain)), application.bindings);
     }
     return evidence.create({ type, component,
       category: parameters.category({ kind: "choice", alternatives: application.arms.map(arm => arm.category) }, []),
       numeric: application.arms.length === 1 ? application.arms[0]!.numeric : undefined, sum: application },
-    children, original, sourceLiteralDomainUnion(application.arms.map(arm => evidence.record(arm).domain)));
+    children, original, sourceLiteralDomainUnion(application.arms.map(arm => evidence.record(arm).domain)), application.bindings);
   }
 
   function join(component: SourceTypeComponent, origin: "authored" | "inferred", roles: readonly SourceTypeEvidence[],
@@ -96,12 +96,12 @@ export function createSourceDescriptorOwner(input: {
     roles.forEach(evidence.assert);
     if (original !== undefined) input.input.assertComponent(original);
     if (roles.length === 0) return { kind: "resolved", value: evidence.create({ type: interner.intrinsic("never"), component,
-      category: { kind: "choice", alternatives: [] }, numeric: undefined, sum: undefined }, [], original, sourceUnreachableLiteralDomain) };
+      category: { kind: "choice", alternatives: [] }, numeric: undefined, sum: undefined }, [], original, sourceUnreachableLiteralDomain, []) };
     if (roles.length === 1) {
       const selected = roles[0]!;
       if (selected.component === component && (original === undefined || evidence.record(selected).original === original)) return { kind: "resolved", value: selected };
       const record = evidence.record(selected);
-      return { kind: "resolved", value: evidence.create({ ...selected, component }, [...record.components.values()], original, record.domain) };
+      return { kind: "resolved", value: evidence.create({ ...selected, component }, [...record.components.values()], original, record.domain, record.requirementBindings) };
     }
     const declarations = new Set<Node>();
     for (const role of roles) for (const parameter of parameters.free(role)) declarations.add(parameter.declaration);
@@ -145,15 +145,16 @@ export function createSourceDescriptorOwner(input: {
       return { kind: "resolved", value: arm };
     }
     if (selector.kind === "tuple-slice" && value.type.kind === "tuple") {
-      if (selector.start > value.type.elements.length) throw new Error("A Source tuple slice requires an original element boundary.");
-      const children = value.type.elements.slice(selector.start).map((_element, index) => {
+      const end = value.type.elements.length - selector.endCount;
+      if (selector.start > end) throw new Error("A Source tuple slice requires its exact original start and end-trim boundaries.");
+      const children = value.type.elements.slice(selector.start, end).map((_element, index) => {
         const original = record.components.get(components.selectorKey({ kind: "tuple-element", index: index + selector.start }));
         if (original === undefined) throw new Error("A Source tuple slice requires every original element's evidence.");
         return { selector: { kind: "tuple-element" as const, index }, value: original.value };
       });
-      const selected = evidence.create({ type: interner.tuple(value.type.elements.slice(selector.start), selector.readonly),
+      const selected = evidence.create({ type: interner.tuple(value.type.elements.slice(selector.start, end), selector.readonly),
         component: components.identity(value.component.root, [...value.component.path, selector]),
-        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain);
+        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain, record.requirementBindings);
       return { kind: "resolved", value: selected };
     }
     if (selector.kind === "signature-tail" && (value.type.kind === "callable" || value.type.kind === "shape")) {
@@ -166,7 +167,7 @@ export function createSourceDescriptorOwner(input: {
       });
       const selected = evidence.create({ type: interner.tuple(signature.parameters.slice(selector.start), selector.readonly),
         component: components.identity(value.component.root, [...value.component.path, selector]),
-        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain);
+        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, undefined, sourceOpenLiteralDomain, record.requirementBindings);
       return { kind: "resolved", value: selected };
     }
     if (value.type.kind === "declared" || value.type.kind === "projection") {
@@ -224,7 +225,9 @@ export function createSourceDescriptorOwner(input: {
     intrinsic: interner.intrinsic, parameter: parameters.register, optional: interner.optional, union: interner.union,
     array: interner.array, tuple: interner.tuple, shape: interner.shape, callable: interner.callable,
     declared: interner.declared, projection: interner.projection, signature: interner.signature,
-    componentIdentity: components.identity, evidence: evidence.create, domain: (value: SourceTypeEvidence) => evidence.record(value).domain, join,
+    componentIdentity: components.identity,
+    evidence: (value: SourceTypeEvidence, children: readonly import("./descriptor-contracts.js").SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: import("../source-model/literals/domain.js").SourceLiteralDomain) => evidence.create(value, children, original, domain, []),
+    domain: (value: SourceTypeEvidence) => evidence.record(value).domain, join,
     originalComponent(value: SourceTypeEvidence) {
       const selected = evidence.record(value).original;
       if (selected === undefined) throw new Error("This Source evidence has no original checked component witness.");
