@@ -87,7 +87,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
 ): SourceProductionResult<readonly Member[] | undefined> {
   context.navigation.callableRoles(reference);
   if (!context.ast.is.IsIdentifier(reference)) return resolved(undefined);
-  const binding = context.navigation.referenceFor(reference);
+  const binding = context.navigation.sourceReferenceFor(reference);
   if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
     !context.ast.is.IsParameterDeclaration(binding.declaration) && !context.ast.is.IsBindingElement(binding.declaration)) return resolved(undefined);
   const summary = context.navigation.declarationUseSummary(binding.declaration);
@@ -150,7 +150,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
       const guard = selectGuard(node);
       if (guard.kind !== "resolved") return guard;
       if (guard.value === undefined || !context.ast.is.IsIdentifier(guard.value.sourceOperand) ||
-        context.navigation.referenceFor(guard.value.sourceOperand)?.declaration !== binding.declaration) results.push(undefined);
+        context.navigation.sourceReferenceFor(guard.value.sourceOperand)?.declaration !== binding.declaration) results.push(undefined);
       else {
         const retained: Member[] = [];
         for (const member of values) {

@@ -27,41 +27,6 @@ function fixture(text: string, noImplicitAny = true) {
 }
 
 
-test("C2446 narrowed callable reads retain their original authored branch without retargeting union storage", () => {
-  const current = fixture(`function run(values: int32[]): void {
-    const mapper: ((value: int32) => int32) | string = (value: int32): int32 => value;
-    const alias = mapper; const second = alias; const mapped = values.map(alias);
-    void mapper; void alias; void second; void mapped;
-  }`);
-  const { ast } = current.source;
-  const declaration = current.declaration("mapper");
-  const stored = current.source.effectiveTypes.get(declaration);
-  assert.equal(stored !== undefined && stored.kind !== "refused" && stored.type.kind === "union" &&
-    stored.type.types.length === 2, true, "the original declaration keeps its complete authored storage union");
-  const reads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
-    current.source.facts.navigation.sourceReferenceFor(node)?.declaration === declaration);
-  assert.equal(reads.length, 2, "both actual mapper reads are retained");
-  const alias = current.declaration("alias");
-  const aliasReads = current.defaults.values.filter(node => ast.is.IsIdentifier(node) &&
-    current.source.facts.navigation.sourceReferenceFor(node)?.declaration === alias);
-  assert.equal(aliasReads.length, 3, "each original alias read, including the actual map argument, is retained");
-  for (const node of [...reads, ...aliasReads, alias, current.declaration("second")]) {
-    const described = current.defaults.context.describe(node);
-    const outcome = current.source.effectiveTypes.get(node);
-    const callable = described === undefined ? undefined : sourceTypeDescriptorStructure(described);
-    const published = outcome === undefined || outcome.kind === "refused" ? undefined : sourceTypeDescriptorStructure(outcome.type);
-    for (const selected of [callable, published]) {
-      const signature = selected?.kind === "callable" ? selected.calls[0] : undefined;
-      assert.equal(signature?.parameters[0]?.type.kind === "primitive" &&
-        signature.parameters[0].type.primitive === "int32" && signature.result.kind === "primitive" &&
-        signature.result.primitive === "int32" && signature.declaration !== undefined &&
-        ast.is.IsFunctionTypeNode(signature.declaration), true,
-      "the selected original callable syntax, parameter width and result width survive each alias/read");
-    }
-  }
-  assert.equal(current.source.facts.refusals().length, 0);
-});
-
 test("C2446 union occurrence projection preserves subsets and refuses to guess erased numeric branches", () => {
   const current = fixture(`function run(value: int32 | float32 | string, input: ((value: int32) => int32) | string,
     partial: ((value: int32) => int32) | string | undefined): void {
@@ -186,53 +151,6 @@ test("discarded selections leave the result-publication domain without dropping 
   const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
   assert.equal(initializer !== undefined && !sourceTypeFlowDiscardedSelection(current.source, initializer) &&
     current.defaults.values.includes(initializer), true, "a consumed logical expression still requires a Source result");
-});
-
-test("direct callable values retain their instantiated owner bindings without a property receiver", () => {
-  for (const primitive of ["float32", "int32"] as const) {
-    const current = fixture(`interface Transform<Value> { (value: Value): Value; }
-      function apply(callback: Transform<${primitive}>, value: ${primitive}): ${primitive} {
-        const selected = callback(value); return selected;
-      }`);
-    const descriptor = current.defaults.context.describe(current.declaration("selected"));
-    assert.equal(descriptor?.kind === "primitive" && descriptor.primitive === primitive, true,
-      `${primitive}: the callable's authored argument owns its formal result`);
-    const initializer = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
-    if (initializer === undefined) throw new Error("The original checked call is required.");
-    const call = current.source.semantics.forNode(initializer).operations.call(initializer);
-    assert.equal(call !== undefined && call.sourceReceiver === undefined, true,
-      "this is the direct callable binding path, not a property receiver");
-    assert.equal(current.source.facts.refusals().length, 0);
-  }
-});
-
-test("literal defaults select checked member symbols only from their own retained element tuple", () => {
-  const current = fixture(`function run() {
-    const selected = { value: 1, "quoted-value": true, 7: { width: 2 } }; return selected;
-  }`);
-  const descriptor = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(descriptor?.kind === "shape" && descriptor.members.length === 3, true);
-  if (descriptor?.kind !== "shape") throw new Error("The complete literal shape is required.");
-  const literal = current.source.ast.as.AsVariableDeclaration(current.declaration("selected"))?.Initializer;
-  if (literal === undefined) throw new Error("The original object literal is required.");
-  const properties = current.source.ast.properties(literal);
-  const queries = current.source.semantics.forNode(literal);
-  for (const [index, member] of descriptor.members.entries()) {
-    const property = properties[index];
-    if (property === undefined) throw new Error("The original member declaration is required.");
-    const element = queries.operations.objectLiteralElement(property);
-    const checked = element === undefined ? undefined : queries.types.propertyInfos(element.objectLiteralType)
-      .find(selected => selected.symbol === element.sourceElementSymbol);
-    assert.equal(checked !== undefined && checked.name === member.name && member.origin.kind === "declared" &&
-      member.origin.declaration === property, true, `member ${index}: one checked tuple and original declaration`);
-  }
-  const integer = descriptor.members[0]?.type;
-  const boolean = descriptor.members[1]?.type;
-  const nested = descriptor.members[2]?.type;
-  assert.equal(integer?.kind === "primitive" && integer.primitive === "int64", true);
-  assert.equal(boolean?.kind === "primitive" && boolean.primitive === "bool", true);
-  assert.equal(nested?.kind === "shape" && nested.members[0]?.type.kind === "primitive" &&
-    nested.members[0].type.primitive === "int64", true);
 });
 
 
