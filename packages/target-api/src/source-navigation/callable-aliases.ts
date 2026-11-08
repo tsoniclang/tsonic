@@ -43,7 +43,7 @@ export function createSourceCallOnlyAliasQuery(source: SourceNavigationQueryCont
         !ast.is.IsElementAccessExpression(expression)) return none;
       const member = selected.member;
       const selectedDeclaration = selected.selectedDeclaration;
-      if (member.kind === "present" && member.value.optionalChain ||
+      if (member.kind === "present" && (member.value.optionalChain || member.value.chainContinuation) ||
         !ast.is.IsFunctionDeclaration(selectedDeclaration) &&
         !ast.is.IsMethodDeclaration(selectedDeclaration) &&
         ast.kindName(selectedDeclaration) !== "KindMethodSignature") return none;

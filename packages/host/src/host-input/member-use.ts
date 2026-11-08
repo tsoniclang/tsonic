@@ -98,10 +98,14 @@ export function createSourceMemberUseInput(input: {
       ? identities.component(occurrence, [], selected.sourceReadType) : undefined;
     const write = selected.accessMode === "write" || selected.accessMode === "read-write"
       ? identities.component(occurrence, [], selected.sourceWriteType) : undefined;
+    const guard = ast.is.IsPropertyAccessExpression(occurrence)
+      ? ast.as.AsPropertyAccessExpression(occurrence)?.QuestionDotToken !== undefined
+      : ast.as.AsElementAccessExpression(occurrence)?.QuestionDotToken !== undefined;
     const result: SourceInputMemberUse = Object.freeze({ kind: "member", occurrence,
       receiver: Object.freeze({ occurrence: selected.receiver.expression, value: originalReceiver }),
       key: "argument" in selected ? selected.argument.expression : undefined,
-      access: selected.accessMode, callCallee: selected.callCallee, optionalChain: selected.optionalChain,
+      access: selected.accessMode, callCallee: selected.callCallee, optionalChain: guard,
+      chainContinuation: selected.optionalChain && !guard,
       selectedDeclaration: selected.selectedDeclaration,
       selectedDeclarations: Object.freeze([...selectedDeclarations]), readDeclarations: Object.freeze([...readDeclarations]),
       writeDeclarations: Object.freeze([...writeDeclarations]), read, write, arms: Object.freeze(arms) });

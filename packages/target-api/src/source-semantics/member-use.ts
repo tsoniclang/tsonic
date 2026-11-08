@@ -40,6 +40,7 @@ export interface SourceMemberUse {
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
+  readonly chainContinuation: boolean;
   readonly selectedDeclaration: SourcePresence<Node>;
   readonly selectedDeclarations: readonly Node[];
   readonly readDeclarations: readonly Node[];
@@ -111,12 +112,13 @@ export function createSourceMemberUseQueries(input: {
     }
     const reads = purpose === "place" || original.access === "read" || original.access === "read-write";
     const writes = purpose === "place" || original.access === "write" || original.access === "read-write";
+    const chain = original.optionalChain || original.chainContinuation;
     const arms: SourceMemberUseArm[] = [];
     const readTypes: SourceTypeEvidence[] = [];
     const writeTypes: SourceTypeEvidence[] = [];
     for (const arm of receiver.value.sum?.arms ?? [receiver.value]) {
       view.assertEvidence(arm);
-      if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence" && original.optionalChain) continue;
+      if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence" && chain) continue;
       const selected = inventory.members(arm);
       if (selected.kind !== "resolved") return selected;
       if (selected.value.kind !== "complete") return unavailable(occurrence, "missing-selected-member");
@@ -193,15 +195,16 @@ export function createSourceMemberUseQueries(input: {
     }
     if (arms.length === 0) return unavailable(occurrence, "missing-selected-member");
     const read = reads && (purpose === "use" || readTypes.length === arms.length)
-      ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), original.optionalChain) : resolved(undefined);
+      ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), chain) : resolved(undefined);
     if (read.kind !== "resolved") return read;
     const write = writes && (purpose === "use" || writeTypes.length === arms.length)
-      ? compose(occurrence, receiver.value, "write", Object.freeze(writeTypes), original.optionalChain) : resolved(undefined);
+      ? compose(occurrence, receiver.value, "write", Object.freeze(writeTypes), chain) : resolved(undefined);
     if (write.kind !== "resolved") return write;
     if (read.value !== undefined) view.assertEvidence(read.value);
     if (write.value !== undefined) view.assertEvidence(write.value);
     return resolved(Object.freeze({ occurrence, receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }),
       key, access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
+      chainContinuation: original.chainContinuation,
       selectedDeclaration: original.selectedDeclaration === undefined ? Object.freeze({ kind: "none" })
         : Object.freeze({ kind: "present", value: original.selectedDeclaration }),
       selectedDeclarations: original.selectedDeclarations, readDeclarations: original.readDeclarations,

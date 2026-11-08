@@ -80,7 +80,7 @@ export function createSourceStoragePlaceQueries(input: SourceStoragePlaceInput):
     const selected = member(storage);
     if (selected.kind !== "resolved") return selected;
     if (selected.value.occurrence !== storage) throw new Error("A Source place requires the same canonical member-use occurrence.");
-    if (selected.value.optionalChain) return resolved(none);
+    if (selected.value.optionalChain || selected.value.chainContinuation) return resolved(none);
     const value: SourceTypeEvidence | undefined = selected.value.writeType ?? selected.value.readType;
     if (value === undefined) return unavailable(occurrence, "The original Source member has no available storage component.");
     view.assertEvidence(value);
