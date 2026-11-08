@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceGuardContext } from "./value-flow-model.js";
 
 export function sourceStatementAlwaysExits(

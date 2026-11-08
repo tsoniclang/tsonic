@@ -4,7 +4,7 @@ import type { SourceInputSignature } from "../host-input/identities.js";
 import type { SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity,
   SourceTypeEvidence, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
-import type { SourceProductionResult } from "../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceMemberInventoryQueries } from "../source-semantics/member-inventory.js";
 import type { SourceMemberUse } from "../source-semantics/member-use.js";
 import type { SourceMarkerFacts } from "../source-model/markers.js";

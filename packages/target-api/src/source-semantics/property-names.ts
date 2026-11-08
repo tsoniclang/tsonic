@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import { sourceLiteralUnitKey } from "../source-model/literals/key.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourcePropertyNameFacts } from "../host-input/property-name-input.js";
 import type { SourcePropertyName, SourceResult } from "../public/source/contracts.js";
 

@@ -4,7 +4,7 @@ import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralKey } from "../../source-model/literals/key.js";
 import { sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type SourceLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { Node_Expression, ObjectLiteralProperty_Value, SpreadAssignment_Expression } from "../../source-navigation/ast.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";

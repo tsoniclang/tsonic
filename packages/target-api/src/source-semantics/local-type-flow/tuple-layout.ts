@@ -1,5 +1,6 @@
 import type { SourceComponentSelector, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 
 export interface SourceSequenceSlot {

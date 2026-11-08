@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourcePresence, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
-import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "./member-correspondence.js";
+import type { SourceCorrespondenceIndex, SourceCorrespondenceMember } from "../source-model/members.js";
 
 export type SourceMemberInventoryRow = Omit<SourceCorrespondenceMember, "receiver" | "readType" | "writeType"> & {
   readType(): SourceProductionResult<SourcePresence<SourceTypeEvidence>>;

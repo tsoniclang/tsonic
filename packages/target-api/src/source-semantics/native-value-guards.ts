@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceGuardContext } from "./value-flow-model.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "../source-navigation/ast.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
 

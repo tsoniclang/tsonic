@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceLiteralUnitsEqual, sourcePresenceLiteralDisposition } from "../../source-model/literals/domain.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceValueGuard } from "../native-value-guards.js";
 import type { SourceSemanticProduction } from "./semantic-production.js";
 

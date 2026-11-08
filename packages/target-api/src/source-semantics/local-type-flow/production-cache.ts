@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeComponent } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 
 export function createSourceProductionCache<Key extends object, Value>(input: {
   readonly dependency: (key: Key) => SourceTypeComponent;

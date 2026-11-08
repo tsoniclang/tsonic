@@ -1,5 +1,5 @@
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
 import { produceSourceConditionalType } from "./conditional-descriptors.js";

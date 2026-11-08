@@ -2,7 +2,7 @@ import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import { sourceOpenLiteralDomain, sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Expression, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { sourceTypeFlowNumericLiteralKind } from "./defaults.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";

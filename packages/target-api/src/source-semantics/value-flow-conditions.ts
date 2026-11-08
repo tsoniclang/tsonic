@@ -3,7 +3,7 @@ import type { SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import type { SourceGuard, SourceGuardContext } from "./value-flow-model.js";

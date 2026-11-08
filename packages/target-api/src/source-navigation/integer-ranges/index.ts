@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourcePresence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { createSourceIntegerRangeQueries } from "./analysis.js";
 import type { SourceIntegerRangeOptions } from "./analysis.js";
 import { sourceIntegerIsNonnegative } from "./guards.js";

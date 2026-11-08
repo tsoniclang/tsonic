@@ -1,5 +1,5 @@
 import type { SourceDeferredProjection, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { produceSourceAwaitedType } from "./awaited.js";
 import type { SourceSemanticProduction } from "./semantic-production.js";
 

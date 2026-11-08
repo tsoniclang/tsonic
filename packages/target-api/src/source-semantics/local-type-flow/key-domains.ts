@@ -1,5 +1,6 @@
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
 import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
 
 export function sourceKeyDomainContains(builder: SourceDescriptorBuilder, destination: SourceTypeEvidence,

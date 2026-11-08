@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceNodeCountedLoop, SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceApplication, SourceDeclaredSlot, SourceDescriptorView } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePrimitiveIntegerBounds } from "../../source-semantics/local-type-flow/operator-decisions.js";
 import type { SourceBindingExposureQueries } from "../binding-mutation-exposure.js";
 import { sourceIntegerScalar } from "./domain.js";

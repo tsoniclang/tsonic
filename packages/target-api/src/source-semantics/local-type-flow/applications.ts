@@ -7,7 +7,7 @@ import type {
   SourceApplication, SourceApplicationIdentity, SourceApplicationReceiver, SourceArgumentPlace, SourceAuthoredArgument,
   SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence,
 } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceObjectProduction } from "../member-use.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceCallableSignature, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";

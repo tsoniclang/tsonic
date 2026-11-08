@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 
 export function produceSourceDefinitionParameters(context: Pick<SourceSemanticProduction, "ast" | "input">,

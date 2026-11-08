@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import { selectSourceValueGuard, type SourceValueGuard } from "./native-value-guards.js";
 import { selectSourceGuardedEvidenceMembers } from "./value-flow-conditions.js";
 import type { SourceGuardContext } from "./value-flow-model.js";

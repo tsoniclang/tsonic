@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputCallCandidate } from "../../host-input/call-input.js";
 import type { SourcePresence, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Expression } from "../../source-navigation/ast.js";
 import { produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { produceSourceEffectiveArguments } from "./argument-places.js";

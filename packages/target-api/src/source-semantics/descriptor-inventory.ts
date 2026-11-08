@@ -1,7 +1,7 @@
 import type { SourcePresence, SourceResult, SourceTypeBinding, SourceTypeComponent, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
 import { sourceLiteralDomainUnion, type SourceLiteralDomain } from "../source-model/literals/domain.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceEvidenceOwner } from "./descriptor-evidence.js";
 import type { SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryRow } from "./member-inventory.js";
 

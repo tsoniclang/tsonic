@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceCorrespondenceMember, SourceMemberCorrespondenceQueries } from "./member-correspondence.js";
+import type { SourceCorrespondenceMember, SourceMemberCorrespondenceQueries } from "../source-model/members.js";
 
 export function sourceObjectLiteralDestinationMember(element: Node, source: SourceTypeEvidence,
   destination: SourceTypeEvidence, objects: SourceMemberCorrespondenceQueries):

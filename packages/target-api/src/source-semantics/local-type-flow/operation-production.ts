@@ -4,7 +4,7 @@ import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { sourceBooleanLiteralDisposition, sourceFiniteLiteralDomain, sourcePresenceLiteralDisposition,
   sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Expression } from "../../source-navigation/ast.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
 import { decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,

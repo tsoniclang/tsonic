@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { sourceBooleanLiteralDisposition } from "../../source-model/literals/domain.js";
 import type { SourceIntegerRange, SourceOperation, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceGuardContext } from "../../source-semantics/value-flow-model.js";
 import { sourcePrimitiveIntegerBounds } from "../../source-semantics/local-type-flow/operator-decisions.js";
 import { sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";

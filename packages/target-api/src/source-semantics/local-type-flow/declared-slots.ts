@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceDeclaredSlot, SourcePresence, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import type { SourceTypeFlowAnalysisContext } from "./types.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";

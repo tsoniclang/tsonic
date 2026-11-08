@@ -4,7 +4,7 @@ import type { Node } from "@tsonic/tsts";
 import { selectSourceValueGuard } from "../../../source-semantics/native-value-guards.js";
 import { selectSourceGuardedValueMembers } from "../../../source-semantics/value-flow-conditions.js";
 import type { SourceGuard, SourceGuardContext } from "../../../source-semantics/value-flow-model.js";
-import type { SourceProductionResult } from "../../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../../source-model/production.js";
 import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
 import { sourceStorageValue } from "../model/program.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";

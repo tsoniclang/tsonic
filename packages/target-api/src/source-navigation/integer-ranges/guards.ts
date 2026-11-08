@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceBooleanLiteralDisposition } from "../../source-model/literals/domain.js";
-import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceStatementAlwaysExits } from "../../source-semantics/native-control-flow.js";
 import type { SourceGuardContext } from "../../source-semantics/value-flow-model.js";
 import { Node_Expression } from "../ast.js";

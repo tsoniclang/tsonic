@@ -1,6 +1,6 @@
 import type { Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
 import type { SourceDeclaredSlot, SourceCallableRole, SourcePresence, SourceRefusal, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../../public/source/contracts.js";
-import type { SourceProductionResult } from "../../../source-semantics/descriptor-contracts.js";
+import type { SourceProductionResult } from "../../../source-model/production.js";
 import type { SourceMemberInventoryQueries } from "../../../source-semantics/member-inventory.js";
 import type { SourceMemberCorrespondenceProduction } from "../../../source-semantics/member-correspondence.js";
 import type { TargetSourceProgram } from "../../../source-semantics/types.js";

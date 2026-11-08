@@ -7,7 +7,8 @@ import type {
   SourceSumApplication, SourceSumFamily, SourceTypeBinding, SourceTypeComponent, SourceTypeEvidence, SourceUseDestination,
 } from "../public/source/contracts.js";
 import { createSourceComponentOwner } from "./descriptor-components.js";
-import type { SourceDescriptorBuilder, SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
+import type { SourceDescriptorBuilder } from "./descriptor-contracts.js";
 import { createSourceEvidenceOwner } from "./descriptor-evidence.js";
 import { createSourceFamilyOwner } from "./descriptor-families.js";
 import { createSourceDescriptorInterner } from "./descriptor-interner.js";

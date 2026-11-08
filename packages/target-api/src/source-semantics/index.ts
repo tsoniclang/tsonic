@@ -1,6 +1,5 @@
 export type * from "./types.js";
-export type { SourceCorrespondenceMember, SourceCorrespondenceIndex, SourceCorrespondenceMemberIdentity,
-  SourceMemberPair, SourceIndexPair, SourceMemberCorrespondence, SourceMemberCorrespondenceQueries } from "./member-correspondence.js";
+export type { SourceCorrespondenceMember, SourceCorrespondenceIndex, SourceCorrespondenceMemberIdentity, SourceMemberPair, SourceIndexPair, SourceMemberCorrespondence, SourceMemberCorrespondenceQueries } from "../source-model/members.js";
 export type { SourcePropertyUseArm, SourceIndexUseArm, SourceMemberUseArm, SourceMemberUse } from "./member-use.js";
 export type * from "../source-model/profile.js";
 export type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";

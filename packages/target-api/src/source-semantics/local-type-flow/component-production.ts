@@ -1,7 +1,8 @@
 import type { SourceInputCallCandidate } from "../../host-input/call-input.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceAuthoredArgument, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { produceSourceArgumentPlaces, produceSourceEffectiveArguments } from "./argument-places.js";
 import { produceSourceCallableSignature, type SourceCallableProduction } from "./callable-production.js";

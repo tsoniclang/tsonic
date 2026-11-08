@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceEvidenceExtends, type SourceEvidenceRelation } from "./evidence-relations.js";
 import { sourceKeyDomainContains } from "./key-domains.js";

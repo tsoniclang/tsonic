@@ -3,9 +3,10 @@ import type { SourceInputMemberUseSelection } from "../host-input/member-input.j
 import type { SourceIndexSelection } from "../source-model/member-use.js";
 import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
   SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
-import type { SourceCorrespondenceMember, SourceMemberCorrespondenceProduction } from "./member-correspondence.js";
+import type { SourceCorrespondenceMember } from "../source-model/members.js";
+import type { SourceMemberCorrespondenceProduction } from "./member-correspondence.js";
 
 export interface SourcePropertyUseArm {
   readonly kind: "member";

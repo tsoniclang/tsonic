@@ -4,7 +4,8 @@ import type { SourceInputComponent, SourceInputComponentPart, SourceInputSignatu
 import type { SourceCategoryDomain, SourceComponentSelector, SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeEvidence, SourceTypeParameterRequirement } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceEvidenceComponent } from "../descriptor-contracts.js";
 import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";

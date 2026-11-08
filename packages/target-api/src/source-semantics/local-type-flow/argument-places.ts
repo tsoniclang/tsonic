@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceSequenceLayout } from "./tuple-layout.js";
 

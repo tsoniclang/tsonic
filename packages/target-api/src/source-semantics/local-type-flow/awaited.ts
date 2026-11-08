@@ -1,5 +1,5 @@
 import type { SourceTypeComponent, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";

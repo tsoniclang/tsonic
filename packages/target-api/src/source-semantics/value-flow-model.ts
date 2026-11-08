@@ -3,7 +3,7 @@ import type { SourceCallableRole, SourceDescriptorView, SourcePresence } from ".
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceBindingExposureQueries } from "../source-navigation/binding-mutation-exposure.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 
 export interface SourceGuardContext {
   readonly ast: AstReader;

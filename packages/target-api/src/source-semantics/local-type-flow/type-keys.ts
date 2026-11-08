@@ -5,7 +5,7 @@ import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
 import type { SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal, type SourceSemanticProduction, type SourceSyntaxProduction } from "./semantic-production.js";
 import { produceSourceSequenceElements } from "./tuple-layout.js";

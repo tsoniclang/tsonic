@@ -1,6 +1,7 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceEvidenceDetails, SourceMemberInventory, SourceOriginSubjects } from "./member-inventory.js";
 import type {
   SourceCategoryDomain, SourceComponentSelector, SourceDeclaredDescriptor,
@@ -23,11 +24,6 @@ export interface SourceDescriptorReader {
   describeMembers(component: SourceInputComponent, bindings: readonly SourceTypeBinding[], receiver?: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory>;
   inheritedBindings(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
 }
-
-export type SourceProductionResult<Value> = SourceResult<Value> | {
-  readonly kind: "pending";
-  readonly dependencies: readonly SourceTypeComponent[];
-};
 
 export interface SourceEvidenceComponent {
   readonly selector: SourceComponentSelector;

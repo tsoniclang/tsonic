@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryProduction, SourceMemberInventoryRow } from "./member-inventory.js";
 import { freezeSourceMemberOrigin } from "./descriptor-model.js";
 import { sourceFiniteLiteralDomain } from "../source-model/literals/domain.js";

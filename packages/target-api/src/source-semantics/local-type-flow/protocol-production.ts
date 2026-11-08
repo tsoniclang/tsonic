@@ -4,7 +4,7 @@ import type { SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceAnalysisFacts, SourceAtomicIterationMechanism, SourceGenerator, SourceIteration,
   SourceIterationMechanism, SourceIterationValues, SourceYield } from "../../source-model/protocols.js";
 import type { SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { produceSourceAwaitedType } from "./awaited.js";
 import { createSourceProductionCache } from "./production-cache.js";

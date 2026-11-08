@@ -1,6 +1,7 @@
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourcePresence, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { sourceLiteralDomainIncludes } from "../../source-model/literals/domain.js";
 import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";

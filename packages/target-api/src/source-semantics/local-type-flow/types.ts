@@ -13,7 +13,8 @@ import type { SourceInputProtocolQueries } from "../../host-input/protocol-input
 import type { createSourceValueGuardQueries } from "../guard-queries.js";
 import type { SourceApplication, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
   SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader } from "../descriptor-contracts.js";
 
 export interface SourceTypeFlowSource {
   readonly ast: AstReader;

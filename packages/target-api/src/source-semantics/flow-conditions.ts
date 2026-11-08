@@ -1,5 +1,5 @@
 import type { Node, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
-import type { SourceProductionResult } from "./descriptor-contracts.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceGuardContext } from "./value-flow-model.js";
 import type { SourceResult } from "../public/source/contracts.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";

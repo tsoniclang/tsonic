@@ -1,7 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";

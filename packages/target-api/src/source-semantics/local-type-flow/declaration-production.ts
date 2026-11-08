@@ -1,8 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
-import type { SourceCorrespondenceMember } from "../member-correspondence.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceCorrespondenceMember } from "../../source-model/members.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";

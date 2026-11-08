@@ -3,7 +3,7 @@ import type { SourceAdmissionFacts, SourceApplicationFacts, SourceDescriptorView
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceJsApiFacts } from "../source-model/profile.js";
 import type { SourceAnalysisFacts } from "../source-model/protocols.js";
-import type { SourceMemberCorrespondenceQueries } from "./member-correspondence.js";
+import type { SourceMemberCorrespondenceQueries } from "../source-model/members.js";
 import type { SourceMemberUse } from "./member-use.js";
 
 export interface SourceDocument {

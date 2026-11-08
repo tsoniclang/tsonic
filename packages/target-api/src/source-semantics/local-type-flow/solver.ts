@@ -3,7 +3,8 @@ import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
 import type { SourceApplication, SourceConstruction, SourceDeclaredSlot, SourceOperation, SourcePresence, SourceResult,
   SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
-import type { SourceDescriptorProductionHooks, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceDescriptorProductionHooks } from "../descriptor-contracts.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createSourceEnumFacts } from "../enum-facts.js";
 import { sourceEnumDestination, sourceEnumValueDomain } from "../enum-numeric-uses.js";

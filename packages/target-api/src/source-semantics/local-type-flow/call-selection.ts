@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputCallSelection,
 } from "../../host-input/call-input.js";
 import type { SourceApplication } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceProducedApplication } from "./applications.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";

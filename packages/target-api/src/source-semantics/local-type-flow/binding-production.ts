@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
+import type { SourceEvidenceComponent } from "../descriptor-contracts.js";
 import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";

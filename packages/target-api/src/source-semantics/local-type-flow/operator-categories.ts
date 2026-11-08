@@ -1,7 +1,7 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits,
   type SourcePrimitiveBinaryOperator, type SourcePrimitiveUnaryOperator } from "./operator-decisions.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
