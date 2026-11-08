@@ -188,7 +188,7 @@ for (const example of receiverExamples) test(`a ${example.name} this-type retain
   const outcome = facts.values.type(receiver);
   assert.equal(outcome.kind === "resolved" && outcome.value.type.kind === "declared", true,
     "the exact receiver remains one resolved nominal instance");
-  assert.equal(outcome.value.component.occurrence === receiver && outcome.value.type.declaration === owner, true,
+  assert.equal(outcome.value.component.root === receiver && outcome.value.type.declaration === owner, true,
     "the original receiver and class identities are unchanged");
   assert.equal(outcome.value.type.typeArguments.length, parameters.length, "no outer or local argument is omitted");
   for (const [index, declaration] of parameters.entries()) {
