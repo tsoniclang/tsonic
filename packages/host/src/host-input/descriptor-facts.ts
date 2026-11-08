@@ -1,5 +1,5 @@
 import { readOriginalSignature, sourcePrimitiveFactKey, TypeFlagsUniqueESSymbol, type CheckedSourceProgram, type Node, type Signature, type SourceFileQueries, type Type, type TypeSignatureInfo } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputComponentPart, SourceInputEnumDeclaration, SourceInputMemberInventory, SourceInputSignature, SourceInputSignatureFacts, SourceInputSignatureShape, SourceInputTypeFacts } from "@tsonic/target-api/host";
+import type { SourceDescriptorInput, SourceInputComponent, SourceInputComponentPart, SourceInputEnumDeclaration, SourceInputMemberInventory, SourceInputSignature, SourceInputSignatureFacts, SourceInputSignatureShape, SourceInputTypeFacts } from "@tsonic/target-api/host";
 import { isTypeSyntaxNode } from "@tsonic/target-api/host";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
 import { createSourceInputMemberPublisher, sourceCheckedMember } from "./member-components.js";
@@ -122,6 +122,15 @@ export function createSourceDescriptorFacts(options: {
       target: shape.target === undefined ? undefined : originalSignature(value.signatureKind, shape.target),
       parameters: Object.freeze(shape.parameters.map(parameter => Object.freeze({ ...parameter }))),
       receiver: shape.receiver === undefined ? undefined : Object.freeze({ ...shape.receiver }) });
+  }
+
+  function signatureForDeclaration(declaration: Node): ReturnType<SourceDescriptorInput["signatureForDeclaration"]> {
+    assertNode(declaration);
+    const original = queries(declaration).checker.getSignatureFromDeclaration(declaration);
+    if (original === undefined) return Object.freeze({ kind: "none" });
+    const signature = originalSignature(ast.is.IsConstructorDeclaration(declaration) ? "construct" : "call", original);
+    if (signature.declaration !== declaration) throw new Error("An original declaration signature must retain its genuine API-domain declaration witness.");
+    return Object.freeze({ kind: "present", value: signature });
   }
 
   function signatureComponent(signature: SourceInputSignature, originalRoot: Node, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent {
@@ -300,5 +309,5 @@ export function createSourceDescriptorFacts(options: {
     return selected;
   }
 
-  return Object.freeze({ syntax, describe, members, describeSignature, signatureComponent, enumDeclaration, originalSignature, queries });
+  return Object.freeze({ syntax, describe, members, describeSignature, signatureForDeclaration, signatureComponent, enumDeclaration, originalSignature, queries });
 }

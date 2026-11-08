@@ -3,6 +3,7 @@ import type { SourceInputComponent, SourceInputSignature } from "./identities.js
 import type { SourceInputBackingConstraint, SourceInputCallSelection } from "./call-input.js";
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceInputMarkerQueries } from "./marker-input.js";
+import type { SourcePresence } from "../public/source/contracts.js";
 
 export interface SourceInputParameter {
   readonly declaration: Node | undefined;
@@ -98,6 +99,7 @@ export interface SourceDescriptorInput extends SourceInputMarkerQueries {
   describe(component: SourceInputComponent): SourceInputTypeFacts;
   members(component: SourceInputComponent): SourceInputMemberInventory;
   describeSignature(signature: SourceInputSignature): SourceInputSignatureShape;
+  signatureForDeclaration(declaration: Node): SourcePresence<SourceInputSignature>;
   signatureComponent(signature: SourceInputSignature, originalRoot: Node, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent;
   enumDeclaration(declaration: Node): SourceInputEnumDeclaration;
   application(invocation: Node): SourceInputCallSelection;

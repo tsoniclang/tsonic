@@ -53,7 +53,7 @@ function fixture() {
       ast: checked.ast, assertNode,
       assertComponent(value) { if (!components.has(value)) throw new Error("Foreign component."); },
       assertSignature(value) { if (!signatures.has(value)) throw new Error("Foreign original signature."); },
-      syntax: original, describe: unexpected, members: unexpected, markers: unexpected, describeSignature: unexpected,
+      syntax: original, describe: unexpected, members: unexpected, markers: unexpected, describeSignature: unexpected, signatureForDeclaration: unexpected,
       signatureComponent: unexpected, enumDeclaration: unexpected, application: unexpected, constraints: unexpected,
     };
     const owner = createSourceDescriptorOwner({ input, assertNode, members: unexpected, project: unexpected,
