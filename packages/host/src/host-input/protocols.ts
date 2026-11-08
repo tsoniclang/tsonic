@@ -110,8 +110,13 @@ export function createSourceProtocolInput(input: {
       const { checker } = queriesFor(declaration);
       const original = checker.getResolvedGeneratorInfo(declaration);
       const signature = original === undefined ? undefined : checker.getSignatureFromDeclaration(declaration);
+      const resultSymbol = original === undefined ? undefined : checker.getTypeSymbol(original.sourceReturnType);
+      const resultDeclaration = resultSymbol === undefined ? undefined : checker.getPrimarySymbolDeclaration(resultSymbol);
+      if (resultDeclaration !== undefined) assertNode(resultDeclaration);
       const result = original === undefined || signature === undefined ? none : present(Object.freeze({ declaration,
         kind: original.generatorKind, signature: originalSignature(declaration, "call", signature),
+        resultDeclaration: resultDeclaration === undefined || !ast.is.IsInterfaceDeclaration(resultDeclaration) &&
+          !ast.is.IsClassDeclaration(resultDeclaration) ? none : present(resultDeclaration),
         returnTypeBinding: original.returnTypeBinding === undefined ? none : present(original.returnTypeBinding.declaration) }));
       generators.set(declaration, result);
       return result;

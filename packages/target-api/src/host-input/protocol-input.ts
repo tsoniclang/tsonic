@@ -33,6 +33,7 @@ export interface SourceInputGenerator {
   readonly declaration: Node;
   readonly kind: "sync" | "async";
   readonly signature: SourceInputSignature;
+  readonly resultDeclaration: SourcePresence<Node>;
   readonly returnTypeBinding: SourcePresence<Node>;
 }
 
