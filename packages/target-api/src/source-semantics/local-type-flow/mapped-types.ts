@@ -150,7 +150,10 @@ export function produceSourceMappedType(context: SourceSyntaxProduction): Source
       writeOrigins: member.readonly ? [] : [origin], getters: [], setters: [], read: "property", optional: member.optional, readonly: member.readonly,
       readType: () => ({ kind: "resolved", value: { kind: "present", value: value.value } }),
       writeType: () => ({ kind: "resolved", value: member.readonly ? { kind: "none" } : { kind: "present", value: value.value } }),
-      readDomain: () => ({ kind: "present", value: builder.domain(value.value) }) });
+      readDomain(bindings) {
+        const applied = builder.substitute(value.value, bindings);
+        return applied.kind === "refused" ? applied : { kind: "resolved", value: builder.domain(applied.value) };
+      } });
   }
   return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members, indexes: [], calls: [], constructs: [] }),
     component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, context.component, sourceOpenLiteralDomain,

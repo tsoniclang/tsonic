@@ -143,6 +143,21 @@ export function createSourceSolvedFacts(builder: SourceDescriptorBuilder, public
   validate(constructions, validatePresence((construction, occurrence) => {
     if (construction.occurrence !== occurrence) throw new Error("A Source construction requires its original occurrence.");
     evidence(construction.value);
+    if (construction.destination.kind === "present") {
+      const selected = construction.destination.value;
+      destination(selected.destination);
+      if (selected.kind === "direct") {
+        if (selected.destination.applied.sum !== undefined) throw new Error("A direct construction destination cannot discard its canonical Source sum application.");
+      } else {
+        if (selected.application !== selected.destination.applied.sum) throw new Error("A construction sum destination requires the identical applied Source application.");
+        const role = selected.application.roles.find(role => role.role === selected.role);
+        if (role === undefined || !selected.application.family.roles.includes(selected.role) ||
+          !role.armIndexes.some(index => selected.application.arms[index] === selected.arm)) {
+          throw new Error("A construction sum destination requires its exact original role and an arm registered under that role.");
+        }
+        evidence(selected.arm);
+      }
+    }
     for (const step of construction.evaluation) { assertOccurrence(step.occurrence); evidence(step.value); }
   }));
   for (const result of returns.values()) if (result.kind === "resolved") evidence(result.value);

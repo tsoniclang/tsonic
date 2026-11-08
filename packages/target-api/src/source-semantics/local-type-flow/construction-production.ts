@@ -1,15 +1,18 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceConstruction, SourcePresence, SourcePropertyName, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+import type { SourceConstruction, SourcePresence, SourcePropertyName, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
+import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralKey } from "../../source-model/literals/key.js";
-import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
+import { sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
 import { Node_Expression, ObjectLiteralProperty_Value, SpreadAssignment_Expression } from "../../source-navigation/ast.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
+import { produceSourceConstructionDestination } from "./construction-destinations.js";
 
 export interface SourceConstructionProduction extends SourceSemanticProduction {
   value(node: Node): SourceProductionResult<SourceTypeEvidence>;
-  completion(declaration: Node): SourceProductionResult<SourceTypeEvidence>;
+  completion(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  literalDomain(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
   propertyName(node: Node): SourceProductionResult<SourcePropertyName>;
   destination(node: Node): SourceProductionResult<SourcePresence<SourceUseDestination>>;
   element(source: SourceTypeEvidence, occurrence: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -66,11 +69,17 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
       const declarations = pairAccessor ? [...prior.declarations, property] : [property];
       const origin = Object.freeze({ kind: "declared" as const, declaration: property });
       const initializer = ObjectLiteralProperty_Value(ast, property);
-      let observed: SourceTypeEvidence | undefined;
-      const readType = (): SourceProductionResult<SourcePresence<SourceTypeEvidence>> => {
-        const result = setter ? none : presence(getter ? context.completion(property) : context.value(initializer ?? property));
-        if (result.kind === "resolved" && result.value.kind === "present") observed = result.value.value;
-        return result;
+      const readType = (): SourceProductionResult<SourcePresence<SourceTypeEvidence>> =>
+        setter ? none : presence(getter ? context.completion(property, []) : context.value(initializer ?? property));
+      const readDomain = (bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain> => {
+        if (setter) return { kind: "resolved", value: sourceUnreachableLiteralDomain };
+        if (ast.is.IsMethodDeclaration(property)) return { kind: "resolved", value: sourcePresentLiteralDomain };
+        const annotation = getter ? ast.typeNode(property) : undefined;
+        if (getter && annotation === undefined) {
+          const result = context.completion(property, bindings);
+          return result.kind !== "resolved" ? result : { kind: "resolved", value: builder.domain(result.value) };
+        }
+        return context.literalDomain(input.syntax(annotation ?? initializer ?? property), bindings);
       };
       const writeType = (): SourceProductionResult<SourcePresence<SourceTypeEvidence>> => {
         if (getter) return none;
@@ -90,8 +99,7 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
         optional: false, readonly: getter && (!pairAccessor || prior.setters.length === 0),
         readType: setter && pairAccessor ? prior.readType : readType,
         writeType: getter && pairAccessor ? prior.writeType : writeType,
-        readDomain: setter && pairAccessor ? prior.readDomain : () => observed === undefined
-          ? { kind: "none" as const } : { kind: "present" as const, value: builder.domain(observed) } }));
+        readDomain: setter && pairAccessor ? prior.readDomain : readDomain }));
     }
     const result = Object.freeze({ kind: "complete" as const, members: Object.freeze([...rows.values()]), indexes: Object.freeze([]) });
     metadataCache.set(occurrence, result);
@@ -168,7 +176,9 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
         numeric: undefined, sum: undefined }, [{ selector: { kind: "array-element" }, value: element }], input.syntax(occurrence), sourcePresentLiteralDomain,
       { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [occurrence] } });
     }
-    return { kind: "resolved", value: Object.freeze({ value, construction: Object.freeze({ occurrence, kind: "array", value,
+    const destination = produceSourceConstructionDestination(context, occurrence, value, expected.value);
+    if (destination.kind !== "resolved") return destination;
+    return { kind: "resolved", value: Object.freeze({ value, construction: Object.freeze({ occurrence, kind: "array", value, destination: destination.value,
       evaluation: Object.freeze(evaluation) }) }) };
   }
 
@@ -221,7 +231,9 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
       if (result.kind !== "resolved") return result;
       evaluation.push({ occurrence: initializer, form: spread === undefined ? "value" : "spread", value: result.value });
     }
-    return { kind: "resolved", value: Object.freeze({ value, construction: Object.freeze({ occurrence, kind: "object", value,
+    const destination = produceSourceConstructionDestination(context, occurrence, value, expected.value);
+    if (destination.kind !== "resolved") return destination;
+    return { kind: "resolved", value: Object.freeze({ value, construction: Object.freeze({ occurrence, kind: "object", value, destination: destination.value,
       evaluation: Object.freeze(evaluation) }) }) };
   }
   return Object.freeze({ metadata, produce });

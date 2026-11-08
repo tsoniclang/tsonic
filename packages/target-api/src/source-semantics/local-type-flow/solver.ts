@@ -15,7 +15,7 @@ import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import { createSourceConstructionProduction } from "./construction-production.js";
 import { createSourceProductionCache } from "./production-cache.js";
 import { createSourceSolvedFacts } from "./publication.js";
-import { createSourceLiteralDomainQueries } from "./literal-domains.js";
+import { createSourceLiteralDomainQueries, produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { createSourceSolvedProtocolFacts } from "./protocol-production.js";
 import { produceSourceApplication, type SourceApplicationProduction, type SourceProducedApplication } from "./applications.js";
 import { produceSourceCallableSignature, produceSourceHeritageBindings } from "./callable-production.js";
@@ -210,7 +210,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     component: (component, bindings, candidate) => produceSourceApplicationComponent(declarationProduction!, component, bindings, candidate),
     admits, proves };
   construction = createSourceConstructionProduction({ ...semantic(), value: node => value(node, []),
-    completion: node => completion(node, []), propertyName: context.propertyName, destination: node => destination(node, []),
+    completion, literalDomain: (component, bindings) => produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, component, bindings),
+    propertyName: context.propertyName, destination: node => destination(node, []),
     element: (source, node) => protocols === undefined ? pending(node) : protocols.element(source, node) });
   for (const node of context.nodes) if (ast.is.IsObjectLiteralExpression(node) && !ast.getSourceFile(node)?.IsDeclarationFile)
     builder.registerConstruction(node, () => construction!.metadata(node));
@@ -369,13 +370,13 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const published = createSourceSolvedFacts(builder, { originals: context.nodes, occurrences: context.values,
     types, slots: slotFacts, contextual: contextualFacts, destinations: destinationFacts, operations: operationFacts,
     constructions: constructionFacts, applications: applicationFacts, returns: returnFacts, refusals: [...issues] });
-  const domains = createSourceLiteralDomainQueries({ ast, input, builder, value: node => value(node, []), syntaxValue: node => {
+  const domains = createSourceLiteralDomainQueries({ ast, input, builder, value, component: place, syntaxValue: (node, bindings) => {
     const reference = source.navigation.sourceReferenceFor(node)?.declaration;
     if (reference !== undefined && ast.is.IsVariableDeclaration(reference) && ast.variableDeclarationKind(reference) === "const") {
       const initializer = Node_Initializer(ast, reference);
-      if (initializer !== undefined) return value(initializer, []);
+      if (initializer !== undefined) return value(initializer, bindings);
     }
-    return context.reader.describeSyntax(node, []);
+    return context.reader.describeSyntax(node, bindings);
   } });
   return Object.freeze({ ...published, ...domains, enums: enums.facts, protocols: protocols.facts,
     dischargedDiagnostics: Object.freeze([...diagnostics]) });

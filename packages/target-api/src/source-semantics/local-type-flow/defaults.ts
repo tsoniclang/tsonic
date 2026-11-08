@@ -53,7 +53,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const literals = analyzeSourceLiteralValues(ast, source.sourceFiles).literalValue;
   const reader = source.createDescriptorReader(producers.hooks);
   const domains = createSourceLiteralDomainQueries({ ast, input, builder: source.descriptorBuilder,
-    value: node => producers.value(node, []), syntaxValue: node => producers.syntaxValue(node, []) });
+    value: producers.value, syntaxValue: producers.syntaxValue, component: producers.place });
   const propertyName = source.createPropertyNameQuery(domains);
   const objects = source.createObjects({ place: producers.place, value: producers.value, declared: producers.declared,
     memberDestination: producers.memberDestination, memberValue: producers.memberValue });
