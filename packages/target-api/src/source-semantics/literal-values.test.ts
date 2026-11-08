@@ -2,8 +2,8 @@ import { AsVariableDeclaration } from "../source-navigation/checked-casts.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
-import { analyzeSourceLiteralValues, compareSourceNumericLiteralMagnitude, createTargetSourceProgram } from "../public/source.js";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-model/literals/token.js";
+import { analyzeSourceLiteralValues } from "./literal-values.js";
+import { compareSourceNumericLiteralMagnitude, parseSourceNumericLiteral, sourceLiteralToken } from "../source-model/literals/token.js";
 import { parseNativeIntegerLiteral } from "../source-model/literals/integer.js";
 
 const float32Midpoint = (1n << 128n) - (1n << 103n);
@@ -20,22 +20,21 @@ test("numeric facts preserve authored midpoint neighbors, normalize native gramm
     "/src/index.ts": spellings.map((text, index) => `export const value${index} = ${text};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const nodes: Node[] = [];
   const visit = (node: Node): void => {
-    if (source.ast.is.IsNumericLiteral(node)) nodes.push(node);
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    if (checked.ast.is.IsNumericLiteral(node)) nodes.push(node);
+    checked.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   assert.equal(nodes.length, spellings.length);
   const reads = new Map<Node, number>();
   let sealed = false;
-  const ast: AstReader = { ...source.ast, authoredRange(node) {
+  const ast: AstReader = { ...checked.ast, authoredRange(node) {
     assert.equal(sealed, false, "published literal reads cannot query source provenance");
     if (node !== undefined) reads.set(node, (reads.get(node) ?? 0) + 1);
-    return source.ast.authoredRange(node);
+    return checked.ast.authoredRange(node);
   } };
   const values = analyzeSourceLiteralValues(ast, [file]);
   sealed = true;
@@ -70,17 +69,16 @@ test("unary signs and parentheses preserve exact provenance while casts and bina
     "export const negative = -((0)); export const positive = +(-(-.5)); export const binary = 1 + 2; export const cast = 1 as number;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const initializers: Node[] = [];
   const visit = (node: Node): void => {
-    const initializer = AsVariableDeclaration(source.ast, node)?.Initializer;
+    const initializer = AsVariableDeclaration(checked.ast, node)?.Initializer;
     if (initializer !== undefined) initializers.push(initializer);
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    checked.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  const values = analyzeSourceLiteralValues(source.ast, [file]);
+  const values = analyzeSourceLiteralValues(checked.ast, [file]);
   const negative = values.literalValue.get(initializers[0]!)?.numeric;
   const positive = values.literalValue.get(initializers[1]!)?.numeric;
   assert.equal(negative?.kind, "authored");
@@ -105,17 +103,16 @@ test("signs retain actual folded integer receipts through parentheses without au
     "/src/index.ts": cases.map(([expression], index) => `export const value${index} = ${expression};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
-  const values = analyzeSourceLiteralValues(source.ast, [file]);
+  const values = analyzeSourceLiteralValues(checked.ast, [file]);
   const initializers: Node[] = [];
   const visit = (node: Node): void => {
-    if (source.ast.is.IsVariableDeclaration(node)) {
-      const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+    if (checked.ast.is.IsVariableDeclaration(node)) {
+      const initializer = checked.ast.as.AsVariableDeclaration(node)?.Initializer;
       if (initializer !== undefined) initializers.push(initializer);
     }
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    checked.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   assert.equal(initializers.length, cases.length);
@@ -134,17 +131,16 @@ test("synthetic numeric facts are actual checked float64 values, never authored 
     `export const value = ${float32Midpoint};`,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   let literal: Node | undefined;
   const visit = (node: Node): void => {
-    if (source.ast.is.IsNumericLiteral(node)) literal = node;
-    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    if (checked.ast.is.IsNumericLiteral(node)) literal = node;
+    checked.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
   assert.ok(literal);
-  const ast: AstReader = { ...source.ast, authoredRange: () => ({ kind: "synthetic" }),
+  const ast: AstReader = { ...checked.ast, authoredRange: () => ({ kind: "synthetic" }),
     getSourceText() { throw new Error("Synthetic literal cannot read authored source."); } };
   const values = analyzeSourceLiteralValues(ast, [file]);
   const numeric = values.literalValue.get(literal)?.numeric;
@@ -152,7 +148,7 @@ test("synthetic numeric facts are actual checked float64 values, never authored 
   if (numeric?.kind !== "checked-float64") throw new Error("Missing checked float64 evidence.");
   assert.equal(numeric.value, Number(float32Midpoint));
   assert.equal(values.literalValue.get(literal)?.integer === undefined, true, "synthetic float64 cannot invent exact unsafe integer evidence");
-  assert.throws(() => sourceLiteralToken({ ...source.ast, authoredRange: () => ({ kind: "authored", start: -1, end: 1 }) }, literal!),
+  assert.throws(() => sourceLiteralToken({ ...checked.ast, authoredRange: () => ({ kind: "authored", start: -1, end: 1 }) }, literal!),
     /exact source token/u);
 });
 
