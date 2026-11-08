@@ -1,5 +1,7 @@
 export { compileProject } from "./build.js";
 export type { CompileProjectInput, ProjectBuildResult, TargetBuildResult } from "./build.js";
+export { checkTargetSourceFiles } from "./compiler-session.js";
+export type { CheckTargetSourceFilesOptions } from "./compiler-session.js";
 export { createProgramOptionsForProject } from "./program-options.js";
 export type { SourceDeclarationSnapshot } from "./program-options.js";
 export type { CreatedProgramOptions, CreateProgramOptionsInput } from "./program-options.js";

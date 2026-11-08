@@ -14,6 +14,7 @@ import type {
   TargetSurfaceImplementation,
 } from "@tsonic/target-api/provider";
 import type { TargetDiagnostic } from "@tsonic/target-api/artifacts";
+import type { SourceJsApiFactsFactory } from "@tsonic/target-api/host";
 import { join } from "node:path";
 
 export interface TargetSourceProfileFile {
@@ -26,6 +27,7 @@ export interface CollectedTargetSourceProfile {
   readonly files: readonly TargetSourceProfileFile[];
   readonly declarationPolicy: TargetSourceDeclarationPolicy;
   readonly diagnostics: readonly TargetDiagnostic[];
+  readonly apiFacts: SourceJsApiFactsFactory | undefined;
 }
 
 export interface CollectTargetSourceProfileOptions {
@@ -45,6 +47,19 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
   const seenPaths = new Map<string, string>();
   const bundledLibraries = new Set<string>();
   let installedDeclarations: TargetSourceDeclarationPolicy["installedDeclarations"];
+  let apiFacts: SourceJsApiFactsFactory | undefined;
+  let apiFactsOwner: string | undefined;
+  const appendApiFacts = (owner: string, factory: SourceJsApiFactsFactory | undefined): void => {
+    if (factory === undefined) return;
+    if (apiFactsOwner !== undefined) {
+      diagnostics.push({ code: "TARGET_SOURCE_PROFILE", category: "error", source: owner,
+        message: `Source API facts have competing owners '${apiFactsOwner}' and '${owner}'.` });
+      return;
+    }
+    apiFacts = factory;
+    apiFactsOwner = owner;
+  };
+  appendApiFacts(options.targetPackId, options.targetContributions.apiFacts);
   appendDeclarations({
     files,
     diagnostics,
@@ -73,6 +88,7 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       ...compositionContext,
       capability,
     });
+    appendApiFacts(capability.id, contribution?.apiFacts);
     appendDeclarations({
       files,
       diagnostics,
@@ -95,6 +111,7 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       ...compositionContext,
       surface,
     });
+    appendApiFacts(`${options.targetPackId}:${surface.id}`, contribution?.apiFacts);
     appendDeclarations({
       files,
       diagnostics,
@@ -114,6 +131,7 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
   }
   return {
     files,
+    apiFacts,
     declarationPolicy: {
       ...(bundledLibraries.size === 0 ? {} : { bundledLibraries: [...bundledLibraries].sort() }),
       ...(installedDeclarations === undefined ? {} : { installedDeclarations }),

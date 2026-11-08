@@ -1,6 +1,6 @@
 import { formatDiagnostics } from "@tsonic/tsts";
 import { targetDiagnosticFromExtension } from "@tsonic/target-api/artifacts";
-import type { CheckedSourceProgram, SourceFile } from "@tsonic/tsts";
+import type { CheckedSourceProgram, Diagnostic, SourceFile } from "@tsonic/tsts";
 import { createSourceDiagnosticSpanReader } from "@tsonic/target-api/source";
 import type {
   TargetDiagnostic,
@@ -9,10 +9,11 @@ import type {
 import { isAbsolute, relative } from "node:path";
 import { isPathWithinOrEqual } from "./path-relation.js";
 
-export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDirectory: string): readonly TargetDiagnostic[] {
+export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDirectory: string,
+  discharged: ReadonlySet<Diagnostic> = new Set()): readonly TargetDiagnostic[] {
   const spans = createSourceDiagnosticSpanReader(source.ast);
   const diagnostics = source.diagnostics
-    .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
+    .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined && !discharged.has(diagnostic));
   const tstsDiagnostics: TargetDiagnostic[] = diagnostics.map((diagnostic): TargetDiagnostic => ({
     code: "TSTS_DIAGNOSTIC",
     category: tstsDiagnosticCategory(diagnostic),

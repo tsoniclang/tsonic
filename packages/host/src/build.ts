@@ -18,12 +18,10 @@ import type {
   TargetCompileOutput,
   TargetDiagnostic,
 } from "@tsonic/target-api/artifacts";
-import { sourceProjectFiles } from "@tsonic/target-api/source";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
+import { sourceProjectFiles } from "./host-input/navigation/navigation.js";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import { checkTargetSource } from "./compiler-session.js";
-import { collectTstsDiagnostics } from "./diagnostics.js";
 import { finalizeTargetDiagnostics } from "./diagnostics.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
@@ -191,8 +189,8 @@ function compileTargetBuild(
       selectedSurfaces: plan.selectedSurfaces,
       targetContributions: session.sourceProfileContributions(),
     });
-    diagnostics = Object.freeze([...diagnostics, ...sourceProfile.diagnostics]);
     if (sourceProfile.diagnostics.some(isErrorDiagnostic)) {
+      diagnostics = Object.freeze([...diagnostics, ...sourceProfile.diagnostics]);
       compileResult = rejectedTargetStage(diagnostics);
     } else {
       const created = createProgramOptionsForProject({
@@ -210,10 +208,13 @@ function compileTargetBuild(
         selectedCapabilities: plan.selectedCapabilities,
         selectedSurfaces: plan.selectedSurfaces,
         targetContributions: session.sourceCompilerContributions(),
+        sourceProfile,
+        currentDirectory: paths.projectRoot,
       });
-      const sourceDiagnostics = collectTstsDiagnostics(checked.source, paths.projectRoot);
+      const sourceProgram = checked.adjudicated;
+      const sourceDiagnostics = sourceProgram.diagnostics;
       diagnostics = Object.freeze([...diagnostics, ...sourceDiagnostics]);
-      if (sourceDiagnostics.some(isErrorDiagnostic)) {
+      if (sourceProgram.kind === "rejected") {
         compileResult = rejectedTargetStage(diagnostics);
       } else {
         const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
@@ -236,7 +237,7 @@ function compileTargetBuild(
           compileResult = rejectedTargetStage(diagnostics);
         } else {
           const targetResult = session.compile({
-            source: createTargetSourceProgram(checked.source),
+            source: sourceProgram.value,
             sourcePackages: checked.sourcePackages,
             project: input.project,
             target: plan.target,
