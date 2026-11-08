@@ -1,5 +1,5 @@
 import type { AstReader, Node, ProviderVirtualDeclarationFact } from "@tsonic/tsts";
-import type { SourceApplication, SourceDescriptorView, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceApplication, SourceDescriptorView, SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
 
 export interface SourceJsApiIdentity {
   readonly kind: "type" | "member" | "indexer" | "call" | "construct";
@@ -76,7 +76,7 @@ export interface SourceJsApiFactsInput {
 export interface SourceJsApiFacts {
   identity(declaration: Node): SourceJsApiIdentity | undefined;
   member(declaration: Node): SourceJsApiMember | undefined;
-  collection(value: SourceTypeEvidence): SourceResult<SourceJsCollectionFacts | undefined>;
+  collection(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceJsCollectionFacts>>;
   arrayMemberEffect(declaration: Node): SourceJsArrayMemberEffect | undefined;
   callStorage(application: SourceApplication): SourceJsCallStorage | undefined;
   callbackEffects(application: SourceApplication): readonly SourceJsCallbackEffect[] | undefined;

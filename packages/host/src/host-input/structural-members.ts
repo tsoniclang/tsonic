@@ -1,9 +1,10 @@
 import type { AstReader, Node, Signature, Symbol, Type, TypeCheckerQueries, TypeIndexInfo, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { SourceInputComponent } from "./identities.js";
+import type { SourceInputComponent, SourceInputMemberPair, SourceInputMemberCorrespondence,
+  SourceMemberCorrespondenceInput } from "@tsonic/target-api/host";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
-import { createSourceInputMemberPublisher, sourceCheckedMember, type SourceInputCorrespondenceMember,
+import { createSourceInputMemberPublisher, sourceCheckedMember,
   type SourceStructuralMember } from "./member-components.js";
-export type { SourceInputCorrespondenceMember, SourceStructuralMember } from "./member-components.js";
+export type { SourceStructuralMember } from "./member-components.js";
 
 export type SourceStructuralMemberPair =
   | {
@@ -89,16 +90,6 @@ export function createSourceStructuralMemberQueries(
     }
     const sourceProperty = actual.get(selected);
     if (sourceProperty === undefined) return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
-    if (!property.optional && !sourceProperty.optional) {
-      const left = sourceProperty.type;
-      const right = property.type;
-      for (const literal of [types.getStringLiteralTypeValue, types.getNumericLiteralTypeValue, types.getBooleanLiteralTypeValue]) {
-        const from = literal(left);
-        const to = literal(right);
-        if (from !== undefined && to !== undefined && typeof from === typeof to && from !== to)
-          return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
-      }
-    }
     const sourceMember = describe(sourceProperty, source);
     return Object.freeze({ kind: "present", destination: destinationMember, source: sourceMember });
   };
@@ -193,21 +184,6 @@ export function createSourceStructuralMemberQueries(
   });
 }
 
-export type SourceInputMemberPair =
-  | { readonly kind: "present"; readonly source: SourceInputCorrespondenceMember; readonly destination: SourceInputCorrespondenceMember }
-  | { readonly kind: "absent"; readonly destination: SourceInputCorrespondenceMember };
-
-export type SourceInputMemberCorrespondence =
-  | { readonly kind: "available"; readonly members: readonly SourceInputMemberPair[] }
-  | Extract<SourceStructuralMemberCorrespondence, { readonly kind: "unavailable" }>;
-
-export interface SourceMemberCorrespondenceInput {
-  correspondence(source: SourceInputComponent, destination: SourceInputComponent,
-    purpose: "correspondence" | "read"): SourceInputMemberCorrespondence;
-  correspondingMember(source: SourceInputComponent, destination: SourceInputComponent, declaration: Node,
-    purpose: "correspondence" | "read"): SourceInputMemberPair | undefined;
-}
-
 export function createSourceMemberCorrespondenceInput(input: {
   readonly ast: AstReader;
   readonly checker: TypeCheckerQueries;
@@ -231,6 +207,7 @@ export function createSourceMemberCorrespondenceInput(input: {
       purpose: "correspondence" | "read"): SourceInputMemberCorrespondence {
       const from = identities.checkedComponent(source);
       const to = identities.checkedComponent(destination);
+      if (from === undefined || to === undefined) return Object.freeze({ kind: "unavailable", reason: "unresolved-shape" });
       const selected = queries.structuralMembers(from, to, purpose);
       if (selected.kind === "unavailable") return selected;
       const result: SourceInputMemberPair[] = [];
@@ -246,6 +223,7 @@ export function createSourceMemberCorrespondenceInput(input: {
       const from = identities.checkedComponent(source);
       const to = identities.checkedComponent(destination);
       assertNode(declaration);
+      if (from === undefined || to === undefined) return undefined;
       const selected = queries.structuralMember(from, to, declaration, purpose);
       return selected === undefined ? undefined : pair(source, destination, selected);
     },

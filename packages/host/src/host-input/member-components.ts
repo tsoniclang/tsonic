@@ -1,7 +1,6 @@
 import type { AstReader, Node, Type, TypeCheckerQueries, TypePropertyInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputComponentPart } from "./identities.js";
+import type { SourceInputComponent, SourceInputComponentPart, SourceInputCorrespondenceMember } from "@tsonic/target-api/host";
 import type { SourceInputIdentityOwner } from "./identity-owner.js";
-import type { SourceInputMemberFacts } from "./descriptor-input.js";
 
 export interface SourceStructuralMember {
   readonly receiverType: Type;
@@ -10,11 +9,6 @@ export interface SourceStructuralMember {
   readonly getters: readonly Node[];
   readonly setters: readonly Node[];
   readonly read: "property" | "accessor" | "method" | "unavailable";
-}
-
-export interface SourceInputCorrespondenceMember extends SourceInputMemberFacts {
-  readonly receiver: SourceInputComponent;
-  readonly readKind: SourceStructuralMember["read"];
 }
 
 export function sourceCheckedMember(ast: AstReader, checker: TypeCheckerQueries,
