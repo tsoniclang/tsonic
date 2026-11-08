@@ -3,6 +3,7 @@ import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import { sourceBindingScope } from "./lexical-captures.js";
 import { sourceCallableValueExpression } from "./callable-values.js";
 import { sourceBindingWriteAtReference } from "./references-usage.js";
+import { sourceCallableRoles } from "./callable-boundaries.js";
 
 /**
  * Whether a binding with a callable initializer, such as `const visit = () => { visit(); }`, is captured by a
@@ -111,17 +112,12 @@ function firstDirectWriteEnd(
     const write = sourceBindingWriteAtReference(ast, use.reference);
     if (write === undefined || write.kind === "initialization") continue;
     let current: Node | undefined = ast.parent(use.reference);
-    while (current !== undefined && current !== scope && !sourceCallableBoundary(ast, current)) current = ast.parent(current);
+    while (current !== undefined && current !== scope && !sourceCallableRoles(ast, current).deferred &&
+      !ast.is.IsClassDeclaration(current) && !ast.is.IsClassExpression(current)) current = ast.parent(current);
     if (current !== scope) continue;
     const range = ast.authoredRange(write.operation);
     if (range.kind !== "authored") return undefined;
     if (first === undefined || range.start < first.start) first = { start: range.start, end: range.end };
   }
   return first?.end ?? Number.POSITIVE_INFINITY;
-}
-
-function sourceCallableBoundary(ast: AstReader, node: Node): boolean {
-  return ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node) ||
-    ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node) || ast.is.IsMethodDeclaration(node) ||
-    ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node) || ast.is.IsConstructorDeclaration(node);
 }

@@ -4,7 +4,7 @@ import { sourceTransparentExpressionOperand } from "./ast.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceExpressionResultDisposition } from "./expression-use-model.js";
 import { Node_Expression, Node_Initializer, VariableDeclarationList_Declarations } from "./ast.js";
-import { sourceEnclosingCallable } from "./callable-invocations.js";
+import { sourceEnclosing } from "./callable-boundaries.js";
 
 export function sourceImmediatelyAwaitedLocal(ast: AstReader,
   navigation: Pick<SourceNodeNavigationFacts, "declarationUseSummary" | "declarationUses" | "expressionResultDisposition">, call: Node): boolean {
@@ -32,7 +32,7 @@ export function sourceImmediatelyAwaitedLocal(ast: AstReader,
   if (reads.length !== 1) return false;
   const read = reads[0]!.reference;
   const awaited = navigation.expressionResultDisposition(read);
-  if (awaited.kind !== "awaited-in-scope" || sourceEnclosingCallable(read, ast) !== sourceEnclosingCallable(call, ast)) return false;
+  if (awaited.kind !== "awaited-in-scope" || sourceEnclosing(ast, read, "execution") !== sourceEnclosing(ast, call, "execution")) return false;
   for (let current: Node = awaited.use; current !== next;) {
     const parent = ast.parent(current);
     if (parent === undefined || !sourceEvaluationStartsWith(ast, parent, current)) return false;
