@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { providerVirtualDeclarationFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { selectTsonicFixedArray } from "../public/facts.js";
+import { selectTsonicFixedArray } from "../public/host.js";
 import { callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, sourceFacts, typeAliasType, typeReferenceName, variableInitializer } from "../extension/source-extension.fixtures.js";
 import { fixedArrayFactsEqual, tsonicFixedArrayFactKey } from "./facts.js";
 
 test("fixed-array analysis and resolved selection share exact counts and source length runtime bases", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import type { FixedArray, uint8 } from "@tsonic/core/types.js";
+    import type { FixedArray, uint8, int32 } from "@tsonic/core/types.js";
+    type NativeCount = int32;
     type Numeric = FixedArray<uint8, 2>;
     type Big = FixedArray<uint8, 2n>;
     type Zero = FixedArray<{}, 0n>;
@@ -48,8 +49,41 @@ test("fixed-array analysis and resolved selection share exact counts and source 
   }
   const numericLength = source.checker.getTypeAtLocation(variableInitializer(session, sourceFile, "numericLength"));
   const bigintLength = source.checker.getTypeAtLocation(variableInitializer(session, sourceFile, "bigintLength"));
-  assert.equal(source.typeShape.getNumericLiteralTypeValue(numericLength), 2);
-  assert.equal(source.typeShape.getNumericLiteralTypeValue(bigintLength), 2n);
+  const count = source.checker.getTypeFromTypeNode(typeAliasType(session, sourceFile, "NativeCount"));
+  assert.equal(count !== undefined && source.typeShape.isTypeIdenticalTo(numericLength, count), true,
+    "number extent retains native int32 length independently of exact extent facts");
+  assert.equal(count !== undefined && source.typeShape.isTypeIdenticalTo(bigintLength, count), true,
+    "bigint extent also exposes the same native int32 count, not a bigint literal");
+  for (const name of ["numericLength", "bigintLength"]) {
+    const occurrence = variableInitializer(session, sourceFile, name);
+    const selected = source.checker.getResolvedPropertyAccessInfo(occurrence);
+    const declaration = selected?.selectedReadDeclaration ?? selected?.selectedDeclaration;
+    const annotation = declaration === undefined ? undefined : source.ast.typeNode(declaration);
+    assert.equal(annotation !== undefined && getSourceFact(session, annotation, sourcePrimitiveFactKey)?.kind === "int32", true,
+      `${name}: the actual selected provider member retains its int32 primitive evidence`);
+  }
+});
+
+test("FixedArray assignments distinguish exact extents and backing domains without changing native counts", () => {
+  const { session } = createSourceCoreSession(`
+    import type { FixedArray, uint8 } from "@tsonic/core/types.js";
+    declare const pair: FixedArray<uint8, 2n>;
+    declare const triple: FixedArray<uint8, 3n>;
+    declare const numeric: FixedArray<uint8, 2>;
+    declare const wide: FixedArray<{}, 9007199254740993n>;
+    declare const adjacent: FixedArray<{}, 9007199254740992n>;
+    const same: FixedArray<uint8, 2n> = pair;
+    const wrongCount: FixedArray<uint8, 2n> = triple;
+    const wrongDomain: FixedArray<uint8, 2n> = numeric;
+    const wrongWide: FixedArray<{}, 9007199254740993n> = adjacent;
+    const reverseWide: FixedArray<{}, 9007199254740992n> = wide;
+  `);
+  const checked = checkSource(session);
+  const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+  assert.equal(diagnostics.length, 4, "only the four exact extent/domain mismatches are rejected");
+  assert.equal(diagnostics.every(diagnostic => diagnostic.code === 2322), true,
+    "the canonical invariant provider rejects assignments, not a downstream Native workaround");
+  assert.equal(definedDiagnostics(checked.extensionDiagnostics).length, 0, "all five actual extents are otherwise valid source-core types");
 });
 
 test("resolved fixed arrays follow cross-file aliases without treating alias parameters as canonical positions", () => {

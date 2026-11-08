@@ -14,6 +14,7 @@ test("FixedArray native length and index are int32 while the exact extent remain
     length.type!.kind === "source-primitive" && length.type!.name === "int32", true);
   assert.equal(indexType?.kind === "source-primitive" && indexType.name === "int32", true);
   assert.equal(declaration.typeParameters?.[1]?.name, "TLength");
+  assert.equal(declaration.typeParameters?.[1]?.variance, "invariant", "extent identity is independent of the int32 count member");
   assert.deepEqual(declaration.typeParameters?.[1]?.constraints,
     [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }]);
 });

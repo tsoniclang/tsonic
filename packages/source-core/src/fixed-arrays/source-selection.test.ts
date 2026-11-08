@@ -1,19 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { providerVirtualDeclarationFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
-import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import { selectTsonicFixedArrayFromSource, tsonicFixedArrayFactKey } from "../public/facts.js";
+import type { CheckedSourceProgram, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
+import { selectTsonicFixedArray } from "../public/host.js";
+import { tsonicFixedArrayFactKey } from "../public/facts.js";
 import { checkSource, createCleanSourceCoreSession, createSourceCoreSession, findNode } from "../extension/source-extension.fixtures.js";
 
-function sourceFile(source: TargetSourceProgram, path: string) {
+type Source = CheckedSourceProgram;
+
+function sourceFixture(source: CheckedSourceProgram): Source {
+  assert.ok(source.sourceFacts !== undefined, "the actual source-core provider published its original facts");
+  return source;
+}
+
+function sourceFile(source: Source, path: string) {
   const file = source.sourceFiles.find(file => source.ast.getFileName(file) === path);
   assert.ok(file !== undefined, path);
   return file;
 }
 
-function aliasNode(source: TargetSourceProgram, path: string, name: string): Node {
+function aliasNode(source: Source, path: string, name: string): Node {
   const declaration = findNode(sourceFile(source, path), source.ast, (node, ast) =>
     ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === name);
   const type = source.ast.as.AsTypeAliasDeclaration(declaration)?.Type;
@@ -28,13 +34,13 @@ test("target-source fixed arrays preserve adjacent authored native extents witho
     type Adjacent = FixedArray<number, 9007199254740993>;
     type NegativeZero = FixedArray<number, -0n>;
   `);
-  const source = createTargetSourceProgram(checkSource(session));
+  const source = sourceFixture(checkSource(session));
   for (const [name, length] of [["Wide", 9007199254740992n], ["Adjacent", 9007199254740993n], ["NegativeZero", 0n]] as const) {
     const node = aliasNode(source, "/src/index.ts", name);
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.authoredType(node);
+    const queries = source.getSourceFileQueries(source.ast.getSourceFile(node));
+    const type = queries.checker.getTypeFromTypeNode(node);
     assert.ok(type !== undefined, name + ": exact checked source type");
-    const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
+    const selected = selectTsonicFixedArray(type, queries, source.sourceFacts);
     assert.ok(selected?.kind === "selected", name + ": native extent is admitted");
     assert.equal(selected.fact.length, length, name + ": exact authored native integer");
     assert.equal(selected.fact.lengthRuntimeBase, name === "NegativeZero" ? "bigint" : "number");
@@ -61,23 +67,23 @@ test("target-source fixed-array adapter selects inferred wrapped returns without
       export const remote = wrap({}, 9007199254740992n);
     `,
   });
-  const source = createTargetSourceProgram(checkSource(session));
+  const source = sourceFixture(checkSource(session));
   for (const [path, length] of [["/src/index.ts", 9007199254740993n], ["/src/remote.ts", 9007199254740992n]] as const) {
     const file = sourceFile(source, path);
     const call = findNode(file, source.ast, (node, ast) => ast.is.IsCallExpression(node));
     assert.ok(call !== undefined);
-    const semantics = source.semantics.forNode(call);
-    const selected = semantics.operations.call(call);
+    const queries = source.getSourceFileQueries(file);
+    const selected = queries.checker.getResolvedCallInfo(call);
     assert.ok(selected?.outcome === "applicable");
-    const arrayType = semantics.types.typeArguments(selected.sourceResultType)[0];
+    const arrayType = queries.typeShape.getTypeArguments(selected.sourceResultType)[0];
     assert.ok(arrayType !== undefined);
     const before = source.sourceFacts.getFacts(arrayType);
     assert.equal(source.sourceFacts.getFact(arrayType, tsonicFixedArrayFactKey) === undefined, true);
     for (let repeat = 0; repeat < 2; repeat += 1) {
-      const fixed = selectTsonicFixedArrayFromSource(arrayType, semantics, source.sourceFacts);
+      const fixed = selectTsonicFixedArray(arrayType, queries, source.sourceFacts);
       assert.ok(fixed?.kind === "selected");
       assert.equal(fixed.fact.sourceType, arrayType);
-      assert.equal(fixed.fact.elementSourceType, semantics.types.typeArguments(arrayType)[0]);
+      assert.equal(fixed.fact.elementSourceType, queries.typeShape.getTypeArguments(arrayType)[0]);
       assert.equal(fixed.fact.length, length);
       assert.equal(fixed.fact.lengthRuntimeBase, "bigint");
       assert.equal(fixed.fact.elementType, undefined);
@@ -102,17 +108,17 @@ test("target-source fixed-array adapter resolves cross-file aliases through exac
       export type Reordered<Unused, Element> = FixedArray<Element, 2>;
     `,
   });
-  const source = createTargetSourceProgram(checkSource(session));
+  const source = sourceFixture(checkSource(session));
   for (const [path, name, count, runtimeBase] of [
     ["/src/index.ts", "LocalHuge", 9007199254740993n, "bigint"],
     ["/src/index.ts", "LocalPair", 2n, "number"],
     ["/src/arrays.ts", "Huge", 9007199254740993n, "bigint"],
   ] as const) {
     const node = aliasNode(source, path, name);
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.authoredType(node);
+    const queries = source.getSourceFileQueries(source.ast.getSourceFile(node));
+    const type = queries.checker.getTypeFromTypeNode(node);
     assert.ok(type !== undefined);
-    const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
+    const selected = selectTsonicFixedArray(type, queries, source.sourceFacts);
     assert.ok(selected?.kind === "selected", name);
     assert.equal(selected.fact.sourceType, type);
     assert.equal(selected.fact.length, count);
@@ -123,7 +129,7 @@ test("target-source fixed-array adapter resolves cross-file aliases through exac
     const missing: Pick<ReadonlySourceFactResolver, "getFact"> = {
       getFact: (subject, key) => Object.is(key, providerVirtualDeclarationFactKey) ? undefined : source.sourceFacts.getFact(subject, key),
     };
-    assert.equal(selectTsonicFixedArrayFromSource(type, semantics, missing), undefined);
+    assert.equal(selectTsonicFixedArray(type, queries, missing), undefined);
   }
 });
 
@@ -133,16 +139,16 @@ test("target-source resolved selection leaves occurrence-owned primitive annotat
     type Unsigned = FixedArray<uint32, 2>;
     type Signed = FixedArray<int32, 2>;
   `);
-  const source = createTargetSourceProgram(checkSource(session));
+  const source = sourceFixture(checkSource(session));
   for (const [name, primitive] of [["Unsigned", "uint32"], ["Signed", "int32"], ["Unsigned", "uint32"]] as const) {
     const node = aliasNode(source, "/src/index.ts", name);
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.authoredType(node);
+    const queries = source.getSourceFileQueries(source.ast.getSourceFile(node));
+    const type = queries.checker.getTypeFromTypeNode(node);
     assert.ok(type !== undefined);
     const authored = source.sourceFacts.getFact(node, tsonicFixedArrayFactKey);
     assert.ok(authored?.elementType !== undefined);
     const before = source.sourceFacts.getFacts(type);
-    const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
+    const selected = selectTsonicFixedArray(type, queries, source.sourceFacts);
     assert.ok(selected?.kind === "selected");
     assert.equal(selected.fact.elementType, authored.elementType);
     assert.equal(selected.fact.elementSourceType, authored.elementSourceType);
@@ -159,11 +165,11 @@ test("target-source concrete aliases reject contradictory and ambiguous element 
     type Unsigned = FixedArray<uint32, 2>;
     type Signed = FixedArray<int32, 2>;
   `);
-  const source = createTargetSourceProgram(checkSource(session));
+  const source = sourceFixture(checkSource(session));
   const unsigned = aliasNode(source, "/src/index.ts", "Unsigned");
   const signed = aliasNode(source, "/src/index.ts", "Signed");
-  const semantics = source.semantics.forNode(unsigned);
-  const type = semantics.types.authoredType(unsigned);
+  const queries = source.getSourceFileQueries(source.ast.getSourceFile(unsigned));
+  const type = queries.checker.getTypeFromTypeNode(unsigned);
   assert.ok(type !== undefined);
   const contradictory: Pick<ReadonlySourceFactResolver, "getFact"> = {
     getFact(subject, key) {
@@ -172,7 +178,7 @@ test("target-source concrete aliases reject contradictory and ambiguous element 
         ? { ...fact, length: 3n } as typeof fact : fact;
     },
   };
-  const mismatch = selectTsonicFixedArrayFromSource(type, semantics, contradictory);
+  const mismatch = selectTsonicFixedArray(type, queries, contradictory);
   assert.equal(mismatch?.kind, "invalid");
   const unsignedFact = source.sourceFacts.getFact(unsigned, tsonicFixedArrayFactKey);
   const signedFact = source.sourceFacts.getFact(signed, tsonicFixedArrayFactKey);
@@ -184,9 +190,12 @@ test("target-source concrete aliases reject contradictory and ambiguous element 
         ? { ...unsignedFact, elementType: signedFact.elementType } as typeof fact : fact;
     },
   };
-  const ambiguous = selectTsonicFixedArrayFromSource(type, {
-    ...semantics,
-    facts: { ...semantics.facts, authoredTypeNodes: () => [unsigned, signed] },
+  const ambiguous = selectTsonicFixedArray(type, {
+    ...queries,
+    ast: { ...queries.ast, forEachChild(node, visit) {
+      if (node === source.ast.parent(unsigned)) { visit(unsigned); visit(signed); }
+      else queries.ast.forEachChild(node, visit);
+    } },
   }, alternate);
   assert.equal(ambiguous?.kind, "invalid");
   assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true);
@@ -202,13 +211,13 @@ test("target-source adapter retains invalid versus noncanonical selection outcom
   const checked = checkSource(session);
   assert.equal(checked.extensionDiagnostics.length, 2);
   assert.ok(checked.extensionDiagnostics.every(diagnostic => diagnostic.extensionCode === "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL"));
-  const source = createTargetSourceProgram(checked);
+  const source = sourceFixture(checked);
   for (const name of ["Open", "Negative", "Local"]) {
     const node = aliasNode(source, "/src/index.ts", name);
-    const semantics = source.semantics.forNode(node);
-    const type = semantics.types.authoredType(node);
+    const queries = source.getSourceFileQueries(source.ast.getSourceFile(node));
+    const type = queries.checker.getTypeFromTypeNode(node);
     assert.ok(type !== undefined);
-    const selected = selectTsonicFixedArrayFromSource(type, semantics, source.sourceFacts);
+    const selected = selectTsonicFixedArray(type, queries, source.sourceFacts);
     assert.equal(selected?.kind, name === "Local" ? undefined : "invalid", name);
     assert.equal(source.sourceFacts.getFact(type, tsonicFixedArrayFactKey) === undefined, true);
   }
