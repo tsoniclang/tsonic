@@ -1,5 +1,7 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
+import type { SourceSignatureIdentity } from "../../../public/source/contracts.js";
+import { sourceStorageValue } from "../model/program.js";
 import { sourceStorageInstanceCaptures } from "../model/construction.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -10,7 +12,7 @@ import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/sc
 interface SourceStorageInvocationResultQueries {
   readonly subject: SourceStorageSubjectQuery;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
-  nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+  nativeConstructorsFor(subject: SourceStorageSubject): readonly SourceSignatureIdentity[] | undefined;
   valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageScopedSubject> | undefined;
   targetFor(invocation: Node): SourceStorageSubject | undefined;
   bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageScope,
@@ -34,10 +36,9 @@ export function createSourceStorageInvocationResults(
   const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageScope, capture?: SourceStorageScopedSubject) => {
     const target = queries.targetFor(invocation);
     const states = new Set<SourceStorageScope>();
-    const consumer = source.semantics.forNode(invocation);
-    const selected = consumer.operations.call(invocation);
-    const contract = selected?.sourceSelectedSignatureKind === "resolved"
-      ? consumer.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
+    const selected = sourceStorageValue(source.facts.applications.application(invocation));
+    if (selected.argumentDisposition === "skip") return states;
+    const contract = selected.identity.signature.declaration;
     if (capture === undefined && contract === candidate && source.ast.body(candidate) === undefined) {
       const selected = queries.bindingsFor(candidate, invocation, bindings, bindings, target);
       if (selected !== undefined) states.add(selected);

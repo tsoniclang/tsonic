@@ -40,6 +40,7 @@ export interface CreateTargetSourceCompilerCompositionOptions {
 
 export interface TargetSourceCompilerComposition {
   readonly semanticsModules: readonly SourceSemanticsModule[];
+  readonly declarationProviders: readonly SourceDeclarationProvider[];
   readonly extensions: readonly CompilerExtension[];
   readonly safetyProviders: readonly TargetSourceSafetyProvider[];
 }
@@ -130,7 +131,7 @@ export function createTargetSourceCompilerComposition(
     }),
     ...(declarationProviders.length === 0 ? [] : [createDeclarationProviderRegistration(declarationProviders)]),
   ]);
-  return Object.freeze({ semanticsModules, extensions, safetyProviders });
+  return Object.freeze({ semanticsModules, declarationProviders, extensions, safetyProviders });
 }
 
 function createDeclarationProviderRegistration(providers: readonly SourceDeclarationProvider[]): CompilerExtension {

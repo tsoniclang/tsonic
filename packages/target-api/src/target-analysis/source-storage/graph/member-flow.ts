@@ -1,4 +1,5 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node, SourceFile, TypePropertyInfo } from "@tsonic/tsts";
 
@@ -181,21 +182,14 @@ export function createSourceStorageMemberFlow(
     if (excluded === lineage.classes.length || absent)
       return Object.freeze({ members: Object.freeze([]), absent: excluded !== lineage.classes.length });
     const nativeBase = lineage.nativeBase;
-    if (nativeBase === undefined || nativeBase.constructors.length === 0) return undefined;
+    if (nativeBase === undefined || nativeBase.constructors.length === 0 || nativeBase.receiver === undefined) return undefined;
     let originals: readonly Node[] | undefined;
     for (const constructor of nativeBase.constructors) {
       if (!budget.step()) return undefined;
-      let receiver: SourceStorageSubject | undefined;
-      if (source.ast.is.IsConstructSignatureDeclaration(constructor)) receiver = subject(constructor, "return");
-      else if (source.ast.is.IsConstructorDeclaration(constructor)) {
-        const owner = source.ast.parent(constructor);
-        if (owner === undefined || owner !== nativeBase.subject.node || source.ast.body(constructor) !== undefined ||
-          !source.ast.is.IsClassDeclaration(owner) && !source.ast.is.IsClassExpression(owner) ||
-          source.facts.navigation.isProjectDeclaration(owner)) return undefined;
-        receiver = subject(owner, "receiver");
-      } else return undefined;
-      const member = receiver === undefined ? undefined : memberFor(receiver, declaration, destinationType);
-      if (member?.kind !== "present") return undefined;
+      if (constructor.kind !== "construct") throw new Error("A Native constructor premise requires its original construct identity.");
+      const selected = sourceStorageValue(source.facts.objects.correspondingMember(nativeBase.receiver, destinationType, declaration, "correspondence"));
+      if (selected.kind !== "present" || selected.value.kind !== "present") return undefined;
+      const member = selected.value;
       const physical: Node[] = [];
       for (const original of member.source.declarations) {
         if (!budget.step()) return undefined;

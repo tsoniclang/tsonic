@@ -26,7 +26,6 @@ import {
   targetSourceProfileDeclaration,
 } from "../../../packages/target-api/dist/public/provider.js";
 import {
-  defineExtensionFactKey,
   createCompilerSession,
   providerVirtualDeclarationFactKey,
   TstsSourceProviderContractVersion,
@@ -43,39 +42,6 @@ export const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composit
 
 
 
-export const portableOperationFactKey = defineExtensionFactKey({
-  extensionId: "portable-operation-facts-test-extension",
-  name: "binary-operation",
-  snapshot(value) {
-    return Object.freeze({ ...value });
-  },
-  equals(left, right) {
-    return left.operator === right.operator &&
-      left.resultType === right.resultType;
-  },
-});
-
-export function createPortableOperationFactsExtension() {
-  return {
-    identity: {
-      id: "portable-operation-facts-test-extension",
-      version: "1.0.0",
-    },
-    analyzeSource(context) {
-      const sourceFile = context.source.getSourceFiles().find((candidate) =>
-        candidate !== undefined &&
-        !candidate.IsDeclarationFile &&
-        context.source.ast.getFileName(candidate).endsWith("src/index.ts"));
-      assert.ok(sourceFile !== undefined);
-      const expression = findBinaryExpression(context.source.ast, sourceFile);
-      const queries = context.source.getSourceFileQueries(sourceFile);
-      assert.equal(context.facts.set(expression, portableOperationFactKey, {
-        operator: context.source.ast.operatorKindName(expression),
-        resultType: queries.checker.typeToString(queries.checker.getTypeAtLocation(expression)),
-      }), "inserted");
-    },
-  };
-}
 
 
 
@@ -332,17 +298,18 @@ export function createRegistry(targetPack) {
   };
 }
 
-export function extensionIds(extensions) {
-  return extensions.map((extension) => extension.identity.id);
+export function assertSourceProviderComposition(composition, providers) {
+  assert.equal(composition.declarationProviders.length, providers.length);
+  for (const [index, provider] of providers.entries())
+    assert.equal(composition.declarationProviders[index] === provider, true, `original provider ${index}`);
+  assert.deepEqual(composition.extensions.map(extension => extension.identity.id), [
+    "tsts.source-semantics", "tsonic.source-core",
+    ...(providers.length === 0 ? [] : ["tsonic.source-declarations"]),
+  ]);
 }
 
-export function createFakeCompilerExtension(id) {
-  return {
-    identity: {
-      id,
-      version: "1.0.0",
-    },
-  };
+export function createFakeDeclarationProvider(id) {
+  return createFakeVirtualBindingProvider(id, [{ specifierPrefix: `@${id}/native/` }]);
 }
 
 export function createFakeTargetPack(events, options = {}) {
@@ -393,9 +360,9 @@ export function createFakeTargetPack(events, options = {}) {
             events.push("session:compiler");
           }
           events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaceIds.join(",")}`);
-          return options.targetExtension === undefined
+          return options.targetProvider === undefined
             ? {}
-            : { extensions: [options.targetExtension] };
+            : { declarationProviders: [options.targetProvider] };
         },
         runtimeContributions() {
           assert.equal(state, "compiler");
@@ -475,9 +442,9 @@ export function createFakeTargetCapability(id, options = {}) {
     sourceCompilerContributions(context) {
       options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilityIds.join(",")}`);
       assert.equal(context.capability.id, id);
-      return options.extension === undefined
+      return options.declarationProvider === undefined
         ? {}
-        : { extensions: [options.extension] };
+        : { declarationProviders: [options.declarationProvider] };
     },
     runtimeContributions() {
       options.events?.push(`capability-runtime:${id}`);
@@ -504,15 +471,7 @@ export function createFakeVirtualTargetCapability(id, options = {}) {
   return createFakeTargetCapability(id, {
     ...options,
     moduleOwnership,
-    extension: {
-      identity: {
-        id: `${id}-extension`,
-        version: "1.0.0",
-      },
-      initialize(context) {
-        context.registerSourceDeclarationProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));
-      },
-    },
+    declarationProvider: createFakeVirtualBindingProvider(id, moduleOwnership, options.events),
   });
 }
 
@@ -608,13 +567,13 @@ export function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
     id,
     displayName: `${id} Surface`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
-    ...(options.extension === undefined
+    ...(options.declarationProvider === undefined
       ? {}
       : {
           sourceCompilerContributions(context) {
             options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaceIds.join(",")}`);
             assert.equal(context.surface.id, id);
-            return { extensions: [options.extension] };
+            return { declarationProviders: [options.declarationProvider] };
           },
         }),
     runtimeContributions() {

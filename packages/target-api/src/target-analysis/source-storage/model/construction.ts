@@ -1,5 +1,7 @@
 import type { SourceStorageProgram } from "./program.js";
 import type { Node } from "@tsonic/tsts";
+import type { SourceSignatureIdentity, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import { sourceStorageValue } from "./program.js";
 import { AsExpressionWithTypeArguments, sourceSuperConstructor } from "../../../source-navigation/index.js";
 
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -15,7 +17,8 @@ export interface SourceStorageClassLineage<Bindings> {
   readonly classes: readonly SourceStorageClassValue<Bindings>[];
   readonly complete: boolean;
   readonly implementation: Node | undefined;
-  readonly nativeBase: (SourceStorageClassValue<Bindings> & { readonly constructors: readonly Node[] }) | undefined;
+  readonly nativeBase: (SourceStorageClassValue<Bindings> & { readonly constructors: readonly SourceSignatureIdentity[];
+    readonly receiver: SourceTypeEvidence | undefined }) | undefined;
 }
 
 export function sourceStorageClassLineages<Bindings>(
@@ -24,7 +27,7 @@ export function sourceStorageClassLineages<Bindings>(
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
   queries: {
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
-    nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+    nativeConstructorsFor(subject: SourceStorageSubject): readonly SourceSignatureIdentity[] | undefined;
     valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
   },
   mode?: "heritage",
@@ -33,11 +36,12 @@ export function sourceStorageClassLineages<Bindings>(
   return budget.withRows(rows => {
     const lineages: SourceStorageClassLineage<Bindings>[] = [];
     const pending: { readonly value: SourceStorageClassValue<Bindings>;
-      readonly classes: readonly SourceStorageClassValue<Bindings>[] }[] = [];
+      readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly receiver: SourceTypeEvidence | undefined }[] = [];
     const schedule = (value: SourceStorageClassValue<Bindings>,
-      classes: readonly SourceStorageClassValue<Bindings>[]): boolean => {
+      classes: readonly SourceStorageClassValue<Bindings>[], receiver: SourceTypeEvidence | undefined): boolean => {
       if (!rows.add(2 + classes.length)) return false;
-      pending.push({ value, classes });
+      if (receiver !== undefined) source.facts.descriptors.assertEvidence(receiver);
+      pending.push({ value, classes, receiver });
       return true;
     };
     const finish = (classes: readonly SourceStorageClassValue<Bindings>[], complete: boolean, implementation?: Node,
@@ -46,10 +50,10 @@ export function sourceStorageClassLineages<Bindings>(
       lineages.push(Object.freeze({ classes: Object.freeze([...classes]), complete, implementation, nativeBase }));
       return true;
     };
-    for (const value of values) if (!budget.step() || !schedule(value, [])) return undefined;
+    for (const value of values) if (!budget.step() || !schedule(value, [], undefined)) return undefined;
     while (pending.length !== 0) {
       if (!budget.step()) return undefined;
-      const { value, classes } = pending.pop()!;
+      const { value, classes, receiver } = pending.pop()!;
       const node = value.subject.node;
       if (value.subject.kind !== "value" || value.subject.projection.length !== 0 ||
         classes.some(previous => previous.subject === value.subject && previous.bindings === value.bindings)) {
@@ -60,25 +64,25 @@ export function sourceStorageClassLineages<Bindings>(
         !source.facts.navigation.isProjectDeclaration(node)) {
         const constructors = queries.nativeConstructorsFor(value.subject);
         const nativeBase = constructors === undefined || constructors.length === 0 ? undefined
-          : Object.freeze({ ...value, constructors });
+          : Object.freeze({ ...value, constructors, receiver });
         if (!finish(classes, nativeBase !== undefined, undefined, nativeBase)) return undefined;
         continue;
       }
       const lineage = [...classes, value];
       if (mode === undefined) {
-        const constructors = source.facts.navigation.classConstructors(node);
+        const constructors = sourceStorageValue(source.facts.navigation.classConstructors(node));
         if (constructors.kind !== "resolved") {
           if (!finish(lineage, false)) return undefined;
           continue;
         }
-        if (!constructors.implicit) {
+        if (constructors.witness !== "implicit") {
           const implemented = source.ast.members(node).filter(member => member !== undefined &&
             source.ast.is.IsConstructorDeclaration(member) && source.ast.body(member) !== undefined);
           if (!finish(lineage, implemented.length === 1, implemented.length === 1 ? implemented[0] : undefined)) return undefined;
           continue;
         }
       }
-      const heritage = source.facts.navigation.declaredHeritage(node);
+      const heritage = sourceStorageValue(source.facts.navigation.declaredHeritage(node));
       if (heritage.kind !== "resolved") {
         if (!finish(lineage, false)) return undefined;
         continue;
@@ -95,7 +99,7 @@ export function sourceStorageClassLineages<Bindings>(
       const subject = queries.subjectFor(AsExpressionWithTypeArguments(source.ast, bases[0]!.heritage)?.Expression);
       const inherited = subject === undefined ? undefined : queries.valuesFor(subject, value.bindings);
       if (inherited === undefined) return undefined;
-      for (const selected of inherited) if (!budget.step() || !schedule(selected, lineage)) return undefined;
+      for (const selected of inherited) if (!budget.step() || !schedule(selected, lineage, bases[0]!.selected)) return undefined;
     }
     return Object.freeze(lineages);
   });
@@ -108,7 +112,7 @@ export function sourceStorageInstanceCaptures<Bindings>(
   values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
   queries: {
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
-    nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+    nativeConstructorsFor(subject: SourceStorageSubject): readonly SourceSignatureIdentity[] | undefined;
     valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
   },
 ): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined {
@@ -134,7 +138,7 @@ export function sourceStorageAllocations<Bindings>(source: SourceStorageProgram,
   return budget.withRows(temporary => {
     if (source.ast.is.IsNewExpression(invocation)) return Object.freeze({ kind: "resolved",
       allocations: Object.freeze([Object.freeze({ call: invocation, callerBindings: bindings })]) });
-    const base = sourceSuperConstructor(invocation, source, budget.step);
+    const base = sourceStorageValue(sourceSuperConstructor(invocation, source, budget.step));
     if (base === undefined) return Object.freeze({ kind: "unresolved",
       reason: "Constructor execution requires its actual checked allocation receiver, not guessed heritage order." });
     const selected = receiverOriginsFor(base.owner, bindings);

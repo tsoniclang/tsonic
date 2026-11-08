@@ -2,6 +2,7 @@ import type { SourceStorageProgram } from "../model/program.js";
 import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
 import { sourcePresentStorageType } from "../model/components.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import type { SourceSignatureIdentity } from "../../../public/source/contracts.js";
 
 import type { SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { SourceStorageSubject } from "../../../source-model/storage.js";
@@ -45,7 +46,7 @@ export interface SourceStorageScopedTransport {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   sourceFileFor(subject: SourceStorageSubject): SourceFile | undefined;
   locationFor(node: Node | undefined): SourceStorageSubject | undefined;
-  nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+  nativeConstructorsFor(subject: SourceStorageSubject): readonly SourceSignatureIdentity[] | undefined;
   bindingInputFor(subject: SourceStorageSubject): SourceStorageSubject | undefined;
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
   readonly contextualInputs: ReturnType<typeof createSourceStorageContextInputs>;
