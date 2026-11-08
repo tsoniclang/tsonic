@@ -1,4 +1,6 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
+import { sourcePresentStorageType } from "../model/components.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
@@ -152,11 +154,10 @@ export function sourceStorageInputBinding(source: SourceStorageProgram, budget: 
   const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   const native = activation?.nativeEntry;
   if (owner !== undefined && activation !== undefined && native !== undefined) {
-    const semantics = source.semantics.forNode(native.invocation);
     const inputs = sourceStorageNativeInputSlots(source, owner, term.subject,
-      transport.inputSlotsFor(owner, native.invocation, native.callback), semantics, budget.step);
+      transport.inputSlotsFor(owner, native.invocation, native.callback), budget.step);
     if (inputs !== undefined && inputs.length !== 0 && inputs.every(input => input.absent || input.type !== undefined &&
-      (semantics.types.isNullish(input.type) || semantics.types.isVoidLike(input.type))))
+      sourcePresenceLiteralDisposition(source.analysis.literalDomain(input.type)) === "absent"))
       return { kind: "replace", terms: [sourceStorageReference(fallback, activation.scope)] };
   }
   if (bound === undefined) {
@@ -186,16 +187,15 @@ export function sourceStorageInitializedValue(source: SourceStorageProgram, budg
     if (selected?.kind === "replace" && selected.initialization === "absent") return [fallback];
   }
   const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
-  const file = source.ast.getSourceFile(value.subject.node);
-  const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
-  if (type === undefined || file === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
+  const type = !source.facts.navigation.includes(value.subject.node) ? undefined : sourceStorageProjectionType(source, value.subject, value.views);
+  if (type === undefined || value.subject === input.subject && value.scope === input.scope) return unresolved(
     "An initialized input requires exact checked presence or absence of its actual value.");
-  const types = source.semantics.forFile(file).types;
-  if (types.isNullish(type) || types.isVoidLike(type)) return [fallback];
-  const present = types.nonNullableType(type);
+  const disposition = sourcePresenceLiteralDisposition(source.analysis.literalDomain(type));
+  if (disposition === "absent") return [fallback];
+  if (disposition === "present") return [value];
+  const present = sourcePresentStorageType(type, source);
   if (present === undefined) return unresolved("An initialized input has unresolved actual absence correspondence.");
-  if (!types.isAny(type) && !types.isUnknown(type) && types.isIdentical(type, present)) return [value];
-  const retained = types.isUnion(type) && !types.isNever(present)
+  const retained = present !== type
     ? Object.freeze({ ...value, views: sourceStorageWithProjectionView(value.views, value.subject, value.subject, present) })
     : value;
   return [retained, fallback];

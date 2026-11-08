@@ -2,6 +2,7 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../../public/source/contracts.js";
 import { sourceLiteralUnitKey, type SourceLiteralKey } from "../../../source-model/literals/key.js";
 import { Node_Expression } from "../../../source-navigation/ast.js";
+import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsMemberProjection } from "./subjects.js";
 import type { SourceStorageProgram } from "./program.js";
@@ -96,7 +97,17 @@ export function sourceStorageDynamicMemberDeclarations(source: SourceStorageProg
 
 function indexedElement(source: SourceStorageProgram, value: SourceTypeEvidence): SourceTypeEvidence | undefined {
   if (value.type.kind === "array") return sourceStorageValue(source.facts.descriptors.component(value, { kind: "array-element" }));
-  if (value.type.kind === "tuple") return undefined;
+  if (value.type.kind === "tuple") {
+    const selected: SourceTypeEvidence[] = [];
+    for (const [index, element] of value.type.elements.entries()) {
+      source.work(value.component.root);
+      const child = sourceStorageValue(source.facts.descriptors.component(value, { kind: "tuple-element", index }));
+      const type = element.kind === "rest" ? indexedElement(source, child) : child;
+      if (type === undefined) return undefined;
+      selected.push(type);
+    }
+    return aggregate(source, value.component.root, selected);
+  }
   const members = sourceStorageValue(source.analysis.settle(source.analysis.inventory.members(value)));
   if (members.kind !== "complete") return undefined;
   const selected: SourceTypeEvidence[] = [];
@@ -168,14 +179,12 @@ export function sourceStorageArrayLiteralType(source: SourceStorageProgram, node
   return sourceStorageValue(source.facts.values.type(node));
 }
 
-function originalSignature(source: SourceStorageProgram, declaration: Node):
+export function sourceStorageOriginalSignature(source: SourceStorageProgram, declaration: Node):
   { readonly value: SourceTypeEvidence; readonly signature: SourceTypeDescriptorSignature } | undefined {
   const slot = sourceStorageValue(source.facts.values.declaredSlot(declaration));
-  const value = sourceStorageValue(source.facts.descriptors.definition(slot.type));
-  const type = value.type;
-  const signatures = type.kind === "callable" || type.kind === "shape" ? [...type.calls, ...type.constructs] : [];
-  const selected = signatures.filter(signature => signature.identity.declaration === declaration);
-  return selected.length === 1 ? Object.freeze({ value, signature: selected[0]! }) : undefined;
+  const selected = sourceStorageValue(sourceCallableSignatures(source, slot.type, source.work))
+    .filter(original => original.signature.identity.declaration === declaration);
+  return selected.length === 1 ? selected[0] : undefined;
 }
 
 export function sourceStorageSubjectType(source: SourceStorageProgram, value: SourceStorageSubject,
@@ -184,7 +193,7 @@ export function sourceStorageSubjectType(source: SourceStorageProgram, value: So
   if (sourceFile !== undefined && sourceFile !== source.ast.getSourceFile(value.node)) return undefined;
   let selected: SourceTypeEvidence | undefined;
   if (value.kind === "return") {
-    const original = originalSignature(source, value.node);
+    const original = sourceStorageOriginalSignature(source, value.node);
     if (original === undefined) return undefined;
     const generator = sourceStorageValue(source.facts.protocols.generator(value.node));
     if (generator.kind === "present") selected = generator.value.values.completed;
@@ -217,7 +226,7 @@ function sourceStorageReceiverType(source: SourceStorageProgram, node: Node): So
   while (!visited.has(node)) {
     source.work(node);
     visited.add(node);
-    const original = originalSignature(source, node);
+    const original = sourceStorageOriginalSignature(source, node);
     if (original?.signature.receiver !== undefined)
       return sourceStorageValue(source.facts.descriptors.component(original.value,
         { kind: "receiver", signature: original.signature.identity }));

@@ -1,5 +1,7 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
+import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
 import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../../source-navigation/index.js";
@@ -16,38 +18,38 @@ export function createSourceStorageExecutionRegions(source: SourceStorageProgram
   constructionLineages: (invocation: Node) => readonly {
     readonly classes: readonly { readonly subject: SourceStorageSubject }[]; readonly complete: boolean;
   }[] | undefined, inputSlotsFor: SourceStorageInvocationInputSelectionQuery, subject: SourceStorageSubjectQuery) {
-  const { ast, semantics } = source;
+  const { ast } = source;
   const step = budget.step;
   const lexical = createSourceStorageLexicalSelections(ast, budget);
   const invocations = new Map<Node, Set<Node>>();
   const invocationRows = budget.createRows();
   let sealed = false;
-  const typeMayBeAbsent = (type: SourceTypeEvidence, owner: Node): boolean => {
-    const types = semantics.forNode(owner).types;
+  const typeMayBeAbsent = (type: SourceTypeEvidence): boolean => {
     if (!step()) return true;
-    if (types.isAny(type) || types.isUnknown(type) || types.isNullish(type) || types.isVoidLike(type)) return true;
-    const present = types.nonNullableType(type);
-    return present === undefined || !types.isIdentical(type, present);
+    source.facts.descriptors.assertEvidence(type);
+    return sourcePresenceLiteralDisposition(source.analysis.literalDomain(type)) !== "present";
   };
   const callable = (declaration: Node, invocation: Node | undefined,
     argumentTypes?: (expression: Node) => readonly SourceTypeEvidence[] | undefined, callback?: SourceStorageCallbackEntry,
     actualTypes?: readonly (readonly SourceTypeEvidence[] | undefined)[], phase: "call" | "active" = "call"): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
-    const regions = phase === "active" || semantics.forNode(declaration).operations.generator(declaration) === undefined ? [body] : [];
-    const consumer = semantics.forNode(invocation ?? declaration);
-    const selection = invocation === undefined ? undefined : consumer.operations.call(invocation);
+    const selection = invocation === undefined || !ast.is.IsCallExpression(invocation) && !ast.is.IsNewExpression(invocation)
+      ? undefined : sourceStorageValue(source.facts.applications.application(invocation));
+    if (selection?.argumentDisposition === "skip") return [];
+    const generator = sourceStorageValue(source.facts.protocols.generator(declaration));
+    const regions = phase === "active" || generator.kind === "none" ? [body] : [];
     const inputs = inputSlotsFor(declaration, invocation, callback);
     const slots = sourceStorageSelectedInputSlots(inputs, declaration);
-    const parameters = sourceCallableValueParameters(ast, declaration, semantics.forNode(declaration), { kind: "declaration" });
+    const selectedParameters = sourceStorageValue(sourceCallableValueParameters(source, declaration, undefined));
+    const parameters = selectedParameters.kind === "present" ? selectedParameters.value : undefined;
     if (parameters === undefined) {
       budget.reject("Source storage callable regions require their exact checked value parameters.");
       return [];
     }
     for (const parameter of parameters) {
       if (!step()) break;
-      const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
-      if (parameter === undefined || file === undefined || !semantics.includes(file) ||
+      if (parameter === undefined || !source.facts.navigation.includes(parameter) ||
         !ast.is.IsParameterDeclaration(parameter) || ast.parent(parameter) !== declaration) {
         budget.reject("Source storage callable inputs require exact checked parameter declaration ownership.");
         break;
@@ -58,7 +60,7 @@ export function createSourceStorageExecutionRegions(source: SourceStorageProgram
         const inputs = slots?.filter(slot => slot.parameter === parameter);
         if (inputs === undefined || inputs.length === 0 || inputs.some(input => {
           const supplied = actualTypes[input.effectiveIndex];
-          return supplied === undefined || supplied.length === 0 || supplied.some(type => typeMayBeAbsent(type, invocation ?? declaration));
+          return supplied === undefined || supplied.length === 0 || supplied.some(typeMayBeAbsent);
         })) regions.push(initializer);
         continue;
       }
@@ -66,22 +68,24 @@ export function createSourceStorageExecutionRegions(source: SourceStorageProgram
         const formal = subject(parameter, "input");
         if (formal === undefined) return [];
         const inputs = sourceStorageNativeInputSlots(source, declaration,
-          formal, inputSlotsFor(declaration, invocation, callback), consumer, step);
+          formal, inputSlotsFor(declaration, invocation, callback), step);
         if (inputs === undefined || inputs.some(input => input.absent || input.acceptsOmission || input.type === undefined ||
-          typeMayBeAbsent(input.type, invocation))) regions.push(initializer);
+          typeMayBeAbsent(input.type))) regions.push(initializer);
         continue;
       }
       const inputs = slots?.filter(slot => slot.parameter === parameter);
-      const bindings = inputs === undefined ? undefined : selection?.sourceArgumentBindings.filter(binding =>
-        inputs.some(slot => slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
+      const bindings = inputs === undefined ? undefined : selection?.arguments.filter(binding =>
+        inputs.some(slot => slot.sourceParameterIndex === binding.parameter.index &&
+          (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)));
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
         if (binding.sourceForm === "spread-element" && selection !== undefined &&
           sourceStorageInvocationArgumentAbsence(source, selection, binding) !== "present") return true;
-        const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;
-        const types = argumentTypes === undefined || binding.sourceForm === "spread-element" ? [binding.selectedArgumentType]
+        const argument = selection?.sourceArguments[binding.sourceArgumentIndex];
+        const expression = argument === undefined ? undefined : sourceStorageValue(argument.operand).occurrence;
+        const types = argumentTypes === undefined || binding.sourceForm === "spread-element" ? [binding.source]
           : expression === undefined ? undefined : argumentTypes(expression);
-        return types === undefined || types.length === 0 || types.some(type => typeMayBeAbsent(type, invocation!));
+        return types === undefined || types.length === 0 || types.some(typeMayBeAbsent);
       })) {
         regions.push(initializer);
       }

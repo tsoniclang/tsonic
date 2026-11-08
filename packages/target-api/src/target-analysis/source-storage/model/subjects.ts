@@ -1,4 +1,5 @@
 import type { SourceStorageProgram } from "./program.js";
+import { sourceStorageValue } from "./program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
@@ -34,10 +35,9 @@ export function sourceStorageFormalOwner(subject: SourceStorageSubject, source: 
   if (subject.kind === "receiver") return subject.node;
   if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node)) return undefined;
   const owner = ast.parent(subject.node);
-  const file = owner === undefined ? undefined : ast.getSourceFile(owner);
-  if (owner === undefined || file === undefined || !source.semantics.includes(file)) return undefined;
-  const parameters = sourceCallableValueParameters(ast, owner, source.semantics.forFile(file), { kind: "declaration" });
-  return parameters?.includes(subject.node) === true ? owner : undefined;
+  if (owner === undefined || !source.facts.navigation.includes(owner)) return undefined;
+  const parameters = sourceStorageValue(sourceCallableValueParameters(source, owner, undefined));
+  return parameters.kind === "present" && parameters.value.includes(subject.node) ? owner : undefined;
 }
 
 export function sourceStorageObjectRestOwner(node: Node, ast: AstReader): Node | undefined {
