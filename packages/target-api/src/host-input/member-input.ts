@@ -8,22 +8,6 @@ export interface SourceInputCorrespondenceMember extends SourceInputMemberFacts 
   readonly readKind: "property" | "accessor" | "method" | "unavailable";
 }
 
-export type SourceInputMemberPair =
-  | { readonly kind: "present"; readonly source: SourceInputCorrespondenceMember; readonly destination: SourceInputCorrespondenceMember }
-  | { readonly kind: "absent"; readonly destination: SourceInputCorrespondenceMember };
-
-export type SourceInputMemberCorrespondence =
-  | { readonly kind: "available"; readonly members: readonly SourceInputMemberPair[] }
-  | { readonly kind: "unavailable"; readonly reason: "unresolved-shape" | "missing-required-member" |
-      "inconsistent-member" | "unreadable-member" | "disjoint-shape" };
-
-export interface SourceMemberCorrespondenceInput {
-  correspondence(source: SourceInputComponent, destination: SourceInputComponent,
-    purpose: "correspondence" | "read"): SourceInputMemberCorrespondence;
-  correspondingMember(source: SourceInputComponent, destination: SourceInputComponent, declaration: Node,
-    purpose: "correspondence" | "read"): SourceInputMemberPair | undefined;
-}
-
 export interface SourceInputPropertyUseArm {
   readonly kind: "member";
   readonly member: SourceInputCorrespondenceMember;
@@ -50,6 +34,7 @@ export interface SourceInputMemberUse {
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
+  readonly selectedDeclaration: Node | undefined;
   readonly selectedDeclarations: readonly Node[];
   readonly readDeclarations: readonly Node[];
   readonly writeDeclarations: readonly Node[];

@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../host-input/identities.js";
 import type { SourceInputCorrespondenceMember, SourceInputMemberUseSelection } from "../host-input/member-input.js";
 import type { SourceIndexSelection } from "../source-model/member-use.js";
-import type { SourceDescriptorView, SourceMemberOrigin, SourceRefusal, SourceResult, SourceTypeEvidence,
+import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
   SourceUseDestination } from "../public/source/contracts.js";
 
 export interface SourcePropertyUseArm {
@@ -37,6 +37,7 @@ export interface SourceMemberUse {
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
+  readonly selectedDeclaration: SourcePresence<Node>;
   readonly selectedDeclarations: readonly Node[];
   readonly readDeclarations: readonly Node[];
   readonly writeDeclarations: readonly Node[];
@@ -49,7 +50,7 @@ export function createSourceMemberUseQuery(input: {
   readonly view: SourceDescriptorView;
   readonly assertNode: (node: Node) => void;
   readonly select: (occurrence: Node) => SourceInputMemberUseSelection;
-  readonly originalComponent: (evidence: SourceTypeEvidence) => SourceInputComponent;
+  readonly originalComponent: (evidence: SourceTypeEvidence) => SourcePresence<SourceInputComponent>;
   readonly publish: (component: SourceInputComponent, receiver?: SourceTypeEvidence) => SourceResult<SourceTypeEvidence>;
   readonly origins: (receiver: SourceTypeEvidence, member: SourceInputCorrespondenceMember,
     role: "selected" | "read" | "write") => SourceResult<readonly SourceMemberOrigin[]>;
@@ -64,7 +65,8 @@ export function createSourceMemberUseQuery(input: {
     const selected = publish(component, receiver);
     if (selected.kind === "refused") return selected;
     view.assertEvidence(selected.value);
-    if (originalComponent(selected.value) !== component)
+    const original = originalComponent(selected.value);
+    if (original.kind !== "present" || original.value !== component)
       throw new Error("A member-use publication must retain its exact original component handle.");
     return selected;
   };
@@ -75,6 +77,11 @@ export function createSourceMemberUseQuery(input: {
     const original = select(occurrence);
     if (original.kind === "unavailable") return unavailable(occurrence, original.reason);
     if (original.occurrence !== occurrence) throw new Error("A selected member use requires its exact original occurrence.");
+    if (original.selectedDeclaration !== undefined) {
+      assertNode(original.selectedDeclaration);
+      if (!original.selectedDeclarations.includes(original.selectedDeclaration))
+        throw new Error("A selected member declaration must belong to the complete original member-use inventory.");
+    }
     const receiver = evidence(original.receiver.value);
     if (receiver.kind === "refused") return receiver;
     const read = optionalEvidence(original.read, receiver.value);
@@ -114,7 +121,8 @@ export function createSourceMemberUseQuery(input: {
         if (selected.kind === "refused") return selected;
         view.assertEvidence(selected.value.declaration.type);
         view.assertEvidence(selected.value.applied);
-        if (originalComponent(selected.value.applied) !== arm.member.write)
+        const applied = originalComponent(selected.value.applied);
+        if (applied.kind !== "present" || applied.value !== arm.member.write)
           throw new Error("A selected member write destination must retain its exact applied write component.");
         writeDestination = selected.value;
       }
@@ -126,6 +134,8 @@ export function createSourceMemberUseQuery(input: {
     return Object.freeze({ kind: "resolved", value: Object.freeze({ occurrence,
       receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }),
       access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
+      selectedDeclaration: original.selectedDeclaration === undefined ? Object.freeze({ kind: "none" })
+        : Object.freeze({ kind: "present", value: original.selectedDeclaration }),
       selectedDeclarations: original.selectedDeclarations, readDeclarations: original.readDeclarations,
       writeDeclarations: original.writeDeclarations, readType: read.value, writeType: write.value, arms: Object.freeze(arms) }) });
   };
