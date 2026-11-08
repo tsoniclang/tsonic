@@ -59,7 +59,7 @@ test("schema cast inventory ignores authored example text and type queries", () 
 
 test("host module classification has one shared implementation", async () => {
   const moduleReference = await readFile(resolve(targetApiSourceRoot, "module-reference.ts"), "utf8");
-  const projectModules = await readFile(resolve(targetApiSourceRoot, "source-navigation/modules.ts"), "utf8");
+  const projectModules = await readFile(resolve(hostSourceRoot, "host-input/navigation/modules.ts"), "utf8");
   const capabilityActivation = await readFile(resolve(hostSourceRoot, "target/capability-activation.ts"), "utf8");
   const productFiles = [...await collectTypeScriptFiles(hostSourceRoot), ...await collectTypeScriptFiles(targetApiSourceRoot)];
   const productSource = (await Promise.all(productFiles.map(file => readFile(file, "utf8")))).join("\n");

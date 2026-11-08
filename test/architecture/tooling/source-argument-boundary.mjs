@@ -136,7 +136,7 @@ export function sourceMeaningSyntaxFindings(sources) {
       while (pending.length > 0) {
         const node = unwrap(pending.pop());
         if (node === undefined) continue;
-        if (ast.is.IsIdentifier(node) && syntaxValues.has(checker.getSymbolAtLocation(node))) return true;
+        if (ast.is.IsIdentifier(node) && syntaxValues.has(checker.getLexicallyResolvedSymbol(node))) return true;
         if (ast.is.IsCallExpression(node)) {
           const callee = ast.as.AsCallExpression(node).Expression;
           if (isSyntaxReader(callee) || isArgumentReader(callee)) return true;

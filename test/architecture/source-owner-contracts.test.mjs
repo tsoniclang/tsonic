@@ -76,6 +76,15 @@ test("Source AST accessors remain legal for emission structure and original-node
   `]])), []);
 });
 
+test("meaning shorthand follows its exact lexical value binding, not a coincident property or shadowed name", () => {
+  assert.deepEqual(sourceMeaningSyntaxFindings(new Map([["example.ts", `
+    const syntax = source.ast;
+    const category = syntax.is.IsStringLiteral(node) ? "string" : "number";
+    function separate(category) { return { category }; }
+    function published() { const category = source.facts.values.type(node).value.category; return { category }; }
+  `]])), []);
+});
+
 for (const [label, text] of [
   ["named alias", 'import { sourceOperatorFromKindName as choose } from "./target-model/syntax/operators.js"; choose(source.ast.operatorKindName(node));'],
   ["namespace alias", 'import * as original from "./target-model/syntax/operators.js"; const same = original; same.sourceOperatorFromKindName(source.ast.operatorKindName(node));'],
