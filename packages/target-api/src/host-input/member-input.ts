@@ -31,6 +31,7 @@ export interface SourceInputMemberUse {
   readonly kind: "member";
   readonly occurrence: Node;
   readonly receiver: { readonly occurrence: Node; readonly value: SourceInputComponent };
+  readonly key: Node | undefined;
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;

@@ -100,6 +100,7 @@ export function createSourceMemberUseInput(input: {
       ? identities.component(occurrence, [], selected.sourceWriteType) : undefined;
     const result: SourceInputMemberUse = Object.freeze({ kind: "member", occurrence,
       receiver: Object.freeze({ occurrence: selected.receiver.expression, value: originalReceiver }),
+      key: "argument" in selected ? selected.argument.expression : undefined,
       access: selected.accessMode, callCallee: selected.callCallee, optionalChain: selected.optionalChain,
       selectedDeclaration: selected.selectedDeclaration,
       selectedDeclarations: Object.freeze([...selectedDeclarations]), readDeclarations: Object.freeze([...readDeclarations]),
