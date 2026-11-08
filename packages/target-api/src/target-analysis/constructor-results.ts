@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
 import { AsBinaryExpression, AsConditionalExpression, AsIfStatement, AsVariableStatement,
   AsVariableDeclarationList, Node_Expression, Node_Initializer, forEachSourceImmediateEvaluationChild,
-  isSourceCallableBodyBoundary, sourceBindingWriteAtReference, sourceEnclosingCallable,
+  sourceCallableRoles, sourceBindingWriteAtReference, sourceEnclosing,
   sourceReceiverOwner } from "../source-navigation/index.js";
 
 export interface SourceConstructorResultIssue {
@@ -44,8 +44,8 @@ export function analyzeSourceConstructorResults(
     const deferredWrites = new Set<Node>();
     const collectDeferredWrites = (node: Node): void => {
       const selected = binding(node);
-      if (selected !== undefined && sourceEnclosingCallable(selected, ast) === declaration &&
-        sourceEnclosingCallable(node, ast) !== declaration && sourceBindingWriteAtReference(ast, node) !== undefined) {
+      if (selected !== undefined && sourceEnclosing(ast, selected, "execution") === declaration &&
+        sourceEnclosing(ast, node, "execution") !== declaration && sourceBindingWriteAtReference(ast, node) !== undefined) {
         deferredWrites.add(selected);
       }
       ast.forEachChild(node, child => { if (child !== undefined) collectDeferredWrites(child); });
@@ -72,7 +72,7 @@ export function analyzeSourceConstructorResults(
         ast.variableDeclarationKind(ast.parent(selected)) === "const";
     };
     const invalidateWrites = (node: Node, bindings: ConstructorBindings): void => {
-      if (isSourceCallableBodyBoundary(ast, node) || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) return;
+      if (sourceCallableRoles(ast, node).body || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) return;
       const selected = binding(node);
       const write = selected === undefined ? undefined : sourceBindingWriteAtReference(ast, node);
       if (selected !== undefined && write !== undefined && write.kind !== "initialization") {
@@ -153,7 +153,7 @@ export function analyzeSourceConstructorResults(
       if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
         return expression(node, bindings, inspectInitializer) !== "never";
       }
-      if (isSourceCallableBodyBoundary(ast, node)) return true;
+      if (sourceCallableRoles(ast, node).body) return true;
       if (ast.is.IsBlock(node)) {
         for (const child of ast.statements(node)) if (child !== undefined && !statement(child, bindings, inspectInitializer)) return false;
       } else if (ast.is.IsReturnStatement(node)) {

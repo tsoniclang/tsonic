@@ -2,6 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { isTypeSyntaxNode } from "./syntax.js";
 import { sourceReceiverOwner } from "./receiver-owner.js";
+import { sourceCallableRoles } from "./callable-boundaries.js";
 
 export interface SourceLexicalCapture {
   readonly declaration: Node;
@@ -91,8 +92,7 @@ export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReade
     const parent = ast.parent(current);
     if (parent === undefined) return false;
     const parentKind = ast.kindName(parent);
-    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
-      "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(parentKind)) return false;
+    if (sourceCallableRoles(ast, parent).body || ast.is.IsClassStaticBlockDeclaration(parent)) return false;
     if (parentKind === "KindSourceFile") {
       const kind = ast.kindName(declaration);
       return current === declaration
@@ -112,11 +112,14 @@ export function sourceBindingScope(declaration: Node, ast: AstReader): Node | un
     return callable === undefined ? undefined : ast.body(callable);
   }
   const functionScoped = ast.is.IsVariableDeclaration(binding) && ast.variableDeclarationKind(binding) === "var";
+  const visited = new Set<Node>();
   for (let current = ast.parent(binding); current !== undefined; current = ast.parent(current)) {
+    if (visited.has(current)) throw new Error("Source binding scopes require acyclic original parent ancestry.");
+    visited.add(current);
     const kind = ast.kindName(current);
     if (kind === "KindSourceFile") return current;
-    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
-      "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(kind)) return ast.body(current);
+    if (sourceCallableRoles(ast, current).body) return ast.body(current);
+    if (ast.is.IsClassStaticBlockDeclaration(current)) return ast.as.AsClassStaticBlockDeclaration(current)?.Body;
     if (!functionScoped && ["KindBlock", "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindCaseBlock"].includes(kind)) return current;
     if (!functionScoped && ast.is.IsCatchClause(current)) return ast.as.AsCatchClause(current)?.Block;
   }

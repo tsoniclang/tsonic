@@ -1,7 +1,7 @@
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
-import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
+import { sourceCallableRoles } from "../source-navigation/callable-boundaries.js";
 import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
@@ -54,7 +54,7 @@ export function analyzeSourcePropertyNames(
   while (pending.length > 0) {
     const current = pending.pop()!;
     if (current.finish) { scopes.get(current.scope)!.push(current.node); continue; }
-    const scope = isSourceCallableBodyBoundary(ast, current.node) || ast.is.IsClassDeclaration(current.node) ||
+    const scope = sourceCallableRoles(ast, current.node).signature || ast.is.IsClassDeclaration(current.node) ||
       ast.is.IsClassExpression(current.node) ? current.node : current.scope;
     if (!scopes.has(scope)) scopes.set(scope, []);
     inventory.push(current.node);

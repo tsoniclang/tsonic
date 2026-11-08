@@ -2,7 +2,7 @@ import type { AstReader, Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsDataMember, sourceStorageIsMemberProjection, sourceStorageIsMethodMember } from "./subjects.js";
-import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosingCallable, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
+import { ForInOrOfStatement_Initializer, Node_Expression, Node_Initializer, VariableDeclarationList_Declarations, sourceEnclosing, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../../source-semantics/array-types.js";
 
 export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
@@ -222,7 +222,7 @@ function sourceStorageReceiverType(source: TargetSourceProgram, node: Node, sema
     const explicit = signature === undefined ? undefined : semantics.types.signatureThisParameterInfo(signature)?.type;
     if (explicit !== undefined) return explicit;
     if (source.ast.is.IsArrowFunction(node)) {
-      const owner = sourceEnclosingCallable(source.ast.parent(node), source.ast);
+      const owner = sourceEnclosing(source.ast, node, "body");
       if (owner === undefined) return undefined;
       node = owner;
       continue;

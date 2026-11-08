@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 import { classes, fixture, flow, declarationFlow, marked, reachable, propertyField, runtimeLayers } from "./flow-construction-fixtures.mjs";
 
@@ -155,14 +155,14 @@ test("declaration constructor regions fail closed for foreign input, selected-ro
   const declaration = current.constructor("Derived");
   const ancestors = [];
   for (let node = declaration; node !== undefined; node = current.ast.parent(node)) ancestors.push(node);
-  const selected = createSourceControlFlowDomain(current.source, ancestors);
+  const selected = current.flowQueries.domain(ancestors);
   assert.equal(selected.kind, "resolved", "the original checked declaration is a valid narrow inventory");
-  const missing = createSourceDeclarationControlFlow(current.source, declaration, { domain: selected.domain });
+  const missing = current.flowQueries.declaration(declaration, { domain: selected.domain });
   assert.equal(missing.kind === "unresolved" && !("graph" in missing), true, "missing exact initializer/body roots cannot publish a partial graph");
-  const foreignResult = createSourceDeclarationControlFlow(current.source, foreign.constructor("Derived"), { domain: { kind: "source" } });
+  const foreignResult = current.flowQueries.declaration(foreign.constructor("Derived"), { domain: { kind: "source" } });
   assert.equal(foreignResult.kind === "unresolved" && !("graph" in foreignResult), true, "foreign checked constructor rejected");
   for (const limits of [{ maximumPoints: 1 }, { maximumSteps: 1 }, { maximumDepth: 1 }]) {
-    const result = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" }, limits });
+    const result = current.flowQueries.declaration(declaration, { domain: { kind: "source" }, limits });
     assert.equal(result.kind === "unresolved" && !("graph" in result), true, "finite failure never publishes partial regions");
     assert.match(result.reason, /finite/u);
   }
@@ -210,7 +210,7 @@ test("declaration construction refuses a missing checked constructor contract wi
       const selected = current.source.semantics.forNode(node);
       return node === formal ? { ...selected, types: { ...selected.types, constructSignatures: () => [] } } : selected;
     } } };
-  const result = createSourceDeclarationControlFlow(source, declaration, { domain: { kind: "source" } });
+  const result = createSourceControlFlowQueries(source).declaration(declaration, { domain: { kind: "source" } });
   assert.equal(result.kind, "unresolved", "missing native constructor evidence is not empty success");
   assert.equal(result.source === formal, true, "the missing contract belongs to the original declared constructor input");
   assert.equal("graph" in result, false, "no partial initializer graph escapes the failed native contract");

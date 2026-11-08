@@ -7,7 +7,7 @@ import { defaultSourceStorageLimits } from "../source-storage/model/resource-bud
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits,
   createSourceDeclarationParameterUseQuery } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
-import { createSourceControlFlowDomain } from "../flow/graph.js";
+import { createSourceControlFlowQueries } from "../flow/graph.js";
 import { createSourceDeclarationOwnershipValues } from "./flow.js";
 import { createSourceDeclarationRetentionQuery } from "./retention.js";
 import { decideSourceDeclarationAsyncResultUse } from "./result-decision.js";
@@ -130,7 +130,7 @@ test("native read erasure omits only its selected callee and preserves the real 
   } };
   const source = createSourceDeclarationOwnershipQuery({ ...current, premises });
   assert.equal(source.continuationFor(current.calls[1]!).kind, "unresolved", "the source domain still requires the callee read");
-  const selected = createSourceControlFlowDomain(current.source, current.storage.nodes.filter(node => !erased.has(node)));
+  const selected = createSourceControlFlowQueries(current.source).domain(current.storage.nodes.filter(node => !erased.has(node)));
   assert.equal(selected.kind, "resolved", "the native read inventory retains original checked parent and child identities");
   if (selected.kind !== "resolved") return;
   const runtime = createSourceDeclarationOwnershipQuery({ ...current, premises, nodes: current.nodes.filter(node => !erased.has(node)) });

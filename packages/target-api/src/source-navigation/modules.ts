@@ -3,7 +3,7 @@ import { getStaticModuleReference } from "../module-reference.js";
 import { sourceFileIdentity } from "./identity.js";
 import type { SourceProjectModuleDependency, SourceProjectModuleExport, SourceProjectModuleSpecifierResolution } from "./types.js";
 import { aliasedSymbol, primaryDeclaration } from "./syntax.js";
-import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
+import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 export function sourceProjectModuleExports(
   source: CheckedSourceProgram,
@@ -151,14 +151,7 @@ export function sourceFileHasTopLevelAwait(
       found = true;
       return;
     }
-    if (isSourceCallableBodyBoundary(ast, node)) {
-      return;
-    }
-    ast.forEachChild(node, (child) => {
-      if (child !== undefined) {
-        visit(child);
-      }
-    });
+    forEachSourceImmediateEvaluationChild(ast, node, visit);
   };
   for (const statement of ast.statements(sourceFile)) {
     if (statement !== undefined) {
