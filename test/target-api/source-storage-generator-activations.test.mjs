@@ -6,7 +6,9 @@ import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } fro
 import { createHostSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
 import { createSourceProfileStorageEffects, createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/index.js";
-import { jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { jsSourceExtensionContribution, jsSourceSemanticsModules, jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
+// The JS surface contributes data (K-2682); the Host builds its compiler extension, as the composition root does.
+import { createTargetContributedCompilerExtension } from "../../packages/host/dist/target/extensions.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 // The JS source profile declares Generator / AsyncGenerator / Error, so the Host composes the resume and
@@ -20,8 +22,9 @@ function fixture(body, override) {
   const files = { ...jsProfileFiles, "/src/index.ts": `export {}; ${body}` };
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files, rootFiles: Object.keys(files),
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", noLib: true },
-    extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
-      createTsonicCoreSourceExtension()] },
+    extensionHostOptions: { extensions: [
+      createSourceSemanticsExtension({ modules: [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()] }),
+      createTsonicCoreSourceExtension(), createTargetContributedCompilerExtension(jsSourceExtensionContribution())] },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });
@@ -61,7 +64,7 @@ for (const member of ["next", "throw", "return"]) {
     const current = fixture(`
       const firstValue = {}, secondValue = {};
       function make(value: object) {
-        function* g(): Generator<void> { const observed = value; yield; }
+        function* g(): Generator<void, void> { const observed = value; yield; }
         return g();
       }
       const first = make(firstValue), second = make(secondValue);
@@ -103,7 +106,7 @@ for (const member of ["next", "throw", "return"]) {
 for (const stored of [false, true]) {
   test(`an asynchronous resume retains its own native value producer, stored=${stored}`, () => {
     const current = fixture(`
-      async function* g(): AsyncGenerator<number> { yield 1; }
+      async function* g(): AsyncGenerator<number, void> { yield 1; }
       const iterator = g();
       ${stored ? "const pending = iterator.next();" : ""}
       const result = ${stored ? "pending" : "iterator.next()"};

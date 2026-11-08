@@ -10,7 +10,7 @@ import type {
   SourceCallParameter, SourceCallSignatureParameter, SourceResourceAlternative, SourceStorageSelection, SourceTupleLiteralSelection, SourceUnresolvedIterationSelection, SourceYieldSelection,
 } from "../public/source/selections.js";
 import type { SourceTypeDescriptor } from "../source-semantics/descriptor-model.js";
-import { sourceTypeDescriptorStructure } from "../source-semantics/descriptor-model.js";
+import { sourceTypeDescriptorStructure, sourceTypeDescriptorsEqual } from "../source-semantics/descriptor-model.js";
 import type { HostCheckerInput, HostParameterWitness, HostWitnessRefusal } from "../host-input/objects.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceTypeDescriptorPresentArms } from "../source-semantics/descriptor-arms.js";
@@ -25,7 +25,7 @@ export interface SourceSelectionInput {
   readonly pointerOperation: SourceSelectionFacts["pointerOperation"];
   /** The one union builder and the sole substitution of the value model (I6). */
   readonly sums: Pick<SourceSumFacts, "join" | "substitute">;
-  readonly navigation: Pick<SourceProgramNavigation, "isProjectDeclaration" | "mergedDeclarations">;
+  readonly navigation: Pick<SourceProgramNavigation, "isProjectDeclaration" | "mergedDeclarations" | "declaredHeritage">;
 }
 
 const stringDescriptor: SourceTypeDescriptor = Object.freeze({ kind: "string" });
@@ -197,7 +197,16 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
   const objectLiteralElement = (element: Node): SourceObjectLiteralElementSelection | undefined => {
     const witness = witnesses.objectLiteralElement(element);
     if (witness === undefined) return undefined;
-    const value = typeOf(witness.value);
+    // An accessor element has no value of its own: a getter supplies its Host result, a setter accepts its parameter's
+    // Host type (the member's read and write types).
+    const setterParameter = witness.elementKind === "set" ? ast.parameters(witness.value)[0] : undefined;
+    const getterResult = witness.elementKind === "get" ? values.callableReturn(witness.value) : undefined;
+    const value = getterResult !== undefined
+      ? getterResult.kind === "refused" ? sourceRefusalOfOutcome(getterResult) : getterResult.type
+      : witness.elementKind === "set"
+        ? setterParameter === undefined ? undefined : typeOf(setterParameter)
+        : typeOf(witness.value);
+    if (value === undefined) return undefined;
     if (isRefusal(value)) return undefined;
     const destinationDeclaration = witness.destinations[0];
     const destinationType = destinationDeclaration === undefined ? undefined
@@ -262,35 +271,83 @@ export function createSourceSelectionFacts(input: SourceSelectionInput): SourceS
    * Iterator, IterableIterator, Iterable, SetIterator ...), followed through alias definitions (which the value model
    * publishes already applied): one per binder of that interface, in the interface's own binder order (yield, return,
    * next for every library protocol interface), the applied argument else the binder's authored default with the earlier
-   * bindings substituted (the sole substitution, I6). undefined when the descriptor names no library interface.
+   * bindings substituted (the sole substitution, I6). A project interface names the protocol its `extends` clauses name
+   * (`interface Steps<T> extends Generator<T, void, unknown> {}`, FX-HS #29); the clauses that name a protocol must name
+   * the same one. undefined when the descriptor names no library interface.
    */
-  const protocolArguments = (type: SourceTypeDescriptor): readonly SourceTypeDescriptor[] | SourceRefusal | undefined => {
+  const protocolArguments = (type: SourceTypeDescriptor, depth = 0): readonly SourceTypeDescriptor[] | SourceRefusal | undefined => {
     let current: SourceTypeDescriptor | undefined = type;
     const seen = new Set<SourceTypeDescriptor>();
     while (current?.kind === "declared" && !seen.has(current)) {
       seen.add(current);
-      const declaration = current.declaration;
-      if (ast.is.IsInterfaceDeclaration(declaration) && !navigation.isProjectDeclaration(declaration)) {
-        const binders = ast.typeParameters(declaration).filter((binder): binder is Node => binder !== undefined);
-        const bindings = new Map<Node, SourceTypeDescriptor>();
-        const applied: SourceTypeDescriptor[] = [];
-        for (const [index, binder] of binders.entries()) {
-          let argument = current.typeArguments[index];
-          if (argument === undefined) {
-            const authored = ast.as.AsTypeParameterDeclaration(binder)?.DefaultType;
-            if (authored === undefined) return undefined;
-            const selected = typeOf(authored);
-            if (isRefusal(selected)) return selected;
-            argument = sums.substitute(selected, bindings);
-          }
-          bindings.set(binder, argument);
-          applied.push(argument);
-        }
-        return Object.freeze(applied);
-      }
+      if (ast.is.IsInterfaceDeclaration(current.declaration)) return interfaceProtocol(current.declaration, current.typeArguments, depth);
       current = current.definition;
     }
     return undefined;
+  };
+  /**
+   * The protocol arguments of an interface applied to `typeArguments`. A library interface is the protocol itself. A
+   * project interface names the protocol of its `extends` clauses: each clause's target (an interface, or an alias
+   * through its Host type) applied to the clause's type arguments, with the project interface's binders bound to
+   * `typeArguments` (the sole substitution, I6).
+   */
+  const interfaceProtocol = (declaration: Node, typeArguments: readonly SourceTypeDescriptor[], depth: number):
+    readonly SourceTypeDescriptor[] | SourceRefusal | undefined => {
+    const binders = ast.typeParameters(declaration).filter((binder): binder is Node => binder !== undefined);
+    if (!navigation.isProjectDeclaration(declaration)) {
+      const bindings = new Map<Node, SourceTypeDescriptor>();
+      const applied: SourceTypeDescriptor[] = [];
+      for (const [index, binder] of binders.entries()) {
+        let argument = typeArguments[index];
+        if (argument === undefined) {
+          const authored = ast.as.AsTypeParameterDeclaration(binder)?.DefaultType;
+          if (authored === undefined) return undefined;
+          const selected = typeOf(authored);
+          if (isRefusal(selected)) return selected;
+          argument = sums.substitute(selected, bindings);
+        }
+        bindings.set(binder, argument);
+        applied.push(argument);
+      }
+      return Object.freeze(applied);
+    }
+    if (depth > 32) return undefined;
+    const heritage = navigation.declaredHeritage(declaration);
+    if (heritage.kind !== "resolved") return undefined;
+    const own = new Map<Node, SourceTypeDescriptor>();
+    for (const [index, binder] of binders.entries()) {
+      const argument = typeArguments[index];
+      if (argument !== undefined) own.set(binder, argument);
+    }
+    let selected: readonly SourceTypeDescriptor[] | undefined;
+    for (const edge of heritage.edges) {
+      const target = edge.target.declaration;
+      const applied: SourceTypeDescriptor[] = [];
+      for (const argument of edge.typeArguments) {
+        const described = typeOf(argument);
+        if (isRefusal(described)) return described;
+        applied.push(own.size === 0 ? described : sums.substitute(described, own));
+      }
+      let protocol: readonly SourceTypeDescriptor[] | SourceRefusal | undefined;
+      if (ast.is.IsInterfaceDeclaration(target)) protocol = interfaceProtocol(target, applied, depth + 1);
+      else if (ast.is.IsTypeAliasDeclaration(target)) {
+        const alias = typeOf(target);
+        if (isRefusal(alias)) return alias;
+        const bindings = new Map<Node, SourceTypeDescriptor>();
+        for (const [index, binder] of ast.typeParameters(target).entries()) {
+          const argument = applied[index];
+          if (binder !== undefined && argument !== undefined) bindings.set(binder, argument);
+        }
+        protocol = protocolArguments(bindings.size === 0 ? alias : sums.substitute(alias, bindings), depth + 1);
+      } else continue;
+      if (protocol === undefined) continue;
+      if (!Array.isArray(protocol)) return protocol as SourceRefusal;
+      const arguments_ = protocol as readonly SourceTypeDescriptor[];
+      if (selected !== undefined && (selected.length !== arguments_.length ||
+        selected.some((argument, index) => !sourceTypeDescriptorsEqual(argument, arguments_[index]!)))) return undefined;
+      selected = arguments_;
+    }
+    return selected;
   };
 
   /**

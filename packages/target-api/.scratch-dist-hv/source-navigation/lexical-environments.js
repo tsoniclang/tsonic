@@ -1,0 +1,171 @@
+import { sourceLexicalCaptures, sourceDeclarationIsModuleScoped } from "./lexical-captures.js";
+import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
+import { failTargetCompilerResourceLimit } from "../artifacts.js";
+export function sourceLexicalEnvironment(scope, roots, ast, navigation, domain, isRuntimeUse = () => true, visit) {
+    if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
+        throw new Error("Lexical environments require an explicit source-node domain.");
+    }
+    const includes = (node) => domain === "source" || domain.has(node);
+    if (!includes(scope))
+        return { kind: "unresolved", reason: "A lexical environment requires its scope in the explicit source-node domain." };
+    const captures = new Map();
+    const receivers = new Map();
+    const selfReferences = new Set();
+    const callableRoots = new Set();
+    const pending = [{ owner: scope, roots }];
+    const useKinds = new Map();
+    const evaluated = new Set();
+    let steps = 0;
+    let evaluationSteps = 0;
+    while (pending.length > 0) {
+        if (++steps > 262144)
+            return exhausted();
+        const { owner, roots: selectedRoots } = pending.pop();
+        visit?.(owner);
+        if (!includes(owner))
+            return { kind: "unresolved", reason: "A lexical callable requires its owner in the explicit source-node domain." };
+        if (selectedRoots.some(root => !includes(root)))
+            return {
+                kind: "unresolved", reason: "A lexical environment requires every root in its explicit source-node domain.",
+            };
+        if (callableRoots.has(owner))
+            continue;
+        callableRoots.add(owner);
+        const evaluationPending = [];
+        for (const root of selectedRoots) {
+            visit?.(root);
+            if (!ast.is.IsFunctionDeclaration(root)) {
+                evaluationPending.push(root);
+                continue;
+            }
+            for (const parameter of ast.parameters(root)) {
+                visit?.(parameter);
+                if (!ast.is.IsParameterDeclaration(parameter))
+                    return {
+                        kind: "unresolved", reason: "A lexical callable has no exact parameter declaration.",
+                    };
+                const initializer = ast.as.AsParameterDeclaration(parameter)?.Initializer;
+                if (initializer !== undefined)
+                    evaluationPending.push(initializer);
+            }
+            const body = ast.body(root);
+            if (body !== undefined)
+                evaluationPending.push(body);
+        }
+        while (evaluationPending.length > 0) {
+            const node = evaluationPending.pop();
+            if (!includes(node))
+                continue;
+            visit?.(node);
+            if (++evaluationSteps > 4194304)
+                failTargetCompilerResourceLimit("tsonic", "Lexical callable evaluation", "steps", 4194304, scope);
+            if (evaluated.has(node))
+                continue;
+            evaluated.add(node);
+            const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
+            if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration) &&
+                !sourceDeclarationIsModuleScoped(declaration, ast)) {
+                const kinds = usesFor(declaration);
+                if (kinds === undefined)
+                    return { kind: "unresolved", reason: "Lexical callable uses contain a duplicate checked reference." };
+                const use = kinds.get(node);
+                if (use?.kind === "direct-call" && isRuntimeUse(use, declaration))
+                    pending.push({ owner: declaration, roots: [declaration] });
+            }
+            forEachSourceImmediateEvaluationChild(ast, node, child => evaluationPending.push(child));
+        }
+        const selected = sourceLexicalCaptures(owner, selectedRoots, ast, navigation, domain, visit);
+        if (owner === scope)
+            for (const reference of selected.selfReferences)
+                selfReferences.add(reference);
+        for (const receiver of selected.receivers) {
+            visit?.(receiver.owner);
+            if (within(receiver.owner))
+                continue;
+            const references = receivers.get(receiver.owner) ?? new Set();
+            for (const reference of receiver.references) {
+                visit?.(reference);
+                references.add(reference);
+            }
+            receivers.set(receiver.owner, references);
+        }
+        for (const capture of selected.captures) {
+            visit?.(capture.declaration);
+            if (++steps > 262144)
+                return exhausted();
+            let references = capture.references;
+            if (ast.is.IsFunctionDeclaration(capture.declaration)) {
+                const kinds = usesFor(capture.declaration);
+                if (kinds === undefined)
+                    return { kind: "unresolved", reason: "Lexical callable uses contain a duplicate checked reference." };
+                for (const reference of references) {
+                    visit?.(reference);
+                    if (++steps > 262144)
+                        return exhausted();
+                    if (kinds.get(reference) === undefined)
+                        return {
+                            kind: "unresolved", reason: "A lexical callable reference lost its exact checked use classification.",
+                        };
+                }
+                references = references.filter(reference => isRuntimeUse(kinds.get(reference), capture.declaration));
+                if (references.some(reference => kinds.get(reference)?.kind === "direct-call")) {
+                    pending.push({ owner: capture.declaration, roots: [capture.declaration] });
+                }
+                references = references.filter(reference => kinds.get(reference)?.kind === "first-class");
+            }
+            if (references.length === 0 || within(capture.declaration))
+                continue;
+            const values = captures.get(capture.declaration) ?? new Set();
+            for (const reference of references) {
+                visit?.(reference);
+                values.add(reference);
+            }
+            captures.set(capture.declaration, values);
+        }
+    }
+    if (steps > 262144)
+        return exhausted();
+    return Object.freeze({
+        kind: "resolved",
+        captures: Object.freeze([...captures].map(([declaration, references]) => Object.freeze({
+            declaration, references: Object.freeze([...references]),
+        }))),
+        selfReferences: Object.freeze([...selfReferences]),
+        receivers: Object.freeze([...receivers].map(([owner, references]) => Object.freeze({
+            owner, references: Object.freeze([...references]),
+        }))),
+        callableRoots: Object.freeze([...callableRoots]),
+    });
+    function within(node) {
+        for (let current = node; current !== undefined; current = ast.parent(current)) {
+            visit?.(current);
+            if (++steps > 262144)
+                return exhausted();
+            if (current === scope)
+                return true;
+        }
+        return false;
+    }
+    function usesFor(declaration) {
+        const existing = useKinds.get(declaration);
+        if (existing !== undefined)
+            return existing;
+        const indexed = new Map();
+        for (const use of navigation.declarationUseSummary(declaration).uses) {
+            if (!includes(use.reference))
+                continue;
+            visit?.(use.reference);
+            if (++steps > 262144)
+                return exhausted();
+            if (indexed.has(use.reference))
+                return undefined;
+            indexed.set(use.reference, use);
+        }
+        useKinds.set(declaration, indexed);
+        return indexed;
+    }
+    function exhausted() {
+        return failTargetCompilerResourceLimit("tsonic", "Lexical callable environment", "steps", 262144, scope);
+    }
+}
+//# sourceMappingURL=lexical-environments.js.map

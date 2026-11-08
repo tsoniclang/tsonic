@@ -1,0 +1,121 @@
+import { sourceAnalysisIncludesFile } from "../../analysis-program.js";
+import { sourceParameterIsProperty } from "../../../source-model/class-members.js";
+import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
+export function sourceStorageIsMemberProjection(component) {
+    return component.kind === "member" || component.kind === "method-value";
+}
+export function sourceStorageFormalOwner(subject, source) {
+    const { ast } = source;
+    if (subject.kind === "receiver")
+        return subject.node;
+    if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node))
+        return undefined;
+    const owner = ast.parent(subject.node);
+    const file = owner === undefined ? undefined : ast.getSourceFile(owner);
+    if (owner === undefined || !sourceAnalysisIncludesFile(source, file))
+        return undefined;
+    const parameters = sourceCallableValueParameters(ast, owner, source.navigation, { kind: "declaration" });
+    return parameters?.includes(subject.node) === true ? owner : undefined;
+}
+export function sourceStorageObjectRestOwner(node, ast) {
+    if (!ast.is.IsBindingElement(node))
+        return undefined;
+    const element = ast.as.AsBindingElement(node);
+    const pattern = element?.DotDotDotToken === undefined ? undefined : ast.parent(node);
+    const owner = pattern === undefined || !ast.is.IsObjectBindingPattern(pattern) ? undefined : ast.parent(pattern);
+    return owner !== undefined && ast.name(owner) === pattern ? owner : undefined;
+}
+export function sourceStorageIsDataMember(node, ast) {
+    return ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ||
+        ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node);
+}
+export function sourceStorageIsMethodMember(node, ast) {
+    return ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node);
+}
+export function sourceStorageMemberSubject(node, ast, subject, projection) {
+    return subject(node, ast.is.IsGetAccessorDeclaration(node) ? "return" : sourceStorageIsDataMember(node, ast) ? "member" : "value", projection);
+}
+export function sourceStorageHasOriginalCallableValue(subject, ast) {
+    return subject.kind === "value" && subject.projection.length === 0 && ast.body(subject.node) !== undefined &&
+        (ast.is.IsArrowFunction(subject.node) || ast.is.IsFunctionExpression(subject.node) ||
+            ast.is.IsFunctionDeclaration(subject.node) || ast.is.IsMethodDeclaration(subject.node));
+}
+export function sourceStorageIsDirectCreation(subject, ast) {
+    return subject.kind === "value" && subject.projection.length === 0 &&
+        (ast.is.IsObjectLiteralExpression(subject.node) || ast.is.IsArrayLiteralExpression(subject.node) ||
+            ast.is.IsArrowFunction(subject.node) || ast.is.IsFunctionExpression(subject.node));
+}
+export function sourceStorageHasOriginalValue(subject, ast, hasIncoming) {
+    return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming && !ast.is.IsReturnStatement(subject.node) &&
+        (!ast.is.IsArrayLiteralExpression(subject.node) && !ast.is.IsObjectLiteralExpression(subject.node) || subject.projection.length === 0);
+}
+export function sourceStorageProjectionPath(projection) {
+    if (!Array.isArray(projection))
+        return undefined;
+    const length = Object.getOwnPropertyDescriptor(projection, "length")?.value;
+    if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 || length > 256)
+        return undefined;
+    const normalized = [];
+    let valid = true;
+    for (let index = 0; valid && index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(projection, index);
+        const component = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+        const kind = component !== null && typeof component === "object"
+            ? Object.getOwnPropertyDescriptor(component, "kind")?.value : undefined;
+        const ordinal = component !== null && typeof component === "object"
+            ? Object.getOwnPropertyDescriptor(component, "index")?.value : undefined;
+        const declaration = component !== null && typeof component === "object"
+            ? Object.getOwnPropertyDescriptor(component, "declaration")?.value : undefined;
+        if (kind === "array-element")
+            normalized.push(Object.freeze({ kind }));
+        else if (kind === "tuple-element" && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
+            normalized.push(Object.freeze({ kind, index: ordinal }));
+        else if ((kind === "member" || kind === "method-value") && declaration !== null && typeof declaration === "object")
+            normalized.push(Object.freeze({ kind, declaration: declaration }));
+        else
+            valid = false;
+    }
+    return valid ? Object.freeze(normalized) : undefined;
+}
+export function createSourceStorageSubjects(admit, reject) {
+    const kinds = new Map();
+    const members = new Map();
+    return (node, kind = "value", projection = []) => {
+        if (node === undefined)
+            return undefined;
+        const normalized = sourceStorageProjectionPath(projection);
+        if (normalized === undefined) {
+            reject("Source storage projection requires a finite exact member/array/tuple component path.");
+            return undefined;
+        }
+        const subjects = kinds.get(kind) ?? new Map();
+        const components = subjects.get(node) ?? new Map();
+        const componentsKey = [];
+        for (const component of normalized) {
+            if (sourceStorageIsMemberProjection(component)) {
+                let identity = members.get(component.declaration);
+                if (identity === undefined) {
+                    if (!admit(1))
+                        return undefined;
+                    identity = members.size;
+                    members.set(component.declaration, identity);
+                }
+                componentsKey.push(`${component.kind === "member" ? "m" : "v"}${identity}`);
+            }
+            else
+                componentsKey.push(component.kind === "array-element" ? "a" : `t${component.index}`);
+        }
+        const key = componentsKey.join("/");
+        let selected = components.get(key);
+        if (selected === undefined) {
+            if (!admit(1 + normalized.length))
+                return undefined;
+            selected = Object.freeze({ kind, node, projection: Object.freeze(normalized), projectionKey: key });
+            components.set(key, selected);
+            subjects.set(node, components);
+            kinds.set(kind, subjects);
+        }
+        return selected;
+    };
+}
+//# sourceMappingURL=subjects.js.map

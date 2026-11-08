@@ -1,0 +1,109 @@
+import { sourceAnalysisCallSignatures, sourceAnalysisConstructSignatures, sourceAnalysisIncludesFile, sourceAnalysisValueType, } from "../../analysis-program.js";
+import { sourcePresentStorageArms } from "./components.js";
+import { sourceStorageCallReceiver } from "./host-reads.js";
+import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { createSourceCallableValueQuery } from "../../../source-navigation/callable-values.js";
+/**
+ * The storage effects the Host storage analysis runs with (R2 #8): the JS API call and callback effects the Host
+ * publishes in facts.profile, composed here by the Host, never supplied by a target. The one target input is the
+ * premise of which ambient provider classes the target binds to plain native constructors (a target ABI fact).
+ */
+export function createSourceProfileStorageEffects(source, premises) {
+    const { profile } = source.facts;
+    const global = createSourceGlobalCallStorageEffects(source, (_node, call) => profile.callStorage(call), declaration => profile.nativeConstructorStorage(declaration));
+    return Object.freeze({
+        ...global,
+        nativeConstructorsFor: (binding) => source.ast.is.IsClassDeclaration(binding)
+            ? premises.nativeClassConstructors?.(binding) : global.nativeConstructorsFor?.(binding),
+        callbackEntries: (_node, call) => profile.callbackEffects(call),
+    });
+}
+/**
+ * The global-binding storage effects for one operation selection: a call effect counts only when the call names the
+ * operation through its own global binding (or receiver), and a provider global constructs natively only through its
+ * declared construct signatures. `select` / `selectConstructor` are the profile answers (createSourceProfileStorageEffects).
+ */
+export function createSourceGlobalCallStorageEffects(source, select, selectConstructor) {
+    const selectValue = createSourceCallableValueQuery(source);
+    const matchesBinding = (binding, operation) => {
+        const file = binding === undefined ? undefined : source.ast.getSourceFile(binding);
+        if (binding === undefined || file === undefined || !source.ast.is.IsVariableDeclaration(binding) ||
+            source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
+            source.navigation.declarationUseSummary(binding).bindingWritten)
+            return false;
+        const declaration = source.sourceFacts.getFact(operation.declaration, providerVirtualDeclarationFactKey);
+        if (declaration === undefined) {
+            // Without provider facts, only the global the operation names in its own declaring file is that operation's receiver;
+            // another binding of the same type is an unknown receiver.
+            if (file !== source.ast.getSourceFile(operation.declaration) ||
+                source.ast.text(source.ast.name(binding)) !== operation.binding.name)
+                return false;
+            const type = sourceAnalysisValueType(source, binding);
+            if (type === undefined)
+                return false;
+            const arms = sourcePresentStorageArms(type);
+            if (arms.flatMap(arm => [...sourceAnalysisCallSignatures(arm), ...sourceAnalysisConstructSignatures(arm)])
+                .some(signature => signature.declaration === operation.declaration))
+                return true;
+            return source.facts.objects.joinedMembers(type)?.some(member => member.declarations.includes(operation.declaration)) === true;
+        }
+        const global = source.sourceFacts.getFact(binding, providerVirtualDeclarationFactKey);
+        return global?.providerId === operation.binding.providerId && global.providerId === declaration.providerId &&
+            global.providerVersion === declaration.providerVersion && global.providerModuleId === declaration.providerModuleId &&
+            global.moduleSpecifier === declaration.moduleSpecifier && global.artifactFileName === declaration.artifactFileName &&
+            global.exportName === operation.binding.name && global.memberName === undefined && global.memberKey === undefined &&
+            global.memberId === undefined && global.signatureId === undefined;
+    };
+    return Object.freeze({
+        nativeConstructorsFor(binding) {
+            if (!sourceAnalysisIncludesFile(source, source.ast.getSourceFile(binding)) || !source.ast.is.IsVariableDeclaration(binding) ||
+                source.ast.as.AsVariableDeclaration(binding)?.Initializer !== undefined ||
+                source.navigation.declarationUseSummary(binding).bindingWritten)
+                return undefined;
+            const type = sourceAnalysisValueType(source, binding);
+            const signatures = type === undefined ? [] : sourcePresentStorageArms(type).flatMap(arm => sourceAnalysisConstructSignatures(arm));
+            if (signatures.length === 0)
+                return undefined;
+            const declarations = new Set();
+            for (const signature of signatures) {
+                const declaration = signature.declaration;
+                if (declaration === undefined || !source.ast.is.IsConstructSignatureDeclaration(declaration))
+                    return undefined;
+                const operation = selectConstructor(declaration);
+                if (operation === undefined || operation.declaration !== declaration || !matchesBinding(binding, operation))
+                    return undefined;
+                declarations.add(declaration);
+            }
+            return Object.freeze([...declarations]);
+        },
+        call(node, published) {
+            const call = source.navigation.call(node);
+            if (call === undefined || call.selection !== "resolved")
+                return undefined;
+            const operation = select(node, published);
+            if (operation === undefined)
+                return undefined;
+            if (call.signature !== operation.declaration)
+                return undefined;
+            if (operation.form === "receiver")
+                return sourceStorageCallReceiver(source, call) === undefined ? undefined : operation.effect;
+            const value = selectValue(call.callee);
+            if (value === undefined)
+                return undefined;
+            const access = value.access;
+            if ((access === undefined) !== (operation.form === "value"))
+                return undefined;
+            const binding = access === undefined ? value.selectedDeclaration : value.receiverDeclaration;
+            if (!matchesBinding(binding, operation))
+                return undefined;
+            if (access !== undefined) {
+                const declarations = access.declarations.length === 0 ? [value.selectedDeclaration]
+                    : access.declarations.flatMap(declaration => source.navigation.mergedDeclarations(declaration));
+                if (!declarations.includes(operation.declaration))
+                    return undefined;
+            }
+            return operation.effect;
+        },
+    });
+}
+//# sourceMappingURL=global-call-effects.js.map

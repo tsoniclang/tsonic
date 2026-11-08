@@ -1,0 +1,67 @@
+import { sourceBindingScope } from "./lexical-captures.js";
+import { isSourceCallableBodyBoundary } from "../source-model/callable-boundaries.js";
+export function sourceMayReadBeforeInitialization(declaration, ast, navigation) {
+    const file = ast.getSourceFile(declaration);
+    const boundary = ast.authoredRange(declaration);
+    if (file === undefined || boundary.kind !== "authored")
+        return true;
+    const scope = sourceBindingScope(declaration, ast);
+    const pending = [declaration];
+    const visited = new Set();
+    while (pending.length > 0) {
+        const subject = pending.pop();
+        if (visited.has(subject))
+            continue;
+        visited.add(subject);
+        for (const use of navigation.declarationUses(subject)) {
+            if (use.kind === "type-only" || use.kind === "source-linkage" ||
+                ast.getSourceFile(use.reference) !== file)
+                continue;
+            const range = ast.authoredRange(use.reference);
+            if (range.kind !== "authored")
+                return true;
+            let current = use.reference;
+            let deferred = false;
+            while (current !== undefined && current !== file && current !== scope) {
+                const parent = ast.parent(current);
+                if (parent === undefined)
+                    return true;
+                if ((ast.body(parent) === current || ast.is.IsParameterDeclaration(current)) &&
+                    isSourceCallableBodyBoundary(ast, parent)) {
+                    const literal = ast.parent(parent);
+                    if (literal !== undefined && ast.is.IsObjectLiteralExpression(literal) &&
+                        (ast.is.IsMethodDeclaration(parent) || ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent))) {
+                        current = literal;
+                        continue;
+                    }
+                    const owner = callableOwner(parent, ast);
+                    if (owner === undefined)
+                        return true;
+                    if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) ||
+                        ast.is.IsSetAccessorDeclaration(owner)) {
+                        const contracts = navigation.memberContracts(owner);
+                        if (contracts.kind !== "resolved")
+                            return true;
+                        pending.push(...contracts.contracts);
+                    }
+                    pending.push(owner);
+                    deferred = true;
+                    break;
+                }
+                current = parent;
+            }
+            if (!deferred && range.start < boundary.end)
+                return true;
+        }
+    }
+    return false;
+}
+function callableOwner(node, ast) {
+    if (ast.is.IsFunctionExpression(node) || ast.is.IsArrowFunction(node)) {
+        const binding = ast.parent(node);
+        return binding !== undefined && ast.is.IsVariableDeclaration(binding) &&
+            ast.as.AsVariableDeclaration(binding)?.Initializer === node ? binding : undefined;
+    }
+    return ast.is.IsConstructorDeclaration(node) ? ast.parent(node) : node;
+}
+//# sourceMappingURL=initialization-uses.js.map

@@ -1,0 +1,33 @@
+import { sourceAnalysisIncludesFile } from "../analysis-program.js";
+import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
+export function resolveSourceDeclarationAsyncResultDisposition(input) {
+    const { source, expression, budget } = input;
+    if (!budget.step(expression))
+        return budget.failure();
+    const file = source.ast.getSourceFile(expression);
+    if (!sourceAnalysisIncludesFile(source, file))
+        return sourceDeclarationOwnershipUnresolved(expression, "Result disposition requires its original checked declaration-local expression.");
+    const visited = new Set();
+    let current = expression;
+    for (;;) {
+        if (!budget.step(current))
+            return budget.failure();
+        if (visited.has(current))
+            return sourceDeclarationOwnershipUnresolved(current, "Native result use requires acyclic checked local expressions.");
+        visited.add(current);
+        const selected = source.navigation.expressionResultDisposition(current);
+        if (selected.kind === "awaited-in-scope") {
+            const region = input.regionFor(selected.use);
+            return "kind" in region ? region : Object.freeze({ ...selected, region });
+        }
+        if (selected.kind !== "passed")
+            return selected;
+        const parameter = input.parameterUses.forArgument(selected.invocation, selected.argument);
+        if (parameter.kind === "unresolved")
+            return parameter.cause.kind === "resource-limit" ? parameter : selected;
+        if (parameter.use === "retained")
+            return Object.freeze({ kind: "stored", use: selected.invocation });
+        current = selected.invocation;
+    }
+}
+//# sourceMappingURL=result-use.js.map

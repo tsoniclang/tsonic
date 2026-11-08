@@ -14,6 +14,11 @@ import {
   createTsonicCoreSourceExtension,
   tsonicCoreSourceSemanticsModules,
 } from "../../packages/source-core/dist/public/index.js";
+import {
+  jsSourceExtensionContribution,
+  jsSourceSemanticsModules,
+} from "../../packages/js-source-profile/dist/index.js";
+import { createTargetContributedCompilerExtension } from "../../packages/host/dist/target/extensions.js";
 
 const tempRoot = resolve(
   process.cwd(),
@@ -47,12 +52,20 @@ export async function checkedSource(name, files, fixtureOptions = {}) {
         text,
       })),
   });
+  // jsSurface: the JS surface's semantics modules and its data-only extension contribution (K-2682), built into a
+  // compiler extension by the Host as the composition root does, so a JS source profile resolves @tsonic/js/*.
+  const jsSurface = fixtureOptions.jsSurface === true;
   const sourceCoreExtensions = fixtureOptions.sourceCore === true
     ? [
         createSourceSemanticsExtension({
-          modules: tsonicCoreSourceSemanticsModules(),
+          modules: jsSurface
+            ? [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()]
+            : tsonicCoreSourceSemanticsModules(),
         }),
         createTsonicCoreSourceExtension(),
+        ...(jsSurface
+          ? [createTargetContributedCompilerExtension(jsSourceExtensionContribution())]
+          : []),
       ]
     : undefined;
   return createCompilerSession({

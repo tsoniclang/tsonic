@@ -170,7 +170,6 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
     enumIntegerWidth: (declaration: Node) => services.enumIntegerWidth(declaration) });
   const calls = new Map<Node, SourceHostCallWitness | undefined>();
   const members = new Map<Node, SourceHostMemberWitness | undefined>();
-  const presences = new Map<Node, SourceHostPresence | undefined>();
   const declaredMembers = new Map<Node, Map<string, readonly Node[] | undefined>>();
   const facades = new Map<SourceFileSemantics, SourceHostQueries>();
   const facade = (queries: SourceFileSemantics): SourceHostQueries => {
@@ -258,14 +257,8 @@ export function createSourceHostInput(services: SourceHostInputServices): Source
       const member = present === undefined ? undefined : sourceObjectLiteralDestinationMember(element, present, queries);
       return member === undefined ? undefined : sourceTypeDescriptorMemberOrigin({ ast }, queries, member.property, member.receiverType);
     },
-    presence(node: Node): SourceHostPresence | undefined {
-      if (presences.has(node)) return presences.get(node);
-      const queries = semantics.forNode(node);
-      const type = queries.types.expressionType(node);
-      const result = type === undefined ? undefined : presenceOf(queries, type);
-      presences.set(node, result);
-      return result;
-    },
+    // The presence witness is the presence field of the one read's nullish components (Q104): one read, one owner.
+    presence: (node: Node): SourceHostPresence | undefined => nullishComponents(node).presence,
     componentPresence(component: SourceHostComponent, at: Node): SourceHostPresence {
       return presenceOf(semantics.forNode(at), checkerType(component.selectedType));
     },

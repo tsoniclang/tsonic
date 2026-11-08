@@ -1,5 +1,5 @@
 import type { SourceMemberPair } from "../../../public/source/objects.js";
-import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm } from "../../../source-semantics/descriptor-arms.js";
+import { sourceTypeDescriptorArms, sourceTypeDescriptorIsAbsent, sourceTypeDescriptorIsAbsentArm, sourceTypeDescriptorIsNeverArm } from "../../../source-semantics/descriptor-arms.js";
 import { sourceAnalysisIncludesFile, sourceAnalysisValueType, type SourceAnalysisProgram } from "../../analysis-program.js";
 import { sourceTypeDescriptorOpenness } from "../../../source-semantics/local-type-flow/uses.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
@@ -57,12 +57,14 @@ export function createSourceStorageMemberFlow(
   retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ) {
   const { ast } = source;
-  // An object literal's Host type is already its contextual (destination) type (values.type), so member storage is
-  // selected from the owner's Host type alone; no separate contextual contract is consulted (B4 decision).
-  const selections = new Map<SourceFile, Map<Descriptor, Map<Descriptor, MemberIndex>>>();
-  const indexFor = (file: SourceFile, from: Descriptor, to: Descriptor, selection: "aggregate" | Node): MemberIndex | undefined => {
+  // An object literal's Host type is already its contextual (destination) type (values.type, B4 D8), so the members a
+  // literal VALUE physically has are selected from its elements (objects.literalCorrespondingMember), keyed by the
+  // literal; every other owner selects from its Host type.
+  const selections = new Map<SourceFile, Map<Descriptor | Node, Map<Descriptor, MemberIndex>>>();
+  const indexFor = (file: SourceFile, from: Descriptor, to: Descriptor, selection: "aggregate" | Node,
+    literal?: Node): MemberIndex | undefined => {
     const sources = selections.get(file);
-    const destinations = sources?.get(from);
+    const destinations = sources?.get(literal === undefined || selection === "aggregate" ? from : literal);
     const existing = destinations?.get(to);
     if (selection === "aggregate" ? existing?.aggregateReady : existing?.declarations.has(selection)) return existing;
     const rows = budget.createRows();
@@ -79,7 +81,8 @@ export function createSourceStorageMemberFlow(
         }
       } else {
         if (!budget.step()) return undefined;
-        const member = source.facts.objects.correspondingMember(from, to, selection, "correspondence");
+        const member = literal === undefined ? source.facts.objects.correspondingMember(from, to, selection, "correspondence")
+          : source.facts.objects.literalCorrespondingMember(literal, to, selection, "correspondence");
         if (member !== undefined) {
           if (!rows.add(2)) return undefined;
           if (!member.destination.declarations.includes(selection)) return undefined;
@@ -100,10 +103,10 @@ export function createSourceStorageMemberFlow(
       const index = existing ?? { aggregateReady: false, members: undefined, declarations: new Map() };
       if (selection === "aggregate") { index.members = aggregate; index.aggregateReady = true; }
       else index.declarations.set(selection, selectedMember);
-      const retainedSources = sources ?? new Map<Descriptor, Map<Descriptor, MemberIndex>>();
+      const retainedSources = sources ?? new Map<Descriptor | Node, Map<Descriptor, MemberIndex>>();
       const retainedDestinations = destinations ?? new Map<Descriptor, MemberIndex>();
       retainedDestinations.set(to, index);
-      retainedSources.set(from, retainedDestinations);
+      retainedSources.set(literal === undefined || selection === "aggregate" ? from : literal, retainedDestinations);
       selections.set(file, retainedSources);
       published = true;
       return index;
@@ -116,7 +119,9 @@ export function createSourceStorageMemberFlow(
     const file = sourceFileFor(owner);
     const checked = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || checked === undefined) return undefined;
-    const type = memberDestination(checked);
+    // An owner whose Host type is only absence (an `undefined` / `null` alternative) has no members: it is selected as
+    // itself, so the Host correspondence answers it (disjoint from a present receiver: excluded).
+    const type = memberDestination(checked) ?? (sourceTypeDescriptorIsAbsent(checked) ? checked : undefined);
     const destinationType = memberDestination(receiverType);
     if (type === undefined || destinationType === undefined) return undefined;
     // A union owner reads through the one arm the receiver's type selects (equal Host arm), else no single arm.
@@ -124,8 +129,9 @@ export function createSourceStorageMemberFlow(
     const destinationArms = sourcePresentStorageArms(destinationType);
     const matching = arms.length === 1 ? arms
       : arms.filter(arm => destinationArms.some(candidate => sourceStorageTypesEqual(arm, candidate)));
-    const selectedType = matching.length === 1 ? matching[0] : undefined;
-    return { file, type, destinationType, selectedType };
+    const selectedType = arms.length === 0 ? type : matching.length === 1 ? matching[0] : undefined;
+    const literal = owner.projection.length === 0 && ast.is.IsObjectLiteralExpression(owner.node) ? owner.node : undefined;
+    return { file, type, destinationType, selectedType, literal };
   };
   const aggregateIndex = (owner: SourceStorageSubject, receiverType: Descriptor): MemberIndex | undefined => {
     const selected = receiverSelection(owner, receiverType);
@@ -136,8 +142,8 @@ export function createSourceStorageMemberFlow(
   const selectedMember = (owner: SourceStorageSubject, declaration: Node, receiverType: Descriptor) => {
     const selected = receiverSelection(owner, receiverType);
     if (selected === undefined) return undefined;
-    const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType, declaration)
-      ?.declarations.get(declaration);
+    const entry = indexFor(selected.file, selected.selectedType ?? selected.type, selected.destinationType, declaration,
+      selected.literal)?.declarations.get(declaration);
     for (const original of entry?.originals ?? []) {
       if (!budget.step() || !retainCheckedContext(original, selected.file)) return undefined;
     }

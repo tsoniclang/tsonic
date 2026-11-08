@@ -41,24 +41,38 @@ const defaultSourceReferenceIndexLimits: SourceReferenceIndexLimits =
 /**
  * The reverse reference index, built in one pass over the project files. Each reference occurrence is keyed by the
  * declaration host-input selects for it (I3); one canonical reference record per declaration.
+ *
+ * `ambientFiles` (the program's declaration files and provider modules) are indexed only at their ambient value
+ * positions (Q113(1)): the expression of a computed property name (`[Symbol.iterator]`), an enum member initializer and
+ * an export assignment's expression. Every other position of a declaration file stays unindexed.
  */
 export function createSourceDeclarationReferenceIndex(
   input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   requestedLimits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
+  ambientFiles: readonly SourceFile[] = [],
 ): SourceDeclarationReferenceIndex {
   const limits = snapshotLimits(requestedLimits);
-  if (sourceFiles.length > limits.sourceFiles) {
+  if (sourceFiles.length + ambientFiles.length > limits.sourceFiles) {
     throw sourceReferenceLimitError("source files", limits.sourceFiles);
   }
-  const built = buildSourceDeclarationReferenceIndex(input, sourceFiles, isProjectDeclaration, limits);
-  return sealSourceDeclarationReferenceIndex(input.ast, new Set(sourceFiles), built);
+  const built = buildSourceDeclarationReferenceIndex(input, sourceFiles, ambientFiles, isProjectDeclaration, limits);
+  return sealSourceDeclarationReferenceIndex(input.ast, new Set([...sourceFiles, ...ambientFiles]), built);
+}
+
+/** The ambient value expression a declaration-file node owns (computed name, enum initializer, export assignment). */
+function ambientValuePosition(ast: AstReader, node: Node): Node | undefined {
+  if (ast.is.IsComputedPropertyName(node)) return ast.as.AsComputedPropertyName(node)?.Expression;
+  if (ast.is.IsEnumMember(node)) return ast.as.AsEnumMember(node)?.Initializer;
+  if (ast.is.IsExportAssignment(node)) return ast.as.AsExportAssignment(node)?.Expression;
+  return undefined;
 }
 
 function buildSourceDeclarationReferenceIndex(
   input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
+  ambientFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   limits: SourceReferenceIndexLimits,
 ): BuiltSourceDeclarationReferenceIndex {
@@ -109,15 +123,23 @@ function buildSourceDeclarationReferenceIndex(
     }
   };
 
-  for (const sourceFile of sourceFiles) {
-    const pending: Node[] = [sourceFile];
+  // A project file is indexed at every reference position; an ambient file only inside its ambient value positions.
+  const files: readonly (readonly [SourceFile, boolean])[] = [
+    ...sourceFiles.map(file => [file, true] as const), ...ambientFiles.map(file => [file, false] as const)];
+  for (const [sourceFile, everywhere] of files) {
+    const pending: (readonly [Node, boolean])[] = [[sourceFile, everywhere]];
     while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined) {
+      const entry = pending.pop();
+      if (entry === undefined) {
         continue;
       }
+      const [node, indexed] = entry;
       nodesVisited = reserveCount(nodesVisited, limits.nodesVisited, "visited nodes");
-      if (referenceQueryNode(ast, node) === node) {
+      const ambientValue = indexed ? undefined : ambientValuePosition(ast, node);
+      if (ambientValue !== undefined) {
+        pending.push([ambientValue, true]);
+      }
+      if (indexed && referenceQueryNode(ast, node) === node) {
         referenceCandidates = reserveCount(referenceCandidates, limits.referenceCandidates, "reference candidates");
         const selected = input.reference(node, reserveModuleExports);
         if (selected !== undefined) {
@@ -127,8 +149,8 @@ function buildSourceDeclarationReferenceIndex(
       const children = ast.children(node);
       for (let index = children.length - 1; index >= 0; index -= 1) {
         const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
+        if (child !== undefined && (indexed || child !== ambientValue)) {
+          pending.push([child, indexed]);
         }
       }
     }

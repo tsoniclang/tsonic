@@ -1,0 +1,59 @@
+import { sourceTypeDescriptorArms } from "../source-semantics/descriptor-arms.js";
+import { createSourceCallableValueQuery, sourceCallableValueExpression } from "../source-navigation/callable-values.js";
+import { isSourceCallableSignatureDeclaration } from "../source-model/callable-boundaries.js";
+import { sourceAnalysisCallSignatures, sourceAnalysisValueType } from "./analysis-program.js";
+export function validateSourceBinaryEntry(source, entrySourceFile) {
+    const exported = source.navigation.moduleExports(entrySourceFile)
+        .find(candidate => candidate.exportName === "main");
+    if (exported === undefined)
+        return Object.freeze([]);
+    if (!exportIsCallable(exported.declaration))
+        return Object.freeze([]);
+    const options = { typeAssertions: "transparent", stopAtDeclaration: exported.declaration };
+    const selectValue = createSourceCallableValueQuery(source, options);
+    const implementation = callableImplementation(exported.declaration);
+    const matchesEntry = (declaration) => callableImplementation(declaration) === implementation;
+    let called = false;
+    const visit = (node) => {
+        if (called)
+            return;
+        if (source.ast.is.IsCallExpression(node)) {
+            const expression = sourceCallableValueExpression(source.ast, source.ast.as.AsCallExpression(node)?.Expression, options);
+            const reference = source.navigation.sourceReferenceFor(expression);
+            if (reference !== undefined && matchesEntry(reference.declaration)) {
+                called = true;
+                return;
+            }
+            const value = expression === undefined ? undefined : selectValue(expression);
+            if (value !== undefined && matchesEntry(value.selectedDeclaration)) {
+                called = true;
+                return;
+            }
+        }
+        source.ast.forEachChild(node, child => {
+            if (child !== undefined)
+                visit(child);
+        });
+    };
+    visit(entrySourceFile);
+    return Object.freeze(called ? [] : [Object.freeze({
+            code: "TSONIC_UNCALLED_BINARY_ENTRY_MAIN",
+            node: exported.declaration,
+            message: "Binary entry modules execute their top-level code. Explicitly call the exported main; it is not invoked automatically.",
+            evidence: Object.freeze(["source.entry=top-level", "source.entry.export=main"]),
+        })]);
+    // The exported main is callable: a callable declaration, or a variable whose Host type carries call signatures.
+    function exportIsCallable(declaration) {
+        if (isSourceCallableSignatureDeclaration(source.ast, declaration))
+            return true;
+        if (!source.ast.is.IsVariableDeclaration(declaration))
+            return false;
+        const type = sourceAnalysisValueType(source, declaration);
+        return type !== undefined && sourceTypeDescriptorArms(type).some(arm => sourceAnalysisCallSignatures(arm).length !== 0);
+    }
+    function callableImplementation(declaration) {
+        const result = source.navigation.callableImplementation(declaration);
+        return result.kind === "resolved" ? result.implementation.declaration : declaration;
+    }
+}
+//# sourceMappingURL=entry-validation.js.map

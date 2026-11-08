@@ -1,0 +1,234 @@
+export function reconstructTargetArtifacts(graph, roots, reconstruct, options) {
+    const maximumReconstructionCount = options?.maximumReconstructionCount;
+    if (!Number.isSafeInteger(maximumReconstructionCount) ||
+        maximumReconstructionCount <= 0) {
+        throw new Error("Target artifact maximum reconstruction count must be a positive safe integer.");
+    }
+    for (const owner of [...new Set(roots)].sort((left, right) => left.localeCompare(right))) {
+        const marked = graph.markDirty(owner);
+        if (marked.kind === "rejected") {
+            return {
+                kind: "rejected",
+                owner,
+                code: marked.code,
+                reason: marked.reason,
+                reconstructionCount: 0,
+            };
+        }
+    }
+    let reconstructionCount = 0;
+    const failuresByOwner = new Map();
+    const blockedByOwner = new Map();
+    while (graph.hasPending() || blockedByOwner.size > 0) {
+        if (!graph.hasPending()) {
+            const released = releaseAvailableBlockedOwners();
+            if (released.kind === "rejected") {
+                return {
+                    ...released,
+                    reconstructionCount,
+                };
+            }
+            if (!graph.hasPending()) {
+                const dependentsByOwner = new Map();
+                for (const [owner, blocked] of blockedByOwner) {
+                    for (const dependency of blocked.dependencies) {
+                        let dependents = dependentsByOwner.get(dependency.owner);
+                        if (dependents === undefined) {
+                            dependents = new Set();
+                            dependentsByOwner.set(dependency.owner, dependents);
+                        }
+                        dependents.add(owner);
+                    }
+                }
+                const failedOwners = new Set(failuresByOwner.keys());
+                const failedQueue = [...failedOwners];
+                for (let index = 0; index < failedQueue.length; index += 1) {
+                    for (const dependent of dependentsByOwner.get(failedQueue[index]) ?? []) {
+                        if (failedOwners.has(dependent))
+                            continue;
+                        failedOwners.add(dependent);
+                        failedQueue.push(dependent);
+                    }
+                }
+                const blockedByFailedOwner = [...blockedByOwner.keys()].every(owner => failedOwners.has(owner));
+                if (failuresByOwner.size > 0 && blockedByFailedOwner) {
+                    break;
+                }
+                const first = [...blockedByOwner.entries()].sort(([left], [right]) => left.localeCompare(right))[0];
+                return {
+                    kind: "rejected",
+                    owner: first[0],
+                    code: "TARGET_ARTIFACT_BLOCKED_WITHOUT_PROGRESS",
+                    reason: `Target artifact '${first[0]}' remains blocked on unpublished prerequisite facets: ${formatDependencies(first[1].dependencies)}. ${first[1].reason}`,
+                    reconstructionCount,
+                };
+            }
+        }
+        const owner = graph.nextDirty();
+        if (owner === undefined) {
+            return {
+                kind: "rejected",
+                code: "TARGET_ARTIFACT_DIRTY_QUEUE_INCONSISTENT",
+                reason: "Target artifact graph reported pending reconstruction without one exact dirty owner.",
+                reconstructionCount,
+            };
+        }
+        if (failuresByOwner.has(owner)) {
+            graph.discardDirty(owner);
+            continue;
+        }
+        reconstructionCount += 1;
+        if (reconstructionCount > maximumReconstructionCount) {
+            return {
+                kind: "rejected",
+                owner,
+                code: "TARGET_ARTIFACT_RECONSTRUCTION_BUDGET_EXCEEDED",
+                reason: `Target artifact reconstruction exceeds its finite ${maximumReconstructionCount}-attempt budget.`,
+                reconstructionCount: reconstructionCount - 1,
+            };
+        }
+        const revisionBeforeReconstruction = graph.revision;
+        const candidate = reconstruct(owner, graph);
+        if (candidate.kind === "rejected") {
+            failuresByOwner.set(owner, Object.freeze({
+                owner,
+                code: candidate.code,
+                reason: candidate.reason,
+            }));
+            graph.discardDirty(owner);
+            continue;
+        }
+        if (candidate.kind === "blocked") {
+            const dependencies = normalizeBlockedDependencies(candidate.dependencies);
+            if (dependencies.kind === "rejected") {
+                return {
+                    kind: "rejected",
+                    owner,
+                    code: "TARGET_ARTIFACT_BLOCKED_DEPENDENCY_INVALID",
+                    reason: dependencies.reason,
+                    reconstructionCount,
+                };
+            }
+            if (dependencies.value.every((dependency) => dependencyIsAvailable(dependency))) {
+                return {
+                    kind: "rejected",
+                    owner,
+                    code: "TARGET_ARTIFACT_BLOCKED_WITHOUT_UNPUBLISHED_DEPENDENCY",
+                    reason: `Target artifact '${owner}' reported itself blocked even though every declared prerequisite facet is already published: ${candidate.reason}`,
+                    reconstructionCount,
+                };
+            }
+            blockedByOwner.set(owner, Object.freeze({
+                reason: candidate.reason,
+                dependencies: dependencies.value,
+            }));
+            graph.discardDirty(owner);
+            continue;
+        }
+        if (candidate.kind === "retry") {
+            if (graph.revision === revisionBeforeReconstruction) {
+                return {
+                    kind: "rejected",
+                    owner,
+                    code: "TARGET_ARTIFACT_RETRY_WITHOUT_PROGRESS",
+                    reason: `Target artifact '${owner}' requested reconstruction retry without changing any prerequisite contract: ${candidate.reason}`,
+                    reconstructionCount,
+                };
+            }
+            const marked = graph.markDirty(owner);
+            if (marked.kind === "rejected") {
+                return {
+                    kind: "rejected",
+                    owner,
+                    code: marked.code,
+                    reason: marked.reason,
+                    reconstructionCount,
+                };
+            }
+            continue;
+        }
+        const committed = graph.commit(owner, candidate.contract, candidate.dependencies, candidate.artifact);
+        if (committed.kind === "rejected") {
+            return {
+                kind: "rejected",
+                owner,
+                code: committed.code,
+                reason: committed.reason,
+                reconstructionCount,
+            };
+        }
+        const released = releaseAvailableBlockedOwners();
+        if (released.kind === "rejected") {
+            return {
+                ...released,
+                reconstructionCount,
+            };
+        }
+    }
+    if (failuresByOwner.size > 0) {
+        return {
+            kind: "failed",
+            failures: Object.freeze([...failuresByOwner.values()].sort((left, right) => left.owner.localeCompare(right.owner))),
+            reconstructionCount,
+        };
+    }
+    const closure = graph.verifyClosure();
+    return closure.kind === "closed"
+        ? { kind: "completed", reconstructionCount }
+        : {
+            ...closure,
+            reconstructionCount,
+        };
+    function releaseAvailableBlockedOwners() {
+        for (const [owner, blocked] of [...blockedByOwner.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+            if (!blocked.dependencies.every(dependencyIsAvailable)) {
+                continue;
+            }
+            const marked = graph.markDirty(owner);
+            if (marked.kind === "rejected") {
+                return {
+                    kind: "rejected",
+                    owner,
+                    code: marked.code,
+                    reason: marked.reason,
+                };
+            }
+            blockedByOwner.delete(owner);
+        }
+        return { kind: "accepted" };
+    }
+    function dependencyIsAvailable(dependency) {
+        return graph.hasPublishedFacet(dependency);
+    }
+}
+function normalizeBlockedDependencies(dependencies) {
+    if (!Array.isArray(dependencies) || dependencies.length === 0) {
+        return {
+            kind: "rejected",
+            reason: "A blocked target artifact must identify at least one exact prerequisite facet.",
+        };
+    }
+    const byKey = new Map();
+    for (const dependency of dependencies) {
+        if (dependency === undefined ||
+            typeof dependency.owner !== "string" ||
+            dependency.owner.length === 0 ||
+            typeof dependency.facet !== "string" ||
+            dependency.facet.length === 0) {
+            return {
+                kind: "rejected",
+                reason: "A blocked target artifact contains an invalid prerequisite owner or facet identity.",
+            };
+        }
+        byKey.set(`${dependency.owner.length}:${dependency.owner}${dependency.facet.length}:${dependency.facet}`, Object.freeze({ ...dependency }));
+    }
+    return {
+        kind: "resolved",
+        value: Object.freeze([...byKey.values()].sort((left, right) => left.owner.localeCompare(right.owner) ||
+            left.facet.localeCompare(right.facet))),
+    };
+}
+function formatDependencies(dependencies) {
+    return dependencies.map((dependency) => `'${dependency.owner}'/'${dependency.facet}'`).join(", ");
+}
+//# sourceMappingURL=reconstruction.js.map

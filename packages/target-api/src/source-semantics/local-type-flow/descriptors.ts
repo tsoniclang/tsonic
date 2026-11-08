@@ -13,6 +13,28 @@ import type { SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescrip
 
 type Bindings = ReadonlyMap<Node, SourceTypeDescriptor>;
 
+// An expansion in progress (a nominal definition or a transparent alias body). `requires` collects the enclosing frames
+// that a recursion cut inside this expansion matched: the definition is valid only below frames like them.
+interface ActiveFrame {
+  readonly declaration: Node;
+  readonly arguments: readonly SourceTypeDescriptor[];
+  readonly requires: Map<ActiveFrame, CutRequirement>;
+}
+// A recursion cut's target: a frame of this declaration (class or interface) or of this exact application (alias).
+interface CutRequirement {
+  readonly declaration: Node;
+  readonly arguments: readonly SourceTypeDescriptor[];
+  readonly byDeclaration: boolean;
+}
+// A class or interface definition already expanded in this reader, with the enclosing frames its cuts require.
+interface ExpandedDefinition {
+  readonly selectedType: SourceHostType;
+  readonly queries: SourceHostQueries;
+  readonly bindings: Bindings;
+  readonly requires: readonly CutRequirement[];
+  readonly definition: SourceTypeDescriptor | undefined;
+}
+
 export interface SourceTypeDescriptorReadFailure {
   readonly kind: "refused";
   readonly code: "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE";
@@ -40,7 +62,11 @@ export function createSourceTypeDescriptorReader(
   refusedSignature: (declaration: Node) => boolean,
 ) {
   const { ast } = source;
-  const active: { readonly declaration: Node; readonly arguments: readonly SourceTypeDescriptor[] }[] = [];
+  const active: ActiveFrame[] = [];
+  // Reuse (Q112): a class or interface definition is expanded once per (checked type, file view, bindings) and set of
+  // required enclosing frames, not once per path. Expanding every path again is exponential in a strongly connected
+  // library graph (lib.dom: Node, Document, Element, Window, ...).
+  const expandedDefinitions = new Map<Node, ExpandedDefinition[]>();
   const activeCallables = new Map<SourceHostType, Set<number>>();
   const empty: Bindings = new Map();
   const expansions = new Set<SourceHostType>();
@@ -75,14 +101,69 @@ export function createSourceTypeDescriptorReader(
     try { return read(); } finally { expansionDepth -= 1; }
   }
 
+  function frame(declaration: Node, arguments_: readonly SourceTypeDescriptor[]): ActiveFrame {
+    return { declaration, arguments: arguments_, requires: new Map() };
+  }
+
+  // The innermost active frame a cut with this requirement matches, or -1.
+  function cutTarget(requirement: CutRequirement): number {
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+      const selected = active[index]!;
+      if (selected.declaration !== requirement.declaration) continue;
+      if (requirement.byDeclaration || selected.arguments.length === requirement.arguments.length &&
+        selected.arguments.every((argument, position) => sourceTypeDescriptorsEqual(argument, requirement.arguments[position]!))) return index;
+    }
+    return -1;
+  }
+
+  // A cut matched frame `index`: every frame expanding inside it now requires a frame like it above itself.
+  function requireFrame(index: number, requirement: CutRequirement): void {
+    const target = active[index]!;
+    for (let position = index + 1; position < active.length; position += 1) active[position]!.requires.set(target, requirement);
+  }
+
+  function cutsAt(requirement: CutRequirement): boolean {
+    const index = cutTarget(requirement);
+    if (index >= 0) requireFrame(index, requirement);
+    return index >= 0;
+  }
+
   function expanding(declaration: Node, arguments_: readonly SourceTypeDescriptor[]): boolean {
-    return active.some(selected => selected.declaration === declaration && selected.arguments.length === arguments_.length &&
-      selected.arguments.every((argument, index) => sourceTypeDescriptorsEqual(argument, arguments_[index]!)));
+    return cutsAt({ declaration, arguments: arguments_, byDeclaration: false });
+  }
+
+  function cutByDeclaration(declaration: Node): boolean {
+    return ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration);
   }
 
   function recursionCut(declaration: Node, arguments_: readonly SourceTypeDescriptor[]): boolean {
-    return ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)
-      ? active.some(selected => selected.declaration === declaration) : expanding(declaration, arguments_);
+    return cutByDeclaration(declaration) ? cutsAt({ declaration, arguments: [], byDeclaration: true }) : expanding(declaration, arguments_);
+  }
+
+  function bindingsEqual(left: Bindings, right: Bindings): boolean {
+    if (left === right) return true;
+    if (left.size !== right.size) return false;
+    for (const [declaration, value] of left) {
+      const other = right.get(declaration);
+      if (other === undefined || other !== value && !sourceTypeDescriptorsEqual(value, other)) return false;
+    }
+    return true;
+  }
+
+  // An expanded definition of this class or interface whose cuts all have a matching frame here. Every cut inside it
+  // then still lies below a frame of its target, so the reused definition is valid under the cut; its requirements
+  // become requirements of the frames expanding here. A frame that would now cut deeper inside it is not consulted:
+  // the definition stays the finite one already expanded, equal by declared identity (descriptor equality).
+  function expandedDefinition(declaration: Node, selectedType: SourceHostType, queries: SourceHostQueries,
+    bindings: Bindings): ExpandedDefinition | undefined {
+    for (const known of expandedDefinitions.get(declaration) ?? []) {
+      if (known.selectedType !== selectedType || known.queries !== queries || !bindingsEqual(known.bindings, bindings)) continue;
+      const targets = known.requires.map(requirement => cutTarget(requirement));
+      if (targets.some(index => index < 0)) continue;
+      known.requires.forEach((requirement, position) => requireFrame(targets[position]!, requirement));
+      return known;
+    }
+    return undefined;
   }
 
   // The first primitive fact over the given subjects (the facade orders them: value node, declaration, type, annotation).
@@ -203,7 +284,7 @@ export function createSourceTypeDescriptorReader(
         }, depth, instantiated, application);
         if (ast.is.IsTypeAliasDeclaration(declaration) && !expanding(declaration, arguments_)) {
           if (body !== undefined) {
-            active.push({ declaration, arguments: arguments_ });
+            active.push(frame(declaration, arguments_));
             const value = syntax(body, queries, depth, instantiated);
             active.pop();
             if (value !== undefined) return value;
@@ -386,9 +467,15 @@ export function createSourceTypeDescriptorReader(
     const reference = { kind: "declared" as const, declaration, typeArguments: arguments_, ...(extent === undefined ? {} : { extent }) };
     if (ast.is.IsTypeParameterDeclaration(declaration) || ast.is.IsEnumDeclaration(declaration)) return reference;
     if (recursionCut(declaration, arguments_)) return { ...reference, cut: "recursion" };
-    active.push({ declaration, arguments: arguments_ });
     const alias = ast.is.IsTypeAliasDeclaration(declaration);
     const body = alias ? ast.typeNode(declaration) : undefined;
+    // Only a class or interface definition is reused: it is the checked type's structure under these bindings. An alias
+    // definition also reads its application, conditional bindings and the enclosing alias bodies.
+    const reusable = cutByDeclaration(declaration) && application === undefined && conditionalBindings.size === 0;
+    const known = reusable ? expandedDefinition(declaration, selectedType, queries, bindings) : undefined;
+    if (known !== undefined) return floor(reference, declaration, known.definition);
+    const expansion = frame(declaration, arguments_);
+    active.push(expansion);
     let definition: SourceTypeDescriptor | undefined;
     try {
       definition = application?.kind === "conditional"
@@ -405,13 +492,26 @@ export function createSourceTypeDescriptorReader(
               new Set(active.filter(selected => ast.is.IsTypeAliasDeclaration(selected.declaration)).map(selected => selected.declaration)))
             : syntax(body, queries, depth, bindings);
     } finally { active.pop(); }
+    if (reusable && !reads.some(read => read.failure !== undefined)) {
+      const known = expandedDefinitions.get(declaration) ?? [];
+      known.push(Object.freeze({ selectedType, queries, bindings, requires: Object.freeze([...expansion.requires.values()]), definition }));
+      expandedDefinitions.set(declaration, known);
+    }
+    return floor(reference, declaration, definition);
+  }
+
+  function floor(reference: Extract<SourceTypeDescriptor, { readonly kind: "declared" }>, declaration: Node,
+    definition: SourceTypeDescriptor | undefined): SourceTypeDescriptor | undefined {
     if (definition !== undefined) return { ...reference, definition };
-    // C29 floor: a nominal type declared in a declaration file (lib or ambient package) whose structure contains a
-    // form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
-    // needs its structure refuses. Project declarations must describe completely.
+    // C29 floor: a nominal type declared in a declaration file (lib, profile or ambient package) whose structure contains
+    // a form the descriptor cannot express is published by identity and type arguments alone; only a consumer that
+    // needs its structure refuses. The descriptor model names the floor for a class, interface or alias reference; a
+    // declaration-file alias whose definition is not expressible here (a deferred conditional such as `Awaited<T[K]>`,
+    // a generic mapped body) is that reference (Q113). Project declarations must describe completely.
     const file = ast.getSourceFile(declaration);
     return file !== undefined && ast.isDeclarationFile(file) &&
-      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) &&
+      (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
+        ast.is.IsTypeAliasDeclaration(declaration)) &&
       !reads.some(read => read.failure !== undefined)
       ? { ...reference, cut: "unexpressible" } : undefined;
   }

@@ -1,0 +1,5 @@
+import type { Node } from "@tsonic/tsts";
+import type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";
+export declare function selectSourceNativeGuardResult<Member, Predicate>(context: SourceValueFlowQueryContext, expression: Node, membersFor: (reference: Node) => readonly Member[] | undefined, selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined, testMember: (member: Member, predicate: Predicate) => boolean | undefined): boolean | undefined;
+export declare function selectSourceGuardedValueMembers<Member, Predicate>(context: SourceValueFlowQueryContext, reference: Node, members: readonly Member[], selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined, testMember: (member: Member, predicate: Predicate) => boolean | undefined): readonly Member[] | undefined;
+//# sourceMappingURL=value-flow-conditions.d.ts.map

@@ -130,12 +130,24 @@ export function createTargetSourceCompilerComposition(
   return Object.freeze({ semanticsModules, extensions });
 }
 
+/** The fields of the data form of a target source-extension contribution (TargetSourceExtensionContribution, K-2682). */
+const targetSourceExtensionContributionFields: readonly string[] = Object.freeze([
+  "identity", "dependsOn", "declarationProviders", "providerCallAnalyses",
+] satisfies readonly (keyof TargetSourceExtensionContribution)[]);
+
 /**
  * The checker-facing compiler extension of one target source-extension contribution (K-2682, I1). Host-only: the
  * target contributes data (declaration providers, provider-call analysis requests); the Host registers the providers
  * and runs its own provider-call analyses (source-core) over the checked program. No target callback sees the checker.
  */
 export function createTargetContributedCompilerExtension(contribution: TargetSourceExtensionContribution): CompilerExtension {
+  // Fail closed: a contribution is data only. A field outside the data form (a checker-facing `initialize`,
+  // `analyzeSource` or `dependencies` of the pre-K-2682 extension form) is never dropped silently.
+  for (const field of Object.keys(contribution)) {
+    if (!targetSourceExtensionContributionFields.includes(field)) {
+      throw new Error(`TSONIC_INTERNAL_ANALYSIS_INVARIANT: the target source-extension contribution '${contribution.identity?.id ?? "<no identity>"}' carries '${field}', which is outside the data form (identity, dependsOn, declarationProviders, providerCallAnalyses; K-2682).`);
+    }
+  }
   const extensionId = contribution.identity.id;
   const dependsOn = Object.freeze([...(contribution.dependsOn ?? [])]);
   const providers = Object.freeze([...(contribution.declarationProviders ?? [])]);

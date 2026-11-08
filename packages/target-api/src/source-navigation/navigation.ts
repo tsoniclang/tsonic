@@ -35,7 +35,10 @@ export function createSourceProgramNavigation(
   const sourceFileSet = new Set(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
-  const references = createSourceReferenceNavigation(source, sourceFiles);
+  // The program's other files (declaration files, provider modules): indexed at their ambient value positions only.
+  const ambientFiles = Object.freeze(source.sourceFiles.filter((sourceFile): sourceFile is SourceFile =>
+    sourceFile !== undefined && !sourceFiles.includes(sourceFile)));
+  const references = createSourceReferenceNavigation(source, sourceFiles, ambientFiles);
   const dispatch = createSourceMemberDispatchNavigation(
     source,
     sourceFiles,

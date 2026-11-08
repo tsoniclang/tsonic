@@ -253,6 +253,9 @@ export function sourceStorageSubjectType(source: SourceAnalysisProgram, value: S
   const file = sourceFile ?? ast.getSourceFile(value.node);
   if (!sourceAnalysisIncludesFile(source, file)) return undefined;
   let selected: Descriptor | undefined;
+  // A bare `return;` stands for its statement (the syntax collection's subject of an absent value): a statement is not
+  // a value node, so it has no Host type and no structural components (as at baseline).
+  if (value.kind === "value" && ast.is.IsReturnStatement(value.node)) return undefined;
   if (value.kind === "return") {
     selected = isSourceCallableSignatureDeclaration(ast, value.node) ? sourceAnalysisCallableResult(source, value.node) : undefined;
   } else if (value.kind === "receiver") {

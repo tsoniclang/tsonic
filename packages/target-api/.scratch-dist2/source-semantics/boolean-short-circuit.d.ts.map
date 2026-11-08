@@ -1,0 +1,1 @@
+{"version":3,"file":"boolean-short-circuit.d.ts","sourceRoot":"","sources":["../../src/source-semantics/boolean-short-circuit.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AAGpD,MAAM,MAAM,+BAA+B,GAAG,MAAM,GAAG,OAAO,GAAG,aAAa,CAAC;AAE/E,wBAAgB,+BAA+B,CAC7C,GAAG,EAAE,SAAS,EACd,IAAI,EAAE,IAAI,EACV,QAAQ,EAAE,IAAI,GAAG,IAAI,GACpB,+BAA+B,CAmBjC"}

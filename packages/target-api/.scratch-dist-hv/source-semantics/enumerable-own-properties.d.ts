@@ -1,0 +1,2 @@
+export declare function orderEnumerableOwnStringProperties<Value>(values: readonly Value[], getName: (value: Value) => string): readonly Value[];
+//# sourceMappingURL=enumerable-own-properties.d.ts.map

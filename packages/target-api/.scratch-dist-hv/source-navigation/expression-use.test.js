@@ -1,0 +1,427 @@
+import { createHostSourceProgramFixture } from "../source-semantics/host-program-fixtures.js";
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse, sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "../source-model/ast.js";
+test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      export function run() {
+        (() => { const erased = () => 1; return erased; });
+        void (async () => { const asyncErased = () => 2; return asyncErased; });
+        const retained = () => { const retainedNested = () => 3; return retainedNested; };
+        (() => { const invokedNested = () => 4; return invokedNested(); })();
+        const { selected = () => 5 } = { selected: undefined };
+        return retained()() + selected();
+      }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+    assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    assert.equal(file !== undefined, true, "exact checked file");
+    const results = new Map();
+    const visit = (node) => {
+        if (source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsBindingElement(node)) {
+            const name = source.ast.name(node);
+            const initializer = source.ast.is.IsVariableDeclaration(node)
+                ? source.ast.as.AsVariableDeclaration(node)?.Initializer
+                : source.ast.as.AsBindingElement(node)?.Initializer;
+            if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
+                results.set(source.ast.text(name), sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
+            }
+        }
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    assert.deepEqual([...results], [
+        ["erased", true], ["asyncErased", true], ["retained", false], ["retainedNested", false],
+        ["invokedNested", false], ["selected", false],
+    ]);
+    assert.equal(sourceCallableDefinitionIsDiscarded(file, source.ast, source.navigation), false);
+    assert.throws(() => sourceCallableDefinitionIsDiscarded(file, { ...source.ast, parent: () => file }, source.navigation), /finite acyclic source boundary/u);
+});
+test("every stored callable binding retains its creation whatever its reads", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      declare function consume(value: () => number): void;
+      export const exported = () => 1;
+      export function run() {
+        const discarded = () => 2;
+        void discarded;
+        const aliasRoot = () => 3;
+        const alias = aliasRoot;
+        void alias;
+        const typeOnly = () => 4;
+        type Signature = typeof typeOnly;
+        const invoked = () => 5;
+        void invoked();
+        const passed = () => 6;
+        consume(passed);
+        const captured = () => 7;
+        consume(() => { void captured; return 0; });
+        const compared = () => 8;
+        void (compared === compared);
+        const receiver = () => 9;
+        void receiver.name;
+        let rewritten = () => 10;
+        rewritten = () => 11;
+        void rewritten;
+        const returned = () => 12;
+        const stored = () => 13;
+        const object = { stored };
+        void object;
+        const shadowed = () => 14;
+        { const shadowed = () => 15; shadowed(); }
+        void shadowed;
+        const opaque = () => 16;
+        void typeof opaque;
+        return returned;
+      }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+    assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    assert.equal(file !== undefined, true, "the alias controls use their exact checked source file");
+    const results = new Map();
+    const visit = (node) => {
+        if (source.ast.is.IsVariableDeclaration(node)) {
+            const name = source.ast.name(node);
+            const initializer = Node_Initializer(source.ast, node);
+            if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
+                const label = source.ast.text(name);
+                const values = results.get(label) ?? [];
+                values.push(sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
+                results.set(label, values);
+            }
+        }
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    // RULINGS 2026-10-22: every stored creation is retained, whatever its reads.
+    for (const label of ["discarded", "aliasRoot", "typeOnly", "exported", "invoked", "passed", "captured", "compared", "receiver",
+        "rewritten", "returned", "stored", "opaque"]) {
+        assert.equal(results.get(label)?.length, 1, label + ": the original checked binding is visited once");
+        assert.equal(results.get(label)?.[0], false, label + ": a stored creation retains its callable body");
+    }
+    assert.equal(results.get("shadowed")?.length, 2, "same-spelling declarations remain separate identities");
+    assert.equal(results.get("shadowed")?.every(value => !value), true, "both stored bindings retain their bodies");
+});
+function callableDemandFixture(sourceText) {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": sourceText,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
+    const source = createHostSourceProgramFixture(checked);
+    const definitions = new Map();
+    const pending = [checked.getSourceFile("/src/index.ts")];
+    while (pending.length !== 0) {
+        const node = pending.pop();
+        if (source.ast.is.IsVariableDeclaration(node)) {
+            const name = source.ast.name(node);
+            let expression = source.ast.as.AsVariableDeclaration(node)?.Initializer;
+            while (expression !== undefined) {
+                const operand = sourceTransparentExpressionOperand(source.ast, expression);
+                if (operand === undefined)
+                    break;
+                expression = operand;
+            }
+            if (name !== undefined && expression !== undefined &&
+                (source.ast.is.IsArrowFunction(expression) || source.ast.is.IsFunctionExpression(expression))) {
+                definitions.set(source.ast.text(name), { declaration: node, expression });
+            }
+        }
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            pending.push(child); });
+    }
+    const definition = (name) => {
+        const selected = definitions.get(name);
+        assert.equal(selected !== undefined, true, `${name}: the actual checked callable definition exists`);
+        return selected;
+    };
+    const statement = () => {
+        const selected = [];
+        const visit = (node) => {
+            if ((source.ast.is.IsArrowFunction(node) || source.ast.is.IsFunctionExpression(node)) &&
+                !source.ast.is.IsVariableDeclaration(source.ast.parent(node)))
+                selected.push(node);
+            source.ast.forEachChild(node, child => { if (child !== undefined)
+                visit(child); });
+        };
+        visit(checked.getSourceFile("/src/index.ts"));
+        assert.equal(selected.length, 1, "one actual checked statement definition");
+        return selected[0];
+    };
+    return { source, definition, statement };
+}
+// RULINGS 2026-10-22: an arrow stored in a binding is created, and its captures evaluated, even if the binding is never
+// read; only a definition whose own value is discarded is erased.
+for (const [form, literal] of [["arrow", "() => 1"], ["function expression", "function() { return 1; }"]]) {
+    for (const [use, statements] of [
+        ["no reads", ""],
+        ["discarded read", "selected;"],
+        ["void read", "void (selected);"],
+        ["immutable alias", "const alias = selected; alias;"],
+        ["type query only", "type Selected = typeof selected;"],
+        ["direct invocation", "selected();"],
+        ["return", "return selected;"],
+        ["argument", "observe(selected);"],
+    ]) {
+        test(`stored ${form} creation is retained through its ${use}`, () => {
+            const { source, definition } = callableDemandFixture(`declare function observe(value: () => number): void;
+        export function run() { const selected = ${literal}; ${statements} }
+      `);
+            assert.equal(sourceCallableDefinitionIsDiscarded(definition("selected").expression, source.ast, source.navigation), false, "a stored creation evaluates its captures whether or not the binding is read");
+        });
+    }
+    test(`a discarded ${form} statement is erased`, () => {
+        const { source, statement } = callableDemandFixture(`export function run() { (${literal}); return 3; }`);
+        assert.equal(sourceCallableDefinitionIsDiscarded(statement(), source.ast, source.navigation), true, "a definition whose own value is discarded never runs or captures");
+    });
+}
+test("discarded callable statements keep their canonical assertion and satisfaction wrappers", () => {
+    for (const initializer of ["(() => 1) as (() => number)", "(function() { return 1; }) satisfies (() => number)"]) {
+        const { source, statement } = callableDemandFixture(`export function run() { ${initializer}; }`);
+        assert.equal(sourceCallableDefinitionIsDiscarded(statement(), source.ast, source.navigation), true, "the original checked value selector reaches the same discarding statement");
+    }
+});
+test("discarded callable creation rejects foreign and incomplete checked navigation", () => {
+    const sourceText = `export function run() { (() => 1); }`;
+    const current = callableDemandFixture(sourceText);
+    const foreign = callableDemandFixture(sourceText);
+    const { source, statement } = current;
+    assert.equal(sourceCallableDefinitionIsDiscarded(statement(), source.ast, source.navigation), true, "the unchanged exact checked owner proves the positive before inverse checks");
+    assert.equal(sourceCallableDefinitionIsDiscarded(foreign.statement(), foreign.source.ast, source.navigation), false, "a same-file-name foreign source is not this checked owner");
+    assert.equal(sourceCallableDefinitionIsDiscarded(statement(), source.ast, { ...source.navigation, sourceFiles: [] }), false, "a missing source root cannot become an erasure proof");
+    assert.throws(() => Reflect.apply(sourceCallableDefinitionIsDiscarded, undefined, [statement(), source.ast]), /requires its checked source navigation/u, "the replaced two-argument API is rejected, not retained as a fallback");
+});
+test("async result dispositions preserve selected values and distinguish storage from scoped observation", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      declare function value(label: string): Promise<number>;
+      declare function maybeValue(label: string): Promise<number> | undefined;
+      declare function consume(value: Promise<number>): void;
+      declare const flag: boolean;
+      declare let optional: Promise<number> | undefined;
+      export async function run() {
+        value("statement");
+        void (value("void") as Promise<number>);
+        (value("comma-left"), value("comma-right"));
+        for (value("for-start"); flag; value("for-step")) break;
+        const stored = value("stored");
+        const alias = stored;
+        await alias;
+        optional = value("assignment");
+        consume(value("passed"));
+        await (value("assertion") satisfies Promise<number>)!;
+        await <Promise<number>>value("type-assertion");
+        await (flag ? value("conditional-left") : value("conditional-right"));
+        await (optional ?? value("coalesced"));
+        await (flag && value("and-right"));
+        await (flag || value("or-right"));
+        maybeValue("and-left") && value("and-discarded");
+        const array = [value("array")];
+        const object = { pending: value("object") };
+        const arrow = () => value("implicit-return");
+        return (await value("returned-completion"));
+      }
+      function forward() { return value("returned"); }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)).slice(0, 1024));
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    const selected = new Map();
+    const visit = (node) => {
+        if (source.ast.is.IsCallExpression(node)) {
+            const argument = source.ast.arguments(node)[0];
+            if (argument !== undefined && source.ast.is.IsStringLiteral(argument)) {
+                const label = source.ast.text(argument);
+                const disposition = sourceExpressionResultDisposition(source.ast, node);
+                const canonical = source.navigation.expressionResultDisposition(node);
+                assert.equal(canonical === source.navigation.expressionResultDisposition(node), true, label + ": one canonical immutable fact owns the original checked read");
+                assert.equal(Object.isFrozen(canonical), true, label);
+                assert.equal(canonical.kind === disposition.kind && canonical.use === disposition.use, true, label + ": memoization preserves the original disposition and source-use identity");
+                assert.equal(source.navigation.expressionResultUse(node) === sourceExpressionResultUse(source.ast, node), true, label);
+                assert.equal(Object.isFrozen(disposition), true, label);
+                assert.equal(sourceExpressionResultUse(source.ast, node) === "discarded", disposition.kind === "discarded", label);
+                selected.set(label, { kind: disposition.kind,
+                    ...(disposition.kind === "awaited-in-scope" ? { completionReturned: disposition.completionReturned } : {}) });
+            }
+        }
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    assert.deepEqual([...selected], [
+        ["statement", { kind: "discarded" }], ["void", { kind: "discarded" }],
+        ["comma-left", { kind: "discarded" }], ["comma-right", { kind: "discarded" }],
+        ["for-start", { kind: "discarded" }], ["for-step", { kind: "discarded" }],
+        ["stored", { kind: "stored" }], ["assignment", { kind: "stored" }], ["passed", { kind: "passed" }],
+        ...["assertion", "type-assertion", "conditional-left", "conditional-right", "coalesced", "and-right", "or-right"]
+            .map(label => [label, { kind: "awaited-in-scope", completionReturned: false }]),
+        ["and-left", { kind: "consumed" }], ["and-discarded", { kind: "discarded" }],
+        ["array", { kind: "stored" }], ["object", { kind: "stored" }], ["implicit-return", { kind: "returned" }],
+        ["returned-completion", { kind: "awaited-in-scope", completionReturned: true }], ["returned", { kind: "returned" }],
+    ]);
+    const wrappers = [];
+    const findWrapper = (node) => {
+        if (source.ast.is.IsParenthesizedExpression(node))
+            wrappers.push(node);
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            findWrapper(child); });
+    };
+    findWrapper(file);
+    assert.equal(wrappers.length > 0, true, "checked transparent wrapper for the cyclic-boundary proof");
+    const wrapper = wrappers[0];
+    assert.equal(source.ast.is.IsParenthesizedExpression(wrapper), true, "the cyclic-boundary witness retains its exact checked wrapper kind");
+    const wrapperData = source.ast.as.AsParenthesizedExpression(wrapper);
+    assert.throws(() => sourceExpressionResultDisposition({ ...source.ast, parent: () => wrapper,
+        as: { ...source.ast.as, AsParenthesizedExpression: () => ({ ...wrapperData, Expression: wrapper }) } }, wrapper), /finite acyclic source boundary/u);
+});
+test("transparent operand selection has one exact checked syntax owner", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": "function read(value: number) { return (((<number>value) as number) satisfies number)!; }",
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0);
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    const expected = new Set(["KindParenthesizedExpression", "KindAsExpression", "KindTypeAssertionExpression",
+        "KindSatisfiesExpression", "KindNonNullExpression"]);
+    const seen = new Set();
+    const visit = (node) => {
+        const kind = source.ast.kindName(node);
+        const operand = sourceTransparentExpressionOperand(source.ast, node);
+        assert.equal(operand !== undefined, expected.has(kind), kind);
+        if (operand !== undefined) {
+            assert.equal(source.ast.parent(operand) === node, true, kind + ": exact child");
+            seen.add(kind);
+        }
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    assert.deepEqual([...seen].sort(), [...expected].sort());
+});
+test("shared construct inputs retain original owners, defaults, for order and switch case indexes", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      declare function step(): number;
+      export function run(value = 1): number {
+        for (step(); value < 3; step()) { if (value === 2) break; }
+        for (let index = 0; index < value; index++) { value += index; }
+        switch (value) { case 1: return 1; default: break; case 3: return 3; }
+        return value;
+      }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "shared construct source is checked");
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    const loops = [];
+    let switchNode;
+    let parameter;
+    const visit = (node) => {
+        if (source.ast.is.IsForStatement(node))
+            loops.push(node);
+        if (source.ast.is.IsSwitchStatement(node))
+            switchNode = node;
+        if (source.ast.is.IsParameterDeclaration(node))
+            parameter = node;
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    assert.equal(loops.length, 2, "both original loops exist");
+    const first = sourceConstructValueInputs(source.ast, loops[0]);
+    assert.deepEqual(first.map(input => input.slot.kind), ["initializer", "condition", "effect"]);
+    for (const input of first)
+        assert.equal(input.owner === loops[0], true, "for input keeps its original construct owner");
+    assert.deepEqual(sourceConstructValueInputs(source.ast, loops[1]).map(input => input.slot.kind), ["condition", "effect"], "a declaration initializer remains a construct, not an expression");
+    assert.equal(switchNode !== undefined, true, "checked switch exists");
+    const switchInputs = sourceConstructValueInputs(source.ast, switchNode);
+    assert.deepEqual(switchInputs.map(input => input.slot.kind === "case" ? `case:${input.slot.index}` : input.slot.kind), ["condition", "case:0", "case:2"], "default clauses still occupy their source index");
+    for (const input of switchInputs)
+        assert.equal(input.owner === switchNode, true, "case expressions retain the switch owner");
+    assert.equal(parameter !== undefined, true, "checked parameter exists");
+    const defaults = sourceConstructValueInputs(source.ast, parameter);
+    assert.equal(defaults.length, 1, "one source default");
+    assert.equal(defaults[0].owner === parameter && defaults[0].slot.kind === "default", true, "target absence guards do not replace the original default owner");
+});
+test("shared expression inputs retain holes, spreads, spans and branch roles without executing callable bodies", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      export function run(value: number) {
+        const array = [, value, ...[value + 1]];
+        const text = \`value=\${value}:\${array.length}\`;
+        const callback = () => value + 2;
+        return value > 0 ? (text as string) : "none";
+      }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "shared expression source is checked");
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    const declarations = new Map();
+    let conditional;
+    const visit = (node) => {
+        if (source.ast.is.IsVariableDeclaration(node))
+            declarations.set(source.ast.text(source.ast.name(node)), node);
+        if (source.ast.is.IsConditionalExpression(node))
+            conditional = node;
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    const initializer = (name) => source.ast.as.AsVariableDeclaration(declarations.get(name)).Initializer;
+    const array = initializer("array");
+    const elements = sourceExpressionValueInputs(source.ast, array);
+    assert.deepEqual(elements.map(input => input.slot.kind === "element" ? input.slot.index : -1), [1, 2], "omitted elements do not renumber later source slots");
+    assert.equal(elements[1].expression === source.ast.as.AsSpreadElement(source.ast.children(array)[2])?.Expression, true, "spread uses its original underlying expression");
+    assert.deepEqual(sourceExpressionValueInputs(source.ast, initializer("text")).map(input => input.slot.kind === "span" ? input.slot.index : -1), [0, 1]);
+    assert.equal(conditional !== undefined, true, "checked conditional exists");
+    assert.deepEqual(sourceExpressionValueInputs(source.ast, conditional).map(input => input.slot.kind === "branch" ? input.slot.branch : input.slot.kind), ["condition", "true", "false"]);
+    const callback = initializer("callback");
+    assert.equal(sourceExpressionValueInputs(source.ast, callback).length, 0, "creating a callable does not execute its body");
+    const body = sourceConstructValueInputs(source.ast, callback);
+    assert.equal(body.length, 1, "the admitted callable construct separately owns its concise return");
+    assert.equal(body[0].owner === callback && body[0].expression === source.ast.body(callback), true, "same original body and owner");
+    for (const input of elements)
+        assert.equal(Object.isFrozen(input) && Object.isFrozen(input.slot), true, "source occurrence rows are immutable");
+});
+test("shared value inputs never turn type queries or signature syntax into runtime operands", () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+            "/src/index.ts": `
+      declare function unused(value: number): number;
+      type Callback = typeof unused;
+      interface Contract { invoke(value: number): number; }
+      export function run(value: Callback): number { return value(1); }
+    `,
+        }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "type metadata source is checked");
+    const source = createHostSourceProgramFixture(checked);
+    const file = checked.getSourceFile("/src/index.ts");
+    let typeQuery;
+    let signature;
+    const visit = (node) => {
+        if (source.ast.is.IsTypeQueryNode(node))
+            typeQuery = node;
+        if (source.ast.is.IsMethodSignatureDeclaration(node))
+            signature = node;
+        source.ast.forEachChild(node, child => { if (child !== undefined)
+            visit(child); });
+    };
+    visit(file);
+    assert.equal(typeQuery !== undefined && signature !== undefined, true, "both original metadata nodes exist");
+    for (const node of [typeQuery, signature]) {
+        assert.equal(sourceExpressionValueInputs(source.ast, node) === undefined, true, "metadata has no runtime expression inputs");
+        assert.equal(sourceConstructValueInputs(source.ast, node).length, 0, "metadata is not an executable construct root");
+    }
+});
+//# sourceMappingURL=expression-use.test.js.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"loops.d.ts","sourceRoot":"","sources":["../../../src/target-analysis/flow/loops.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AAEzC,OAAO,EAA2B,KAAK,sBAAsB,EAAE,KAAK,iBAAiB,EAAE,MAAM,mBAAmB,CAAC;AAGjH,wBAAgB,cAAc,CAAC,KAAK,EAAE,sBAAsB,EAAE,IAAI,EAAE,IAAI,EAAE,IAAI,EAAE,MAAM,EACpF,OAAO,EAAE,iBAAiB,GAAG,MAAM,CAapC"}

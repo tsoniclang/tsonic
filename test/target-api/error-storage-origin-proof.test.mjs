@@ -296,7 +296,7 @@ async function profiled(name, body, jsEnabled) {
       ".tsonic/source-profiles/js/js-globals.d.ts": jsSurfaceSourceProfileDeclarations }
     : { ".tsonic/source-profiles/native/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
       ".tsonic/source-profiles/native/native-globals.d.ts": nativeProfileDeclarations };
-  const checked = await checkedSource(name, { ...profile, "src/index.ts": body }, { sourceCore: true });
+  const checked = await checkedSource(name, { ...profile, "src/index.ts": body }, { sourceCore: true, jsSurface: jsEnabled });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length, 0, "exact source facts admitted");
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });

@@ -1,0 +1,1 @@
+{"version":3,"file":"type-syntax.d.ts","sourceRoot":"","sources":["../../src/source-semantics/type-syntax.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,IAAI,EAAE,MAAM,cAAc,CAAC;AAEpD,wBAAgB,oBAAoB,CAClC,GAAG,EAAE,SAAS,EACd,IAAI,EAAE,IAAI,GAAG,SAAS,GACrB,IAAI,GAAG,SAAS,CAMlB;AAED,wBAAgB,+BAA+B,CAC7C,GAAG,EAAE,SAAS,EACd,IAAI,EAAE,IAAI,GAAG,SAAS,GACrB,OAAO,CA0ET"}

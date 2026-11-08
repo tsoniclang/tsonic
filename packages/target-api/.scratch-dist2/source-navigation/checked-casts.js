@@ -1,0 +1,351 @@
+export function AsArrayLiteralExpression(ast, node) {
+    return node !== undefined && (ast.is.IsArrayLiteralExpression(node))
+        ? ast.as.AsArrayLiteralExpression(node)
+        : undefined;
+}
+export function AsArrowFunction(ast, node) {
+    return node !== undefined && (ast.is.IsArrowFunction(node))
+        ? ast.as.AsArrowFunction(node)
+        : undefined;
+}
+export function AsAsExpression(ast, node) {
+    return node !== undefined && (ast.is.IsAsExpression(node))
+        ? ast.as.AsAsExpression(node)
+        : undefined;
+}
+export function AsAwaitExpression(ast, node) {
+    return node !== undefined && (ast.is.IsAwaitExpression(node))
+        ? ast.as.AsAwaitExpression(node)
+        : undefined;
+}
+export function AsBinaryExpression(ast, node) {
+    return node !== undefined && (ast.is.IsBinaryExpression(node))
+        ? ast.as.AsBinaryExpression(node)
+        : undefined;
+}
+export function AsBindingElement(ast, node) {
+    return node !== undefined && (ast.is.IsBindingElement(node))
+        ? ast.as.AsBindingElement(node)
+        : undefined;
+}
+export function AsBindingPattern(ast, node) {
+    return node !== undefined && (ast.is.IsArrayBindingPattern(node) || ast.is.IsObjectBindingPattern(node))
+        ? ast.as.AsBindingPattern(node)
+        : undefined;
+}
+export function AsBlock(ast, node) {
+    return node !== undefined && (ast.is.IsBlock(node))
+        ? ast.as.AsBlock(node)
+        : undefined;
+}
+export function AsBreakStatement(ast, node) {
+    return node !== undefined && (ast.is.IsBreakStatement(node))
+        ? ast.as.AsBreakStatement(node)
+        : undefined;
+}
+export function AsCallExpression(ast, node) {
+    return node !== undefined && (ast.is.IsCallExpression(node))
+        ? ast.as.AsCallExpression(node)
+        : undefined;
+}
+export function AsCaseBlock(ast, node) {
+    return node !== undefined && (ast.is.IsCaseBlock(node))
+        ? ast.as.AsCaseBlock(node)
+        : undefined;
+}
+export function AsCaseOrDefaultClause(ast, node) {
+    return node !== undefined && (ast.is.IsCaseClause(node) || ast.is.IsDefaultClause(node))
+        ? ast.as.AsCaseOrDefaultClause(node)
+        : undefined;
+}
+export function AsCatchClause(ast, node) {
+    return node !== undefined && (ast.is.IsCatchClause(node))
+        ? ast.as.AsCatchClause(node)
+        : undefined;
+}
+export function AsClassDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsClassDeclaration(node))
+        ? ast.as.AsClassDeclaration(node)
+        : undefined;
+}
+export function AsClassStaticBlockDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsClassStaticBlockDeclaration(node))
+        ? ast.as.AsClassStaticBlockDeclaration(node)
+        : undefined;
+}
+export function AsConditionalExpression(ast, node) {
+    return node !== undefined && (ast.is.IsConditionalExpression(node))
+        ? ast.as.AsConditionalExpression(node)
+        : undefined;
+}
+export function AsConstructorDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsConstructorDeclaration(node))
+        ? ast.as.AsConstructorDeclaration(node)
+        : undefined;
+}
+export function AsContinueStatement(ast, node) {
+    return node !== undefined && (ast.is.IsContinueStatement(node))
+        ? ast.as.AsContinueStatement(node)
+        : undefined;
+}
+export function AsDeleteExpression(ast, node) {
+    return node !== undefined && (ast.is.IsDeleteExpression(node))
+        ? ast.as.AsDeleteExpression(node)
+        : undefined;
+}
+export function AsDoStatement(ast, node) {
+    return node !== undefined && (ast.is.IsDoStatement(node))
+        ? ast.as.AsDoStatement(node)
+        : undefined;
+}
+export function AsElementAccessExpression(ast, node) {
+    return node !== undefined && (ast.is.IsElementAccessExpression(node))
+        ? ast.as.AsElementAccessExpression(node)
+        : undefined;
+}
+export function AsEnumDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsEnumDeclaration(node))
+        ? ast.as.AsEnumDeclaration(node)
+        : undefined;
+}
+export function AsEnumMember(ast, node) {
+    return node !== undefined && (ast.is.IsEnumMember(node))
+        ? ast.as.AsEnumMember(node)
+        : undefined;
+}
+export function AsExportAssignment(ast, node) {
+    return node !== undefined && (ast.is.IsExportAssignment(node))
+        ? ast.as.AsExportAssignment(node)
+        : undefined;
+}
+export function AsExpressionStatement(ast, node) {
+    return node !== undefined && (ast.is.IsExpressionStatement(node))
+        ? ast.as.AsExpressionStatement(node)
+        : undefined;
+}
+export function AsExpressionWithTypeArguments(ast, node) {
+    return node !== undefined && (ast.is.IsExpressionWithTypeArguments(node))
+        ? ast.as.AsExpressionWithTypeArguments(node)
+        : undefined;
+}
+export function AsForInOrOfStatement(ast, node) {
+    return node !== undefined && (ast.is.IsForInStatement(node) || ast.is.IsForOfStatement(node))
+        ? ast.as.AsForInOrOfStatement(node)
+        : undefined;
+}
+export function AsForStatement(ast, node) {
+    return node !== undefined && (ast.is.IsForStatement(node))
+        ? ast.as.AsForStatement(node)
+        : undefined;
+}
+export function AsFunctionDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsFunctionDeclaration(node))
+        ? ast.as.AsFunctionDeclaration(node)
+        : undefined;
+}
+export function AsFunctionExpression(ast, node) {
+    return node !== undefined && (ast.is.IsFunctionExpression(node))
+        ? ast.as.AsFunctionExpression(node)
+        : undefined;
+}
+export function AsGetAccessorDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsGetAccessorDeclaration(node))
+        ? ast.as.AsGetAccessorDeclaration(node)
+        : undefined;
+}
+export function AsIfStatement(ast, node) {
+    return node !== undefined && (ast.is.IsIfStatement(node))
+        ? ast.as.AsIfStatement(node)
+        : undefined;
+}
+export function AsIndexSignatureDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsIndexSignatureDeclaration(node))
+        ? ast.as.AsIndexSignatureDeclaration(node)
+        : undefined;
+}
+export function AsInterfaceDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsInterfaceDeclaration(node))
+        ? ast.as.AsInterfaceDeclaration(node)
+        : undefined;
+}
+export function AsLabeledStatement(ast, node) {
+    return node !== undefined && (ast.is.IsLabeledStatement(node))
+        ? ast.as.AsLabeledStatement(node)
+        : undefined;
+}
+export function AsMethodDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsMethodDeclaration(node))
+        ? ast.as.AsMethodDeclaration(node)
+        : undefined;
+}
+export function AsMethodSignatureDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsMethodSignatureDeclaration(node))
+        ? ast.as.AsMethodSignatureDeclaration(node)
+        : undefined;
+}
+export function AsNewExpression(ast, node) {
+    return node !== undefined && (ast.is.IsNewExpression(node))
+        ? ast.as.AsNewExpression(node)
+        : undefined;
+}
+export function AsNoSubstitutionTemplateLiteral(ast, node) {
+    return node !== undefined && (ast.is.IsNoSubstitutionTemplateLiteral(node))
+        ? ast.as.AsNoSubstitutionTemplateLiteral(node)
+        : undefined;
+}
+export function AsNonNullExpression(ast, node) {
+    return node !== undefined && (ast.is.IsNonNullExpression(node))
+        ? ast.as.AsNonNullExpression(node)
+        : undefined;
+}
+export function AsObjectLiteralExpression(ast, node) {
+    return node !== undefined && (ast.is.IsObjectLiteralExpression(node))
+        ? ast.as.AsObjectLiteralExpression(node)
+        : undefined;
+}
+export function AsParameterDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsParameterDeclaration(node))
+        ? ast.as.AsParameterDeclaration(node)
+        : undefined;
+}
+export function AsParenthesizedExpression(ast, node) {
+    return node !== undefined && (ast.is.IsParenthesizedExpression(node))
+        ? ast.as.AsParenthesizedExpression(node)
+        : undefined;
+}
+export function AsPostfixUnaryExpression(ast, node) {
+    return node !== undefined && (ast.is.IsPostfixUnaryExpression(node))
+        ? ast.as.AsPostfixUnaryExpression(node)
+        : undefined;
+}
+export function AsPrefixUnaryExpression(ast, node) {
+    return node !== undefined && (ast.is.IsPrefixUnaryExpression(node))
+        ? ast.as.AsPrefixUnaryExpression(node)
+        : undefined;
+}
+export function AsPropertyAccessExpression(ast, node) {
+    return node !== undefined && (ast.is.IsPropertyAccessExpression(node))
+        ? ast.as.AsPropertyAccessExpression(node)
+        : undefined;
+}
+export function AsPropertyAssignment(ast, node) {
+    return node !== undefined && (ast.is.IsPropertyAssignment(node))
+        ? ast.as.AsPropertyAssignment(node)
+        : undefined;
+}
+export function AsPropertyDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsPropertyDeclaration(node))
+        ? ast.as.AsPropertyDeclaration(node)
+        : undefined;
+}
+export function AsPropertySignatureDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsPropertySignatureDeclaration(node))
+        ? ast.as.AsPropertySignatureDeclaration(node)
+        : undefined;
+}
+export function AsReturnStatement(ast, node) {
+    return node !== undefined && (ast.is.IsReturnStatement(node))
+        ? ast.as.AsReturnStatement(node)
+        : undefined;
+}
+export function AsSatisfiesExpression(ast, node) {
+    return node !== undefined && (ast.is.IsSatisfiesExpression(node))
+        ? ast.as.AsSatisfiesExpression(node)
+        : undefined;
+}
+export function AsSetAccessorDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsSetAccessorDeclaration(node))
+        ? ast.as.AsSetAccessorDeclaration(node)
+        : undefined;
+}
+export function AsShorthandPropertyAssignment(ast, node) {
+    return node !== undefined && (ast.is.IsShorthandPropertyAssignment(node))
+        ? ast.as.AsShorthandPropertyAssignment(node)
+        : undefined;
+}
+export function AsSpreadAssignment(ast, node) {
+    return node !== undefined && (ast.is.IsSpreadAssignment(node))
+        ? ast.as.AsSpreadAssignment(node)
+        : undefined;
+}
+export function AsSpreadElement(ast, node) {
+    return node !== undefined && (ast.is.IsSpreadElement(node))
+        ? ast.as.AsSpreadElement(node)
+        : undefined;
+}
+export function AsStringLiteral(ast, node) {
+    return node !== undefined && (ast.is.IsStringLiteral(node))
+        ? ast.as.AsStringLiteral(node)
+        : undefined;
+}
+export function AsSwitchStatement(ast, node) {
+    return node !== undefined && (ast.is.IsSwitchStatement(node))
+        ? ast.as.AsSwitchStatement(node)
+        : undefined;
+}
+export function AsTemplateExpression(ast, node) {
+    return node !== undefined && (ast.is.IsTemplateExpression(node))
+        ? ast.as.AsTemplateExpression(node)
+        : undefined;
+}
+export function AsTemplateSpan(ast, node) {
+    return node !== undefined && (ast.is.IsTemplateSpan(node))
+        ? ast.as.AsTemplateSpan(node)
+        : undefined;
+}
+export function AsThrowStatement(ast, node) {
+    return node !== undefined && (ast.is.IsThrowStatement(node))
+        ? ast.as.AsThrowStatement(node)
+        : undefined;
+}
+export function AsTryStatement(ast, node) {
+    return node !== undefined && (ast.is.IsTryStatement(node))
+        ? ast.as.AsTryStatement(node)
+        : undefined;
+}
+export function AsTypeAssertion(ast, node) {
+    return node !== undefined && (ast.is.IsTypeAssertion(node))
+        ? ast.as.AsTypeAssertion(node)
+        : undefined;
+}
+export function AsTypeParameterDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsTypeParameterDeclaration(node))
+        ? ast.as.AsTypeParameterDeclaration(node)
+        : undefined;
+}
+export function AsTypeReferenceNode(ast, node) {
+    return node !== undefined && (ast.is.IsTypeReferenceNode(node))
+        ? ast.as.AsTypeReferenceNode(node)
+        : undefined;
+}
+export function AsVariableDeclaration(ast, node) {
+    return node !== undefined && (ast.is.IsVariableDeclaration(node))
+        ? ast.as.AsVariableDeclaration(node)
+        : undefined;
+}
+export function AsVariableDeclarationList(ast, node) {
+    return node !== undefined && (ast.is.IsVariableDeclarationList(node))
+        ? ast.as.AsVariableDeclarationList(node)
+        : undefined;
+}
+export function AsVariableStatement(ast, node) {
+    return node !== undefined && (ast.is.IsVariableStatement(node))
+        ? ast.as.AsVariableStatement(node)
+        : undefined;
+}
+export function AsVoidExpression(ast, node) {
+    return node !== undefined && (ast.is.IsVoidExpression(node))
+        ? ast.as.AsVoidExpression(node)
+        : undefined;
+}
+export function AsWhileStatement(ast, node) {
+    return node !== undefined && (ast.is.IsWhileStatement(node))
+        ? ast.as.AsWhileStatement(node)
+        : undefined;
+}
+export function AsYieldExpression(ast, node) {
+    return node !== undefined && (ast.is.IsYieldExpression(node))
+        ? ast.as.AsYieldExpression(node)
+        : undefined;
+}
+//# sourceMappingURL=checked-casts.js.map

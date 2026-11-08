@@ -61,7 +61,8 @@ export function createSourceTypeofCategories(inputs: SourceTypeofCategoryInputs)
       case "optional": return category(structure.value, operand);
     }
   }
-  // The nullish admission of an operand whose Host descriptor admits absence (§4.3 E9, N7, K-2676), from the intrinsic
+  // The nullish admission of an operand whose solved Host read admits absence (§4.3 E9, N7, K-2676; Q104/Q116: whether
+  // absence is possible is the Host's solved read, the null/undefined split is the A9 nullish facts), from the intrinsic
   // null / undefined constituents of the value read at the operand, taken by host-input before the one-absence erasure
   // (aliases with their actual type arguments, generic member and call results, narrowing: host-input/nullish-components).
   // A found intrinsic is proven; a missing one is proven absent only when every constituent was classified. Both found:

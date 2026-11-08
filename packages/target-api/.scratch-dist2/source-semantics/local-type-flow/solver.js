@@ -1,0 +1,2596 @@
+import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-model/ast.js";
+import { isSourceCallableSignatureDeclaration } from "../../source-model/callable-boundaries.js";
+import { sourceLiteralToken } from "../literal-token.js";
+import { createSourceTypeFlowAnalysisContext, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
+import { collectSourceTypeFlowEdges, isWriteTarget, sourceTypeFlowDeclaredPatternBindings, sourceTypeFlowDescriptorPart, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
+import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { collectSourceTypeFlowSignatures } from "./signatures.js";
+import { createSourceClosedSumQuery, sourceTypeDescriptorOptional, createSourceTypeDescriptorNormalizer, createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sealSourceTypeDescriptorUnions, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion } from "./terms.js";
+import { collectSourceTypeFlowUses, sourceTypeFlowIsBroadSlot } from "./uses.js";
+import { createSourceMethodValueUses, createSourceSlotAdmissions, publishSourceLiteralMetadata, sourceLiteralMemberCorrespondence } from "./literal-publication.js";
+import { publishSourceStructMemberCorrespondence } from "./struct-publication.js";
+import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
+import { sourceTypeFlowAssignmentPattern, sourceTypeFlowDiscardedSelection, sourceTypeFlowDiscardedValue } from "./value-syntax.js";
+import { sourceTypeDescriptorMemberOriginsEqual } from "./member-origins.js";
+import { sourceTypeFlowOptionalChainCallResult } from "./presence.js";
+import { sourceTypeFlowBinderArguments, sourceTypeFlowInstantiate, sourceTypeFlowReceiverBinderValues, sourceTypeFlowUnifyBinders, } from "./instantiation.js";
+import { sourceThenablePayloadBinder, sourceTypeDescriptorAwaitedPayload } from "./awaited.js";
+import { sourceTypeFlowScalarCalculationArm } from "./construction-slots.js";
+import { decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator, sourcePrimitiveBinaryOperators, sourcePrimitiveLiteralFit, sourcePrimitiveOperatorIsIntegral, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorLiteralPartner, sourceEnumOperandPrimitive, sourceEnumOperatorKeepsDomain, } from "./operator-decisions.js";
+export function analyzeSourceEffectiveTypes(source, unions, input) {
+    const defaults = createSourceTypeFlowAnalysisContext(source, unions, input);
+    const { context } = defaults;
+    const compare = (left, right) => {
+        const first = context.order(left);
+        const second = context.order(right);
+        return first.start - second.start || first.preorder - second.preorder;
+    };
+    const collected = collectSourceTypeFlowEdges(context);
+    const graph = { ...collected,
+        links: [...collected.links].sort((left, right) => compare(left.site, right.site)) };
+    const uses = [...collectSourceTypeFlowUses(context, graph)].sort((left, right) => compare(left.site, right.site));
+    const terms = createSourceTypeFlowTerms(source.ast, graph);
+    const signatures = collectSourceTypeFlowSignatures(context, graph, terms.isInference);
+    const groups = new Map();
+    const structuredGroups = new Set();
+    const outcomes = new Map();
+    const calls = new Map();
+    const callableReturns = new Map();
+    const callableQueries = new Map();
+    const activeReturns = new Set();
+    const numberOrigins = new Map();
+    const activeNumberOrigins = new Set();
+    const obligations = [];
+    const compoundCalculationTypes = new WeakMap();
+    const scalarCalculations = new WeakMap();
+    const directGraphRefusals = [];
+    const domainValues = new Set(defaults.values);
+    const retainedVariables = new WeakMap();
+    const valueVariables = new WeakMap();
+    const records = new WeakMap();
+    const bodyCallResults = new Map();
+    for (const node of graph.nodes)
+        if (node.kind !== "binder" && node.variable.path.length === 0) {
+            retainedVariables.set(node.node, node.variable);
+            if (!node.publish)
+                continue;
+            valueVariables.set(node.node, node.variable);
+            records.set(node.node, node);
+        }
+    for (const derived of graph.derived)
+        valueVariables.set(derived.node, derived.result);
+    function group(variable) {
+        const selected = terms.group(variable);
+        let result = groups.get(selected.variable);
+        if (result === undefined) {
+            const declared = selected.nodes.filter(node => node.declaredType !== undefined || isSourceTypeFlowDeclaredConstruction(node));
+            const constructions = declared.flatMap(node => {
+                const component = node.association?.component;
+                const type = node.declaredType ?? (component === undefined ? undefined : context.describe(node.node, component));
+                return type === undefined ? [] : [{ type, site: node.node, fixed: true,
+                        authority: defaults.declaredSlots.get(node.node)?.authority ?? (component?.authoredTypeNode !== undefined ||
+                            component?.declaration !== undefined && source.ast.typeNode(component.declaration) !== undefined ? "declared" : "inferred"),
+                        ...(component === undefined ? {} : { component }) }];
+            });
+            result = { variable: selected.variable, nodes: selected.nodes, terms: selected.terms,
+                fills: [], constructions, signatures: [], derived: [], dependencies: new Set(), dependents: new Set(),
+                pendingRefusals: [], inference: terms.isInference(variable),
+                ...(terms.isInference(variable) && selected.refusals[0] !== undefined ? { refused: selected.refusals[0] } : {}),
+                defaulted: false, solved: false };
+            groups.set(selected.variable, result);
+        }
+        return result;
+    }
+    function declaredRecord(node) {
+        const record = records.get(node);
+        return record !== undefined && (record.term?.kind === "fixed" || record.kind === "fixed" ||
+            record.declaration !== undefined && source.ast.typeNode(record.declaration) !== undefined) ? record : undefined;
+    }
+    function numberOrigin(node) {
+        if (numberOrigins.has(node))
+            return numberOrigins.get(node);
+        if (activeNumberOrigins.has(node))
+            return undefined;
+        activeNumberOrigins.add(node);
+        const selectedVariable = valueVariables.get(node) ?? retainedVariables.get(node);
+        const selected = selectedVariable === undefined ? undefined : group(selectedVariable);
+        const explicitWide = selected?.nodes.some(record => {
+            const declaration = record.declaration ?? record.association?.component?.declaration;
+            if (declaration === undefined || source.ast.typeNode(declaration) === undefined)
+                return false;
+            const type = defaults.declaredSlots.annotation(declaration);
+            return type?.kind === "primitive" && (type.primitive === "int64" || type.primitive === "uint64" ||
+                type.primitive === "int128" || type.primitive === "uint128");
+        });
+        let result;
+        if (!explicitWide) {
+            const literal = defaults.numberOrigins.get(node);
+            if (literal !== undefined)
+                result = Object.freeze({ origin: node, literal });
+            const principal = source.ast.is.IsVariableDeclaration(node) ? node : source.ast.is.IsIdentifier(node)
+                ? source.navigation.sourceReferenceFor(node)?.declaration : undefined;
+            if (result === undefined && principal !== undefined && source.ast.is.IsVariableDeclaration(principal)) {
+                const initializer = Node_Initializer(source.ast, principal);
+                const initial = initializer === undefined ? undefined : numberOrigin(initializer);
+                if (initial !== undefined)
+                    result = source.navigation.declarationUseSummary(principal).bindingWritten
+                        ? Object.freeze({ origin: initial.origin }) : initial;
+            }
+            if (result === undefined && selected !== undefined) {
+                const numeric = selected.terms.filter((term) => term.kind === "numeric" && defaults.numberOrigins.has(term.site));
+                const first = numeric[0];
+                if (first !== undefined) {
+                    const written = selected.nodes.some(record => record.declaration !== undefined &&
+                        source.ast.is.IsVariableDeclaration(record.declaration) &&
+                        source.navigation.declarationUseSummary(record.declaration).bindingWritten);
+                    const original = defaults.numberOrigins.get(first.site);
+                    const integer = original.integerConstant ?? original.integer;
+                    const same = !written && numeric.every(term => {
+                        const literal = defaults.numberOrigins.get(term.site);
+                        return term.site === first.site || integer !== undefined && (literal.integerConstant ?? literal.integer) === integer;
+                    });
+                    result = Object.freeze({ origin: first.site, ...(same ? { literal: original } : {}) });
+                }
+                const derived = selected.derived.find(derived => derived.node === node);
+                if (result === undefined && derived !== undefined && derived.operands.length > 0 &&
+                    derived.operands.every(operand => numberOrigin(operand.node) !== undefined)) {
+                    const literal = context.literal(node);
+                    result = Object.freeze({ origin: node, ...(literal === undefined ? {} : { literal }) });
+                }
+                const body = bodyCallResults.get(selected);
+                if (result === undefined && body?.returned.length === 1)
+                    result = numberOrigin(body.returned[0].node);
+            }
+        }
+        activeNumberOrigins.delete(node);
+        numberOrigins.set(node, result);
+        return result;
+    }
+    // ---- pre-Q1 origin kinds (N3′, C-2499): the one tracer over joins (R1 #8) --------------------------------------
+    // A conditional or `??` join passes on the origins of its contributing operands; an unwritten unannotated local passes
+    // on its initializer's; any other value has its own pre-Q1 origin (numberOrigin): "number" when it has one, else
+    // "bigint" (an explicit wide integer). The walk is cut at depth 16 (unproven).
+    const wideIntegerKinds = new Set(["int64", "uint64", "int128", "uint128"]);
+    const isWideInteger = (type) => {
+        const structure = sourceTypeDescriptorStructure(type);
+        return structure.kind === "primitive" && wideIntegerKinds.has(structure.primitive);
+    };
+    const joinOperands = (node) => source.ast.is.IsConditionalExpression(node)
+        ? [source.ast.as.AsConditionalExpression(node)?.WhenTrue, source.ast.as.AsConditionalExpression(node)?.WhenFalse]
+        : source.ast.is.IsBinaryExpression(node) && source.ast.operatorKindName(node) === "KindQuestionQuestionToken"
+            ? [source.ast.as.AsBinaryExpression(node)?.Left, source.ast.as.AsBinaryExpression(node)?.Right] : undefined;
+    function armNumberOriginKinds(sum, arm, inputs, depth = 0) {
+        if (depth > 16)
+            return undefined;
+        const operands = joinOperands(sum.identity.family);
+        if (operands === undefined) {
+            // An authored family is explicit unless the arm comes from a binder argument of its application: a binder argument
+            // is a type argument, not a published value, so its arms are read from its own structure (R1 #23).
+            const argumentArms = (argument) => argument.kind === "union" ? argument.types.flatMap(argumentArms)
+                : argument.kind === "optional" ? argumentArms(argument.value) : [argument];
+            const fromBinder = sum.identity.application.some(argument => argumentArms(argument).some(selected => sourceTypeDescriptorsEqual(selected, arm)));
+            return fromBinder ? undefined : new Set(["bigint"]);
+        }
+        const origins = new Set();
+        for (const operand of operands) {
+            if (operand === undefined)
+                return undefined;
+            const type = inputs.typeOf(operand);
+            if (type === undefined)
+                return undefined;
+            const inner = type.kind === "union" || type.kind === "optional" ? inputs.sumOf(type) : undefined;
+            if (inner !== undefined) {
+                if (!inner.arms.some(selected => sourceTypeDescriptorsEqual(selected.type, arm)))
+                    continue;
+                const nested = armNumberOriginKinds(inner, arm, inputs, depth + 1);
+                if (nested === undefined)
+                    return undefined;
+                for (const origin of nested)
+                    origins.add(origin);
+                continue;
+            }
+            const structure = sourceTypeDescriptorStructure(type);
+            const present = structure.kind === "optional" ? structure.value : type;
+            if (!sourceTypeDescriptorsEqual(present, arm))
+                continue;
+            const leaf = numberOriginKinds(operand, inputs, depth + 1);
+            if (leaf === undefined)
+                return undefined;
+            for (const origin of leaf)
+                origins.add(origin);
+        }
+        return origins.size === 0 ? undefined : origins;
+    }
+    function literalDomain(node, depth = 0) {
+        if (depth > 16)
+            return undefined;
+        const ast = source.ast;
+        let value = node;
+        while (ast.is.IsParenthesizedExpression(value) || ast.is.IsSatisfiesExpression(value) || ast.is.IsNonNullExpression(value)) {
+            const inner = Node_Expression(ast, value);
+            if (inner === undefined)
+                return undefined;
+            value = inner;
+        }
+        const parts = joinOperands(value);
+        if (parts !== undefined) {
+            const values = [];
+            for (const part of parts) {
+                const selected = part === undefined ? undefined : literalDomain(part, depth + 1);
+                if (selected === undefined)
+                    return undefined;
+                for (const literal of selected)
+                    if (!values.some(known => known.form === literal.form && known.text === literal.text))
+                        values.push(literal);
+            }
+            return values;
+        }
+        if (ast.is.IsIdentifier(value)) {
+            const declaration = source.navigation.sourceReferenceFor(value)?.declaration;
+            const initializer = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.typeNode(declaration) === undefined &&
+                !source.navigation.declarationUseSummary(declaration).bindingWritten ? Node_Initializer(ast, declaration) : undefined;
+            return initializer === undefined ? undefined : literalDomain(initializer, depth + 1);
+        }
+        const literal = context.literal(value);
+        const constant = literal !== undefined && (literal.form === "string" || literal.form === "template" || literal.form === "true" ||
+            literal.form === "false" || literal.form === "numeric" || literal.form === "bigint" || literal.form === "prefix-unary");
+        return constant ? [literal] : undefined;
+    }
+    function numberOriginKinds(node, inputs, depth = 0) {
+        if (depth > 16)
+            return undefined;
+        const ast = source.ast;
+        let value = node;
+        while (ast.is.IsParenthesizedExpression(value) || ast.is.IsSatisfiesExpression(value) || ast.is.IsNonNullExpression(value)) {
+            const inner = Node_Expression(ast, value);
+            if (inner === undefined)
+                return undefined;
+            value = inner;
+        }
+        const parts = joinOperands(value);
+        if (parts === undefined && ast.is.IsIdentifier(value)) {
+            const declaration = source.navigation.sourceReferenceFor(value)?.declaration;
+            const initializer = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.typeNode(declaration) === undefined &&
+                !source.navigation.declarationUseSummary(declaration).bindingWritten ? Node_Initializer(ast, declaration) : undefined;
+            if (initializer !== undefined)
+                return numberOriginKinds(initializer, inputs, depth + 1);
+        }
+        if (parts === undefined)
+            return new Set([numberOrigin(value) !== undefined ? "number" : "bigint"]);
+        const origins = new Set();
+        for (const part of parts) {
+            if (part === undefined)
+                return undefined;
+            const type = inputs.typeOf(part);
+            if (type === undefined || !isWideInteger(type))
+                continue;
+            const nested = numberOriginKinds(part, inputs, depth + 1);
+            if (nested === undefined)
+                return undefined;
+            for (const origin of nested)
+                origins.add(origin);
+        }
+        return origins.size === 0 ? undefined : origins;
+    }
+    function declaredDescriptor(record) {
+        const selected = group(record.variable);
+        if (bodyCallResults.has(selected) && record.declaredType === undefined &&
+            source.ast.typeNode(record.declaration ?? record.node) === undefined)
+            return selected.type;
+        const construction = selected.constructions.find(fill => fill.site === record.node);
+        if (construction?.authority === "inferred" && selected.chosenFill?.authority === "declared")
+            return selected.chosenFill.type;
+        const declaration = record.declaration ?? record.association?.component?.declaration;
+        if (record.term?.kind === "fixed" && selected.chosenFill?.authority === "declared" && !selected.chosenFill.fixed &&
+            record.association?.component?.authoredTypeNode === undefined && (declaration === undefined || source.ast.typeNode(declaration) === undefined) &&
+            selected.constructions.some(fill => fill.authority === "inferred" && fill.site === record.term?.site &&
+                source.ast.is.IsArrayLiteralExpression(fill.site))) {
+            return selected.chosenFill.type;
+        }
+        if (record.declaredType !== undefined)
+            return record.declaredType;
+        if (isSourceTypeFlowDeclaredConstruction(record)) {
+            return construction?.type;
+        }
+        return record.term?.kind === "fixed" ? record.term.type : context.describe(record.node, record.association?.component);
+    }
+    for (const selected of terms.groups())
+        group(selected.variable);
+    function callParameters(call, receiver, method) {
+        return Object.freeze(call.sourceSelectedSignatureParameters.map(parameter => context.describe(call.call, {
+            selectedType: parameter.selectedType,
+            ...(parameter.parameterDeclaration === undefined ? {} : { declaration: parameter.parameterDeclaration }),
+            ...(parameter.authoredTypeNode === undefined ? {} : { authoredTypeNode: parameter.authoredTypeNode }),
+        }, [...receiver, ...method])));
+    }
+    for (const call of graph.calls) {
+        if (call.result === undefined || !source.ast.is.IsCallExpression(call.node))
+            continue;
+        const queries = input.at(call.node);
+        const declaration = queries.callSignature(call.source);
+        if (declaration === undefined || source.ast.body(declaration) === undefined || source.ast.typeNode(declaration) !== undefined)
+            continue;
+        const returned = sourceTypeFlowCallableReturns(source.ast, declaration).returned;
+        const variables = returned.map(node => retainedVariables.get(node));
+        const missing = returned.find((_, index) => variables[index] === undefined);
+        callableQueries.set(declaration, queries);
+        bodyCallResults.set(group(call.result), { declaration, call,
+            returned: variables.filter((variable) => variable !== undefined),
+            ...(missing === undefined ? {} : { missing }) });
+    }
+    const receiverProjections = new Map();
+    const variables = new Set([...graph.nodes.map(record => record.variable),
+        ...graph.links.flatMap(link => [link.source, link.target]),
+        ...graph.inferenceInputs.flatMap(input => [input.source, input.target])]);
+    function retainReceiverProjection(variable, projection) {
+        const selected = group(variable);
+        let projections = receiverProjections.get(selected);
+        if (projections === undefined)
+            receiverProjections.set(selected, projections = []);
+        if (!projections.some(previous => previous.source === projection.source && previous.construction === projection.construction &&
+            previous.path.length === projection.path.length && previous.path.every((part, index) => part === projection.path[index]))) {
+            projections.push(projection);
+        }
+    }
+    for (const variable of variables) {
+        const literal = sourceTypeFlowObjectLiteralReceiver(source.ast, variable.node);
+        if (literal === undefined)
+            continue;
+        const owner = valueVariables.get(literal);
+        if (owner === undefined)
+            throw new Error("An object-literal receiver requires its original retained construction group.");
+        retainReceiverProjection(variable, { source: group(owner), origin: literal, site: variable.node, path: variable.path, construction: true });
+    }
+    for (const record of graph.nodes) {
+        if (record.kind !== "read" || record.declaration === undefined || record.variable.path.length !== 0 ||
+            !source.ast.is.IsIdentifier(record.node) || !(source.ast.is.IsFunctionDeclaration(record.root) ||
+            (source.ast.is.IsArrowFunction(record.root) || source.ast.is.IsFunctionExpression(record.root)) &&
+                source.navigation.expressionResultDisposition(record.root).kind === "discarded"))
+            continue;
+        const declaration = records.get(record.declaration);
+        const owner = valueVariables.get(record.declaration);
+        if (declaration === undefined || owner === undefined || declaration.root === record.root)
+            continue;
+        retainReceiverProjection(record.variable, { source: group(owner), origin: record.declaration,
+            site: record.node, path: record.variable.path, construction: false });
+    }
+    const projectedVariables = [...variables].filter(variable => variable.path.length > 0 &&
+        sourceTypeFlowObjectLiteralReceiver(source.ast, variable.node) === undefined);
+    for (let index = 0; index < projectedVariables.length;) {
+        const variable = projectedVariables[index];
+        const base = valueVariables.get(variable.node);
+        const baseGroup = base === undefined ? undefined : group(base);
+        const declaredProjection = (variable.path[0]?.kind === "member" || variable.path[0]?.kind === "optional-value") &&
+            variable.path.every(part => part.kind !== "binder") &&
+            baseGroup?.terms.some(term => term.kind === "declared" ||
+                term.kind === "fixed" && term.type.kind === "declared") &&
+            group(variable) !== baseGroup;
+        const aggregate = variable.path.every(part => part.kind !== "binder") && group(variable) !== baseGroup &&
+            baseGroup?.terms.every(term => term.kind === "fixed")
+            ? baseGroup.terms.find(term => term.kind === "fixed" &&
+                (source.ast.is.IsArrayLiteralExpression(term.site) || source.ast.is.IsObjectLiteralExpression(term.site))) : undefined;
+        const bodyResult = variable.path.every(part => part.kind !== "binder") && baseGroup !== undefined
+            ? bodyCallResults.get(baseGroup)?.call.node : undefined;
+        const origin = baseGroup === undefined ? undefined : receiverProjections.get(baseGroup)?.[0]?.origin ??
+            bodyResult ?? aggregate?.site ?? (declaredProjection ? variable.node : undefined);
+        if (baseGroup === undefined || origin === undefined) {
+            index += 1;
+            continue;
+        }
+        retainReceiverProjection(variable, { source: baseGroup, origin,
+            site: variable.node, path: variable.path, construction: false });
+        projectedVariables.splice(index, 1);
+        index = 0;
+    }
+    for (const use of uses)
+        group(use.variable);
+    for (const use of uses)
+        if (use.kind === "write" && use.valueVariable !== undefined)
+            group(use.valueVariable);
+    for (const use of uses)
+        if (use.kind === "refused") {
+            const selected = group(use.variable);
+            const construction = records.get(use.refusal.site);
+            if (construction !== undefined && (source.ast.is.IsArrayLiteralExpression(construction.node) ||
+                source.ast.is.IsObjectLiteralExpression(construction.node)) && group(construction.variable) === selected) {
+                selected.refused ?? (selected.refused = use.refusal);
+            }
+            else if (selected.inference)
+                selected.pendingRefusals.push(use.refusal);
+        }
+    for (const signature of signatures)
+        if (group(signature.variable).inference)
+            group(signature.variable).signatures.push(signature);
+    for (const derived of graph.derived)
+        group(derived.result).derived.push(derived);
+    const owners = new WeakMap();
+    for (const node of graph.nodes) {
+        let selected = owners.get(node.node);
+        if (selected === undefined)
+            owners.set(node.node, selected = new Set());
+        selected.add(group(node.variable));
+    }
+    function inferenceOwner(node) {
+        for (let current = node; current !== undefined; current = source.ast.parent(current)) {
+            const selected = [...(owners.get(current) ?? [])].find(owner => owner.inference);
+            if (selected !== undefined)
+                return selected;
+            if (graph.roots.includes(current))
+                break;
+        }
+        return undefined;
+    }
+    const graphRefusalOwners = new Map();
+    for (const issue of graph.refusals) {
+        const construction = records.get(issue.site);
+        if (construction?.declaredSlotRefusal === issue) {
+            group(construction.variable).refused = issue;
+            continue;
+        }
+        const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
+        if (owner === undefined && !valueVariables.has(issue.site) && domainValues.has(issue.site)) {
+            outcomes.set(issue.site, issue);
+            directGraphRefusals.push(issue);
+        }
+        if (owner !== undefined) {
+            graphRefusalOwners.set(issue, owner);
+            owner.pendingRefusals.push(issue);
+        }
+    }
+    function refuse(selected, code, site, related) {
+        if (selected.inference && selected.refused === undefined) {
+            selected.refused = createSourceTypeFlowRefusal(code, site, related);
+        }
+    }
+    function children(term) {
+        return term.kind === "array" ? [term.element] : term.kind === "optional" ? [term.value]
+            : term.kind === "tuple" ? term.elements.map(element => element.variable) : term.kind === "shape" ? term.members.map(member => member.variable)
+                : term.kind === "declared" ? term.typeArguments : term.kind === "template" ? term.bindings.map(binding => binding.variable) : [];
+    }
+    const interfaceChecks = new Map();
+    for (const use of uses)
+        if (use.kind === "check" && use.check === "interface") {
+            const selected = group(use.variable);
+            const prior = interfaceChecks.get(selected);
+            if (prior === undefined)
+                interfaceChecks.set(selected, { type: use.type, site: use.site });
+            else if (selected.inference && !sourceTypeDescriptorsEqual(prior.type, use.type)) {
+                selected.pendingRefusals.push(createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_CONFLICT", use.site, prior.site));
+            }
+        }
+    function member(type, name) {
+        const selected = sourceTypeDescriptorStructure(type);
+        return selected.kind === "shape"
+            ? selected.members.find(member => member.name === name)?.type ?? selected.indexes.find(index => index.key.kind === "string")?.value
+            : undefined;
+    }
+    const pendingFills = [];
+    const initialFills = new Map();
+    function inferredLiteralStorage(selected, fill) {
+        if (fill.authority !== "inferred" || !selected.constructions.includes(fill) ||
+            !selected.terms.some(term => term.kind === "numeric" && term.site === fill.site))
+            return false;
+        const type = sourceTypeDescriptorStructure(fill.type);
+        return type.kind === "union" || type.kind === "optional" || type.kind === "intrinsic" &&
+            (type.intrinsic === "unknown" || type.intrinsic === "object" || type.intrinsic === "any");
+    }
+    function unboundNumericLiteral(variable, fill) {
+        const selected = group(variable);
+        const literal = context.literal(variable.node);
+        return literal !== undefined && selected.filledBy === undefined && selected.fills.every(fill => inferredLiteralStorage(selected, fill)) &&
+            selected.constructions.every(fill => inferredLiteralStorage(selected, fill)) &&
+            selected.terms.some(term => term.kind === "numeric") && !selected.terms.some(term => term.kind === "fixed") &&
+            defaults.declaredSlots.get(variable.node)?.authority !== "declared" &&
+            !initialFills.get(selected)?.some(prior => prior !== fill && !inferredLiteralStorage(selected, prior))
+            ? literal : undefined;
+    }
+    function numericCreation(node) {
+        let occurrence = node;
+        let site = node;
+        let literal = context.literal(node);
+        for (let parent = source.ast.parent(occurrence); parent !== undefined; parent = source.ast.parent(occurrence)) {
+            if (source.ast.is.IsParenthesizedExpression(parent) && source.ast.as.AsParenthesizedExpression(parent)?.Expression === occurrence) {
+                site = parent;
+                literal = context.literal(parent) ?? literal;
+                occurrence = parent;
+            }
+            else if (source.ast.is.IsPrefixUnaryExpression(parent) &&
+                (source.ast.operatorKindName(parent) === "KindPlusToken" || source.ast.operatorKindName(parent) === "KindMinusToken") &&
+                source.ast.as.AsPrefixUnaryExpression(parent)?.Operand === occurrence) {
+                site = parent;
+                occurrence = parent;
+                literal = context.literal(parent);
+            }
+            else
+                break;
+        }
+        return { site, literal };
+    }
+    function literalSelectionFits(variable, primitive, fill) {
+        const pending = [variable];
+        const seen = new Set();
+        while (pending.length > 0) {
+            const current = pending.pop();
+            const selected = group(current);
+            if (seen.has(selected) || selected.filledBy !== undefined || selected.fills.some(prior => !inferredLiteralStorage(selected, prior)) ||
+                selected.constructions.some(prior => !inferredLiteralStorage(selected, prior)) ||
+                selected.terms.some(term => term.kind === "fixed") || defaults.declaredSlots.get(current.node)?.authority === "declared" ||
+                initialFills.get(selected)?.some(prior => prior !== fill && !inferredLiteralStorage(selected, prior)))
+                return false;
+            seen.add(selected);
+            const literal = context.literal(current.node);
+            if (literal !== undefined && selected.terms.some(term => term.kind === "numeric")) {
+                if (!sourcePrimitiveOperatorLiteralFits(literal, primitive, source.platform))
+                    return false;
+            }
+            else if (selected.derived.length > 0 && selected.derived.every(derived => derived.operator === "conditional")) {
+                for (const derived of selected.derived)
+                    pending.push(...derived.operands);
+            }
+            else
+                return false;
+        }
+        return true;
+    }
+    for (const selected of groups.values()) {
+        for (const fill of selected.constructions)
+            pendingFills.push({ variable: selected.variable, fill });
+        for (const term of selected.terms)
+            if (term.kind === "fixed") {
+                const slot = defaults.declaredSlots.get(term.site);
+                const component = records.get(term.site)?.association?.component;
+                const declaration = records.get(term.site)?.declaration ?? source.navigation.sourceReferenceFor(term.site)?.declaration ?? term.site;
+                pendingFills.push({ variable: selected.variable, fill: { type: term.type, site: term.site, fixed: true,
+                        authority: slot?.authority ?? (component?.authoredTypeNode !== undefined || source.ast.typeNode(declaration) !== undefined
+                            ? "declared" : "inferred") } });
+            }
+    }
+    for (const use of uses)
+        if (use.kind === "fill") {
+            const component = use.association?.component;
+            pendingFills.push({ variable: use.variable, fill: { type: use.type, site: use.site, fixed: false,
+                    authority: use.authority === "declared" || component?.authoredTypeNode !== undefined || component?.declaration !== undefined &&
+                        source.ast.typeNode(component.declaration) !== undefined ? "declared" : "inferred",
+                    ...(component === undefined ? {} : { component }) } });
+        }
+    for (const entry of pendingFills) {
+        const selected = group(entry.variable);
+        let fills = initialFills.get(selected);
+        if (fills === undefined)
+            initialFills.set(selected, fills = []);
+        fills.push(entry.fill);
+    }
+    for (let index = 0; index < pendingFills.length; index += 1) {
+        const { variable, fill } = pendingFills[index];
+        const selected = group(variable);
+        if (selected.fills.some(prior => prior.site === fill.site && prior.fixed === fill.fixed &&
+            sourceTypeDescriptorsEqual(prior.type, fill.type)))
+            continue;
+        selected.fills.push(fill);
+        if (selected.inference && sourceTypeDescriptorDepth(fill.type) > 4) {
+            refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", fill.site);
+            continue;
+        }
+        const primitive = sourceTypeDescriptorStructure(fill.type);
+        if (!fill.fixed && fill.authority === "declared")
+            for (const record of selected.nodes) {
+                if (record.term?.kind !== "fixed" || !source.ast.is.IsArrayLiteralExpression(record.node) ||
+                    defaults.declaredSlots.get(record.node)?.authority === "declared")
+                    continue;
+                for (const [index, child] of source.ast.elements(record.node).entries()) {
+                    const variable = child === undefined ? undefined : valueVariables.get(child);
+                    if (variable === undefined || unboundNumericLiteral(variable, fill) === undefined)
+                        continue;
+                    const type = sourceTypeFlowDescriptorPart(context, record.node, fill.type, primitive.kind === "tuple" ? { kind: "tuple", index } : { kind: "element" });
+                    if (type !== undefined)
+                        pendingFills.push({ variable, fill: { type, site: fill.site, fixed: false, authority: fill.authority } });
+                }
+            }
+        if (!fill.fixed && fill.authority === "declared" && primitive.kind === "primitive" && selected.derived.length > 0 &&
+            selected.derived.every(derived => derived.operator === "conditional" &&
+                derived.operands.every(operand => literalSelectionFits(operand, primitive.primitive, fill)))) {
+            for (const derived of selected.derived)
+                for (const variable of derived.operands)
+                    pendingFills.push({ variable, fill });
+        }
+        for (const derived of selected.derived) {
+            if (!selected.terms.some(term => term.kind === "numeric" && term.site === derived.node))
+                continue;
+            const literal = context.literal(derived.node);
+            const arm = literal !== undefined && (primitive.kind === "union" || primitive.kind === "optional")
+                ? sourceTypeFlowScalarCalculationArm(fill.type, literal, source.platform) : undefined;
+            const calculation = primitive.kind === "primitive" ? primitive.primitive : arm?.kind === "resolved" ? arm.primitive : undefined;
+            if (calculation === undefined)
+                continue;
+            const spelling = (derived.operator === "positive" || derived.operator === "negate") && derived.operands.length === 1;
+            if (derived.operands.every(variable => spelling ? unboundNumericLiteral(variable, fill) !== undefined
+                : literalSelectionFits(variable, calculation, fill))) {
+                for (const variable of derived.operands)
+                    pendingFills.push({ variable,
+                        fill: spelling || primitive.kind === "primitive" ? fill : { ...fill, type: { kind: "primitive", primitive: calculation } } });
+            }
+        }
+        for (const term of selected.terms) {
+            const add = (child, type, component) => {
+                if (type !== undefined)
+                    pendingFills.push({ variable: child, fill: { type, site: fill.site, fixed: fill.fixed, authority: fill.authority,
+                            ...(component === undefined ? {} : { component }) } });
+            };
+            const queries = input.at(fill.site);
+            if (term.kind === "array" && fill.type.kind === "array") {
+                const selectedType = fill.component === undefined ? undefined : queries.arrayElementType(fill.component.selectedType);
+                add(term.element, fill.type.element, selectedType === undefined ? undefined : { selectedType });
+            }
+            else if (term.kind === "optional" && fill.type.kind === "optional") {
+                const members = fill.component === undefined ? [] : queries.members(fill.component.selectedType)
+                    .filter(type => !queries.isAbsentConstituent(type));
+                add(term.value, fill.type.value, members.length !== 1 ? undefined : { selectedType: members[0] });
+            }
+            else if (term.kind === "tuple" && fill.type.kind === "tuple") {
+                const members = fill.component === undefined ? [] : queries.tupleElements(fill.component.selectedType);
+                term.elements.forEach((element, index) => add(element.variable, fill.type.kind === "tuple" ? fill.type.elements[index]?.type : undefined, members[index] === undefined ? undefined : { selectedType: members[index].type }));
+            }
+            else if (term.kind === "declared" && fill.type.kind === "declared" && term.declaration === fill.type.declaration) {
+                const bindings = fill.component === undefined ? [] : queries.typeArgumentBindings(fill.component.selectedType) ?? [];
+                term.typeArguments.forEach((argument, offset) => add(argument, fill.type.kind === "declared" ? fill.type.typeArguments[offset] : undefined, bindings[offset] === undefined ? undefined : { selectedType: bindings[offset].argumentType, declaration: bindings[offset].declaration }));
+            }
+            else if (term.kind === "shape" && (fill.type.kind === "shape" || fill.type.kind === "declared")) {
+                const properties = fill.component === undefined ? [] : queries.properties(fill.component.selectedType);
+                for (const entry of term.members) {
+                    const produced = group(entry.variable);
+                    if (source.ast.is.IsObjectLiteralExpression(term.site) && produced.terms.length > 0 &&
+                        produced.derived.length === 0 && produced.terms.every(term => term.kind === "fixed"))
+                        continue;
+                    const property = properties.find(property => property.name === entry.name);
+                    add(entry.variable, member(fill.type, entry.name), property === undefined ? undefined : { selectedType: property.type });
+                }
+            }
+        }
+    }
+    const inferenceInputs = new Map();
+    for (const input of graph.inferenceInputs) {
+        const selected = group(input.target);
+        let inputs = inferenceInputs.get(selected);
+        if (inputs === undefined)
+            inferenceInputs.set(selected, inputs = []);
+        inputs.push(input);
+        selected.dependencies.add(group(input.source));
+    }
+    const accumulatorGroups = new Set([...groups.values()].filter(selected => selected.derived.length > 0 &&
+        selected.derived.every(derived => derived.accumulator !== undefined && group(derived.accumulator) === selected)));
+    const accumulatorDependencies = new Map();
+    const deferredAccumulators = new Map();
+    for (const selected of groups.values()) {
+        selected.fills.sort((left, right) => compare(left.site, right.site));
+        const locals = selected.nodes.filter(node => node.kind === "open-local" || node.kind === "derived-local");
+        if (new Set(locals.map(node => node.declaration ?? node.node)).size > 64) {
+            refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
+        }
+        for (const local of locals)
+            if (source.navigation.declarationUses(local.declaration ?? local.node).length > 1024) {
+                refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", local.node);
+            }
+        for (const term of selected.terms)
+            for (const child of children(term))
+                selected.dependencies.add(group(child));
+        for (const derived of selected.derived) {
+            let dependencies = selected.dependencies;
+            if (accumulatorGroups.has(selected)) {
+                dependencies = accumulatorDependencies.get(selected) ?? new Set();
+                accumulatorDependencies.set(selected, dependencies);
+            }
+            for (const operand of derived.operands)
+                dependencies.add(group(operand));
+            const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
+            const variable = condition === undefined ? undefined : retainedVariables.get(condition);
+            if (variable !== undefined)
+                dependencies.add(group(variable));
+        }
+        for (const receiver of receiverProjections.get(selected) ?? [])
+            selected.dependencies.add(receiver.source);
+        const body = bodyCallResults.get(selected);
+        if (body !== undefined) {
+            for (const variable of body.returned)
+                selected.dependencies.add(group(variable));
+            for (const binder of [...body.call.receiver, ...body.call.method])
+                selected.dependencies.add(group(binder.variable));
+        }
+        selected.dependencies.delete(selected);
+    }
+    const literalPeers = new Map();
+    for (const derived of graph.derived) {
+        if (derived.operands.length !== 2 || !(sourcePrimitiveBinaryOperators.some(operator => operator === derived.operator) ||
+            derived.operator === "conditional" || derived.operator === "coalesce"))
+            continue;
+        if (derived.operator === "shift-left" || derived.operator === "shift-right" || derived.operator === "shift-right-unsigned")
+            continue;
+        for (const [index, operand] of derived.operands.entries()) {
+            let variable = operand;
+            if (index === 0 && source.ast.as.AsBinaryExpression(derived.node)?.Left === operand.node && isWriteTarget(source.ast, operand.node)) {
+                const selected = group(operand);
+                const numeric = selected.terms.filter(term => term.kind === "numeric");
+                const original = numeric.length === 1 ? valueVariables.get(numeric[0].site) : undefined;
+                if (original !== undefined && group(original) === selected)
+                    variable = original;
+            }
+            const literal = unboundNumericLiteral(variable);
+            const peer = derived.operands[1 - index];
+            if (literal === undefined || unboundNumericLiteral(peer) !== undefined)
+                continue;
+            const sourceGroup = group(peer);
+            const pending = [variable];
+            const seen = new Set();
+            while (pending.length > 0) {
+                const current = pending.pop();
+                const selected = group(current);
+                if (seen.has(selected) || unboundNumericLiteral(current) === undefined || selected === sourceGroup)
+                    continue;
+                seen.add(selected);
+                const dependencies = [sourceGroup];
+                const visited = new Set();
+                while (dependencies.length > 0) {
+                    const dependency = dependencies.pop();
+                    if (visited.has(dependency))
+                        continue;
+                    visited.add(dependency);
+                    dependencies.push(...dependency.dependencies);
+                }
+                if (visited.has(selected))
+                    continue;
+                selected.dependencies.add(sourceGroup);
+                let peers = literalPeers.get(selected);
+                if (peers === undefined)
+                    literalPeers.set(selected, peers = []);
+                peers.push({ source: sourceGroup, variable: current, site: peer.node, literal,
+                    present: derived.operator === "coalesce" && index === 1 });
+                for (const operation of selected.derived)
+                    if (selected.terms.some(term => term.kind === "numeric" && term.site === operation.node)) {
+                        pending.push(...operation.operands);
+                    }
+            }
+        }
+    }
+    for (const selected of groups.values())
+        for (const dependency of selected.dependencies)
+            dependency.dependents.add(selected);
+    function validate(selected) {
+        if (selected.type === undefined)
+            return;
+        if (selected.type.kind === "shape" && selected.type.members.length === 0 && selected.fills.every(fill => fill.fixed) &&
+            selected.nodes.every(node => node.declaration === undefined || source.ast.typeNode(node.declaration) === undefined) &&
+            selected.nodes.some(node => node.initializer !== undefined && source.ast.is.IsObjectLiteralExpression(node.initializer) ||
+                source.ast.is.IsObjectLiteralExpression(node.node))) {
+            const literal = selected.nodes.find(node => source.ast.is.IsObjectLiteralExpression(node.node));
+            refuse(selected, "TSONIC_UNTYPED_OBJECT_LITERAL", literal?.node ?? selected.variable.node);
+        }
+        const fixed = selected.fills.filter(fill => fill.fixed && !inferredLiteralStorage(selected, fill));
+        if (fixed.length > 1 && fixed.some(fill => !sourceTypeDescriptorsEqual(fixed[0].type, fill.type))) {
+            const array = arrayConstruction(selected);
+            refuse(selected, array === undefined ? "TSONIC_LOCAL_TYPE_CONFLICT" : "TSONIC_LOCAL_TYPE_MIXED_ELEMENTS", array?.node ?? fixed[1].site, fixed[0].site);
+            return;
+        }
+        for (const fill of selected.fills) {
+            if (inferredLiteralStorage(selected, fill))
+                continue;
+            if (!sourceTypeDescriptorsEqual(selected.type, fill.type)) {
+                refuse(selected, selected.signatures.length > 0 ? "TSONIC_LOCAL_TYPE_SIGNATURE" : "TSONIC_LOCAL_TYPE_CONFLICT", fill.site, selected.filledBy ?? selected.signatures[0]?.site);
+            }
+            else if (fill.authority === "declared" && !fill.fixed && selected.chosenFill?.authority !== "declared") {
+                selected.chosenFill = fill;
+            }
+        }
+        for (const literal of selected.nodes.filter(node => source.ast.is.IsObjectLiteralExpression(node.node))) {
+            const chosen = new Map();
+            for (const fill of selected.fills) {
+                if (fill.fixed || fill.component === undefined)
+                    continue;
+                for (const pair of sourceLiteralMemberCorrespondence(context, literal.node, fill.type, fill.component === undefined ? {} : { component: fill.component }) ?? []) {
+                    const previous = chosen.get(pair.property);
+                    if (previous !== undefined && !sourceTypeDescriptorMemberOriginsEqual(previous.origin, pair.origin)) {
+                        refuse(selected, "TSONIC_LOCAL_TYPE_CONFLICT", fill.site, previous.site);
+                    }
+                    else
+                        chosen.set(pair.property, { origin: pair.origin, site: fill.site });
+                }
+            }
+        }
+    }
+    function arrayConstruction(selected) {
+        return graph.nodes.find(node => node.term?.kind === "array" &&
+            source.ast.is.IsArrayLiteralExpression(node.node) && group(node.term.element) === selected);
+    }
+    function constructed(selected) {
+        for (const term of selected.terms) {
+            if (term.kind === "template") {
+                const bindings = new Map();
+                for (const binding of term.bindings) {
+                    const type = group(binding.variable).type;
+                    if (type === undefined)
+                        return undefined;
+                    bindings.set(binding.declaration, type);
+                }
+                return createSourceTypeDescriptorNormalizer(unions, bindings)(term.type);
+            }
+            else if (term.kind === "array") {
+                const element = group(term.element).type;
+                if (element !== undefined)
+                    return { kind: "array", readonly: term.readonly, element };
+                if (source.ast.is.IsArrayLiteralExpression(term.site)) {
+                    refuse(selected, "TSONIC_UNTYPED_ARRAY_LITERAL", term.site);
+                }
+            }
+            else if (term.kind === "optional") {
+                const value = group(term.value).type;
+                if (value !== undefined)
+                    return sourceTypeDescriptorOptional(value);
+            }
+            else if (term.kind === "tuple") {
+                const elements = [];
+                for (const element of term.elements) {
+                    const type = group(element.variable).type;
+                    if (type === undefined)
+                        return undefined;
+                    elements.push({ kind: element.kind, type, ...(element.declaration === undefined ? {} : { declaration: element.declaration }) });
+                }
+                return { kind: "tuple", readonly: term.readonly, elements };
+            }
+            else if (term.kind === "declared") {
+                const arguments_ = [];
+                for (const argument of term.typeArguments) {
+                    const value = group(argument).type;
+                    if (value === undefined)
+                        return undefined;
+                    arguments_.push(value);
+                }
+                const queries = input.at(term.site);
+                const declaredType = term.source?.selectedType ?? queries.declaredType(term.declaration);
+                if (declaredType !== undefined) {
+                    const call = graph.calls.find(call => call.node === term.site);
+                    const substitutions = [...(call === undefined ? [] : [...call.receiver, ...call.method])].flatMap(binder => {
+                        const selected = group(binder.variable);
+                        return selected.type === undefined ? [] : [{ declaration: binder.declaration, type: selected.type }];
+                    });
+                    const parameters = queries.typeArgumentBindings(declaredType)?.map(binding => binding.declaration) ??
+                        sourceTypeFlowTypeParameters(source.ast, term.declaration);
+                    parameters.forEach((declaration, index) => {
+                        if (declaration !== undefined && arguments_[index] !== undefined)
+                            substitutions.push({ declaration, type: arguments_[index] });
+                    });
+                    return context.describe(term.site, term.source ?? { selectedType: declaredType, declaration: term.declaration }, substitutions);
+                }
+                return undefined;
+            }
+            else if (term.kind === "shape") {
+                if (term.members.length === 0 && source.ast.is.IsObjectLiteralExpression(term.site)) {
+                    refuse(selected, "TSONIC_UNTYPED_OBJECT_LITERAL", term.site);
+                    continue;
+                }
+                const members = [];
+                for (const entry of term.members) {
+                    const type = group(entry.variable).type;
+                    if (type === undefined)
+                        return undefined;
+                    if (entry.declaration === undefined)
+                        throw new Error("A constructed Source member requires its actual authored declaration.");
+                    members.push({ name: entry.name, optional: entry.optional, type,
+                        origin: { kind: "declared", declaration: entry.declaration },
+                        ...(entry.readonly === undefined ? {} : { readonly: entry.readonly }) });
+                }
+                return { kind: "shape", members, indexes: [], calls: [], constructs: [] };
+            }
+        }
+        return undefined;
+    }
+    function derivedType(derived) {
+        const operands = derived.operands.map(operand => group(operand));
+        const types = operands.map(operand => operand.type);
+        if (types.some(type => type === undefined))
+            return undefined;
+        const token = source.ast.operatorKindName(derived.node);
+        const update = token === "KindPlusPlusToken" ? "increment" : token === "KindMinusMinusToken" ? "decrement" : undefined;
+        if (derived.operator === "await") {
+            const operand = derived.operands[0];
+            return operand === undefined || types.length !== 1 ? undefined
+                : sourceTypeDescriptorAwaitedPayload(source.ast, unions, types[0]);
+        }
+        if (derived.operator === "identity" && update === undefined)
+            return types[0];
+        if (derived.operator === "sequence")
+            return types[types.length - 1];
+        if (derived.operator === "conditional") {
+            const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
+            const variable = condition === undefined ? undefined : retainedVariables.get(condition);
+            const type = variable === undefined ? undefined : group(variable).type;
+            const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+            if (structure?.kind !== "primitive" || structure.primitive !== "bool") {
+                return operatorRefusal(derived, "A conditional operator requires an exact bool condition.");
+            }
+            return sourceTypeDescriptorUnion(unions, partneredArms(derived.operands, types.filter((type) => type !== undefined)), { kind: "inferred", node: derived.node });
+        }
+        if (derived.operator === "logical-and" || derived.operator === "logical-or") {
+            const primitives = types.map(type => type === undefined ? undefined : sourceTypeDescriptorStructure(type));
+            return primitives.length === 2 && primitives.every(type => type?.kind === "primitive" && type.primitive === "bool")
+                ? binaryResult(derived, { kind: "primitive", primitive: "bool" })
+                : operatorRefusal(derived, "A logical operator requires exact bool operands.");
+        }
+        if (derived.operator === "coalesce") {
+            const left = types[0] === undefined ? undefined : sourceTypeDescriptorStructure(types[0]);
+            const right = types[1];
+            if (right === undefined)
+                return undefined;
+            if (left === undefined || left.kind === "primitive") {
+                return operatorRefusal(derived, "A coalescing operator requires a nullable or runtime-union left operand.");
+            }
+            const present = left.kind === "optional" ? left.value : left.kind === "intrinsic" && left.intrinsic === "absence" ? undefined : types[0];
+            const result = present === undefined ? right : sourceTypeDescriptorUnion(unions, partneredArms(derived.operands, [present, right]), { kind: "inferred", node: derived.node });
+            return result === undefined ? undefined : binaryResult(derived, result);
+        }
+        const unary = update ?? (derived.operator === "positive" || derived.operator === "negate" ||
+            derived.operator === "bit-not" || derived.operator === "logical-not" ? derived.operator : undefined);
+        if (unary !== undefined) {
+            const operand = types[0] === undefined ? undefined : sourceTypeDescriptorStructure(types[0]);
+            if (types.length === 1 && operand?.kind === "intrinsic" && operand.intrinsic === "bigint") {
+                return unary === "negate" || unary === "bit-not" || unary === "increment" || unary === "decrement"
+                    ? update === undefined ? { kind: "intrinsic", intrinsic: "bigint" } : producedOperandType(derived.operands[0])
+                    : operatorRefusal(derived, "This unary operator has no admitted bigint result.");
+            }
+            const enumOperand = types.length === 1 ? numericEnumOf(types[0]) : undefined;
+            if (enumOperand !== undefined && sourceEnumOperatorKeepsDomain(unary, [enumOperand])) {
+                return update !== undefined ? producedOperandType(derived.operands[0]) : types[0];
+            }
+            let primitive = operand?.kind === "primitive" ? operand.primitive
+                : enumOperand === undefined ? undefined : sourceEnumOperandPrimitive(source.enumIntegerWidth(enumOperand));
+            const literal = context.literal(derived.node);
+            const selected = group(derived.result);
+            if ((unary === "positive" || unary === "negate") && literal !== undefined &&
+                selected.terms.some(term => term.kind === "numeric" && term.site === derived.node)) {
+                const expected = expectedOperatorKind(selected, derived.node);
+                const arm = literalDestinationArm(derived);
+                if (expected !== undefined)
+                    primitive = expected;
+                else if (arm !== undefined) {
+                    if (arm.kind === "unfitted")
+                        return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
+                    if (arm.kind === "width-refused")
+                        return operatorRefusal(derived, arm.refusal.reason, arm.refusal.code);
+                    primitive = arm.primitive;
+                }
+                else {
+                    const creation = numericCreation(derived.node);
+                    const own = sourceTypeFlowNumericLiteralKind(creation.literal ?? literal);
+                    if (own.kind === "refused") {
+                        selected.refused ?? (selected.refused = defaults.numericCreationRefusal(creation.site, own.reason));
+                        return undefined;
+                    }
+                    primitive = own.primitive;
+                }
+            }
+            else if (operand?.kind === "union")
+                return unionOperandRefusal(derived, operand);
+            if (types.length !== 1 || primitive === undefined)
+                return operatorRefusal(derived, "A unary operator requires one exact primitive operand.");
+            const decision = decideSourcePrimitiveUnaryOperator(unary, primitive);
+            return decision.kind === "refused" ? operatorRefusal(derived, decision.reason, decision.code)
+                : update !== undefined ? producedOperandType(derived.operands[0]) : { kind: "primitive", primitive: decision.result };
+        }
+        const comparison = ["less", "less-equal", "greater", "greater-equal", "equal", "not-equal"].includes(derived.operator);
+        const structures = types.map(type => type === undefined ? undefined : sourceTypeDescriptorStructure(type));
+        const bigints = structures.map(type => type?.kind === "intrinsic" && type.intrinsic === "bigint");
+        if (bigints.length === 2 && bigints.every(value => value)) {
+            if (comparison)
+                return { kind: "primitive", primitive: "bool" };
+            if (["add", "subtract", "multiply", "divide", "remainder", "bit-and", "bit-or", "bit-xor"].includes(derived.operator)) {
+                return binaryResult(derived, { kind: "intrinsic", intrinsic: "bigint" });
+            }
+            return operatorRefusal(derived, derived.operator === "power" ? "Exponentiation has no admitted native operator result."
+                : "This binary operator has no admitted bigint result.");
+        }
+        const binary = sourcePrimitiveBinaryOperators.find(operator => operator === derived.operator);
+        if (binary !== undefined) {
+            if (types.length === 2 && sourceEnumOperatorKeepsDomain(binary, types.map(numericEnumOf)))
+                return binaryResult(derived, types[0]);
+            const left = derived.operands[0] === undefined ? undefined : primitiveOperand(derived.operands[0]);
+            const right = derived.operands[1] === undefined ? undefined : primitiveOperand(derived.operands[1]);
+            if (derived.operands.length === 2 && left !== undefined && right !== undefined) {
+                const selected = group(derived.result);
+                const arm = literalDestinationArm(derived);
+                const expected = expectedOperatorKind(selected, derived.node);
+                const decision = decideSourcePrimitiveBinaryOperator(binary, left, right, source.platform, expected ?? (arm?.kind === "resolved" ? arm.primitive : undefined));
+                if (decision.kind === "refused")
+                    return operatorRefusal(derived, decision.reason, decision.code);
+                if (arm?.kind === "unfitted")
+                    return operatorRefusal(derived, "The numeric literal fits no primitive destination arm.");
+                if (arm?.kind === "width-refused")
+                    return operatorRefusal(derived, arm.refusal.reason, arm.refusal.code);
+                const folded = selected.terms.find((term) => term.kind === "numeric" && term.site === derived.node);
+                if (folded !== undefined && expected === undefined && arm?.kind !== "resolved") {
+                    const creation = numericCreation(derived.node);
+                    const own = sourceTypeFlowNumericLiteralKind(creation.literal ?? folded.literal);
+                    if (own.kind === "refused") {
+                        selected.refused ?? (selected.refused = defaults.numericCreationRefusal(creation.site, own.reason));
+                        return undefined;
+                    }
+                }
+                const primitive = folded === undefined ? decision.result : expected ?? (arm?.kind === "resolved" ? arm.primitive : decision.result);
+                return binaryResult(derived, { kind: "primitive", primitive });
+            }
+            if (binary === "power")
+                return operatorRefusal(derived, "Exponentiation has no admitted native operator result.");
+            const union = structures.find((type) => type?.kind === "union");
+            if (union !== undefined && binary !== "equal" && binary !== "not-equal")
+                return unionOperandRefusal(derived, union);
+        }
+        if ((derived.operator === "equal" || derived.operator === "not-equal") && types.some(type => type !== undefined && bigintOperand(type))) {
+            return types.every(type => type !== undefined && bigintEqualityOperand(type)) ? { kind: "primitive", primitive: "bool" }
+                : operatorRefusal(derived, "Bigint equality requires bigint, absence or a native-integral operand.");
+        }
+        if (bigints.some(value => value) && !structures.some(type => type?.kind === "string")) {
+            return operatorRefusal(derived, "A bigint operand requires the same exact bigint domain or an admitted primitive literal partner.");
+        }
+        if (comparison)
+            return { kind: "primitive", primitive: "bool" };
+        if (derived.operator === "add" && structures.some(type => type?.kind === "intrinsic" && type.intrinsic === "any")) {
+            return binaryResult(derived, { kind: "intrinsic", intrinsic: "any" });
+        }
+        if (derived.operator === "add" && types.some(type => type !== undefined && sourceTypeDescriptorStructure(type).kind === "string")) {
+            return binaryResult(derived, { kind: "string" });
+        }
+        return undefined;
+    }
+    function binaryResult(derived, calculation) {
+        const target = source.ast.as.AsBinaryExpression(derived.node)?.Left;
+        if (target === undefined || !isWriteTarget(source.ast, target))
+            return calculation;
+        compoundCalculationTypes.set(derived.node, calculation);
+        return derived.operands[0] === undefined ? undefined : producedOperandType(derived.operands[0]);
+    }
+    function bigintOperand(type) {
+        const structure = sourceTypeDescriptorStructure(type);
+        return structure.kind === "optional" ? bigintOperand(structure.value) : structure.kind === "intrinsic" && structure.intrinsic === "bigint";
+    }
+    function bigintEqualityOperand(type) {
+        const structure = sourceTypeDescriptorStructure(type);
+        return structure.kind === "optional" ? bigintEqualityOperand(structure.value)
+            : structure.kind === "union" ? structure.types.every(bigintEqualityOperand)
+                : structure.kind === "intrinsic" ? structure.intrinsic === "bigint" || structure.intrinsic === "absence"
+                    : structure.kind === "primitive" && sourcePrimitiveOperatorIsIntegral(structure.primitive);
+    }
+    function declaredDestination(selected, site) {
+        return selected.constructions.find(fill => fill.authority === "declared" && (site === undefined || fill.site === site)) ??
+            selected.fills.find(fill => !fill.fixed && fill.authority === "declared");
+    }
+    function expectedOperatorKind(selected, node) {
+        const slot = defaults.declaredSlots.get(node);
+        const declared = slot?.authority !== "declared" || slot.type === undefined ? undefined : sourceTypeDescriptorStructure(slot.type);
+        if (declared?.kind === "union" || declared?.kind === "optional")
+            return undefined;
+        if (declared?.kind === "primitive")
+            return declared.primitive;
+        const fill = declaredDestination(selected, node) ??
+            selected.fills.find(fill => sourceTypeDescriptorStructure(fill.type).kind === "primitive");
+        const type = fill === undefined ? undefined : sourceTypeDescriptorStructure(fill.type);
+        return type?.kind === "primitive" ? type.primitive : undefined;
+    }
+    function literalDestinationArm(derived) {
+        const selected = group(derived.result);
+        if (selected.filledBy !== undefined || expectedOperatorKind(selected, derived.node) !== undefined)
+            return undefined;
+        const whole = selected.terms.find((term) => term.kind === "numeric" && term.site === derived.node);
+        if (whole === undefined)
+            return undefined;
+        const slot = defaults.declaredSlots.get(derived.node);
+        const destination = (slot?.authority === "declared" ? slot.type : undefined) ??
+            declaredDestination(selected, derived.node)?.type;
+        const structure = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination);
+        return destination !== undefined && (structure?.kind === "union" || structure?.kind === "optional")
+            ? sourceTypeFlowScalarCalculationArm(destination, whole.literal, source.platform) : undefined;
+    }
+    function producedOperandType(variable) {
+        const record = variable.path.length === 0 ? declaredRecord(variable.node) : undefined;
+        return record === undefined ? group(variable).type : declaredDescriptor(record);
+    }
+    // A numeric enum descriptor (its integer width is resolved: enum-constants.ts); undefined for any other descriptor.
+    function numericEnumOf(type) {
+        const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+        return structure?.kind === "declared" && source.ast.is.IsEnumDeclaration(structure.declaration) &&
+            sourceEnumOperandPrimitive(source.enumIntegerWidth(structure.declaration)) !== undefined ? structure.declaration : undefined;
+    }
+    function primitiveOperand(variable) {
+        const selected = group(variable);
+        const type = selected.type === undefined ? undefined : sourceTypeDescriptorStructure(selected.type);
+        const enumOperand = numericEnumOf(selected.type);
+        const enumPrimitive = enumOperand === undefined ? undefined : sourceEnumOperandPrimitive(source.enumIntegerWidth(enumOperand));
+        if (enumPrimitive !== undefined)
+            return { kind: "fixed", primitive: enumPrimitive };
+        if (type?.kind === "primitive") {
+            const literal = unboundNumericLiteral(variable);
+            return literal === undefined ? { kind: "fixed", primitive: type.primitive }
+                : { kind: "unbound-literal", primitive: type.primitive, literal };
+        }
+        const literal = context.literal(variable.node);
+        return type?.kind === "intrinsic" && type.intrinsic === "bigint" && literal?.form === "bigint" &&
+            (selected.filledBy === undefined || selected.filledBy === variable.node) && selected.fills.length > 0 &&
+            selected.fills.every(fill => fill.fixed && fill.site === variable.node && fill.authority !== "declared" &&
+                fill.type.kind === "intrinsic" && fill.type.intrinsic === "bigint") &&
+            defaults.declaredSlots.get(variable.node)?.authority !== "declared"
+            ? { kind: "unbound-literal", primitive: "bigint", literal } : undefined;
+    }
+    function operatorRefusal(derived, reason, code = "TSONIC_LOCAL_TYPE_UNSUPPORTED") {
+        var _a;
+        (_a = group(derived.result)).refused ?? (_a.refused = Object.freeze({
+            ...createSourceTypeFlowRefusal(code, derived.node), reason,
+        }));
+        return undefined;
+    }
+    function unionOperandRefusal(derived, union) {
+        const operator = source.ast.as.AsBinaryExpression(derived.node)?.OperatorToken;
+        const token = operator === undefined ? undefined : sourceLiteralToken(source.ast, operator);
+        const name = token?.kind === "authored" ? token.text : derived.operator;
+        const arms = union.types.map(type => sourceTypeDescriptorStructure(type)).map(type => type.kind === "primitive" ? type.primitive : type.kind === "intrinsic" ? type.intrinsic : type.kind).join(" | ");
+        return operatorRefusal(derived, `Operator '${name}' has no admitted result for the union operand '(${arms})'; narrow the operand to one primitive kind first.`);
+    }
+    // C14 for value-selecting operators (?:, &&, ||, ??): an open integer-literal arm takes the kind of its one
+    // non-literal numeric partner arm when it fits that kind, as in arithmetic (`maybe ?? 0` over number is float64).
+    function partneredArms(operands, arms) {
+        if (arms.length !== operands.length)
+            return arms;
+        const inputs = operands.map(primitiveOperand);
+        const partners = [...new Set(arms.flatMap((arm, index) => inputs[index]?.kind !== "unbound-literal" &&
+                arm.kind === "primitive" ? [arm.primitive] : []))];
+        if (partners.length !== 1)
+            return arms;
+        const partner = partners[0];
+        return arms.map((arm, index) => {
+            const input = inputs[index];
+            const primitive = input === undefined || arm.kind !== "primitive" ? undefined : sourcePrimitiveOperatorLiteralPartner(input, partner, source.platform);
+            return primitive === undefined ? arm : { kind: "primitive", primitive };
+        });
+    }
+    function solve(selected, accumulator = false) {
+        for (const node of selected.nodes) {
+            const refusal = defaults.descriptorRefusals.get(node.node);
+            if (refusal !== undefined) {
+                selected.refused = refusal;
+                break;
+            }
+        }
+        if ((selected.inference || selected.derived.length > 0 || inferenceInputs.has(selected)) && selected.refused === undefined)
+            for (const dependency of selected.dependencies) {
+                if (dependency.refused !== undefined) {
+                    selected.refused = dependency.refused;
+                    break;
+                }
+            }
+        if (selected.refused !== undefined) {
+            selected.solved = true;
+            return;
+        }
+        for (const input of inferenceInputs.get(selected) ?? []) {
+            const calculation = scalarCalculations.get(input.source.node);
+            if (calculation?.kind === "refused") {
+                selected.refused = calculation;
+                break;
+            }
+            const producer = group(input.source);
+            const type = calculation ?? producedOperandType(input.source);
+            if (type === undefined) {
+                selected.refused = producer.refused ?? createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_GENERIC", input.site);
+                break;
+            }
+            selected.fills.push({ type, site: input.site, fixed: true, authority: producer.chosenFill?.authority ?? "inferred" });
+        }
+        if (selected.refused !== undefined) {
+            selected.solved = true;
+            return;
+        }
+        const body = bodyCallResults.get(selected);
+        if (body !== undefined) {
+            if (body.missing !== undefined) {
+                const missing = defaults.descriptorRefusals.get(body.missing) ?? outcomes.get(body.missing);
+                selected.refused = missing?.kind === "refused" ? missing
+                    : createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", body.missing);
+                outcomes.set(body.missing, selected.refused);
+                selected.solved = true;
+                return;
+            }
+            const returned = callableReturn(body.declaration);
+            if (returned?.kind === "refused")
+                selected.refused = returned;
+            else if (returned !== undefined) {
+                const bindings = new Map();
+                for (const binder of [...body.call.receiver, ...body.call.method]) {
+                    const argument = group(binder.variable).type;
+                    if (argument === undefined) {
+                        selected.refused = group(binder.variable).refused ??
+                            createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", body.call.node, binder.declaration);
+                        break;
+                    }
+                    bindings.set(binder.declaration, argument);
+                }
+                if (selected.refused === undefined) {
+                    const substituted = createSourceTypeDescriptorNormalizer(unions, bindings)(returned.type);
+                    if (substituted === undefined) {
+                        selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", body.call.node, body.declaration);
+                        selected.solved = true;
+                        return;
+                    }
+                    selected.type = freezeSourceTypeDescriptor(unions, sourceTypeFlowOptionalChainCallResult(unions, input, body.call.source, substituted));
+                    structuredGroups.add(selected);
+                    validate(selected);
+                }
+            }
+            else
+                selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", body.call.node, body.declaration);
+            selected.solved = true;
+            return;
+        }
+        const receivers = receiverProjections.get(selected);
+        if (receivers !== undefined) {
+            for (const receiver of receivers) {
+                if (receiver.source.refused !== undefined) {
+                    selected.refused = receiver.source.refused;
+                    break;
+                }
+                const declaration = receiver.construction ? declaredRecord(receiver.origin) : undefined;
+                let type = declaration === undefined ? receiver.source.type : declaredDescriptor(declaration);
+                if (receiver.construction && type?.kind === "intrinsic" && (type.intrinsic === "object" || type.intrinsic === "unknown")) {
+                    const physical = constructed(receiver.source);
+                    type = physical === undefined ? undefined : freezeSourceTypeDescriptor(unions, physical);
+                }
+                for (const part of receiver.path)
+                    type = type === undefined ? undefined
+                        : sourceTypeFlowDescriptorPart(context, receiver.site, type, part);
+                if (type === undefined) {
+                    selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node, receiver.origin);
+                    break;
+                }
+                if (selected.type !== undefined && !sourceTypeDescriptorsEqual(selected.type, type)) {
+                    selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_CONFLICT", selected.variable.node, receiver.origin);
+                    break;
+                }
+                selected.type = type;
+            }
+            structuredGroups.add(selected);
+            validate(selected);
+            selected.solved = true;
+            return;
+        }
+        if (!accumulator && selected.derived.some(derived => derived.operands.some(operand => group(operand) === selected))) {
+            refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node);
+            selected.solved = true;
+            return;
+        }
+        for (const peer of literalPeers.get(selected) ?? []) {
+            const literal = unboundNumericLiteral(peer.variable);
+            const produced = peer.source.type === undefined ? undefined : sourceTypeDescriptorStructure(peer.source.type);
+            const present = peer.present && produced?.kind === "optional" ? sourceTypeDescriptorStructure(produced.value) : produced;
+            const creation = numericCreation(peer.variable.node);
+            if (literal === undefined || present?.kind !== "primitive" || !sourcePrimitiveOperatorLiteralFits(peer.literal, present.primitive, source.platform) ||
+                creation.literal === undefined || !sourcePrimitiveOperatorLiteralFits(creation.literal, present.primitive, source.platform))
+                continue;
+            selected.fills.push({ type: present, site: peer.site, fixed: false,
+                authority: peer.source.chosenFill?.authority ?? "inferred" });
+        }
+        const fixed = selected.fills.filter(fill => fill.fixed);
+        const declared = selected.signatures.length > 0;
+        const aggregateFill = selected.nodes.some(node => node.term?.kind === "fixed" &&
+            (source.ast.is.IsArrayLiteralExpression(node.node) || source.ast.is.IsObjectLiteralExpression(node.node)) &&
+            defaults.declaredSlots.get(node.node)?.authority !== "declared")
+            ? selected.fills.find(fill => !fill.fixed && fill.authority === "declared") : undefined;
+        const retainedStructure = !selected.inference && selected.terms.some(term => term.kind !== "fixed" && term.kind !== "numeric" &&
+            !source.ast.is.IsArrayLiteralExpression(term.site) && !source.ast.is.IsObjectLiteralExpression(term.site))
+            ? constructed(selected) : undefined;
+        if (retainedStructure !== undefined)
+            structuredGroups.add(selected);
+        const construction = selected.constructions[0];
+        const destination = declaredDestination(selected);
+        const destinationType = destination === undefined ? undefined : sourceTypeDescriptorStructure(destination.type);
+        const laterScalarStorage = construction === undefined && fixed.length === 0 && selected.terms.length > 0 &&
+            (destinationType?.kind === "union" || destinationType?.kind === "optional") &&
+            selected.terms.every(term => term.kind === "numeric" && defaults.declaredSlots.get(term.site)?.authority !== "declared");
+        const contextualFill = construction?.authority === "inferred" || laterScalarStorage ? destination : undefined;
+        const anchor = (construction?.authority === "declared" ? construction : contextualFill ?? aggregateFill ?? construction) ?? (!selected.inference ? fixed[0] ??
+            (retainedStructure === undefined ? selected.fills.find(fill => !fill.fixed)
+                : { type: retainedStructure, site: selected.variable.node, fixed: true, authority: "inferred" })
+            : declared ? fixed[0] : selected.fills[0]);
+        const scalarStorage = (construction !== undefined || laterScalarStorage) && selected.terms.length > 0 &&
+            selected.terms.every(term => term.kind === "numeric" || term.kind === "fixed") &&
+            selected.constructions.every(fill => {
+                const type = sourceTypeDescriptorStructure(fill.type);
+                return type.kind === "union" || type.kind === "optional" || type.kind === "intrinsic" &&
+                    (type.intrinsic === "unknown" || type.intrinsic === "object" || type.intrinsic === "any");
+            });
+        if (anchor !== undefined && (selected.derived.length === 0 || accumulator || scalarStorage)) {
+            selected.type = anchor.type;
+            if (!scalarStorage)
+                selected.filledBy = anchor.site;
+            selected.chosenFill = anchor;
+        }
+        if (scalarStorage)
+            for (const term of selected.terms) {
+                if (selected.derived.some(derived => derived.node === term.site))
+                    continue;
+                const destination = declaredDestination(selected, term.site) ??
+                    selected.constructions.find(fill => fill.site === term.site);
+                const literal = context.literal(term.site);
+                if (destination === undefined || literal === undefined)
+                    continue;
+                const storage = sourceTypeDescriptorStructure(destination.type);
+                if (destination.authority === "declared" && storage.kind === "primitive") {
+                    // Q90(a): the one literal fit rule. A native-int / native-uint slot whose fit depends on an unstated target width
+                    // is the width refusal (N5/E24); every other answer keeps the declared scalar.
+                    const creation = numericCreation(term.site);
+                    const fit = creation.literal === undefined ? "fits" : sourcePrimitiveLiteralFit(creation.literal, storage.primitive, source.platform);
+                    if (typeof fit === "object") {
+                        selected.refused ?? (selected.refused = Object.freeze({ ...createSourceTypeFlowRefusal(fit.code, term.site), reason: fit.reason }));
+                        continue;
+                    }
+                    scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, storage));
+                }
+                else if (destination.authority === "declared" && (storage.kind === "union" || storage.kind === "optional")) {
+                    const creation = numericCreation(term.site);
+                    if (creation.literal === undefined)
+                        continue;
+                    const arm = sourceTypeFlowScalarCalculationArm(destination.type, creation.literal, source.platform);
+                    if (arm.kind === "width-refused") {
+                        selected.refused ?? (selected.refused = Object.freeze({ ...createSourceTypeFlowRefusal(arm.refusal.code, term.site), reason: arm.refusal.reason }));
+                        continue;
+                    }
+                    if (arm.kind === "resolved")
+                        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, { kind: "primitive", primitive: arm.primitive }));
+                    else if (term.kind === "fixed" && scalarType(term.type))
+                        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, term.type));
+                }
+                else if (term.kind === "fixed" && scalarType(term.type)) {
+                    scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, term.type));
+                }
+                else if (term.kind === "numeric") {
+                    const creation = numericCreation(term.site);
+                    const own = creation.literal === undefined ? undefined : sourceTypeFlowNumericLiteralKind(creation.literal);
+                    if (own?.kind === "resolved")
+                        scalarCalculations.set(term.site, freezeSourceTypeDescriptor(unions, { kind: "primitive", primitive: own.primitive }));
+                    else {
+                        const refusal = own?.kind === "refused" ? defaults.numericCreationRefusal(creation.site, own.reason)
+                            : createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", creation.site);
+                        scalarCalculations.set(term.site, refusal);
+                        selected.refused ?? (selected.refused = refusal);
+                    }
+                }
+            }
+        if (selected.type === undefined && (selected.derived.length === 0 || accumulator)) {
+            selected.type = constructed(selected);
+            if (selected.type === undefined && selected.terms.some(term => term.kind === "numeric")) {
+                const kinds = new Set();
+                for (const term of selected.terms) {
+                    if (term.kind !== "numeric")
+                        continue;
+                    const { site, literal } = numericCreation(term.site);
+                    if (literal === undefined) {
+                        selected.refused ?? (selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", site));
+                        break;
+                    }
+                    const own = sourceTypeFlowNumericLiteralKind(literal);
+                    if (own.kind === "refused") {
+                        selected.refused ?? (selected.refused = defaults.numericCreationRefusal(site, own.reason));
+                        break;
+                    }
+                    kinds.add(own.primitive);
+                }
+                if (selected.refused === undefined && kinds.size > 0) {
+                    selected.type = { kind: "primitive", primitive: kinds.has("float64") ? "float64" : "int64" };
+                }
+            }
+            selected.defaulted = selected.type !== undefined;
+        }
+        if (accumulator) {
+            if (selected.refused === undefined && selected.type === undefined) {
+                refuse(selected, "TSONIC_LOCAL_TYPE_ACCUMULATOR", selected.derived[0].node);
+            }
+            if (selected.type !== undefined)
+                selected.type = freezeSourceTypeDescriptor(unions, selected.type);
+            deferredAccumulators.set(selected, scalarStorage);
+            selected.solved = true;
+            return;
+        }
+        completeDerived(selected, false, scalarStorage);
+    }
+    function completeDerived(selected, accumulator, scalarStorage) {
+        if (accumulator)
+            for (const dependency of accumulatorDependencies.get(selected) ?? []) {
+                if (dependency.refused !== undefined) {
+                    selected.refused ?? (selected.refused = dependency.refused);
+                    break;
+                }
+            }
+        if (selected.refused !== undefined) {
+            selected.solved = true;
+            return;
+        }
+        for (const derived of selected.derived) {
+            const type = derivedType(derived);
+            if (type === undefined)
+                selected.refused ?? (selected.refused = createSourceTypeFlowRefusal(accumulator ? "TSONIC_LOCAL_TYPE_ACCUMULATOR" : "TSONIC_LOCAL_TYPE_UNSUPPORTED", derived.node));
+            else if (scalarStorage && scalarType(type))
+                scalarCalculations.set(derived.node, freezeSourceTypeDescriptor(unions, type));
+            else if (selected.type !== undefined && !sourceTypeDescriptorsEqual(selected.type, type)) {
+                refuse(selected, accumulator ? "TSONIC_LOCAL_TYPE_ACCUMULATOR" : "TSONIC_LOCAL_TYPE_CONFLICT", derived.node);
+            }
+            else
+                selected.type = type;
+        }
+        if (selected.type !== undefined) {
+            selected.type = freezeSourceTypeDescriptor(unions, selected.type);
+            // B6 depth applies to an open (inferred) group only; declared structure has full depth (C34, C-2269).
+            if (selected.inference && sourceTypeDescriptorDepth(selected.type) > 4)
+                refuse(selected, "TSONIC_LOCAL_TYPE_LIMIT", selected.variable.node);
+            validate(selected);
+        }
+        selected.solved = true;
+    }
+    const remaining = new Map();
+    const ready = [];
+    for (const selected of groups.values()) {
+        remaining.set(selected, selected.dependencies.size);
+        if (selected.dependencies.size === 0)
+            ready.push(selected);
+    }
+    while (ready.length > 0) {
+        ready.sort((left, right) => compare(left.variable.node, right.variable.node));
+        const selected = ready.shift();
+        solve(selected, accumulatorGroups.has(selected));
+        selected.solved = true;
+        for (const dependent of selected.dependents) {
+            const count = remaining.get(dependent) - 1;
+            remaining.set(dependent, count);
+            if (count === 0)
+                ready.push(dependent);
+        }
+    }
+    for (const selected of groups.values())
+        if (!selected.solved) {
+            if (selected.derived.length > 0 || receiverProjections.has(selected) || bodyCallResults.has(selected)) {
+                selected.refused ?? (selected.refused = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node));
+            }
+            else
+                refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", selected.variable.node);
+        }
+    for (const [selected, scalarStorage] of deferredAccumulators)
+        completeDerived(selected, true, scalarStorage);
+    const conditionRefusals = [];
+    const derivedNodes = new Set(graph.derived.map(derived => derived.node));
+    function selectionAbruptType(node) {
+        const pending = [node];
+        while (pending.length > 0) {
+            const current = pending.pop();
+            const outcome = outcomes.get(current);
+            const type = outcome?.kind === "refused" ? undefined : outcome?.type;
+            const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+            if (structure?.kind === "intrinsic" && structure.intrinsic === "never")
+                return type;
+            const operand = sourceTransparentExpressionOperand(source.ast, current);
+            if (operand !== undefined)
+                pending.push(operand);
+            else if (source.ast.operatorKindName(current) === "KindCommaToken") {
+                const binary = source.ast.as.AsBinaryExpression(current);
+                if (binary?.Right !== undefined)
+                    pending.push(binary.Right);
+                if (binary?.Left !== undefined)
+                    pending.push(binary.Left);
+            }
+        }
+        return undefined;
+    }
+    function selectionLeafTypes(node) {
+        const types = [];
+        const pending = [{ node, present: false }];
+        const seen = [new Set(), new Set()];
+        while (pending.length > 0) {
+            const current = pending.pop();
+            const visited = seen[current.present ? 1 : 0];
+            if (visited.has(current.node))
+                continue;
+            visited.add(current.node);
+            let expression = current.node;
+            for (let operand = sourceTransparentExpressionOperand(source.ast, expression); operand !== undefined; operand = sourceTransparentExpressionOperand(source.ast, expression))
+                expression = operand;
+            const conditional = source.ast.is.IsConditionalExpression(expression) ? source.ast.as.AsConditionalExpression(expression) : undefined;
+            const binary = source.ast.is.IsBinaryExpression(expression) ? source.ast.as.AsBinaryExpression(expression) : undefined;
+            const operator = source.ast.operatorKindName(expression);
+            if (sourceTypeFlowDiscardedSelection(source, expression) && conditional !== undefined) {
+                if (conditional.WhenTrue === undefined || conditional.WhenFalse === undefined)
+                    return { kind: "refused",
+                        refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", expression) };
+                pending.push({ node: conditional.WhenTrue, present: current.present }, { node: conditional.WhenFalse, present: current.present });
+                continue;
+            }
+            if (binary?.Left !== undefined && binary.Right !== undefined &&
+                (sourceTypeFlowDiscardedSelection(source, expression) || operator === "KindCommaToken")) {
+                const abrupt = operator === "KindCommaToken" ? selectionAbruptType(binary.Left) : undefined;
+                if (abrupt !== undefined) {
+                    types.push(abrupt);
+                    continue;
+                }
+                if (operator !== "KindCommaToken")
+                    pending.push({ node: binary.Left,
+                        present: current.present || operator === "KindQuestionQuestionToken" });
+                pending.push({ node: binary.Right, present: current.present });
+                continue;
+            }
+            const outcome = outcomes.get(current.node);
+            if (outcome?.kind === "refused")
+                return { kind: "refused", refusal: outcome };
+            let type = outcome?.type;
+            if (type === undefined)
+                return { kind: "refused",
+                    refusal: createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", current.node) };
+            if (current.present) {
+                const structure = sourceTypeDescriptorStructure(type);
+                if (structure.kind === "intrinsic" && structure.intrinsic === "absence")
+                    continue;
+                if (structure.kind === "optional")
+                    type = structure.value;
+            }
+            types.push(type);
+        }
+        return { kind: "resolved", types };
+    }
+    function validateSelectionConditions() {
+        for (const node of defaults.nodes) {
+            if (!sourceTypeFlowDiscardedSelection(source, node) &&
+                (!source.ast.is.IsConditionalExpression(node) || derivedNodes.has(node)))
+                continue;
+            const conditional = source.ast.is.IsConditionalExpression(node) ? source.ast.as.AsConditionalExpression(node) : undefined;
+            const binary = source.ast.is.IsBinaryExpression(node) ? source.ast.as.AsBinaryExpression(node) : undefined;
+            const condition = conditional?.Condition ?? binary?.Left;
+            const outcome = condition === undefined ? undefined : outcomes.get(condition);
+            if (outcome?.kind === "refused")
+                continue;
+            const nullish = source.ast.operatorKindName(node) === "KindQuestionQuestionToken";
+            const leaves = nullish && condition !== undefined ? selectionLeafTypes(condition) : undefined;
+            if (leaves?.kind === "refused") {
+                conditionRefusals.push(leaves.refusal);
+                continue;
+            }
+            if (!nullish && condition !== undefined && outcome === undefined) {
+                conditionRefusals.push(createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", condition));
+                continue;
+            }
+            const type = leaves?.kind === "resolved" ? sourceTypeDescriptorUnion(unions, leaves.types) : outcome?.type;
+            const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
+            const admitted = nullish ? structure !== undefined && structure.kind !== "primitive"
+                : structure?.kind === "primitive" && structure.primitive === "bool";
+            if (admitted)
+                continue;
+            conditionRefusals.push(Object.freeze({
+                ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node),
+                reason: nullish ? "A coalescing operator requires a nullable or runtime-union left operand."
+                    : conditional === undefined ? "A logical operator requires exact bool operands."
+                        : "A conditional operator requires an exact bool condition.",
+            }));
+        }
+    }
+    function propagateRefusal(selected) {
+        if (selected.refused === undefined)
+            return;
+        const pending = [selected];
+        const seen = new Set();
+        while (pending.length > 0) {
+            const current = pending.pop();
+            if (seen.has(current))
+                continue;
+            seen.add(current);
+            const affected = [...current.dependents];
+            for (const term of current.terms)
+                for (const child of children(term))
+                    affected.push(group(child));
+            for (const target of affected) {
+                if (!target.inference || target.refused !== undefined && target.refused !== selected.refused)
+                    continue;
+                target.refused = selected.refused;
+                pending.push(target);
+            }
+        }
+    }
+    for (const selected of groups.values())
+        propagateRefusal(selected);
+    for (const selected of groups.values()) {
+        if (selected.refused !== undefined || !selected.inference)
+            continue;
+        const pending = selected.pendingRefusals.sort((left, right) => compare(left.site, right.site))[0];
+        if (pending === undefined)
+            continue;
+        selected.refused = pending;
+        propagateRefusal(selected);
+    }
+    for (const issue of graph.refusals) {
+        const refusal = graphRefusalOwners.get(issue)?.refused ?? issue;
+        for (let node = issue.site; node !== undefined && !graph.roots.includes(node); node = source.ast.parent(node)) {
+            if (domainValues.has(node) && !retainedVariables.has(node) && !outcomes.has(node))
+                outcomes.set(node, refusal);
+        }
+    }
+    function obligation(use, selected) {
+        if (selected.type === undefined || selected.refused !== undefined)
+            return;
+        if (use.kind === "check") {
+            obligations.push(Object.freeze({ kind: use.check, site: use.site, type: selected.type,
+                required: use.required, requiredType: freezeSourceTypeDescriptor(unions, use.type), association: use.association }));
+        }
+        else if (use.kind === "write") {
+            const candidateVariable = use.valueVariable ?? valueVariables.get(use.value);
+            const valueVariable = candidateVariable !== undefined &&
+                (group(candidateVariable).inference || candidateVariable.path.length > 0) ? candidateVariable : undefined;
+            const valueGroup = candidateVariable === undefined ? undefined : group(candidateVariable);
+            const record = candidateVariable?.path.length === 0 ? declaredRecord(candidateVariable.node) : undefined;
+            const selectedValue = record !== undefined ? declaredDescriptor(record)
+                : valueGroup?.refused === undefined ? valueGroup?.type : undefined;
+            const valueType = compoundCalculationTypes.get(use.value) ?? selectedValue;
+            obligations.push(Object.freeze({ kind: "write-fit", site: use.site, type: selected.type, required: use.required,
+                value: use.value, ...(valueType === undefined ? {} : { valueType: freezeSourceTypeDescriptor(unions, valueType) }),
+                ...(valueVariable === undefined ? {} : { valueVariable: Object.freeze({ node: valueVariable.node,
+                        path: Object.freeze(valueVariable.path.map(part => Object.freeze({ ...part }))) }) }), association: use.association }));
+        }
+    }
+    for (const use of uses) {
+        const selected = group(use.variable);
+        obligation(use, selected);
+    }
+    function scalarType(type) {
+        return type.kind === "primitive" || type.kind === "string" || type.kind === "intrinsic" &&
+            (type.intrinsic === "bigint" || type.intrinsic === "absence");
+    }
+    function publish(node, selected, association) {
+        if (sourceTypeFlowDiscardedValue(source, node))
+            return;
+        let calculation = scalarCalculations.get(node);
+        for (let value = node; calculation === undefined;) {
+            const operand = sourceTransparentExpressionOperand(source.ast, value);
+            const variable = operand === undefined ? undefined : valueVariables.get(operand);
+            if (operand === undefined || variable === undefined || group(variable) !== selected)
+                break;
+            calculation = scalarCalculations.get(operand);
+            value = operand;
+        }
+        if (calculation?.kind === "refused") {
+            outcomes.set(node, calculation);
+            return;
+        }
+        // C30/C-2228: an aggregate whose own declared slot is refused publishes that refusal, never the slot's type.
+        const slotRefusal = records.get(node)?.declaredSlotRefusal;
+        if (slotRefusal !== undefined && selected.refused === slotRefusal) {
+            outcomes.set(node, slotRefusal);
+            return;
+        }
+        const record = declaredRecord(node);
+        const declared = record !== undefined;
+        if (selected.refused !== undefined && (selected.derived.some(derived => derived.node === node) || !declared || record.declaredType === undefined &&
+            record.association?.component === undefined)) {
+            outcomes.set(node, selected.refused);
+            return;
+        }
+        // A group solved from a retained structure (e.g. a generic result array whose element is a solved binder, N1) publishes
+        // that solved structure; only an unstructured fixed group is described from its checked type.
+        const published = record !== undefined ? declaredDescriptor(record) :
+            (selected.inference || selected.derived.length > 0 || selected.terms.some(term => term.kind === "numeric") ||
+                structuredGroups.has(selected) ? selected.type
+                : context.describe(node, association?.component));
+        const scalar = calculation !== undefined && scalarType(calculation) ? calculation
+            : selected.type !== undefined && scalarType(selected.type) &&
+                (context.literal(node) !== undefined || selected.derived.some(derived => derived.node === node)) ? selected.type : undefined;
+        const type = published !== undefined && scalar !== undefined && sourceTypeDescriptorsEqual(published, scalar) ? scalar : published;
+        if (type === undefined) {
+            if (!selected.inference)
+                return;
+            refuse(selected, "TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+            if (selected.refused !== undefined)
+                outcomes.set(node, selected.refused);
+            return;
+        }
+        const sourceFile = source.ast.getSourceFile(node);
+        if (sourceFile === undefined)
+            throw new Error("A checked effective type occurrence requires its original source file.");
+        const logical = sourceTypeDescriptorStructure(type);
+        const construction = logical.kind === "union" || logical.kind === "optional" || logical.kind === "intrinsic" &&
+            (logical.intrinsic === "unknown" || logical.intrinsic === "object" || logical.intrinsic === "any") ? scalar : undefined;
+        outcomes.set(node, Object.freeze({ kind: !declared && selected.defaulted ? "default" : "resolved", type,
+            ...(construction === undefined ? {} : { construction }),
+            provenance: Object.freeze({ group: receiverProjections.get(selected)?.[0]?.origin ??
+                    selected.nodes.find(candidate => candidate.declaration !== undefined)?.declaration ?? selected.variable.node,
+                occurrence: node, sourceFile, ...(selected.filledBy === undefined ? {} : { filledBy: selected.filledBy }),
+                ...(association?.component === undefined ? {} : { component: Object.freeze({
+                        ...(association.component.declaration === undefined ? {} : { declaration: association.component.declaration }),
+                        ...(association.component.authoredTypeNode === undefined ? {} : { authoredTypeNode: association.component.authoredTypeNode }),
+                    }) }),
+                ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
+    }
+    for (const node of graph.nodes)
+        if (node.publish)
+            publish(node.node, group(node.variable), node.association);
+    for (const derived of graph.derived)
+        publish(derived.node, group(derived.result));
+    for (const selected of groups.values()) {
+        for (const node of selected.nodes)
+            if (node.publish && node.declaration === node.node && selected.type !== undefined) {
+                for (const use of source.navigation.declarationUses(node.declaration))
+                    if (use.role !== "type-only" && use.role !== "source-linkage") {
+                        if (!records.has(use.reference))
+                            publish(use.reference, selected, node.association);
+                    }
+            }
+    }
+    // R-B4-6: a member call on a generic receiver binds the selected member's owner binders from the receiver's Host
+    // descriptor through the one receiver binder rule (instantiation.ts sourceTypeFlowReceiverBinderValues): a declared
+    // receiver whose declaration is or merges with the owner, an array's element, a tuple's element union. An inherited
+    // member (owner is a base) binds no receiver binders.
+    function receiverBinders(call, queries) {
+        const { ast } = source;
+        const expression = call.sourceReceiver?.expression;
+        const signature = queries.callSignature(call);
+        const owner = signature === undefined ? undefined : ast.parent(signature);
+        if (expression === undefined || owner === undefined || !(ast.is.IsInterfaceDeclaration(owner) || ast.is.IsClassDeclaration(owner))) {
+            return Object.freeze([]);
+        }
+        const binders = ast.typeParameters(owner).filter((binder) => binder !== undefined);
+        const outcome = outcomes.get(expression);
+        if (binders.length === 0 || outcome === undefined || outcome.kind === "refused")
+            return Object.freeze([]);
+        // The one receiver binder rule (instantiation.ts, R1 #5): declaration identity, never the owner's name.
+        const arguments_ = sourceTypeFlowReceiverBinderValues({ unions, navigation: source.navigation }, outcome.type, owner, binders);
+        if (arguments_ === undefined)
+            return Object.freeze([]);
+        return Object.freeze(binders.map((declaration, index) => Object.freeze({ declaration, type: arguments_[index] })));
+    }
+    for (const call of graph.calls) {
+        if (graph.refusals.some(issue => issue.site === call.node))
+            continue;
+        const vector = (binders) => binders.flatMap(binder => {
+            const selected = group(binder.variable);
+            return selected.type === undefined || selected.refused !== undefined ? []
+                : [Object.freeze({ declaration: binder.declaration, type: selected.type })];
+        });
+        const receiver = vector(call.receiver);
+        const method = vector(call.method);
+        if (receiver.length !== call.receiver.length || method.length !== call.method.length)
+            continue;
+        const result = call.result === undefined ? undefined : group(call.result).type;
+        calls.set(call.node, Object.freeze({ call: call.source, receiver: Object.freeze(receiver), method: Object.freeze(method),
+            parameters: callParameters(call.source, receiver, method),
+            ...(result === undefined ? {} : { result }) }));
+        for (const binder of [...call.receiver, ...call.method])
+            if (binder.constraint !== undefined) {
+                const type = group(binder.variable).type;
+                if (type !== undefined)
+                    obligations.push(Object.freeze({ kind: "constraint", site: call.node, type,
+                        required: binder.constraint.authoredTypeNode ?? binder.declaration,
+                        association: Object.freeze({ occurrence: call.node, sourceFile: source.ast.getSourceFile(call.node),
+                            call: call.source, component: binder.constraint }) }));
+            }
+    }
+    // Every resolved call with method type arguments publishes its instantiation, also when none of its values joins the
+    // local graph (e.g. a statement call `receiver.member<Word>()` on an ambient or provider declaration). The method
+    // binders take the descriptor of the selected type argument, from its authored syntax when it is explicit.
+    for (const node of defaults.nodes) {
+        if (calls.has(node) || !(source.ast.is.IsCallExpression(node) || source.ast.is.IsNewExpression(node)))
+            continue;
+        const queries = input.at(node);
+        const call = queries.call(node);
+        const selected = call?.sourceSelectedMethodTypeArguments ?? [];
+        if (call === undefined || call.sourceSelectedSignatureKind !== "resolved")
+            continue;
+        const receiver = receiverBinders(call, queries);
+        if (selected.length === 0 && receiver.length === 0)
+            continue;
+        const method = [];
+        for (const argument of selected) {
+            const declarations = queries.typeSymbolDeclarations(argument.typeParameter)
+                .filter(declaration => source.ast.is.IsTypeParameterDeclaration(declaration));
+            const type = declarations.length !== 1 ? undefined : context.describe(node, queries.methodTypeArgumentComponent(argument));
+            if (declarations.length !== 1 || type === undefined)
+                break;
+            method.push(Object.freeze({ declaration: declarations[0], type: freezeSourceTypeDescriptor(unions, type) }));
+        }
+        if (method.length !== selected.length)
+            continue;
+        const parameters = callParameters(call, receiver, method);
+        // A receiver-only binding is published only when every selected parameter is describable under it; otherwise the
+        // call keeps no instantiation, as before R-B4-6 (no new refusal for a call that had none).
+        if (selected.length === 0 && parameters.some(parameter => parameter === undefined))
+            continue;
+        calls.set(node, Object.freeze({ call, receiver, method: Object.freeze(method), parameters }));
+    }
+    for (const node of [...graph.nodes.filter(record => record.declaration === record.node).map(record => record.node), ...defaults.values]) {
+        if (outcomes.has(node))
+            continue;
+        const declaration = source.navigation.sourceReferenceFor(node)?.declaration ?? node;
+        const initializer = source.ast.is.IsVariableDeclaration(declaration) || source.ast.is.IsPropertyDeclaration(declaration) ||
+            source.ast.is.IsParameterDeclaration(declaration) ? Node_Initializer(source.ast, declaration) : undefined;
+        const literalDefault = initializer !== undefined && (context.literal(initializer) !== undefined || source.ast.is.IsObjectLiteralExpression(initializer));
+        const type = context.describe(node);
+        const sourceFile = source.ast.getSourceFile(node);
+        if (type === undefined || sourceFile === undefined)
+            continue;
+        outcomes.set(node, Object.freeze({ kind: literalDefault ? "default" : "resolved", type,
+            provenance: Object.freeze({ group: declaration, occurrence: node, sourceFile,
+                ...(defaults.fixedRule(node) === undefined ? {} : { fixedRule: defaults.fixedRule(node) }) }) }));
+    }
+    // A variable or parameter declaration whose name is a binding pattern is a declared fact (C29): its storage is its
+    // annotation's descriptor, or, unannotated, its initializer's published value. Targets declare the destructured
+    // source from this fact; each binding element publishes its own member value above.
+    for (const node of defaults.nodes) {
+        if (outcomes.has(node) || !(source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsParameterDeclaration(node)))
+            continue;
+        const name = source.ast.name(node);
+        if (name === undefined || !(source.ast.is.IsObjectBindingPattern(name) || source.ast.is.IsArrayBindingPattern(name)))
+            continue;
+        const sourceFile = source.ast.getSourceFile(node);
+        if (sourceFile === undefined)
+            continue;
+        const initializer = Node_Initializer(source.ast, node);
+        const value = source.ast.typeNode(node) === undefined && initializer !== undefined ? outcomes.get(initializer) : undefined;
+        if (value?.kind === "refused") {
+            outcomes.set(node, value);
+            continue;
+        }
+        const type = value?.type ?? context.describe(node);
+        if (type === undefined)
+            continue;
+        outcomes.set(node, Object.freeze({ kind: "resolved", type, provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+    }
+    // Property signatures of interfaces and of named type literals are declared facts too (C29): each carries its
+    // authored declared type, so targets declare the member from the Host fact.
+    for (const node of defaults.nodes) {
+        if (outcomes.has(node) || !source.ast.is.IsPropertySignatureDeclaration(node))
+            continue;
+        const owner = source.ast.parent(node);
+        const alias = owner === undefined ? undefined : source.ast.parent(owner);
+        if (owner === undefined || !(source.ast.is.IsInterfaceDeclaration(owner) ||
+            source.ast.is.IsTypeLiteralNode(owner) && alias !== undefined && source.ast.is.IsTypeAliasDeclaration(alias)))
+            continue;
+        const type = context.describe(node);
+        const sourceFile = source.ast.getSourceFile(node);
+        if (type === undefined || sourceFile === undefined)
+            continue;
+        outcomes.set(node, Object.freeze({ kind: "resolved", type,
+            provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+    }
+    // Parameters of callables without a body (interface or type-literal methods, call and construct signatures, abstract
+    // methods and accessors, overload and ambient declarations) are declared facts in the publication domain (C29):
+    // each carries its authored declared type, exactly as a parameter of a callable with a body does. Targets build
+    // interface contracts, abstract ABIs and forwarding from them.
+    for (const node of defaults.nodes) {
+        if (outcomes.has(node) || !source.ast.is.IsParameterDeclaration(node))
+            continue;
+        const owner = source.ast.parent(node);
+        if (owner === undefined || !isSourceCallableSignatureDeclaration(source.ast, owner) ||
+            source.ast.is.IsFunctionTypeNode(owner) || source.ast.is.IsConstructorTypeNode(owner) ||
+            !(source.ast.is.IsMethodSignatureDeclaration(owner) || source.ast.is.IsCallSignatureDeclaration(owner) ||
+                source.ast.is.IsConstructSignatureDeclaration(owner) || source.ast.body(owner) === undefined))
+            continue;
+        const type = context.describe(node);
+        const sourceFile = source.ast.getSourceFile(node);
+        if (type === undefined || sourceFile === undefined)
+            continue;
+        outcomes.set(node, Object.freeze({ kind: "resolved", type,
+            provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+    }
+    for (const node of defaults.nodes) {
+        if (!source.ast.is.IsParameterDeclaration(node))
+            continue;
+        const owner = source.ast.parent(node);
+        const pattern = source.ast.name(node);
+        const annotation = source.ast.typeNode(node);
+        const head = outcomes.get(node);
+        if (owner === undefined || source.ast.body(owner) !== undefined || pattern === undefined || annotation === undefined ||
+            !(source.ast.is.IsArrayBindingPattern(pattern) || source.ast.is.IsObjectBindingPattern(pattern)) ||
+            head === undefined || head.kind === "refused")
+            continue;
+        const queries = input.at(node);
+        const selectedType = queries.authoredType(annotation);
+        if (selectedType === undefined)
+            continue;
+        const component = { selectedType, declaration: node, authoredTypeNode: annotation };
+        for (const binding of sourceTypeFlowDeclaredPatternBindings(context, pattern, component, queries, head.type)) {
+            if (outcomes.has(binding.node))
+                continue;
+            const type = binding.kind === "refused" ? undefined : binding.type ?? (binding.component?.authoredTypeNode === undefined
+                ? undefined : context.describe(binding.node, binding.component));
+            if (type === undefined) {
+                const refusal = createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", binding.node, node);
+                outcomes.set(binding.node, refusal);
+                directGraphRefusals.push(refusal);
+                continue;
+            }
+            const sourceFile = source.ast.getSourceFile(binding.node);
+            if (sourceFile === undefined)
+                throw new Error("A declared binding requires its original checked source file.");
+            outcomes.set(binding.node, Object.freeze({ kind: "resolved", type: freezeSourceTypeDescriptor(unions, type),
+                provenance: Object.freeze({ group: node, occurrence: binding.node, sourceFile }) }));
+        }
+    }
+    for (const node of defaults.nodes) {
+        if (!(source.ast.is.IsVariableDeclaration(node) || source.ast.is.IsParameterDeclaration(node) || source.ast.is.IsBindingElement(node)))
+            continue;
+        const name = source.ast.name(node);
+        const outcome = outcomes.get(node);
+        if (name === undefined || !source.ast.is.IsIdentifier(name) || outcomes.has(name) || outcome === undefined)
+            continue;
+        outcomes.set(name, outcome.kind === "refused" ? outcome : Object.freeze({ ...outcome,
+            provenance: Object.freeze({ ...outcome.provenance, occurrence: name }) }));
+    }
+    // The declared type of a class, interface or type alias declaration: its declared type through the descriptor reader
+    // (declaration input, R3).
+    function describeTypeDeclaration(node) {
+        const selectedType = input.at(node).declaredType(node);
+        return selectedType === undefined ? undefined : context.describe(node, { selectedType, declaration: node });
+    }
+    for (const node of defaults.nodes) {
+        if (!(source.ast.is.IsInterfaceDeclaration(node) || source.ast.is.IsClassDeclaration(node) ||
+            source.ast.is.IsTypeAliasDeclaration(node)))
+            continue;
+        const type = describeTypeDeclaration(node);
+        const sourceFile = source.ast.getSourceFile(node);
+        if (type === undefined || sourceFile === undefined)
+            continue;
+        outcomes.set(node, Object.freeze({ kind: "resolved", type,
+            provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+    }
+    for (const refusal of defaults.signatureRefusals.values())
+        outcomes.set(refusal.site, refusal);
+    for (const node of defaults.nodes) {
+        const ast = source.ast;
+        if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) || ast.is.IsPropertyAccessExpression(node)))
+            continue;
+        const queries = input.at(node);
+        const call = ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ? queries.call(node) : undefined;
+        const declaration = ast.is.IsPropertyAccessExpression(node) ? queries.propertyAccess(node)?.selectedReadDeclaration
+            : call === undefined ? undefined : queries.callSignature(call);
+        if (declaration !== undefined)
+            callableQueries.set(declaration, queries);
+    }
+    function callableReturn(declaration) {
+        const refusal = defaults.signatureRefusals.get(declaration);
+        if (refusal !== undefined)
+            return refusal;
+        const cached = callableReturns.get(declaration);
+        if (cached !== undefined)
+            return cached;
+        if (activeReturns.has(declaration))
+            return undefined;
+        const ast = source.ast;
+        if (!isSourceCallableSignatureDeclaration(ast, declaration))
+            return undefined;
+        activeReturns.add(declaration);
+        const file = ast.getSourceFile(declaration);
+        const inProgram = input.includes(declaration);
+        const queries = callableQueries.get(declaration) ?? input.file(declaration);
+        if (queries === undefined) {
+            activeReturns.delete(declaration);
+            return undefined;
+        }
+        const signature = queries.declarationSignature(declaration);
+        const selectedType = signature?.returnType;
+        let type;
+        let failure;
+        const annotation = ast.typeNode(declaration);
+        const contextual = annotation === undefined ? defaults.declaredSlots.callable(declaration, queries) : undefined;
+        const requiredResult = annotation === undefined ? defaults.declaredSlots.returned(declaration, queries) : undefined;
+        if (ast.is.IsConstructorDeclaration(declaration)) {
+            const owner = ast.parent(declaration);
+            const selected = owner === undefined ? undefined : queries.declaredType(owner);
+            if (owner !== undefined && selected !== undefined)
+                type = context.describe(owner, { selectedType: selected, declaration: owner });
+        }
+        else if (requiredResult !== undefined) {
+            type = contextual?.signature.result ?? requiredResult;
+            const requiredType = requiredResult;
+            const returnedValues = inProgram ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
+            for (const returned of returnedValues) {
+                const value = outcomes.get(returned);
+                if (value === undefined)
+                    throw new Error("A declared callable body requires its canonical Source publication.");
+                if (value.kind === "refused") {
+                    failure = value;
+                    break;
+                }
+                obligations.push(Object.freeze({ kind: "write-fit", site: returned, type: freezeSourceTypeDescriptor(unions, requiredType),
+                    value: returned, valueType: value.type, required: declaration }));
+            }
+        }
+        else if (selectedType !== undefined && (annotation !== undefined || ast.body(declaration) === undefined ||
+            !inProgram)) {
+            type = context.describe(declaration, { selectedType, declaration,
+                ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
+        }
+        else {
+            const { returned, absent } = sourceTypeFlowCallableReturns(ast, declaration);
+            const types = [];
+            const asynchronous = ast.hasModifierKind(declaration, "async");
+            let incomplete = false;
+            for (const node of returned) {
+                const selected = outcomes.get(node) ?? solvedValue(node);
+                if (selected?.kind === "refused") {
+                    failure = selected;
+                    break;
+                }
+                let current = selected?.type;
+                if (current === undefined) {
+                    failure = defaults.descriptorRefusals.get(node) ?? createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+                    outcomes.set(node, failure);
+                    break;
+                }
+                // An async body returns the awaited payload of each returned value (declaration rule, no checked awaited type).
+                if (asynchronous)
+                    current = sourceTypeDescriptorAwaitedPayload(ast, unions, current);
+                if (current === undefined) {
+                    incomplete = true;
+                    break;
+                }
+                if (!types.some(previous => sourceTypeDescriptorsEqual(previous, current)))
+                    types.push(current);
+            }
+            if (failure === undefined && !incomplete && (returned.length === 0 || types.length > 0)) {
+                if (types.length > 0 && (absent || queries.callableCompletion(declaration)?.canFallThrough === true)) {
+                    types.push({ kind: "intrinsic", intrinsic: "absence" });
+                }
+                type = types.length === 0 ? { kind: "intrinsic", intrinsic: "void" } : sourceTypeDescriptorUnion(unions, types);
+                if (asynchronous && selectedType !== undefined) {
+                    // The checked signature result only witnesses which thenable declaration the async callable completes with;
+                    // its payload binder comes from that declaration (sourceThenablePayloadBinder), never from a checked argument.
+                    const complete = context.describe(declaration, { selectedType });
+                    const index = complete?.kind === "declared" ? sourceThenablePayloadBinder(ast, complete.declaration) : undefined;
+                    const parameter = complete?.kind === "declared" && index !== undefined
+                        ? sourceTypeFlowTypeParameters(ast, complete.declaration)[index] : undefined;
+                    type = parameter === undefined || type === undefined ? undefined
+                        : context.describe(declaration, { selectedType }, [{ declaration: parameter, type }]);
+                }
+            }
+        }
+        activeReturns.delete(declaration);
+        const outcome = failure ?? (type === undefined || file === undefined ? undefined : Object.freeze({ kind: "resolved",
+            type: freezeSourceTypeDescriptor(unions, type), provenance: Object.freeze({ group: declaration, occurrence: declaration, sourceFile: file }) }));
+        if (outcome !== undefined)
+            callableReturns.set(declaration, outcome);
+        return outcome;
+    }
+    function solvedValue(node) {
+        const variable = retainedVariables.get(node);
+        const selected = variable === undefined ? undefined : group(variable);
+        if (selected?.solved !== true)
+            return undefined;
+        if (selected.refused !== undefined)
+            return selected.refused;
+        const record = declaredRecord(node);
+        const type = record === undefined ? selected.type : declaredDescriptor(record);
+        const sourceFile = source.ast.getSourceFile(node);
+        return type === undefined || sourceFile === undefined ? undefined : Object.freeze({ kind: "resolved",
+            type: freezeSourceTypeDescriptor(unions, type), provenance: Object.freeze({ group: selected.variable.node, occurrence: node, sourceFile }) });
+    }
+    for (const node of defaults.nodes) {
+        if (isSourceCallableSignatureDeclaration(source.ast, node))
+            callableReturn(node);
+    }
+    for (const node of defaults.nodes) {
+        const ast = source.ast;
+        if (!isSourceCallableSignatureDeclaration(ast, node))
+            continue;
+        const returned = callableReturn(node);
+        if (returned === undefined)
+            continue;
+        if (returned.kind === "refused") {
+            outcomes.set(node, returned);
+            continue;
+        }
+        const queries = input.at(node);
+        const signature = queries.declarationSignature(node);
+        if (signature === undefined)
+            continue;
+        const contextual = defaults.declaredSlots.callable(node, queries);
+        const parameters = signature.parameters.map((parameter, index) => {
+            const declared = parameter.declaration;
+            const published = declared === undefined ? undefined : outcomes.get(declared);
+            if (published?.kind === "refused")
+                return undefined;
+            const type = published?.type;
+            return type === undefined ? undefined : { kind: contextual?.signature.parameters[index]?.kind ?? parameter.parameterKind, type,
+                ...(declared === undefined ? {} : { declaration: declared }) };
+        });
+        if (parameters.some(parameter => parameter === undefined))
+            continue;
+        // Construct-only signatures (constructor declarations, construct signatures, constructor types) and accessors are
+        // not callable values; call signatures are inventory entries of their owner, not values.
+        if (ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node) || ast.is.IsConstructorDeclaration(node) ||
+            ast.is.IsCallSignatureDeclaration(node) || ast.is.IsConstructSignatureDeclaration(node) || ast.is.IsConstructorTypeNode(node))
+            continue;
+        const selectedCall = { declaration: node,
+            typeParameters: sourceTypeFlowTypeParameters(ast, node),
+            parameters: parameters.filter((parameter) => parameter !== undefined),
+            result: returned.type };
+        // A function expression or arrow function is one anonymous callable: it declares exactly one call signature, no
+        // overloads, no construct signatures and no members. With no destination slot, its canonical inventory is that
+        // signature, built from the Host parameters and result above (declaration input only, R3; no checked expression type).
+        const anonymous = ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node);
+        const described = contextual?.type ?? (anonymous
+            ? { kind: "callable", calls: [selectedCall], constructs: [] }
+            : context.describe(node));
+        // An optional method (`accept?(next: T): T`) is an optional callable member: its inventory is the callable inside.
+        const optional = described?.kind === "optional";
+        const inner = described?.kind === "optional" ? described.value : described;
+        const structure = inner === undefined ? undefined : sourceTypeDescriptorStructure(inner);
+        if (structure === undefined || structure.kind !== "callable" && structure.kind !== "shape" || structure.calls.length === 0) {
+            throw new Error("A Source callable value requires its complete canonical member and signature inventory.");
+        }
+        const callable = { ...structure, calls: structure.calls.length === 1 ? [selectedCall]
+                : structure.calls.map(signature => signature.declaration === node ? selectedCall : signature) };
+        const type = optional ? { kind: "optional", value: callable } : callable;
+        const outcome = Object.freeze({ ...returned, type: freezeSourceTypeDescriptor(unions, type) });
+        outcomes.set(node, outcome);
+        for (const use of source.navigation.declarationUses(node)) {
+            if (use.role === "type-only" || use.role === "source-linkage")
+                continue;
+            const sourceFile = ast.getSourceFile(use.reference);
+            if (sourceFile !== undefined)
+                outcomes.set(use.reference, Object.freeze({ ...outcome,
+                    provenance: Object.freeze({ ...outcome.provenance, occurrence: use.reference, sourceFile }) }));
+        }
+    }
+    for (const [node, refusal] of defaults.descriptorRefusals)
+        outcomes.set(node, refusal);
+    publishSourceLiteralMetadata(context, defaults.nodes, outcomes, callableReturn, node => {
+        const variable = valueVariables.get(node);
+        return variable === undefined ? undefined : group(variable).chosenFill?.component;
+    }, node => defaults.descriptorRefusals.get(node));
+    publishSourceStructMemberCorrespondence(context, defaults.nodes, outcomes);
+    validateSelectionConditions();
+    for (const refusal of conditionRefusals) {
+        if (!sourceTypeFlowDiscardedValue(source, refusal.site))
+            outcomes.set(refusal.site, refusal);
+    }
+    // R1 totality (C-2309, K-2443): every value node of the domain has exactly one outcome. A value no publication
+    // pass described (an inexpressible declared or derived type, an unavailable callable result) receives one
+    // precise refusal at that node; nothing is left for a target to type itself.
+    const totalityRefusals = [];
+    for (const node of defaults.values) {
+        if (outcomes.has(node))
+            continue;
+        // Total publication (I4, V1): a value node that the flow graph published nothing for (a fixed group whose
+        // description failed at publication, or a node outside the graph) takes the Host default description, the same rule
+        // `publish` applies to a fixed node; only a node without one is refused.
+        const described = context.describe(node);
+        const sourceFile = source.ast.getSourceFile(node);
+        if (described !== undefined && sourceFile !== undefined && !defaults.descriptorRefusals.has(node)) {
+            outcomes.set(node, Object.freeze({ kind: "resolved", type: freezeSourceTypeDescriptor(unions, described),
+                provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) }));
+            continue;
+        }
+        const refusal = defaults.descriptorRefusals.get(node) ?? createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_UNSUPPORTED", node);
+        outcomes.set(node, refusal);
+        totalityRefusals.push(refusal);
+    }
+    function authority(node) {
+        const pending = [node];
+        const seen = new Set();
+        while (pending.length > 0) {
+            const occurrence = pending.pop();
+            if (seen.has(occurrence))
+                continue;
+            seen.add(occurrence);
+            const variable = valueVariables.get(occurrence);
+            const selected = variable === undefined ? undefined : group(variable);
+            if (selected?.chosenFill?.authority === "declared" || selected?.nodes.some(record => {
+                const slot = defaults.declaredSlots.get(record.node);
+                return slot?.authority === "declared" && slot.type !== undefined && slot.refusal === undefined;
+            }))
+                return "declared";
+            const slot = defaults.declaredSlots.get(occurrence);
+            if (slot?.authority === "declared" && slot.type !== undefined && slot.refusal === undefined)
+                return "declared";
+            const parent = source.ast.parent(occurrence);
+            if (parent === undefined)
+                continue;
+            if ((source.ast.is.IsParenthesizedExpression(parent) || source.ast.isConstAssertion(parent)) &&
+                Node_Expression(source.ast, parent) === occurrence) {
+                pending.push(parent);
+            }
+            else if (source.ast.is.IsVariableDeclaration(parent) && Node_Initializer(source.ast, parent) === occurrence &&
+                source.ast.typeNode(parent) === undefined) {
+                const owner = records.get(parent);
+                if (owner === undefined)
+                    continue;
+                for (const use of source.navigation.declarationUses(parent)) {
+                    if (use.kind === "type-only" || use.kind === "source-linkage" || records.get(use.reference)?.root !== owner.root)
+                        continue;
+                    pending.push(use.reference);
+                }
+            }
+        }
+        return "inferred";
+    }
+    for (const node of defaults.values) {
+        const ast = source.ast;
+        if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node)) ||
+            sourceTypeFlowAssignmentPattern(ast, node))
+            continue;
+        const outcome = outcomes.get(node);
+        if (outcome === undefined || outcome.kind === "refused")
+            continue;
+        obligations.push(Object.freeze({ kind: "literal-admission", site: node, type: outcome.type, required: node,
+            authority: authority(node) }));
+    }
+    for (const node of graph.nodes) {
+        if (node.term?.kind !== "numeric" || node.term.site !== node.node || node.variable.path.length !== 0 ||
+            !group(node.variable).inference || group(node.variable).refused !== undefined)
+            continue;
+        let occurrence = node.node;
+        let parent = source.ast.parent(occurrence);
+        while (parent !== undefined && (source.ast.is.IsParenthesizedExpression(parent) || source.ast.is.IsNonNullExpression(parent) ||
+            source.ast.is.IsAsExpression(parent) || source.ast.is.IsSatisfiesExpression(parent) ||
+            (source.ast.is.IsPrefixUnaryExpression(parent) || source.ast.is.IsBinaryExpression(parent)) && context.literal(parent) !== undefined)) {
+            occurrence = parent;
+            parent = source.ast.parent(occurrence);
+        }
+        if (parent !== undefined && source.ast.is.IsPropertyAssignment(parent) && Node_Initializer(source.ast, parent) === occurrence) {
+            occurrence = parent;
+            parent = source.ast.parent(parent);
+        }
+        if (parent === undefined || !(source.ast.is.IsArrayLiteralExpression(parent) || source.ast.is.IsObjectLiteralExpression(parent)) ||
+            sourceTypeFlowAssignmentPattern(source.ast, parent) || outcomes.get(parent)?.kind === "refused")
+            continue;
+        const outcome = outcomes.get(node.node);
+        if (outcome === undefined || outcome.kind === "refused")
+            continue;
+        obligations.push(Object.freeze({ kind: "literal-admission", site: node.node, type: outcome.type, required: node.node,
+            authority: authority(parent) }));
+    }
+    for (const declaration of callableQueries.keys())
+        callableReturn(declaration);
+    const declaredSlots = new Map();
+    const declaredSlotOwners = new Map();
+    for (const node of outcomes.keys()) {
+        const annotation = source.ast.typeNode(node);
+        if (annotation === undefined)
+            continue;
+        const type = defaults.declaredSlots.annotation(node);
+        if (type === undefined)
+            continue;
+        declaredSlots.set(node, type);
+        declaredSlots.set(annotation, type);
+        declaredSlotOwners.set(node, node);
+        declaredSlotOwners.set(annotation, node);
+    }
+    for (const [node, type] of defaults.unionComponents) {
+        const sourceFile = source.ast.getSourceFile(node);
+        if (sourceFile === undefined)
+            throw new Error("A declared Source sum requires its own original syntax occurrence.");
+        const previous = outcomes.get(node);
+        if (previous !== undefined) {
+            if (previous.kind !== "refused" && !sourceTypeDescriptorsEqual(previous.type, type)) {
+                throw new Error("An original Source sum cannot have contradictory declaration components.");
+            }
+            continue;
+        }
+        outcomes.set(node, Object.freeze({ kind: "resolved", type, provenance: Object.freeze({
+                group: node, occurrence: node, sourceFile, component: Object.freeze({ authoredTypeNode: node }),
+            }) }));
+    }
+    const retainInferredSum = (node, type) => {
+        const selected = type.kind === "array" ? type.element : type;
+        if (selected.kind !== "union" && selected.kind !== "optional")
+            return;
+        if (sourceTypeDescriptorUnion(unions, [selected], { kind: "inferred", node }) === undefined) {
+            throw new Error("An inferred Source sum requires its exact solved original producer.");
+        }
+    };
+    for (const node of defaults.nodes) {
+        if (!source.ast.is.IsArrayLiteralExpression(node))
+            continue;
+        const outcome = outcomes.get(node);
+        if (outcome === undefined || outcome.kind === "refused")
+            continue;
+        retainInferredSum(node, outcome.type);
+        if (outcome.construction !== undefined)
+            retainInferredSum(node, outcome.construction);
+    }
+    for (const [declaration, outcome] of callableReturns) {
+        if (outcome.kind !== "refused")
+            retainInferredSum(declaration, outcome.type);
+    }
+    for (const [node, outcome] of outcomes) {
+        if (outcome.kind === "refused" || defaults.unionComponents.has(node) || isSourceCallableSignatureDeclaration(source.ast, node))
+            continue;
+        retainInferredSum(node, outcome.type);
+        if (outcome.construction !== undefined)
+            retainInferredSum(node, outcome.construction);
+    }
+    const sumComponents = new Set(defaults.unionComponents.values());
+    const retainSumComponent = (type) => {
+        if (type !== undefined)
+            sumComponents.add(type);
+    };
+    for (const outcome of [...outcomes.values(), ...callableReturns.values()])
+        if (outcome.kind !== "refused") {
+            retainSumComponent(outcome.type);
+            retainSumComponent(outcome.construction);
+        }
+    for (const type of declaredSlots.values())
+        retainSumComponent(type);
+    for (const call of calls.values()) {
+        for (const binding of [...call.receiver, ...call.method])
+            retainSumComponent(binding.type);
+        for (const parameter of call.parameters)
+            retainSumComponent(parameter);
+        retainSumComponent(call.result);
+    }
+    for (const obligation of obligations) {
+        retainSumComponent(obligation.type);
+        retainSumComponent(obligation.requiredType);
+        retainSumComponent(obligation.valueType);
+    }
+    // Generic function values (instantiations.at, kind "function-value"): a read of a generic callable that is not a call's
+    // callee is instantiated against its Host destination slot. The binders of the callable's own signature are bound by
+    // unifying its parameter and result descriptors with the destination's one non-generic call signature; a method read
+    // through a generic receiver first binds the owner's binders from the receiver's Host descriptor. Host descriptors only:
+    // the G4 journal records contributions of calls, and a value use is no call. Every binder must be bound exactly once.
+    const functionValues = new Map();
+    for (const node of defaults.values) {
+        const ast = source.ast;
+        if (!(ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node)))
+            continue;
+        const parent = ast.parent(node);
+        if (parent !== undefined && (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
+            Node_Expression(ast, parent) === node)
+            continue;
+        if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && ast.name(parent) === node)
+            continue;
+        const declaration = ast.is.IsIdentifier(node) ? source.navigation.sourceReferenceFor(node)?.declaration
+            : input.member(node)?.declarations[0];
+        if (declaration === undefined || !isSourceCallableSignatureDeclaration(ast, declaration))
+            continue;
+        const owner = ast.is.IsPropertyAccessExpression(node) ? ast.parent(declaration) : undefined;
+        const receiverBinders = owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) ||
+            ast.is.IsInterfaceDeclaration(owner)) ? sourceTypeFlowTypeParameters(ast, owner) : [];
+        const methodBinders = sourceTypeFlowTypeParameters(ast, declaration);
+        if (methodBinders.length === 0 && receiverBinders.length === 0)
+            continue;
+        const result = functionValueInstantiation(node, declaration, owner, receiverBinders, methodBinders);
+        functionValues.set(node, result);
+        if (result.kind === "function-value")
+            for (const type of [...result.parameters, result.result])
+                retainSumComponent(type);
+    }
+    function functionValueInstantiation(node, declaration, owner, receiverBinders, methodBinders) {
+        const ast = source.ast;
+        const refuse = (reason) => Object.freeze({ ...createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_GENERIC", node, declaration), reason });
+        const bound = new Map();
+        if (receiverBinders.length > 0) {
+            const receiver = Node_Expression(ast, node);
+            const outcome = receiver === undefined ? undefined : outcomes.get(receiver);
+            const values = owner === undefined || outcome === undefined || outcome.kind === "refused" ? undefined
+                : sourceTypeFlowReceiverBinderValues({ unions, navigation: source.navigation }, outcome.type, owner, receiverBinders);
+            if (values === undefined) {
+                return refuse("The receiver's Source type does not state the type arguments of the method's owner. Annotate the receiver.");
+            }
+            receiverBinders.forEach((binder, index) => bound.set(binder, values[index]));
+        }
+        const own = context.describe(declaration);
+        const ownStructure = own === undefined ? undefined : sourceTypeDescriptorStructure(own);
+        const signature = ownStructure?.kind === "callable" || ownStructure?.kind === "shape"
+            ? ownStructure.calls.find(call => call.declaration === declaration) ?? (ownStructure.calls.length === 1 ? ownStructure.calls[0] : undefined)
+            : undefined;
+        if (signature === undefined)
+            return refuse("The generic callable used as a value has no Host signature.");
+        let target;
+        if (methodBinders.length > 0) {
+            const slot = defaults.declaredSlots.get(node);
+            let destination = slot?.type === undefined ? undefined : sourceTypeDescriptorStructure(slot.type);
+            if (destination?.kind === "optional")
+                destination = sourceTypeDescriptorStructure(destination.value);
+            target = (destination?.kind === "callable" || destination?.kind === "shape") && destination.calls.length === 1 &&
+                destination.calls[0].typeParameters.length === 0 ? destination.calls[0] : undefined;
+            if (target === undefined) {
+                return refuse("A generic callable used as a value requires a destination with one non-generic call signature. Annotate the destination or wrap the callable in an arrow function.");
+            }
+        }
+        const binders = new Set(methodBinders);
+        let conflict = false;
+        if (target !== undefined) {
+            signature.parameters.forEach((parameter, index) => {
+                const destination = target.parameters[index];
+                if (!conflict && destination !== undefined)
+                    conflict = !sourceTypeFlowUnifyBinders(binders, parameter.type, destination.type, bound);
+            });
+            if (!conflict)
+                conflict = !sourceTypeFlowUnifyBinders(binders, signature.result, target.result, bound);
+        }
+        if (conflict || methodBinders.some(binder => !bound.has(binder))) {
+            return refuse("The destination does not determine every type parameter of the generic callable exactly once. Provide explicit type arguments through an arrow function.");
+        }
+        const parameters = signature.parameters.map(parameter => sourceTypeFlowInstantiate(unions, bound, parameter.type));
+        const result = sourceTypeFlowInstantiate(unions, bound, signature.result);
+        if (result === undefined || parameters.some(parameter => parameter === undefined)) {
+            return refuse("The instantiated signature of the generic callable has no Host description.");
+        }
+        return Object.freeze({ kind: "function-value", use: node, signature: signature.declaration ?? declaration,
+            receiver: sourceTypeFlowBinderArguments(unions, receiverBinders, bound), method: sourceTypeFlowBinderArguments(unions, methodBinders, bound),
+            parameters: Object.freeze(parameters), result });
+    }
+    // Contextual destinations (values.contextual): the Host slot each value use flows into (declared, parameter or return
+    // slot, from declared-slots), read before sealing so their sums are registered. Never the checker's contextual type.
+    const contextualSlots = new Map();
+    const contextualSlotNodes = new Map();
+    for (const node of defaults.values) {
+        const slot = defaults.declaredSlots.get(node);
+        if (slot?.refusal !== undefined || slot?.type !== undefined) {
+            contextualSlotNodes.set(node, slot.component?.declaration ?? slot.component?.authoredTypeNode ?? node);
+        }
+        if (slot?.refusal !== undefined)
+            contextualSlots.set(node, slot.refusal);
+        else if (slot?.type !== undefined) {
+            contextualSlots.set(node, slot.type);
+            retainSumComponent(slot.type);
+        }
+    }
+    for (const call of calls.values()) {
+        const bindings = new Map([...call.receiver, ...call.method].map(binding => [binding.declaration, binding.type]));
+        if (bindings.size === 0)
+            continue;
+        const specialize = createSourceTypeDescriptorNormalizer(unions, bindings);
+        for (const type of sumComponents)
+            specialize(type);
+    }
+    sealSourceTypeDescriptorUnions(unions);
+    const normalizer = createSourceTypeDescriptorNormalizer(unions, new Map());
+    const normalize = (type) => {
+        const normalized = normalizer(type);
+        if (normalized === undefined)
+            throw new Error("A published Source type requires its sealed program sum preferences.");
+        return freezeSourceTypeDescriptor(unions, normalized);
+    };
+    // The declared value of a declaration that is not a solver slot (R-B4-5): a class (its constructor value), a function,
+    // method or accessor, a library declaration or library callback parameter. Declaration input through the one
+    // descriptor reader, normalized against the sealed sums; undefined when the declaration has no Host description.
+    // The declared type of a library interface or type alias (a type declaration outside the program files), through the
+    // same declaration reader as the program type declarations above, normalized against the sealed sums.
+    const typeDeclarationValues = new Map();
+    function typeDeclarationValue(declaration) {
+        const known = typeDeclarationValues.get(declaration);
+        if (known !== undefined)
+            return known ?? undefined;
+        const described = describeTypeDeclaration(declaration);
+        const normalized = described === undefined ? undefined : normalizer(described);
+        const selected = normalized === undefined ? undefined : freezeSourceTypeDescriptor(unions, normalized);
+        typeDeclarationValues.set(declaration, selected ?? null);
+        return selected;
+    }
+    const declarationValues = new Map();
+    function declarationValue(declaration) {
+        const known = declarationValues.get(declaration);
+        if (known !== undefined)
+            return known ?? undefined;
+        const described = context.describe(declaration);
+        const normalized = described === undefined ? undefined : normalizer(described);
+        const selected = normalized === undefined ? undefined : freezeSourceTypeDescriptor(unions, normalized);
+        declarationValues.set(declaration, selected ?? null);
+        return selected;
+    }
+    const normalizedOutcomes = new WeakMap();
+    const normalizeOutcome = (outcome) => {
+        if (outcome.kind === "refused")
+            return outcome;
+        const previous = normalizedOutcomes.get(outcome);
+        if (previous !== undefined)
+            return previous;
+        const normalized = Object.freeze({ ...outcome, type: normalize(outcome.type),
+            ...(outcome.construction === undefined ? {} : { construction: normalize(outcome.construction) }) });
+        normalizedOutcomes.set(outcome, normalized);
+        normalizedOutcomes.set(normalized, normalized);
+        return normalized;
+    };
+    for (const [node, outcome] of outcomes)
+        outcomes.set(node, normalizeOutcome(outcome));
+    for (const [declaration, outcome] of callableReturns)
+        callableReturns.set(declaration, normalizeOutcome(outcome));
+    const declaredSlotFacts = new Map();
+    const slotFacts = new Map();
+    for (const [node, type] of declaredSlots) {
+        const normalized = normalize(type);
+        const slot = declaredSlotOwners.get(node);
+        let fact = slotFacts.get(slot);
+        if (fact === undefined) {
+            fact = Object.freeze({ slot, type: normalized, broad: sourceTypeFlowIsBroadSlot(normalized) });
+            slotFacts.set(slot, fact);
+        }
+        declaredSlotFacts.set(node, fact);
+    }
+    for (const [node, call] of calls)
+        calls.set(node, Object.freeze({ ...call,
+            receiver: Object.freeze(call.receiver.map(argument => Object.freeze({ ...argument, type: normalize(argument.type) }))),
+            method: Object.freeze(call.method.map(argument => Object.freeze({ ...argument, type: normalize(argument.type) }))),
+            parameters: Object.freeze(call.parameters.map(type => type === undefined ? undefined : normalize(type))),
+            ...(call.result === undefined ? {} : { result: normalize(call.result) }) }));
+    function retainSlot(slot, type) {
+        const existing = declaredSlotFacts.get(slot);
+        if (existing !== undefined)
+            return existing;
+        const normalized = normalize(type);
+        const fact = Object.freeze({ slot, type: normalized, broad: sourceTypeFlowIsBroadSlot(normalized) });
+        declaredSlotFacts.set(slot, fact);
+        const annotation = source.ast.typeNode(slot);
+        if (annotation !== undefined)
+            declaredSlotFacts.set(annotation, fact);
+        return fact;
+    }
+    // The admission domain is every use with a broad Host destination (Q55/Q68, D4-1): the flow uses, the published graph
+    // records, and every value whose declared-slots destination is a broad slot (generic, rest, element and property uses
+    // that no flow use names).
+    const admissionUses = [...uses, ...graph.nodes.filter(record => record.publish && record.variable.path.length === 0)
+            .map(record => ({ site: record.node,
+            association: Object.freeze({ ...record.association, occurrence: record.node }) })),
+        ...defaults.values.filter(node => {
+            const destination = contextualSlots.get(node);
+            return destination !== undefined && destination.kind !== "refused" && sourceTypeFlowIsBroadSlot(destination);
+        }).map(node => ({ site: node, association: Object.freeze({ occurrence: node }) }))];
+    const slotAdmissions = createSourceSlotAdmissions(context, admissionUses, outcomes, use => defaults.declaredSlots.get(use), retainSlot, numberOrigin);
+    // Refusals that literal publication sets on an aggregate literal itself are reported like every other Host refusal.
+    const literalRefusals = defaults.values.flatMap(node => {
+        if (!(source.ast.is.IsObjectLiteralExpression(node) || source.ast.is.IsArrayLiteralExpression(node)))
+            return [];
+        const outcome = outcomes.get(node);
+        return outcome?.kind === "refused" && outcome.site === node ? [outcome] : [];
+    });
+    const frozenIssues = Object.freeze([...new Set([...defaults.signatureRefusals.values(), ...defaults.descriptorRefusals.values(),
+            ...totalityRefusals, ...literalRefusals, ...directGraphRefusals, ...conditionRefusals, ...slotAdmissions.refusals,
+            ...[...groups.values()].flatMap(selected => selected.refused === undefined ? [] : [selected.refused])])]
+        .sort((left, right) => compare(left.site, right.site)));
+    const frozenObligations = Object.freeze(obligations.filter(obligation => !defaults.descriptorRefusals.has(obligation.site))
+        .map(obligation => Object.freeze({ ...obligation, type: normalize(obligation.type),
+        ...(obligation.requiredType === undefined ? {} : { requiredType: normalize(obligation.requiredType) }),
+        ...(obligation.valueType === undefined ? {} : { valueType: normalize(obligation.valueType) }) })));
+    const sum = createSourceClosedSumQuery(unions, normalize);
+    const contextualOutcomes = new Map();
+    function contextual(node) {
+        const existing = contextualOutcomes.get(node);
+        if (existing !== undefined)
+            return existing;
+        const slot = contextualSlots.get(node);
+        if (slot === undefined)
+            return undefined;
+        const sourceFile = source.ast.getSourceFile(node);
+        if (sourceFile === undefined)
+            throw new Error("A contextual Source destination requires its source file.");
+        const outcome = slot.kind === "refused" ? slot : Object.freeze({ kind: "resolved",
+            type: normalize(slot), provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) });
+        contextualOutcomes.set(node, outcome);
+        return outcome;
+    }
+    const typeSyntaxOutcomes = new Map();
+    function typeSyntax(node) {
+        const existing = typeSyntaxOutcomes.get(node);
+        if (existing !== undefined)
+            return existing;
+        const described = defaults.typeSyntax(node);
+        if (described === undefined)
+            return undefined;
+        const sourceFile = source.ast.getSourceFile(node);
+        if (sourceFile === undefined)
+            throw new Error("An authored Source type node requires its source file.");
+        const outcome = described.kind === "refused" ? described : Object.freeze({ kind: "resolved",
+            type: normalize(described), provenance: Object.freeze({ group: node, occurrence: node, sourceFile }) });
+        typeSyntaxOutcomes.set(node, outcome);
+        return outcome;
+    }
+    const methodValues = createSourceMethodValueUses(context, defaults.nodes, outcomes);
+    return Object.freeze({ sum, get: (node) => outcomes.get(node), declaredSlot: (node) => declaredSlotFacts.get(node),
+        methodValueUse: (occurrence) => methodValues.get(occurrence), callableReturn: (declaration) => {
+            const outcome = callableReturn(declaration);
+            return outcome === undefined ? undefined : normalizeOutcome(outcome);
+        }, callInstantiation: (call) => calls.get(call),
+        slotAdmission: (use) => slotAdmissions.admissions.get(use),
+        obligations: () => frozenObligations, refusals: () => frozenIssues,
+        owner: unions, valueNodes: defaults.values, literal: context.literal, numberOrigin,
+        numberOriginKinds: (node, inputs) => numberOriginKinds(node, inputs),
+        literalDomain: (node) => { const selected = literalDomain(node); return selected === undefined ? undefined : Object.freeze(selected); },
+        armNumberOriginKinds: (sum, arm, inputs) => armNumberOriginKinds(sum, arm, inputs), typeSyntax, contextual, contextualSlot: (node) => contextualSlotNodes.get(node),
+        nodes: defaults.nodes, functionValueInstantiation: (use) => functionValues.get(use), declarationValue,
+        typeDeclarationValue });
+}
+//# sourceMappingURL=solver.js.map

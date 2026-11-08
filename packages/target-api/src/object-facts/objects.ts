@@ -15,6 +15,7 @@ import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../source
 import type { SourceDeclaredHeritageEdge, SourceProgramNavigation } from "../source-navigation/types.js";
 import { orderEnumerableOwnStringProperties } from "../source-semantics/enumerable-own-properties.js";
 import { sourceTypeDescriptorsEqual } from "../source-semantics/local-type-flow/terms.js";
+import { sourceTypeDescriptorStructure } from "../source-semantics/descriptor-model.js";
 import type {
   SourceMemberKey, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeDescriptorSignature,
 } from "../source-semantics/local-type-flow/types.js";
@@ -160,18 +161,12 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     return selected;
   };
 
-  // Type arguments of a heritage clause, one per target binder (R-B4-3): the authored argument, else the binder's
-  // authored default with the earlier bindings substituted (the sole substitution, I6). A binder with neither is not
-  // published (the clause names fewer arguments than binders only when defaults supply the rest).
-  const heritageEdge = (edge: SourceDeclaredHeritageEdge): SourceHeritageEdge | SourceRefusal => {
-    const instance = instanceDeclaration(edge.target.declaration);
-    if (instance === undefined) {
-      return raise("TSONIC_SOURCE_HERITAGE_UNRESOLVED", edge.heritage,
-        "The heritage target has no class or interface declaration that names its instance type.");
-    }
+  // Type arguments of a heritage clause, one per binder (R-B4-3): the authored argument, else the binder's authored
+  // default with the earlier bindings substituted (the sole substitution, I6). A binder with neither is not published
+  // (the clause names fewer arguments than binders only when defaults supply the rest).
+  const heritageBindings = (edge: SourceDeclaredHeritageEdge, binders: readonly Node[]):
+    { readonly typeArguments: readonly SourceTypeDescriptor[]; readonly bindings: ReadonlyMap<Node, SourceTypeDescriptor> } | SourceRefusal => {
     const typeArguments: SourceTypeDescriptor[] = [];
-    const binders = !hasTypeParameters(instance) ? []
-      : ast.typeParameters(instance).filter((binder): binder is Node => binder !== undefined);
     const bindings = new Map<Node, SourceTypeDescriptor>();
     for (const [index, argument] of edge.typeArguments.entries()) {
       const selected = descriptor(argument);
@@ -189,15 +184,60 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       typeArguments.push(applied);
       bindings.set(binder, applied);
     }
-    // The base reference (FX-CC-H2): the target declaration's Host instance type (values.type of the class / interface
-    // declaration, with its definition) applied to this clause's type arguments by the sole substitution (I6).
-    const target = selfType(instance);
-    if (refused(target)) return target;
-    const type = bindings.size === 0 ? target : input.substitute(target, bindings);
-    return Object.freeze({
-      kind: edge.kind, declaration: edge.sourceDeclaration, heritage: edge.heritage, target: edge.target.declaration,
-      typeArguments: Object.freeze(typeArguments), type,
-    });
+    return { typeArguments: Object.freeze(typeArguments), bindings };
+  };
+  const unresolvedHeritage = (edge: SourceDeclaredHeritageEdge): SourceRefusal =>
+    raise("TSONIC_SOURCE_HERITAGE_UNRESOLVED", edge.heritage,
+      "The heritage target has no class or interface declaration that names its instance type.");
+  /**
+   * The base reference of a heritage clause (FX-CC-H2, Q110), by what the clause names:
+   * - a class or interface (or a value merged with one: lib `interface Error` + `declare var Error`): that declaration's
+   *   Host instance type (selfType, with its definition) applied to the clause's type arguments;
+   * - a type alias (`implements Alias<T>`): the alias's Host type (values.type of the alias declaration, with its
+   *   definition) applied to the clause's type arguments;
+   * - a constructor value (`extends Base` with `const Base = class {}` or `declare const Base: new () => I`): the one
+   *   instance type the construct signatures of the Host type of the clause's expression name for the clause's type
+   *   arguments (each signature with that many type parameters, defaults included; the checker requires them to agree,
+   *   TS2510). An `implements` clause never names a value.
+   * The substitution is the sole one (I6). Anything else refuses the edge.
+   */
+  const heritageEdge = (edge: SourceDeclaredHeritageEdge): SourceHeritageEdge | SourceRefusal => {
+    const published = (typeArguments: readonly SourceTypeDescriptor[], type: SourceTypeDescriptor): SourceHeritageEdge =>
+      Object.freeze({ kind: edge.kind, declaration: edge.sourceDeclaration, heritage: edge.heritage, target: edge.target.declaration,
+        typeArguments, type });
+    const target = edge.target.declaration;
+    const instance = instanceDeclaration(target) ?? (ast.is.IsTypeAliasDeclaration(target) ? target : undefined);
+    if (instance !== undefined) {
+      const binders = !hasTypeParameters(instance) ? []
+        : ast.typeParameters(instance).filter((binder): binder is Node => binder !== undefined);
+      const selected = heritageBindings(edge, binders);
+      if (refused(selected)) return selected;
+      const named = ast.is.IsTypeAliasDeclaration(instance) ? descriptor(instance) : selfType(instance);
+      if (refused(named)) return named;
+      return published(selected.typeArguments, selected.bindings.size === 0 ? named : input.substitute(named, selected.bindings));
+    }
+    const expression = ast.as.AsExpressionWithTypeArguments(edge.heritage)?.Expression;
+    if (edge.kind !== "extends" || expression === undefined) return unresolvedHeritage(edge);
+    const constructor = descriptor(expression);
+    if (refused(constructor)) return constructor;
+    const structure = sourceTypeDescriptorStructure(constructor);
+    const constructs = structure.kind === "shape" || structure.kind === "callable" ? structure.constructs : [];
+    let selected: { readonly typeArguments: readonly SourceTypeDescriptor[]; readonly type: SourceTypeDescriptor } | undefined;
+    for (const signature of constructs) {
+      // A class constructor's construct signatures are generic over the class's own binders (the result names them).
+      const result = signature.result;
+      const binders = signature.typeParameters.length !== 0 || result.kind !== "declared" ||
+        !(ast.is.IsClassDeclaration(result.declaration) || ast.is.IsClassExpression(result.declaration)) ? signature.typeParameters
+        : ast.typeParameters(result.declaration).filter((binder): binder is Node => binder !== undefined);
+      if (binders.length < edge.typeArguments.length) continue;
+      const bound = heritageBindings(edge, binders);
+      if (refused(bound)) return bound;
+      if (bound.typeArguments.length !== binders.length) continue;
+      const type = bound.bindings.size === 0 ? signature.result : input.substitute(signature.result, bound.bindings);
+      if (selected !== undefined && !sourceTypeDescriptorsEqual(selected.type, type)) return unresolvedHeritage(edge);
+      selected ??= { typeArguments: bound.typeArguments, type };
+    }
+    return selected === undefined ? unresolvedHeritage(edge) : published(selected.typeArguments, selected.type);
   };
   const heritageEdges = (edges: readonly SourceDeclaredHeritageEdge[]): readonly SourceHeritageEdge[] | SourceRefusal => {
     const selected: SourceHeritageEdge[] = [];
@@ -233,20 +273,24 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
     ast.is.IsTypeAliasDeclaration(declaration);
 
-  const instanceType = (declaration: Node): SourceTypeDescriptor => Object.freeze({
-    kind: "declared", declaration,
-    typeArguments: Object.freeze((ast.typeParameters(declaration) ?? []).filter((entry): entry is Node => entry !== undefined)
-      .map(parameter => Object.freeze({ kind: "declared" as const, declaration: parameter, typeArguments: Object.freeze([]) }))),
-  });
 
   /**
    * The instance type of a class or interface declaration (R3 #17): the value model's descriptor of the declaration
    * (declared, with its definition; FX-HV publishes class and interface declarations as their instance type). A class
-   * expression is a value (its constructor), so its instance type is the declared reference the construction results
-   * name. Any other node is an invariant failure.
+   * expression is a value (its constructor), so its instance type is the result its Host constructor value's construct
+   * signatures name (declared, with its definition; every construct signature of a class names the one instance type).
+   * A class reference without its definition is never built here: it has no members (descriptor-model.ts, C-2263). Any
+   * other node is an invariant failure.
    */
   function selfType(declaration: Node): SourceTypeDescriptor | SourceRefusal {
-    if (ast.is.IsClassExpression(declaration)) return instanceType(declaration);
+    if (ast.is.IsClassExpression(declaration)) {
+      const constructor = descriptor(declaration);
+      if (refused(constructor)) return constructor;
+      const structure = sourceTypeDescriptorStructure(constructor);
+      const result = structure.kind === "shape" || structure.kind === "callable" ? structure.constructs[0]?.result : undefined;
+      if (result === undefined) throw new Error("A class expression's Host constructor value requires its construct signatures.");
+      return result;
+    }
     if (!ast.is.IsClassDeclaration(declaration) && !ast.is.IsInterfaceDeclaration(declaration)) {
       throw new Error("objects.selfType requires a class or interface declaration.");
     }
@@ -260,7 +304,9 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     const selected = ((): SourceConstructFacts | SourceRefusal => {
       if (result.kind === "unresolved") return raise("TSONIC_SOURCE_CONSTRUCTION_UNRESOLVED", result.declaration, result.reason);
       const typeParameters = Object.freeze((ast.typeParameters(declaration) ?? []).filter((entry): entry is Node => entry !== undefined));
-      const result_ = instanceType(declaration);
+      // The instance type with its definition (selfType), so a construction result has its members (C-2263).
+      const result_ = selfType(declaration);
+      if (refused(result_)) return result_;
       const signatures: SourceTypeDescriptorSignature[] = [];
       for (const signature of result.signatures) {
         const parameters: SourceTypeDescriptorSignature["parameters"][number][] = [];
@@ -432,6 +478,74 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     return selected;
   };
 
+  // ---- object literal values (B4 D8): the physical members of a literal, from its elements ----------------------------
+  /**
+   * The joined member one literal element supplies (with its accessor sibling), named by the literal's Host members: the
+   * member the element declares or fills (its selections.objectLiteralElement destination), else, for an identifier or string-literal
+   * property name, the Host member of that name.
+   */
+  const literalElementMember = (element: Node, own: readonly SourceJoinedMember[] | undefined,
+    receiverType: SourceTypeDescriptor): SourceJoinedMember | undefined => {
+    if (ast.is.IsSpreadAssignment(element) || own === undefined) return undefined;
+    const declarations = Object.freeze(accessorDeclarations(ast, element));
+    const destinations = declarations.flatMap(entry => selections.objectLiteralElement(entry)?.destination?.declarations ?? []);
+    let named = own.filter(member => member.declarations.some(entry => declarations.includes(entry) || destinations.includes(entry)));
+    const nameNode = ast.name(element);
+    if (named.length === 0 && nameNode !== undefined && (ast.is.IsIdentifier(nameNode) || ast.is.IsStringLiteral(nameNode))) {
+      const text = ast.text(nameNode);
+      named = own.filter(member => member.name === text);
+    }
+    if (named.length !== 1) return undefined;
+    const getters = Object.freeze(declarations.filter(entry => ast.is.IsGetAccessorDeclaration(entry)));
+    const setters = Object.freeze(declarations.filter(entry => ast.is.IsSetAccessorDeclaration(entry)));
+    const read = getters.length > 0 ? "accessor" as const : setters.length > 0 ? "unavailable" as const
+      : ast.is.IsMethodDeclaration(element) ? "method" as const : "property" as const;
+    // The member's read type is the literal's Host member type (the type every reader of the literal sees).
+    return Object.freeze({
+      name: named[0]!.name, optional: false, readonly: getters.length > 0 && setters.length === 0, receiverType,
+      declarations, getters, setters, read, type: named[0]!.type,
+    });
+  };
+  const literalCorrespondingMember = (literal: Node, to: SourceTypeDescriptor, declaration: Node,
+    purpose: "correspondence" | "read"): SourceMemberPair | undefined => {
+    if (!ast.is.IsObjectLiteralExpression(literal)) return undefined;
+    const outcome = values.type(literal);
+    if (outcome.kind === "refused") return undefined;
+    // The literal's Host type names its members (its own shape, or the destination members its elements fill).
+    const receiverType = outcome.type;
+    const own = joinedMembers(receiverType);
+    const elements = ast.properties(literal).filter((element): element is Node => element !== undefined);
+    let destination: SourceJoinedMember | undefined;
+    if (elements.includes(declaration)) destination = literalElementMember(declaration, own, receiverType);
+    else {
+      const matches = joinedMembers(to)?.filter(member => member.declarations.includes(declaration));
+      destination = matches?.length === 1 ? matches[0] : undefined;
+    }
+    if (destination === undefined) return undefined;
+    for (let index = elements.length - 1; index >= 0; index -= 1) {
+      const element = elements[index]!;
+      if (ast.is.IsSpreadAssignment(element)) {
+        const operand = ast.as.AsSpreadAssignment(element)?.Expression;
+        const spread = operand === undefined ? undefined : values.type(operand);
+        if (spread === undefined || spread.kind === "refused") return undefined;
+        if (sourceTypeDescriptorPresentArms(spread.type).length === 0) continue;
+        const source = joinedMembers(spread.type)?.find(member => member.name === destination.name);
+        if (source === undefined) {
+          if (joinedMembers(spread.type) === undefined) return undefined;
+          continue;
+        }
+        if (source.optional || source.declarations.length === 0 || purpose === "read" && source.read === "unavailable") return undefined;
+        return Object.freeze({ kind: "present", destination, source });
+      }
+      const source = literalElementMember(element, own, receiverType);
+      if (source === undefined) return undefined;
+      if (source.name !== destination.name) continue;
+      if (purpose === "read" && source.read === "unavailable") return undefined;
+      return Object.freeze({ kind: "present", destination, source });
+    }
+    return Object.freeze({ kind: "absent", destination });
+  };
+
   const heritageHasBase = (declaration: Node): boolean => {
     const edges = heritage(declaration);
     return refused(edges) || edges.some(edge => edge.kind === "extends");
@@ -460,12 +574,14 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
     joinedMembers,
     correspondence,
     correspondingMember,
+    literalCorrespondingMember,
     refusals: () => census(),
   });
 
   /**
    * Every object refusal of the program, computed once and in source order, independent of target query order (R5,
-   * R2 #30, FX-CC #11). The census asks: the heritage of every class and interface; the construction of every class;
+   * R2 #30, FX-CC #11). The census covers project declarations only (a library or provider declaration file is not
+   * refused by its own shape, R11). It asks: the heritage of every class and interface; the construction of every class;
    * the contracts of every named class member, and the implementation of that class for every contract they name; the
    * members of every project class and interface instance type (its Host declared type, values.type of the
    * declaration); and the implementation of every project callable signature. The collection holds the refusal answers
@@ -488,7 +604,8 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
       if (!refused(type)) collect(members(type));
     };
     const visit = (node: Node): void => {
-      if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
+      const project = navigation.isProjectDeclaration(node);
+      if (project && (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) {
         collect(heritage(node));
         collect(construction(node));
         for (const member of ast.members(node)) {
@@ -498,11 +615,11 @@ export function createSourceObjectFacts(input: SourceObjectFactsInput): SourceOb
           if (!refused(named)) for (const contract of named) collect(implementation(node, contract));
         }
         if (ast.is.IsClassDeclaration(node)) instanceMembers(node);
-      } else if (ast.is.IsInterfaceDeclaration(node)) {
+      } else if (project && ast.is.IsInterfaceDeclaration(node)) {
         collect(heritage(node));
         instanceMembers(node);
       }
-      if (isSourceCallableSignatureDeclaration(ast, node) && navigation.isProjectDeclaration(node)) {
+      if (project && isSourceCallableSignatureDeclaration(ast, node)) {
         collect(callableImplementation(node));
       }
       ast.forEachChild(node, child => { if (child !== undefined) visit(child); });

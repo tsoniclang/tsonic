@@ -865,16 +865,13 @@ export function buildSourceValueModelFacts(source: SourceTypeFlowSource, program
     if (relation?.kind === "refused") relationRefusals.push(relation);
   }
   for (const node of solved.nodes) if (isSourceCallableSignatureDeclaration(ast, node)) callableReturn(node);
-  // A call, construction or super call whose instantiation the Host refuses is in the one refusal collection (R1 #18,
-  // R5). A generic function value keeps its use-site refusal (A3-D4): it is refused only where it is instantiated.
-  const instantiationRefusals: SourceRefusal[] = [];
-  for (const node of solved.valueNodes) {
-    if (!(ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node))) continue;
-    const record = instantiation(node);
-    if (record?.kind === "refused") instantiationRefusals.push(record);
-  }
+  // A call, construction or super call whose instantiation the Host refuses is refused where it is used: the refusal is
+  // the answer of `instantiations.at(use)`, which the consumer that needs the instantiation forwards unchanged (Q105,
+  // R11). It is not in the eager census: a call no consumer instantiates (a receiver-only generic the target reads from
+  // other facts) compiled at baseline and must not be refused. A generic function value is likewise refused only where it
+  // is instantiated (A3-D4).
   const allRefusals = Object.freeze([...new Set([...solved.refusals().map(toRefusal), ...markerRefusals, ...elementRefusals, ...anyRefusals, ...relationRefusals,
-    ...instantiationRefusals, ...[...callableReturnRefusals.values()].map(toRefusal)])]);
+    ...[...callableReturnRefusals.values()].map(toRefusal)])]);
 
   // ---- obligations (checker-free projection of the solver's obligation list) ------------------------------------
   const obligationRecords: readonly SourceObligation[] = Object.freeze(solved.obligations().map(obligation => {

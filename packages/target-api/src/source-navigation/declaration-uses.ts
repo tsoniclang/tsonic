@@ -94,6 +94,15 @@ function sourceDeclarationUseKind(
     : "first-class";
 }
 
+/**
+ * Whether an identifier occurrence is evaluated as a value: not part of module linkage (import / export specifiers and
+ * clauses) and not part of type syntax (type references, type predicates, type queries, interfaces). The same
+ * classification as the "source-linkage" and "type-only" use kinds (one owner).
+ */
+export function sourceReferenceIsValueOccurrence(ast: AstReader, reference: Node): boolean {
+  return !belongsToSourceLinkage(ast, reference) && !belongsToTypeSyntax(ast, reference);
+}
+
 function belongsToSourceLinkage(ast: AstReader, reference: Node): boolean {
   let current: Node | undefined = reference;
   while (current !== undefined) {

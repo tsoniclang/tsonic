@@ -1,0 +1,67 @@
+import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";
+export function createSourceStorageStoreSuccessors(context) {
+    const { budget, transport, absent, birth, symbolicInput, replaceChild } = context;
+    return (term) => {
+        if ((term.destination.kind === "leaf" || term.destination.kind === "input-frontier") &&
+            (term.receiver.kind === "leaf" || term.receiver.kind === "input-frontier")) {
+            const frontier = term.destination.kind === "input-frontier" ? term.destination
+                : term.receiver.kind === "input-frontier" ? Object.freeze({ ...term.receiver, subject: term.destination.subject,
+                    scope: term.destination.scope, preservesInput: false }) : undefined;
+            if (frontier !== undefined) {
+                const sameLocation = term.destination.subject === term.receiver.subject && term.destination.scope === term.receiver.scope;
+                const sameInput = term.destination.kind === "input-frontier" && term.receiver.kind === "input-frontier" &&
+                    term.destination.input.subject === term.receiver.input.subject && term.destination.input.scope === term.receiver.input.scope;
+                return term.destination.kind === "leaf" && !sameLocation && !sameInput ? absent : { kind: "replace", terms: sameLocation || sameInput ? [frontier, term.value] : [frontier] };
+            }
+        }
+        if (term.destination.kind !== "leaf")
+            return replaceChild(term.destination, destination => destination === term.destination ? term : Object.freeze({ ...term, destination }), { contributes: false });
+        if (term.receiver.kind !== "leaf")
+            return replaceChild(term.receiver, receiver => receiver === term.receiver ? term : Object.freeze({ ...term, receiver }));
+        if (term.receiver.subject !== term.destination.subject)
+            return sourceStorageSymbolicMemberAlias(transport, symbolicInput, term.receiver, term.destination) ? { kind: "replace", terms: [term.value] } : absent;
+        const receiver = birth(term.receiver.subject, term.receiver.scope);
+        const destination = birth(term.destination.subject, term.destination.scope);
+        if (receiver === undefined || destination === undefined)
+            return undefined;
+        return budget.withRows((rows) => {
+            const pending = [[receiver, destination]];
+            const visited = new Map();
+            let expansion;
+            while (pending.length !== 0) {
+                if (!budget.step())
+                    return undefined;
+                const [receiver, destination] = pending.pop();
+                if (receiver.key === destination.key || visited.get(receiver)?.has(destination))
+                    continue;
+                if (!rows.add(2))
+                    return undefined;
+                const targets = visited.get(receiver) ?? new Set();
+                targets.add(destination);
+                visited.set(receiver, targets);
+                if (receiver.variable !== undefined || destination.variable !== undefined) {
+                    for (const variable of [receiver.variable, destination.variable]) {
+                        if (variable !== undefined && (expansion === undefined ||
+                            expansion.capture !== undefined && variable.capture === undefined))
+                            expansion = variable;
+                    }
+                    continue;
+                }
+                if (receiver.invocation !== destination.invocation || receiver.owner !== destination.owner ||
+                    receiver.nativeEntry !== destination.nativeEntry)
+                    return absent;
+                if (receiver.invocation !== undefined && destination.invocation !== undefined)
+                    pending.push([receiver.parent, destination.parent]);
+                if (receiver.creation.length !== destination.creation.length)
+                    return absent;
+                for (const [index, creation] of receiver.creation.entries()) {
+                    if (!budget.step() || !rows.add(1))
+                        return undefined;
+                    pending.push([creation, destination.creation[index]]);
+                }
+            }
+            return expansion === undefined ? { kind: "replace", terms: [term.value] } : { kind: "expand", variable: expansion };
+        });
+    };
+}
+//# sourceMappingURL=store-successors.js.map

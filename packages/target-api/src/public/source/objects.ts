@@ -93,6 +93,17 @@ export interface SourceObjectFacts {
   /** The pair of one destination member declaration; undefined unless exactly one pair names it (and is usable). */
   correspondingMember(from: SourceTypeDescriptor, to: SourceTypeDescriptor, declaration: Node,
     purpose: "correspondence" | "read"): SourceMemberPair | undefined;
+  /**
+   * The pair of one destination member declaration for an object literal VALUE (its physical members, not its Host type:
+   * the Host type of a contextually typed literal is its destination type, B4 D8). The source is the literal element
+   * that supplies the member at runtime (the last element of that name in element order, a getter and setter of one
+   * name together, present and not optional), or the member of a later spread operand's Host type; "absent" when no
+   * element supplies it. A declaration that is an element of the literal itself pairs with that element. undefined when
+   * the supplying element cannot be named exactly, a spread operand's member is optional or its members are not joined,
+   * or no single destination member has the declaration.
+   */
+  literalCorrespondingMember(literal: Node, to: SourceTypeDescriptor, declaration: Node,
+    purpose: "correspondence" | "read"): SourceMemberPair | undefined;
 }
 
 /** One member of a type joined over its present arms (objects.joinedMembers). */

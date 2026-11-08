@@ -5,7 +5,9 @@ import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatD
 import { createTsonicCoreSourceExtension, tsonicCoreSourceSemanticsModules } from "../../packages/source-core/dist/public/index.js";
 import { createHostSourceProgram, Node_Expression, Node_Initializer } from "../../packages/target-api/dist/public/host.js";
 import { typescriptNoLibUtilityDeclarations } from "../../packages/target-api/dist/public/provider.js";
-import { jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { jsSourceExtensionContribution, jsSourceSemanticsModules, jsSurfaceSourceProfileDeclarations } from "../../packages/js-source-profile/dist/index.js";
+// The JS surface contributes data (K-2682); the Host builds its compiler extension, as the composition root does.
+import { createTargetContributedCompilerExtension } from "../../packages/host/dist/target/extensions.js";
 import { namedDeclaration, namedVariable } from "../fixtures/source-navigation.mjs";
 
 // The JS source profile declares Promise / PromiseConstructor / PromiseLike, so the Host composes their callback
@@ -19,8 +21,9 @@ function fixture(body) {
   const files = { ...jsProfileFiles, "/src/index.ts": `export {}; ${body}` };
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files, rootFiles: Object.keys(files),
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", noLib: true },
-    extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: tsonicCoreSourceSemanticsModules() }),
-      createTsonicCoreSourceExtension()] },
+    extensionHostOptions: { extensions: [
+      createSourceSemanticsExtension({ modules: [...tsonicCoreSourceSemanticsModules(), ...jsSourceSemanticsModules()] }),
+      createTsonicCoreSourceExtension(), createTargetContributedCompilerExtension(jsSourceExtensionContribution())] },
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics));
   const source = createHostSourceProgram(checked, { profile: createJsSourceApiFacts, platform: { kind: "known", nativeIntegerBits: 64, basis: "test" } });

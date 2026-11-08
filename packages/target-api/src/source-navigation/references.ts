@@ -21,6 +21,7 @@ export interface SourceReferenceNavigation {
 export function createSourceReferenceNavigation(
   input: SourceNavigationInput,
   sourceFiles: readonly SourceFile[],
+  ambientFiles: readonly SourceFile[] = [],
 ): SourceReferenceNavigation {
   const { ast } = input;
   const sourceFileSet = new Set(sourceFiles);
@@ -32,7 +33,7 @@ export function createSourceReferenceNavigation(
   const isProjectDeclaration = (declaration: Node | undefined): boolean =>
     declaration !== undefined && isProjectSourceFile(ast.getSourceFile(declaration));
 
-  const referenceIndex = createSourceDeclarationReferenceIndex(input, sourceFiles, isProjectDeclaration);
+  const referenceIndex = createSourceDeclarationReferenceIndex(input, sourceFiles, isProjectDeclaration, undefined, ambientFiles);
   const projectReferenceFor = (node: Node | undefined): SourceDeclarationReference | undefined => {
     if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node)) || ast.is.IsTypeQueryNode(node)) return undefined;
     const selected = referenceIndex.sourceReferenceFor(node);

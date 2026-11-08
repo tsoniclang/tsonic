@@ -28,6 +28,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
 import { sourceMemberOwner } from "../../../source-model/class-members.js";
 import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
+import { sourceReferenceIsValueOccurrence } from "../../../source-navigation/declaration-uses.js";
 import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites } from "../graph/stored-values.js";
 import type { SourceStorageWrite } from "../model/stores.js";
@@ -144,6 +145,9 @@ export function createSourceStorageTransport(
     const cached = subjects.get(node);
     if (cached !== undefined) return cached;
     if (ast.is.IsBindingElement(node) && ast.name(node) === undefined) return undefined;
+    // A linkage or type-syntax identifier (an import specifier name, a type predicate's parameter name) is not a value
+    // occurrence; it has no storage subject (navigation use classification).
+    if (ast.is.IsIdentifier(node) && !sourceReferenceIsValueOccurrence(ast, node)) return undefined;
     if (ast.kindName(node) === "KindThisKeyword") {
       const receiver = receiverFor(node);
       const value = receiver === undefined ? undefined : subject(node);
@@ -301,10 +305,15 @@ export function createSourceStorageTransport(
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor,
     locationFor, connect, projections, regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow,
     inputSlotsFor: invocation => invocationImplementationSelection(invocation)?.inputs[0] });
-  const sourceNodes = navigation.nodesForFiles(sourceFiles);
+  // The walk covers the requested project files only. A library or profile declaration file has no executable storage of
+  // its own; its declarations are reached on demand through the references and calls of the walked files (subjects are
+  // created when a walked node names them). Describing every library parameter is not needed and is costly (Q112).
+  const walkedFiles = new Set(navigation.sourceFiles);
+  const projectFiles = sourceFiles.filter(file => walkedFiles.has(file));
+  const sourceNodes = navigation.nodesForFiles(projectFiles);
   for (const file of sourceFiles) {
     if (!sourceAnalysisIncludesFile(source, file)) budget.reject("Source storage transport requires exact checked source-file ownership.");
-    else {
+    else if (walkedFiles.has(file)) {
       const existing = admittedAmbient.get(file);
       if (existing !== undefined) existing.collected = true;
       else if (budget.node()) admittedAmbient.set(file, {
