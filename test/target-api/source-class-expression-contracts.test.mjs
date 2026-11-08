@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../public/source.js";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
 
 test("class-expression public navigation preserves overloaded, inherited and accessor identities", () => {
-  const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/src",
-    files: {
+  const { source, file } = sourceTypeFlowFixture("", { imports: "", files: {
       "/src/base.ts": `
         export abstract class Base<T> {
           abstract value: T;
@@ -31,21 +28,16 @@ test("class-expression public navigation preserves overloaded, inherited and acc
           read(): string { return this.value; }
         };
       `,
-    },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
-  }).checkSource();
-  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
-  const file = checked.getSourceFile("/src/index.ts");
-  const baseFile = checked.getSourceFile("/src/base.ts");
+    } });
+  const baseFile = source.documents.all.find(document => document.fileName === "/src/base.ts")?.sourceFile;
   assert.ok(file && baseFile);
   const [base, unrelated] = source.ast.statements(baseFile);
   assert.ok(base && unrelated);
   const [value, read, firstOverload, secondOverload, implementation, inherited] = source.ast.members(base);
   const unrelatedMember = source.ast.members(unrelated)[0];
   assert.ok(value && read && firstOverload && secondOverload && implementation && inherited && unrelatedMember);
-  const expressions: Node[] = [];
-  const visit = (node: Node): void => {
+  const expressions = [];
+  const visit = (node) => {
     if (source.ast.is.IsClassExpression(node)) expressions.push(node);
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
@@ -56,19 +48,19 @@ test("class-expression public navigation preserves overloaded, inherited and acc
     const localRead = members.find(member => member !== undefined && source.ast.is.IsMethodDeclaration(member));
     const localValue = members.find(member => member !== undefined && source.ast.is.IsGetAccessorDeclaration(member)) ?? members[0];
     assert.ok(localRead && localValue);
-    const correspondences: readonly (readonly [Node, Node])[] = [[value, localValue], [read, localRead],
+    const correspondences = [[value, localValue], [read, localRead],
       [firstOverload, implementation], [secondOverload, implementation], [inherited, inherited]];
     for (const [contract, expected] of correspondences) {
-      const selected = source.navigation.memberImplementation(expression, contract);
+      const selected = source.facts.navigation.memberImplementation(expression, contract);
       assert.equal(selected.kind, "resolved");
       if (selected.kind !== "resolved") throw new Error("Missing public member implementation");
       assert.ok(selected.contractDeclaration === contract);
       assert.ok(selected.implementation.declaration === expected);
       assert.ok(Object.isFrozen(selected));
       assert.ok(Object.isFrozen(selected.implementation));
-      assert.ok(source.navigation.memberImplementation(expression, contract) === selected);
+      assert.ok(source.facts.navigation.memberImplementation(expression, contract) === selected);
     }
-    assert.equal(source.navigation.memberImplementation(expression, unrelatedMember).kind, "unrelated");
-    assert.equal(source.navigation.memberImplementation(localRead, read).kind, "unresolved");
+    assert.equal(source.facts.navigation.memberImplementation(expression, unrelatedMember).kind, "unrelated");
+    assert.equal(source.facts.navigation.memberImplementation(localRead, read).kind, "unresolved");
   }
 });

@@ -3,7 +3,8 @@ import { sourcePrimitive } from "@tsonic/tsts";
 import { createCsharpTargetPack } from "../../../../tsonic-csharp/dist/public/index.js";
 import { checkSourceProgramFixture } from "../source-program-fixture.mjs";
 
-export function sourceTypeFlowFixture(text, { projectDirectory = "/src", entryPoint = "index.ts" } = {}) {
+export function sourceTypeFlowFixture(text, { projectDirectory = "/src", entryPoint = "index.ts", files = {},
+  compilerOptions = {}, imports = 'import type { int8, int32, uint32, int64, float32 } from "@test/words"; ' } = {}) {
   const target = { id: "csharp", options: { outputType: "Library" } };
   const checked = checkSourceProgramFixture({ project: { entryPoint, rootDir: ".", targets: [target] },
     projectDirectory, target, targetPack: createCsharpTargetPack(),
@@ -13,9 +14,10 @@ export function sourceTypeFlowFixture(text, { projectDirectory = "/src", entryPo
     files: {
       [`${projectDirectory}/node_modules/@test/words/package.json`]: JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
       [`${projectDirectory}/node_modules/@test/words/index.d.ts`]: "export type int8 = number; export type int32 = number; export type uint32 = number; export type int64 = bigint; export type float32 = number;",
-      [`${projectDirectory}/${entryPoint}`]: `import type { int8, int32, uint32, int64, float32 } from "@test/words"; ${text}`,
+      [`${projectDirectory}/${entryPoint}`]: `${imports}${text}`,
+      ...files,
     },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler", ...compilerOptions },
     targetContributions: base => ({ ...base, semanticsModules: [...base.semanticsModules ?? [], {
       moduleSpecifier: "@test/words", packageName: "@test/words", exports: [
         sourcePrimitive("int8", "int8", "number", true, 8), sourcePrimitive("int32", "int32", "number", true, 32),
