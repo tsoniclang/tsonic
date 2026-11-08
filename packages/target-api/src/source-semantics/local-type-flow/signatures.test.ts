@@ -6,7 +6,7 @@ import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms } from "./terms.js";
+import { createSourceTypeFlowTerms } from "./term-groups.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowCall,
@@ -76,7 +76,7 @@ function graph(
   calls: readonly SourceTypeFlowCall[] = [],
 ): SourceTypeFlowGraph {
   return Object.freeze({ roots: Object.freeze(roots), nodes: Object.freeze(nodes),
-    links: Object.freeze(links), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
+    links: Object.freeze(links), producerInputs: Object.freeze([]), derived: Object.freeze(derived), calls: Object.freeze(calls), refusals: Object.freeze([]) });
 }
 
 function sameVariable(left: SourceTypeFlowVariable, right: SourceTypeFlowVariable): boolean {

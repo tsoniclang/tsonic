@@ -1,7 +1,6 @@
 import { AsCaseBlock } from "../source-navigation/checked-casts.js";
 import type { CheckedSourceProgram, Node, Symbol, Type } from "@tsonic/tsts";
 import { ContextFlagsSkipBindingPatterns } from "@tsonic/tsts";
-import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import { isTsonicSourceProfileDeclarationPath } from "../source-profile.js";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex } from "./enum-model.js";
@@ -28,7 +27,7 @@ const emptyDomain: EnumValueDomain = Object.freeze({ possibleEnums: Object.freez
 
 export function analyzeSourceEnumNumericUses(
   source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles" | "sourceReferenceFor" | "declarationUseSummary" | "expressionResultDisposition">,
+  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles" | "sourceReferenceFor" | "declarationUseSummary" | "expressionResultDisposition" | "enclosing">,
   enumConstants: Pick<SourceEnumConstantIndex, "get" | "integerWidth">,
 ): readonly SourceEnumAdmissionIssue[] {
   const { ast } = source;
@@ -266,8 +265,7 @@ export function analyzeSourceEnumNumericUses(
         return types.isArrayLike(container) ? types.getTypeArguments(container)[0] : undefined;
       }
       if (ast.is.IsReturnStatement(parent) || ast.is.IsArrowFunction(parent)) {
-        let callable: Node | undefined = parent;
-        while (callable !== undefined && !isSourceCallableBodyBoundary(ast, callable)) callable = ast.parent(callable);
+        const callable = navigation.enclosing(expression, "body");
         return callable === undefined ? undefined : types.getDeclarationSignatureInfo(callable)?.returnType;
       }
       return undefined;

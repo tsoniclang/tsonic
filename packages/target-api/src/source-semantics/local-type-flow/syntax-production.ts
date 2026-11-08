@@ -76,8 +76,8 @@ function intersection(context: SourceSyntaxProduction): SourceProductionResult<S
       const value = sourceKeyEvidence(context, syntax, unit);
       let admitted = true;
       for (const required of selected.value) {
-        const relation = sourceEvidenceExtends(builder, value, required);
-        if (relation.kind === "refused") return relation;
+        const relation = sourceEvidenceExtends(context, value, required);
+        if (relation.kind !== "resolved") return relation;
         if (relation.value === "deferred") return defer(context, required);
         admitted &&= relation.value === "yes";
       }

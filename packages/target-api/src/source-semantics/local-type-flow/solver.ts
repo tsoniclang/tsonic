@@ -1,15 +1,15 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
-import { isSourceCallableSignatureDeclaration } from "../../source-navigation/callable-boundaries.js";
 import { sourceArrayElementType } from "../array-types.js";
 import { getSourceMethodTypeArgumentComponent } from "../type-arguments.js";
-import { sourceLiteralToken } from "../literal-token.js";
-import type { SourceLiteralValue } from "../literal-values-model.js";
+import { sourceLiteralToken } from "../../source-model/literals/token.js";
+import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { createSourceTypeFlowAnalysisContext, sourceTypeFlowCallResultType, sourceTypeFlowNumericLiteralKind, sourceTypeFlowTypeParameters } from "./defaults.js";
 import { collectSourceTypeFlowEdges, isWriteTarget, sourceTypeFlowDeclaredPatternBindings, sourceTypeFlowDescriptorPart, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { collectSourceTypeFlowSignatures } from "./signatures.js";
-import { createSourceTypeFlowTerms, freezeSourceTypeDescriptor, isSourceTypeFlowDeclaredConstruction, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
+import { freezeSourceTypeDescriptor, sourceTypeDescriptorDepth, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorUnion, substituteSourceTypeDescriptor } from "./terms.js";
+import { createSourceTypeFlowTerms, isSourceTypeFlowDeclaredConstruction } from "./term-groups.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import { publishSourceLiteralMetadata, sourceLiteralMemberCorrespondence } from "./literal-publication.js";
 import { publishSourceStructMemberCorrespondence } from "./struct-publication.js";
@@ -166,7 +166,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     const queries = source.semantics.forNode(call.node);
     const declaration = queries.declarations.signatureDeclaration(call.source.selectedSignature);
     if (declaration === undefined || source.ast.body(declaration) === undefined || source.ast.typeNode(declaration) !== undefined) continue;
-    const returned = sourceTypeFlowCallableReturns(source.ast, declaration).returned;
+    const returned = sourceTypeFlowCallableReturns(source, declaration).returned;
     const variables = returned.map(node => retainedVariables.get(node));
     const missing = returned.find((_, index) => variables[index] === undefined);
     callableQueries.set(declaration, queries);
@@ -176,7 +176,8 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   const receiverProjections = new Map<Group, SourceReadProjection[]>();
   const variables = new Set([...graph.nodes.map(record => record.variable),
-    ...graph.links.flatMap(link => [link.source, link.target])]);
+    ...graph.links.flatMap(link => [link.source, link.target]),
+    ...graph.producerInputs.flatMap(input => [input.source, input.target])]);
   function retainReceiverProjection(variable: SourceTypeFlowVariable, projection: SourceReadProjection): void {
     const selected = group(variable);
     let projections = receiverProjections.get(selected);
@@ -187,25 +188,27 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     }
   }
   for (const variable of variables) {
-    const literal = sourceTypeFlowObjectLiteralReceiver(source.ast, variable.node);
+    const literal = sourceTypeFlowObjectLiteralReceiver(source, variable.node);
     if (literal === undefined) continue;
     const owner = valueVariables.get(literal);
     if (owner === undefined) throw new Error("An object-literal receiver requires its original retained construction group.");
     retainReceiverProjection(variable, { source: group(owner), origin: literal, site: variable.node, path: variable.path, construction: true });
   }
-  for (const record of graph.nodes) {
-    if (record.kind !== "read" || record.declaration === undefined || record.variable.path.length !== 0 ||
-      !source.ast.is.IsIdentifier(record.node) || !(source.ast.is.IsFunctionDeclaration(record.root) ||
-        (source.ast.is.IsArrowFunction(record.root) || source.ast.is.IsFunctionExpression(record.root)) &&
-          source.navigation.expressionResultDisposition(record.root).kind === "discarded")) continue;
-    const declaration = records.get(record.declaration);
-    const owner = valueVariables.get(record.declaration);
-    if (declaration === undefined || owner === undefined || declaration.root === record.root) continue;
-    retainReceiverProjection(record.variable, { source: group(owner), origin: record.declaration,
-      site: record.node, path: record.variable.path, construction: false });
+  const inferenceInputs = new Map<Group, SourceTypeFlowGraph["producerInputs"][number][]>();
+  for (const input of graph.producerInputs) {
+    if (input.purpose === "value") {
+      retainReceiverProjection(input.target, { source: group(input.source), origin: input.source.node,
+        site: input.site, path: [], construction: false });
+    } else {
+      const target = group(input.target);
+      let inputs = inferenceInputs.get(target);
+      if (inputs === undefined) inferenceInputs.set(target, inputs = []);
+      inputs.push(input);
+      target.dependencies.add(group(input.source));
+    }
   }
   const projectedVariables = [...variables].filter(variable => variable.path.length > 0 &&
-    sourceTypeFlowObjectLiteralReceiver(source.ast, variable.node) === undefined);
+    sourceTypeFlowObjectLiteralReceiver(source, variable.node) === undefined);
   for (let index = 0; index < projectedVariables.length;) {
     const variable = projectedVariables[index]!;
     const base = valueVariables.get(variable.node);
@@ -263,9 +266,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       continue;
     }
     const owner = inferenceOwner(issue.site) ?? inferenceOwner(issue.related);
-    if (owner === undefined && !valueVariables.has(issue.site) && domainValues.has(issue.site)) {
-      outcomes.set(issue.site, issue);
+    if (owner === undefined) {
+      if (domainValues.has(issue.site)) outcomes.set(issue.site, issue);
       directGraphRefusals.push(issue);
+      const variable = valueVariables.get(issue.site);
+      if (variable !== undefined) group(variable).refused ??= issue;
     }
     if (owner !== undefined) {
       graphRefusalOwners.set(issue, owner);
@@ -281,7 +286,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   function children(term: SourceTypeFlowTerm): readonly SourceTypeFlowVariable[] {
     return term.kind === "array" ? [term.element] : term.kind === "optional" ? [term.value]
       : term.kind === "tuple" ? term.elements.map(element => element.variable) : term.kind === "shape" ? term.members.map(member => member.variable)
-      : term.kind === "declared" ? term.typeArguments : [];
+      : term.kind === "declared" ? term.typeArguments : term.kind === "template" ? term.bindings.map(binding => binding.variable) : [];
   }
   const interfaceChecks = new Map<Group, { readonly type: SourceTypeDescriptor; readonly site: Node }>();
   for (const use of uses) if (use.kind === "check" && use.check === "interface") {
@@ -479,9 +484,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
         accumulatorDependencies.set(selected, dependencies);
       }
       for (const operand of derived.operands) dependencies.add(group(operand));
-      const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
-      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
-      if (variable !== undefined) dependencies.add(group(variable));
+      if (derived.control !== undefined) dependencies.add(group(derived.control));
     }
     for (const receiver of receiverProjections.get(selected) ?? []) selected.dependencies.add(receiver.source);
     const body = bodyCallResults.get(selected);
@@ -582,7 +585,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   }
   function constructed(selected: Group): SourceTypeDescriptor | undefined {
     for (const term of selected.terms) {
-      if (term.kind === "array") {
+      if (term.kind === "template") {
+        const bindings = new Map<Node, SourceTypeDescriptor>();
+        for (const binding of term.bindings) {
+          const type = group(binding.variable).type;
+          if (type === undefined) return undefined;
+          bindings.set(binding.declaration, type);
+        }
+        return substituteSourceTypeDescriptor(term.type, bindings);
+      } else if (term.kind === "array") {
         const element = group(term.element).type;
         if (element !== undefined) return { kind: "array", readonly: term.readonly, element };
         if (source.ast.is.IsArrayLiteralExpression(term.site)) {
@@ -656,9 +667,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (derived.operator === "identity" && update === undefined) return types[0];
     if (derived.operator === "sequence") return types[types.length - 1];
     if (derived.operator === "conditional") {
-      const condition = source.ast.as.AsConditionalExpression(derived.node)?.Condition;
-      const variable = condition === undefined ? undefined : retainedVariables.get(condition);
-      const type = variable === undefined ? undefined : group(variable).type;
+      const type = derived.control === undefined ? undefined : group(derived.control).type;
       const structure = type === undefined ? undefined : sourceTypeDescriptorStructure(type);
       if (structure?.kind !== "primitive" || structure.primitive !== "bool") {
         return operatorRefusal(derived, "A conditional operator requires an exact bool condition.");
@@ -666,10 +675,15 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       return sourceTypeDescriptorUnion(partneredArms(derived.operands, types.filter((type): type is SourceTypeDescriptor => type !== undefined)));
     }
     if (derived.operator === "logical-and" || derived.operator === "logical-or") {
-      const primitives = types.map(type => type === undefined ? undefined : sourceTypeDescriptorStructure(type));
-      return primitives.length === 2 && primitives.every(type => type?.kind === "primitive" && type.primitive === "bool")
-        ? binaryResult(derived, { kind: "primitive", primitive: "bool" })
-        : operatorRefusal(derived, "A logical operator requires exact bool operands.");
+      const left = types[0];
+      const right = types[1];
+      const control = left === undefined ? undefined : sourceTypeDescriptorStructure(left);
+      if (types.length !== 2 || left === undefined || right === undefined ||
+        control?.kind !== "primitive" || control.primitive !== "bool") {
+        return operatorRefusal(derived, "A logical operator requires an exact bool left operand.");
+      }
+      const result = sourceTypeDescriptorUnion([left, right]);
+      return result === undefined ? undefined : binaryResult(derived, result);
     }
     if (derived.operator === "coalesce") {
       const left = types[0] === undefined ? undefined : sourceTypeDescriptorStructure(types[0]);
@@ -884,8 +898,24 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       const refusal = defaults.descriptorRefusals.get(node.node);
       if (refusal !== undefined) { selected.refused = refusal; break; }
     }
-    if ((selected.inference || selected.derived.length > 0) && selected.refused === undefined) for (const dependency of selected.dependencies) {
+    if ((selected.inference || selected.derived.length > 0 || inferenceInputs.has(selected) || receiverProjections.has(selected)) &&
+      selected.refused === undefined) for (const dependency of selected.dependencies) {
       if (dependency.refused !== undefined) { selected.refused = dependency.refused; break; }
+    }
+    if (selected.refused !== undefined) { selected.solved = true; return; }
+    for (const input of inferenceInputs.get(selected) ?? []) {
+      const calculation = scalarCalculations.get(input.source.node);
+      if (calculation?.kind === "refused") {
+        selected.refused = calculation;
+        break;
+      }
+      const producer = group(input.source);
+      const type = calculation ?? producedOperandType(input.source);
+      if (type === undefined) {
+        selected.refused = producer.refused ?? createSourceTypeFlowRefusal("TSONIC_LOCAL_TYPE_GENERIC", input.site);
+        break;
+      }
+      selected.fills.push({ type, site: input.site, fixed: true, authority: producer.chosenFill?.authority ?? "inferred" });
     }
     if (selected.refused !== undefined) { selected.solved = true; return; }
     const body = bodyCallResults.get(selected);
@@ -1415,7 +1445,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
   for (const node of defaults.nodes) {
     if (outcomes.has(node) || !source.ast.is.IsParameterDeclaration(node)) continue;
     const owner = source.ast.parent(node);
-    if (owner === undefined || !isSourceCallableSignatureDeclaration(source.ast, owner) ||
+    if (owner === undefined || !source.navigation.callableRoles(owner).signature ||
       source.ast.is.IsFunctionTypeNode(owner) || source.ast.is.IsConstructorTypeNode(owner) ||
       !(source.ast.is.IsMethodSignatureDeclaration(owner) || source.ast.is.IsCallSignatureDeclaration(owner) ||
         source.ast.is.IsConstructSignatureDeclaration(owner) || source.ast.body(owner) === undefined)) continue;
@@ -1490,7 +1520,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
     if (cached !== undefined) return cached;
     if (activeReturns.has(declaration)) return undefined;
     const ast = source.ast;
-    if (!isSourceCallableSignatureDeclaration(ast, declaration)) return undefined;
+    if (!source.navigation.callableRoles(declaration).signature) return undefined;
     activeReturns.add(declaration);
     const file = ast.getSourceFile(declaration);
     const queries = callableQueries.get(declaration) ?? (file !== undefined && source.semantics.includes(file)
@@ -1511,7 +1541,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       type = contextual?.signature.result ?? requiredResult;
       const requiredType = requiredResult;
       const returnedValues = file !== undefined && source.semantics.includes(file)
-        ? sourceTypeFlowCallableReturns(ast, declaration).returned : [];
+        ? sourceTypeFlowCallableReturns(source, declaration).returned : [];
       for (const returned of returnedValues) {
         const value = outcomes.get(returned);
         if (value === undefined) throw new Error("A declared callable body requires its canonical Source publication.");
@@ -1524,7 +1554,7 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       type = context.describe(declaration, { selectedType, declaration,
         ...(annotation === undefined ? {} : { authoredTypeNode: annotation }) });
     } else {
-      const { returned, absent } = sourceTypeFlowCallableReturns(ast, declaration);
+      const { returned, absent } = sourceTypeFlowCallableReturns(source, declaration);
       const types: SourceTypeDescriptor[] = [];
       const asynchronous = ast.hasModifierKind(declaration, "async");
       let incomplete = false;
@@ -1581,11 +1611,11 @@ export function analyzeSourceEffectiveTypes(source: SourceTypeFlowSource): Sourc
       type: freezeSourceTypeDescriptor(type), provenance: Object.freeze({ group: selected.variable.node, occurrence: node, sourceFile }) });
   }
   for (const node of defaults.nodes) {
-    if (isSourceCallableSignatureDeclaration(source.ast, node)) callableReturn(node);
+    if (source.navigation.callableRoles(node).signature) callableReturn(node);
   }
   for (const node of defaults.nodes) {
     const ast = source.ast;
-    if (!isSourceCallableSignatureDeclaration(ast, node)) continue;
+    if (!source.navigation.callableRoles(node).signature) continue;
     const returned = callableReturn(node);
     if (returned === undefined) continue;
     if (returned.kind === "refused") { outcomes.set(node, returned); continue; }

@@ -1,33 +1,39 @@
-import type { SourceComponentSelector, SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceDescriptorBuilder } from "../descriptor-contracts.js";
+import type { SourceComponentSelector, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceLiteralDomainIncludes } from "../../source-model/literals/domain.js";
+import type { SourceSemanticProduction } from "./semantic-production.js";
+import { sourceKeyDomainContains } from "./key-domains.js";
 
 export type SourceEvidenceRelation = "yes" | "no" | "deferred";
 
-export function sourceEvidenceExtends(builder: SourceDescriptorBuilder, source: SourceTypeEvidence,
-  destination: SourceTypeEvidence): SourceResult<SourceEvidenceRelation> {
+export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "builder" | "objects">, source: SourceTypeEvidence,
+  destination: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
+  const { builder, objects } = context;
   const active = new Map<SourceTypeEvidence, Set<SourceTypeEvidence>>();
-  const resolved = (value: SourceEvidenceRelation): SourceResult<SourceEvidenceRelation> => ({ kind: "resolved", value });
+  const resolved = (value: SourceEvidenceRelation): SourceProductionResult<SourceEvidenceRelation> => ({ kind: "resolved", value });
 
-  function combine(values: readonly SourceResult<SourceEvidenceRelation>[], every: boolean): SourceResult<SourceEvidenceRelation> {
+  function combine(values: readonly SourceProductionResult<SourceEvidenceRelation>[], every: boolean): SourceProductionResult<SourceEvidenceRelation> {
     let deferred = false;
+    const dependencies = new Set<Extract<SourceProductionResult<never>, { kind: "pending" }>["dependencies"][number]>();
     for (const value of values) {
       if (value.kind === "refused") return value;
+      if (value.kind === "pending") { value.dependencies.forEach(dependency => dependencies.add(dependency)); continue; }
       if (value.value === (every ? "no" : "yes")) return value;
       deferred ||= value.value === "deferred";
     }
-    return resolved(deferred ? "deferred" : every ? "yes" : "no");
+    return dependencies.size > 0 ? { kind: "pending", dependencies: [...dependencies] }
+      : resolved(deferred ? "deferred" : every ? "yes" : "no");
   }
 
   function child(left: SourceTypeEvidence, leftPart: SourceComponentSelector, right: SourceTypeEvidence,
-    rightPart: SourceComponentSelector): SourceResult<SourceEvidenceRelation> {
+    rightPart: SourceComponentSelector): SourceProductionResult<SourceEvidenceRelation> {
     const first = builder.component(left, leftPart);
     if (first.kind === "refused") return first;
     const second = builder.component(right, rightPart);
     return second.kind === "refused" ? second : relate(first.value, second.value);
   }
 
-  function relate(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceResult<SourceEvidenceRelation> {
+  function relate(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
     builder.assertEvidence(left);
     builder.assertEvidence(right);
     const actual = left.type, required = right.type;
@@ -42,7 +48,8 @@ export function sourceEvidenceExtends(builder: SourceDescriptorBuilder, source: 
     const leftDomain = builder.domain(left), rightDomain = builder.domain(right);
     if (rightDomain.kind === "finite" && (leftDomain.kind !== "finite" ||
       !leftDomain.values.every(value => sourceLiteralDomainIncludes(rightDomain, value)))) return resolved("no");
-    if (actual === required) return resolved("yes");
+    if (left.category.kind === "known" && right.category.kind === "known" && left.category.category !== right.category.category) return resolved("no");
+    if (left === right) return resolved("yes");
     let rightValues = active.get(left);
     if (rightValues?.has(right)) return resolved("deferred");
     if (rightValues === undefined) { rightValues = new Set(); active.set(left, rightValues); }
@@ -91,27 +98,44 @@ export function sourceEvidenceExtends(builder: SourceDescriptorBuilder, source: 
           ? child(left, { kind: "tuple-element", index }, right, { kind: "tuple-element", index }) : resolved("no")), true);
       }
       if ((actual.kind === "shape" || actual.kind === "callable") && (required.kind === "shape" || required.kind === "callable")) {
-        const relations: SourceResult<SourceEvidenceRelation>[] = [];
+        const relations: SourceProductionResult<SourceEvidenceRelation>[] = [];
         if (required.kind === "shape") {
-          if (actual.kind !== "shape") return resolved(required.members.every(member => member.optional) && required.indexes.length === 0 ? "yes" : "no");
-          for (const member of required.members) {
-            const selected = actual.members.filter(candidate => candidate.name === member.name);
-            if (selected.length === 0 && member.optional) continue;
-            if (selected.length !== 1 || selected[0]!.optional && !member.optional || selected[0]!.readonly && !member.readonly) return resolved("no");
-            relations.push(child(left, { kind: "member", origin: selected[0]!.origin }, right, { kind: "member", origin: member.origin }));
+          const pairs = objects.correspondence(left, right, "correspondence", (destination, source) =>
+            sourceKeyDomainContains(builder, destination, source));
+          if (pairs.kind !== "resolved") return pairs;
+          if (pairs.value.kind === "unavailable") return resolved(pairs.value.reason === "unresolved-shape" ? "deferred" : "no");
+          for (const pair of pairs.value.members) {
+            if (pair.kind === "absent") {
+              if (!pair.destination.optional) return resolved("no");
+              continue;
+            }
+            if (pair.source.optional && !pair.destination.optional) return resolved("no");
+            if (pair.destination.readType !== undefined) {
+              if (pair.source.readType === undefined) return resolved("no");
+              relations.push(relate(pair.source.readType, pair.destination.readType));
+            }
+            if (pair.destination.writeType !== undefined && !pair.destination.readonly) {
+              if (pair.source.writeType === undefined || pair.source.readonly) return resolved("no");
+              relations.push(relate(pair.destination.writeType, pair.source.writeType));
+            }
           }
-          for (const index of required.indexes) {
-            const candidates = actual.indexes.filter(candidate => candidate.declaration === index.declaration);
-            if (candidates.length !== 1) return resolved("no");
-            relations.push(child(left, { kind: "index-key", declaration: candidates[0]!.declaration }, right,
-              { kind: "index-key", declaration: index.declaration }));
-            relations.push(child(left, { kind: "index-value", declaration: candidates[0]!.declaration }, right,
-              { kind: "index-value", declaration: index.declaration }));
+          for (const pair of pairs.value.indexes) {
+            const alternatives: SourceProductionResult<SourceEvidenceRelation>[] = [];
+            for (const candidate of pair.sources) {
+              const selected: SourceProductionResult<SourceEvidenceRelation>[] = [resolved(candidate.coverage)];
+              if (pair.destination.readType !== undefined) selected.push(candidate.source.readType === undefined ? resolved("no")
+                : relate(candidate.source.readType, pair.destination.readType));
+              if (pair.destination.writeType !== undefined && !pair.destination.readonly) selected.push(
+                candidate.source.writeType === undefined || candidate.source.readonly ? resolved("no")
+                  : relate(pair.destination.writeType, candidate.source.writeType));
+              alternatives.push(combine(selected, true));
+            }
+            relations.push(combine(alternatives, false));
           }
         }
         for (const kind of ["calls", "constructs"] as const) {
           for (const requiredSignature of required[kind]) {
-            const alternatives: SourceResult<SourceEvidenceRelation>[] = [];
+            const alternatives: SourceProductionResult<SourceEvidenceRelation>[] = [];
             for (const actualSignature of actual[kind]) {
               if (actualSignature.parameters.length !== requiredSignature.parameters.length ||
                 actualSignature.identity.typeParameters.length !== requiredSignature.identity.typeParameters.length) continue;

@@ -11,8 +11,11 @@ import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import { produceSourceCallableSignature, produceSourceHeritageBindings, type SourceCallableProduction } from "./callable-production.js";
 import { produceSourceArgumentPlaces } from "./argument-places.js";
+import { sourceApplicationStaticReceiver } from "./application-references.js";
+import type { SourceTypeFlowSource } from "./types.js";
 
 export interface SourceApplicationProduction extends SourceCallableProduction {
+  readonly profile: SourceTypeFlowSource["profile"];
   component(component: SourceInputComponent, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<SourceTypeEvidence>;
   admits(source: SourceTypeEvidence, destination: SourceTypeEvidence, site: Node): SourceProductionResult<boolean>;
   proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<boolean>;
@@ -65,8 +68,10 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     }
     let receiver: SourceApplicationReceiver = Object.freeze({ kind: "none" });
     const selectedReceiver = original.receiver;
+    const staticReceiver = sourceApplicationStaticReceiver(context, original);
     if (selectedReceiver !== undefined) {
-      if (selectedReceiver.role === "value") {
+      if (staticReceiver !== undefined) receiver = Object.freeze({ kind: "type", declaration: staticReceiver });
+      else if (selectedReceiver.role === "value") {
         const value = context.value(selectedReceiver.occurrence, ordered());
         if (value.kind !== "resolved") return value;
         receiver = Object.freeze({ kind: "value", occurrence: selectedReceiver.occurrence, value: value.value });
@@ -180,6 +185,9 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     const identity: SourceApplicationIdentity = Object.freeze({ invocation, signature,
       classBindings: Object.freeze(allBindings.slice(0, classCount)),
       signatureBindings: Object.freeze(allBindings.slice(classCount)) });
+    const callee = staticReceiver === undefined ? context.value(original.callee.occurrence, allBindings)
+      : reader.describeComponent(original.callee.component, allBindings);
+    if (callee.kind !== "resolved") return callee;
     const sourceArguments: SourceAuthoredArgument[] = [];
     for (const argument of value.sourceArguments) {
       const source = context.value(argument.expression, allBindings);
@@ -230,7 +238,8 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
       return refusal("An original callable candidate retains a checker diagnostic not covered by its exact Source constraints.");
     }
     return { kind: "resolved", value: Object.freeze({ application: Object.freeze({ identity,
-      kind: original.kind, receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), result: appliedSignature.value.result }),
+      kind: original.kind, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
+      receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), result: appliedSignature.value.result }),
     diagnostics: Object.freeze([...diagnostics]) }) };
   }
 

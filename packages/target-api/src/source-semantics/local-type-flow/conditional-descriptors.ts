@@ -3,6 +3,7 @@ import type { SourceTypeBinding, SourceTypeEvidence } from "../../public/source/
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceEvidenceExtends, type SourceEvidenceRelation } from "./evidence-relations.js";
+import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
 
 export function produceSourceConditionalType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
@@ -37,8 +38,8 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
       if (annotation !== undefined) {
         const constraint = reader.describeSyntax(annotation, bindings());
         if (constraint.kind !== "resolved") return constraint;
-        const fit = sourceEvidenceExtends(builder, actual, constraint.value);
-        if (fit.kind === "refused" || fit.value !== "yes") return fit;
+        const fit = sourceEvidenceExtends(context, actual, constraint.value);
+        if (fit.kind !== "resolved" || fit.value !== "yes") return fit;
       }
       const previous = inferred.get(declaration);
       const joined = previous === undefined ? { kind: "resolved" as const, value: actual }
@@ -102,16 +103,25 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
       if (signatures.length === 0) return resolved("no");
       const signature = signatures[signatures.length - 1]!;
       const matches: SourceProductionResult<SourceEvidenceRelation>[] = [];
-      for (const [index, parameter] of ast.parameters(pattern).entries()) {
+      let index = 0;
+      for (const parameter of ast.parameters(pattern)) {
         if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter)) return sourceSemanticRefusal(pattern,
           "An original conditional callable parameter is missing.");
         const annotation = ast.typeNode(parameter);
         if (annotation === undefined) return sourceSemanticRefusal(parameter, "An original conditional parameter requires its type component.");
+        const name = ast.name(parameter);
+        if (name !== undefined && ast.text(name) === "this") {
+          if (signature.receiver === undefined) return resolved("no");
+          const receiver = builder.component(selected, { kind: "receiver", signature: signature.identity });
+          matches.push(receiver.kind === "refused" ? receiver : match(annotation, receiver.value));
+          continue;
+        }
         const rest = ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined;
         if (!rest && signature.parameters[index] === undefined) return resolved("no");
         const value = rest ? builder.component(selected, { kind: "signature-tail", signature: signature.identity, start: index, readonly: false })
           : builder.component(selected, { kind: "parameter", signature: signature.identity, index });
         matches.push(value.kind === "refused" ? value : match(annotation, value.value));
+        index++;
       }
       const resultNode = ast.typeNode(pattern);
       if (resultNode === undefined) return sourceSemanticRefusal(pattern, "An original conditional callable result is missing.");
@@ -120,27 +130,33 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
       return combine(matches);
     }
     if (ast.is.IsTypeLiteralNode(pattern)) {
-      if (type.kind !== "shape") return resolved("no");
+      if (type.kind !== "shape" && type.kind !== "callable") return resolved("no");
+      const expected = reader.describeSyntax(pattern, bindings());
+      if (expected.kind !== "resolved") return expected;
+      const correspondence = context.objects.correspondence(selected, expected.value, "correspondence", (destination, source) =>
+        sourceKeyDomainContains(builder, destination, source));
+      if (correspondence.kind !== "resolved") return correspondence;
+      if (correspondence.value.kind === "unavailable") return resolved(correspondence.value.reason === "unresolved-shape" ? "deferred" : "no");
       const matches: SourceProductionResult<SourceEvidenceRelation>[] = [];
-      for (const member of ast.members(pattern)) {
-        if (member === undefined) return sourceSemanticRefusal(pattern, "An original conditional member is missing.");
-        const name = ast.name(member);
-        if (name === undefined) return sourceSemanticRefusal(member, "An original conditional member name is missing.");
-        const memberName = ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name) ? ast.text(name) : undefined;
-        if (memberName === undefined) return sourceSemanticRefusal(name, "This conditional member requires its canonical original key.");
-        const matching = type.members.filter(candidate => candidate.name === memberName);
-        const optional = ast.questionToken(member) !== undefined;
-        if (matching.length === 0 && optional) continue;
-        if (matching.length !== 1 || matching[0]!.optional && !optional) return resolved("no");
+      for (const pair of correspondence.value.members) {
+        if (pair.kind === "absent") {
+          if (!pair.destination.optional) return resolved("no");
+          continue;
+        }
+        if (pair.source.optional && !pair.destination.optional) return resolved("no");
+        const declarations = pair.destination.declarations.filter(declaration => ast.parent(declaration) === pattern);
+        if (declarations.length !== 1) return sourceSemanticRefusal(pattern, "A conditional member requires its exact original pattern declaration.");
+        const member = declarations[0]!;
         const annotation = ast.is.IsMethodSignatureDeclaration(member) ? member : ast.typeNode(member);
         if (annotation === undefined) return sourceSemanticRefusal(member, "An original conditional member type is missing.");
-        const value = builder.component(selected, { kind: "member", origin: matching[0]!.origin });
-        matches.push(value.kind === "refused" ? value : match(annotation, value.value));
+        if (pair.source.readType === undefined) return resolved("no");
+        matches.push(match(annotation, pair.source.readType));
       }
+      if (correspondence.value.indexes.length > 0) matches.push(sourceEvidenceExtends(context, selected, expected.value));
       return combine(matches);
     }
     const expected = reader.describeSyntax(pattern, bindings());
-    return expected.kind !== "resolved" ? expected : sourceEvidenceExtends(builder, actual, expected.value);
+    return expected.kind !== "resolved" ? expected : sourceEvidenceExtends(context, actual, expected.value);
   }
 
   function tuple(pattern: Node, actual: SourceTypeEvidence, readonlyPattern: boolean): SourceProductionResult<SourceEvidenceRelation> {
@@ -177,7 +193,7 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
 
   function branch(actual: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {
     inferred.clear();
-    if (actual.type.kind === "intrinsic" && actual.type.intrinsic === "never") return { kind: "resolved", value: actual };
+    if (originalCheck.kind === "parameter") inferred.set(originalCheck.parameter, actual);
     const matched = match(patternNode, actual);
     if (matched.kind !== "resolved") return matched;
     if (matched.value === "deferred") {
@@ -186,9 +202,12 @@ export function produceSourceConditionalType(context: SourceSyntaxProduction): S
         component, category: { kind: "dynamic" }, numeric: undefined, sum: undefined },
       [{ selector: { kind: "projection-source" }, value: actual }], context.component, sourceOpenLiteralDomain) };
     }
-    return reader.describeSyntax(matched.value === "yes" ? trueNode : falseNode, matched.value === "yes" ? bindings() : context.bindings);
+    return reader.describeSyntax(matched.value === "yes" ? trueNode : falseNode, bindings());
   }
   const originalCheck = input.describe(input.syntax(checkNode));
+  if (originalCheck.kind === "parameter" && check.value.type.kind === "intrinsic" && check.value.type.intrinsic === "never") {
+    return builder.join(builder.componentIdentity(syntax, []), "authored", [], context.component);
+  }
   const results = check.value.sum !== undefined && originalCheck.kind === "parameter"
     ? sourceProductionValues(check.value.sum.arms.map(arm => branch(arm))) : sourceProductionValues([branch(check.value)]);
   return results.kind !== "resolved" ? results : builder.join(builder.componentIdentity(syntax, []), "authored", results.value, context.component);

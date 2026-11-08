@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
-import type { SourceLiteralValue } from "../literal-values-model.js";
+import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import type { SourceTypeFlowDeclaredSlot } from "./declared-slots.js";
