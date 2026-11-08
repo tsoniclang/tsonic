@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../public/source/contracts.js";
-import type { SourceProductionResult } from "../descriptor-contracts.js";
+import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
@@ -199,4 +199,31 @@ export function sourceProducedSignatureDescriptor(value: SourceProducedSignature
     ...(value.receiver.declaration === undefined ? {} : { declaration: value.receiver.declaration }), type: value.receiver.value.type } }),
   parameters: value.parameters.map(parameter => ({ kind: parameter.kind, type: parameter.type.type,
     ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) })), result: value.result.type });
+}
+
+export function produceSourceBodyCallable(context: SourceCallableProduction, declaration: Node,
+  bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
+  const { ast, input, builder } = context;
+  input.assertNode(declaration);
+  const original = input.signatureForDeclaration(declaration);
+  if (original.kind === "none") return sourceSemanticRefusal(declaration,
+    "An original callable body requires its authentic implementation signature.", "TSONIC_LOCAL_TYPE_SIGNATURE");
+  const owner = ast.is.IsConstructorDeclaration(declaration) ? ast.parent(declaration) : undefined;
+  if (owner !== undefined && !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner))
+    throw new Error("An original constructor implementation requires its actual class owner.");
+  const produced = produceSourceCallableSignature(context, original.value, bindings, owner, declaration);
+  if (produced.kind !== "resolved") return produced;
+  const signature = produced.value;
+  if (signature.identity.declaration !== declaration)
+    throw new Error("A body callable must retain its original API-domain implementation declaration.");
+  const children: SourceEvidenceComponent[] = signature.parameters.map(parameter => ({
+    selector: { kind: "parameter", signature: signature.identity, index: parameter.index }, value: parameter.type }));
+  if (signature.receiver !== undefined) children.push({ selector: { kind: "receiver", signature: signature.identity }, value: signature.receiver.value });
+  children.push({ selector: { kind: "result", signature: signature.identity }, value: signature.result });
+  const descriptor = sourceProducedSignatureDescriptor(signature);
+  return { kind: "resolved", value: builder.evidence({ type: builder.callable({
+    calls: signature.identity.kind === "call" ? [descriptor] : [], constructs: signature.identity.kind === "construct" ? [descriptor] : [] }),
+  component: builder.componentIdentity(declaration, []), category: { kind: "known", category: "function" }, numeric: undefined, sum: undefined },
+  children, undefined, sourcePresentLiteralDomain,
+  { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [declaration] } }) };
 }

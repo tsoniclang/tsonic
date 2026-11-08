@@ -130,6 +130,37 @@ const receiverExamples = [
     return new Local(value); }` },
 ];
 
+test("an overloaded implementation retains its genuine body identity without replacing advertised callable signatures", () => {
+  const current = fixture(`function choose(value: int32): int32;
+    function choose(value: string): string;
+    function choose(value: int32 | string): int32 | string { return value; }
+    function run(): void { const callable = choose; const selected = choose(1 as int32); void callable; void selected; }`);
+  const { ast, facts } = current.source;
+  const declarations = current.nodes.filter(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "choose");
+  const implementation = declarations.find(node => ast.body(node) !== undefined);
+  const overloads = declarations.filter(node => ast.body(node) === undefined);
+  const call = current.nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node)?.Expression) === "choose");
+  assert.equal(implementation !== undefined && call !== undefined && overloads.length === 2, true);
+  const body = facts.values.declaredSlot(implementation);
+  assert.equal(body.kind === "resolved" && body.value.type.type.kind === "callable" && body.value.type.type.calls.length === 1, true);
+  const signature = body.value.type.type.calls[0];
+  assert.equal(signature.identity.declaration === implementation && signature.parameters.length === 1, true,
+    "the actual API-domain body signature is not a selected public overload");
+  const parameter = facts.descriptors.component(body.value.type, { kind: "parameter", signature: signature.identity, index: 0 });
+  assert.equal(parameter.kind === "resolved" && parameter.value.type.kind === "union" && parameter.value.type.types.length === 2, true);
+  const returned = facts.values.callableReturn(signature.identity);
+  assert.equal(returned.kind === "resolved" && returned.value.type === signature.result, true);
+  const advertised = facts.values.type(implementation);
+  const application = facts.applications.application(call);
+  assert.equal(advertised.kind === "resolved" && application.kind === "resolved", true);
+  const inventory = facts.descriptors.definition(advertised.value);
+  assert.equal(inventory.kind === "resolved" && inventory.value.type.kind === "callable" && inventory.value.type.calls.length === 2 &&
+    inventory.value.type.calls.every(candidate => overloads.includes(candidate.identity.declaration)), true,
+  "ordinary value questions retain the complete advertised original overload inventory");
+  assert.equal(application.value.identity.signature.declaration === overloads[0] && application.value.identity.signature !== signature.identity, true,
+    "the selected original call and API-domain body remain distinct authentic identities");
+});
+
 test("C2428 aliased generic method callbacks publish the original selected binder's exact argument", () => {
   const current = fixture(`export function run<Value>(values: Value[]): Value[] {
     const mapper = (value: Value): Value => value;

@@ -4,7 +4,7 @@ import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceU
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceCorrespondenceMember } from "../member-correspondence.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceBodyCallable, produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
@@ -24,7 +24,10 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
   input.assertNode(declaration);
   const annotation = ast.typeNode(declaration);
   let value: SourceProductionResult<SourceTypeEvidence>;
-  if (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||
+  if (production.navigation.callableRoles(declaration).body && !ast.is.IsGetAccessorDeclaration(declaration) &&
+    !ast.is.IsSetAccessorDeclaration(declaration) && production.navigation.callableRoles(declaration).signature) {
+    value = produceSourceBodyCallable(production, declaration, bindings);
+  } else if (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
     ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) {
     value = reader.describeComponent(input.syntax(declaration), bindings);

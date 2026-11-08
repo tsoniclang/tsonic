@@ -156,6 +156,8 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
       if (ast.is.IsVariableDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration) || ast.is.IsBindingElement(declaration) || ast.is.IsPropertyDeclaration(declaration)) {
         return production.inferred(occurrence);
       }
+      if (context.source.navigation.callableRoles(declaration).signature)
+        return reader.describeComponent(input.syntax(occurrence), bindings);
       const slot = context.declared(declaration, bindings);
       return slot.kind !== "resolved" ? slot : { kind: "resolved", value: slot.value.type };
     }
