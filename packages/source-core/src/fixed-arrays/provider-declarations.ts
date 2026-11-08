@@ -11,7 +11,7 @@ export function fixedArrayTypeMarkerDeclaration(
     kind: "interface",
     typeParameters: [
       { name: "T" },
-      { name: "TLength", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] },
+      { name: "TLength", variance: "invariant", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] },
     ],
     members: [
       {

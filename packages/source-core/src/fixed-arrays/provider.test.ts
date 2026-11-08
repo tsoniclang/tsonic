@@ -43,7 +43,7 @@ test("fixed-array declaration keeps the native int32 length type and existing me
   assert.equal(declaration.id, tsonicFixedArrayProviderIds.exportId);
   assert.deepEqual(declaration.typeParameters, [
     { name: "T" },
-    { name: "TLength", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] },
+    { name: "TLength", variance: "invariant", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] },
   ]);
   assert.deepEqual(declaration.members?.map(member => member.id), [
     tsonicFixedArrayProviderIds.indexMemberId,

@@ -1,6 +1,6 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, SourceFileQueries, Symbol, Type } from "@tsonic/tsts";
-import { sourceIntegerLiteralValue, type SourceFileSemantics } from "@tsonic/target-api/source";
+import { sourceIntegerLiteralValue } from "@tsonic/target-api/host";
 import { snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "./facts.js";
 import type { TsonicFixedArrayFact } from "./facts.js";
 import { isTsonicFixedArrayProviderType } from "./provider.js";
@@ -18,9 +18,9 @@ export type TsonicFixedArraySelection =
 
 type FixedArraySourceQueries = Pick<SourceFileQueries, "ast"> & {
   readonly checker: Pick<SourceFileQueries["checker"],
-    "getTypeSymbol" | "getSymbolDeclarations" | "getSymbolAtLocation" | "getAliasedSymbol" | "getTypeFromTypeNode">;
+    "getTypeSymbol" | "getTypeAliasSymbol" | "getSymbolDeclarations" | "getSymbolAtLocation" | "getAliasedSymbol" | "getTypeFromTypeNode">;
   readonly typeShape: Pick<SourceFileQueries["typeShape"],
-    "isTypeReference" | "getTypeReferenceTarget" | "getTypeArguments" | "getNumericLiteralTypeValue" | "isTypeIdenticalTo">;
+    "isTypeReference" | "getTypeReferenceTarget" | "getTypeArguments" | "getNumericLiteralTypeValue" | "isTypeIdenticalTo" | "couldContainTypeVariables">;
 };
 
 interface ResolvedFixedArrayQueries {
@@ -37,42 +37,6 @@ interface FixedArrayExtent {
   readonly lengthRuntimeBase: "number" | "bigint";
 }
 
-export function selectTsonicFixedArrayFromSource(
-  sourceType: Type,
-  semantics: SourceFileSemantics,
-  facts: Pick<ReadonlySourceFactResolver, "getFact">,
-): TsonicFixedArraySelection | undefined {
-  const alias = semantics.declarations.typeAliasSymbol(sourceType);
-  const elements = new Set<Node>();
-  let extent: FixedArrayExtent | undefined;
-  for (const declaration of alias === undefined ? [] : semantics.declarations.symbolDeclarations(alias)) {
-    for (const node of semantics.facts.authoredTypeNodes(declaration)) {
-      const authored = facts.getFact(node, tsonicFixedArrayFactKey);
-      if (authored === undefined || semantics.declarations.typeAliasSymbol(authored.sourceType) !== alias ||
-          semantics.types.couldContainTypeVariables(authored.sourceType)) continue;
-      if (extent !== undefined && (authored.length !== extent.length ||
-          authored.lengthRuntimeBase !== extent.lengthRuntimeBase)) {
-        return invalid("The selected FixedArray alias contradicts its authored array evidence.");
-      }
-      extent = authored;
-      if (authored.elementType !== undefined) elements.add(authored.elementType);
-    }
-  }
-  const selected = selectResolvedFixedArray(sourceType, {
-    typeSymbol: semantics.declarations.typeSymbol,
-    symbolDeclarations: semantics.declarations.symbolDeclarations,
-    isTypeReference: semantics.types.isTypeReference,
-    typeReferenceTarget: semantics.types.typeReferenceTarget,
-    typeArguments: semantics.types.typeArguments,
-    numericLiteralValue: semantics.types.numericLiteralValue,
-  }, facts, extent);
-  if (selected?.kind !== "selected") return selected;
-  if (elements.size > 1) return invalid("The selected FixedArray alias has ambiguous authored element evidence.");
-  const elementType = elements.values().next().value;
-  return elementType === undefined ? selected
-    : Object.freeze({ kind: "selected", fact: snapshotFixedArrayFact({ ...selected.fact, elementType }) });
-}
-
 export function selectTsonicFixedArray(
   sourceType: Type,
   source: FixedArraySourceQueries,
@@ -80,6 +44,26 @@ export function selectTsonicFixedArray(
   syntax: TsonicFixedArraySyntax = {},
 ): TsonicFixedArraySelection | undefined {
   const { ast, checker, typeShape } = source;
+  const alias = checker.getTypeAliasSymbol(sourceType);
+  const evidence = new Set<Node>();
+  const elements = new Set<Node>();
+  let aliasExtent: FixedArrayExtent | undefined;
+  const pending = alias === undefined ? [] : checker.getSymbolDeclarations(alias).filter((node): node is Node => node !== undefined);
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (evidence.has(node)) continue;
+    evidence.add(node);
+    const authored = facts.getFact(node, tsonicFixedArrayFactKey);
+    if (authored !== undefined && checker.getTypeAliasSymbol(authored.sourceType) === alias &&
+      !typeShape.couldContainTypeVariables(authored.sourceType)) {
+      if (aliasExtent !== undefined && (authored.length !== aliasExtent.length || authored.lengthRuntimeBase !== aliasExtent.lengthRuntimeBase))
+        return invalid("The selected FixedArray alias contradicts its authored array evidence.");
+      aliasExtent = authored;
+      if (authored.elementType !== undefined) elements.add(authored.elementType);
+    }
+    ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+  }
+  if (elements.size > 1) return invalid("The selected FixedArray alias has ambiguous authored element evidence.");
   let authored = syntax.authoredTypeNode;
   while (authored !== undefined && ast.is.IsParenthesizedTypeNode(authored)) {
     authored = ast.as.AsParenthesizedTypeNode(authored)?.Type;
@@ -102,7 +86,10 @@ export function selectTsonicFixedArray(
   }
   const authoredCanonical = [...authoredSubjects].some(subject =>
     isTsonicFixedArrayProviderType(facts.getFact(subject, providerVirtualDeclarationFactKey)));
-  let extent = syntax.extent;
+  let extent = syntax.extent ?? aliasExtent;
+  if (syntax.extent !== undefined && aliasExtent !== undefined && (syntax.extent.length !== aliasExtent.length ||
+    syntax.extent.lengthRuntimeBase !== aliasExtent.lengthRuntimeBase))
+    return invalid("The selected FixedArray alias contradicts its supplied extent evidence.");
   const lengthType = syntax.extentType ?? (authoredCanonical && authored !== undefined ? ast.typeArguments(authored)[1] : undefined);
   const authoredExtent = lengthType === undefined ? undefined : fixedArrayAuthoredExtent(lengthType, source);
   if (authoredExtent !== undefined) {
@@ -126,7 +113,7 @@ export function selectTsonicFixedArray(
     return invalid("The authored FixedArray annotation does not match its selected source type.");
   }
   const elementType = syntax.elementType ?? (authoredCanonical && authored !== undefined
-    ? ast.typeArguments(authored)[0] : undefined);
+    ? ast.typeArguments(authored)[0] : elements.values().next().value);
   if (elementType === undefined) return selected;
   if (!typeShape.isTypeIdenticalTo(checker.getTypeFromTypeNode(elementType), selected.fact.elementSourceType)) {
     return invalid("The authored FixedArray element annotation does not match its selected element type.");
