@@ -60,7 +60,7 @@ export function createSourceCallInput(options: {
     assertNode(value.invocation);
     const previous = applications.get(value);
     if (previous !== undefined) return previous;
-    const signature = facts.originalSignature(value.invocation, value.kind, value.signature);
+    const signature = facts.originalSignature(value.kind, value.signature);
     const result: SourceInputApplication = Object.freeze({ invocation: value.invocation, kind: value.kind, signature,
       callee: Object.freeze({ occurrence: value.callee.expression, component: identities.component(value.callee.expression, [], value.callee.type), role: "value" }),
       receiver: value.receiver === undefined ? undefined : Object.freeze({ occurrence: value.receiver.expression,
@@ -90,7 +90,7 @@ export function createSourceCallInput(options: {
           break;
         }
         case "callable-result": case "callable-parameter": case "callable-receiver": case "signature-tail": {
-          const signature = facts.originalSignature(root, value.signatureKind, value.signature);
+          const signature = facts.originalSignature(value.signatureKind, value.signature);
           selected.push(value.kind === "callable-result" ? { kind: "result", signature }
             : value.kind === "callable-parameter" ? { kind: "parameter", signature, index: value.index }
             : value.kind === "callable-receiver" ? { kind: "receiver", signature }
@@ -186,7 +186,7 @@ export function createSourceCallInput(options: {
       if (observed === undefined) throw new Error("An enrolled invocation requires its checked call observation.");
       const declarationOrder = observed.declarationOrder.kind === "unavailable" ? Object.freeze({ kind: "unavailable" as const })
         : Object.freeze({ kind: "available" as const, signatures: Object.freeze(observed.declarationOrder.signatures.map(signature =>
-          facts.originalSignature(invocation, ast.is.IsNewExpression(invocation) ? "construct" : "call", signature))) });
+          facts.originalSignature(ast.is.IsNewExpression(invocation) ? "construct" : "call", signature))) });
       const result: SourceInputCallSelection = observed.kind === "untyped" ? Object.freeze({ kind: "untyped", declarationOrder, diagnostics: Object.freeze(observed.diagnostics.map(value => diagnostic(value, invocation))) })
         : observed.kind === "conditional-candidates" ? Object.freeze({ kind: "conditional-candidates", declarationOrder, candidates: Object.freeze(observed.candidates.map(candidate)), diagnostics: Object.freeze(observed.diagnostics.map(value => diagnostic(value, invocation))) })
         : Object.freeze({ kind: "applicable", declarationOrder, selection: Object.freeze({ ...candidate(observed.selection),

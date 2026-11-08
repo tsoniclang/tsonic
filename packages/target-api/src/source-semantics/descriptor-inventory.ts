@@ -1,4 +1,4 @@
-import type { SourcePresence, SourceResult, SourceTypeComponent, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourcePresence, SourceResult, SourceTypeBinding, SourceTypeComponent, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
 import { sourceLiteralDomainUnion, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
@@ -66,14 +66,14 @@ export function createSourceInventoryOwner(input: {
           : rows.every(row => row.read === "method") ? "method" : "property",
         optional: group.owners.size !== inventories.length || rows.some(row => row.optional),
         readonly: rows.some(row => row.readonly),
-        readDomain: (): SourcePresence<SourceLiteralDomain> => {
+        readDomain: (bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain> => {
           const domains: SourceLiteralDomain[] = [];
           for (const row of rows) {
-            const selected = row.readDomain();
-            if (selected.kind === "none") return { kind: "none" };
+            const selected = row.readDomain(bindings);
+            if (selected.kind !== "resolved") return selected;
             domains.push(selected.value);
           }
-          return { kind: "present", value: sourceLiteralDomainUnion(domains) };
+          return { kind: "resolved", value: sourceLiteralDomainUnion(domains) };
         },
         readType: () => joined(value.component, rows, "readType"), writeType: () => joined(value.component, rows, "writeType") }));
     }
@@ -85,12 +85,14 @@ export function createSourceInventoryOwner(input: {
     const record = input.evidence.record(value);
     const previous = completed.get(value);
     if (previous !== undefined) return { kind: "resolved", value: previous };
-    if (record.details.members.kind !== "definition") return { kind: "resolved", value: record.details.members };
+    if (record.details.members.kind === "complete" || record.details.members.kind === "unavailable")
+      return { kind: "resolved", value: record.details.members };
     if (active.has(value)) return { kind: "pending", dependencies: Object.freeze([value.component]) };
     active.add(value);
     try {
       let result: SourceProductionResult<SourceMemberInventory>;
-      if (value.sum !== undefined) result = family(value);
+      if (record.details.members.kind === "production") result = record.details.members.produce();
+      else if (value.sum !== undefined) result = family(value);
       else result = input.definition(value);
       if (result.kind === "resolved" && result.value.kind === "complete") completed.set(value, result.value);
       return result;

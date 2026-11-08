@@ -7,15 +7,15 @@ export interface SourceInputIdentityOwner {
   checkedComponent(component: SourceInputComponent): Type | undefined;
   checkedSignature(signature: SourceInputSignature): Signature;
   component(root: Node, path: readonly SourceInputComponentPart[], terminal: Type | undefined): SourceInputComponent;
-  signature(owner: Node, kind: "call" | "construct", original: Signature,
-    declaration: Node | undefined, parameters: readonly Node[]): SourceInputSignature;
+  signature(owner: Node | undefined, kind: "call" | "construct", original: Signature,
+    declaration: Node | undefined, parameters: readonly Node[], composition: SourceInputSignature["composition"]): SourceInputSignature;
 }
 
 export function createSourceInputIdentityOwner(assertNode: (node: Node) => void): SourceInputIdentityOwner {
   const componentTypes = new WeakMap<SourceInputComponent, Type | undefined>();
   const signatureTypes = new WeakMap<SourceInputSignature, Signature>();
   const components = new WeakMap<Node, Map<Type | undefined, Map<string, SourceInputComponent>>>();
-  const signatures = new WeakMap<Signature, Map<string, SourceInputSignature>>();
+  const signatures = new WeakMap<Signature, SourceInputSignature>();
   const ids = new WeakMap<object, number>();
   let nextId = 0;
 
@@ -86,17 +86,27 @@ export function createSourceInputIdentityOwner(assertNode: (node: Node) => void)
       byPath.set(identity, selected);
       return selected;
     },
-    signature: (owner: Node, kind: "call" | "construct", original: Signature,
-      declaration: Node | undefined, parameters: readonly Node[]): SourceInputSignature => {
-      const identity = JSON.stringify([nodeId(owner), kind, declaration === undefined ? null : nodeId(declaration), parameters.map(nodeId)]);
-      let choices = signatures.get(original);
-      if (choices === undefined) { choices = new Map(); signatures.set(original, choices); }
-      const existing = choices.get(identity);
-      if (existing !== undefined) return existing;
+    signature: (owner: Node | undefined, kind: "call" | "construct", original: Signature,
+      declaration: Node | undefined, parameters: readonly Node[], composition: SourceInputSignature["composition"]): SourceInputSignature => {
+      if (owner !== undefined) assertNode(owner);
+      if (declaration !== undefined) assertNode(declaration);
+      parameters.forEach(assertNode);
+      composition?.signatures.forEach(checkedSignature);
+      if ((composition === undefined) === (owner === undefined)) throw new Error("Only an original composite signature has no singular Source owner.");
+      const existing = signatures.get(original);
+      if (existing !== undefined) {
+        if (existing.owner !== owner || existing.signatureKind !== kind || existing.declaration !== declaration ||
+          existing.typeParameters.length !== parameters.length || existing.typeParameters.some((parameter, index) => parameter !== parameters[index]) ||
+          existing.composition?.kind !== composition?.kind || existing.composition?.signatures.length !== composition?.signatures.length ||
+          existing.composition?.signatures.some((part, index) => part !== composition?.signatures[index]))
+          throw new Error("One original checked Signature cannot acquire another Source owner or composition.");
+        return existing;
+      }
       const selected: SourceInputSignature = Object.freeze({ kind: "signature", owner, signatureKind: kind,
-        declaration, typeParameters: Object.freeze([...parameters]) });
+        declaration, typeParameters: Object.freeze([...parameters]), composition: composition === undefined ? undefined
+          : Object.freeze({ kind: composition.kind, signatures: Object.freeze([...composition.signatures]) }) });
       signatureTypes.set(selected, original);
-      choices.set(identity, selected);
+      signatures.set(original, selected);
       return selected;
     },
   });

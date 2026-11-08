@@ -16,6 +16,7 @@ export function createSourceDescriptorFacts(options: {
   const memberPublishers = new WeakMap<SourceFileQueries, ReturnType<typeof createSourceInputMemberPublisher>>();
   const enums = new WeakMap<Node, SourceInputEnumDeclaration>();
   const memberInventories = new WeakMap<SourceInputComponent, SourceInputMemberInventory>();
+  const activeSignatures = new Set<Signature>();
 
   function queries(node: Node): SourceFileQueries {
     assertNode(node);
@@ -92,27 +93,39 @@ export function createSourceDescriptorFacts(options: {
     return result;
   }
 
-  function originalSignature(owner: Node, kind: "call" | "construct", original: Signature): SourceInputSignature {
-    const shape = readOriginalSignature(original);
-    const parameters = shape.declaration === undefined ? [] : ast.typeParameters(shape.declaration).filter((value): value is Node => value !== undefined);
-    return identities.signature(owner, kind, original, shape.declaration, parameters);
+  function originalSignature(kind: "call" | "construct", original: Signature): SourceInputSignature {
+    if (activeSignatures.has(original)) throw new Error("An original checked signature composition must be acyclic.");
+    activeSignatures.add(original);
+    try {
+      const shape = readOriginalSignature(original);
+      const composition: SourceInputSignature["composition"] = shape.composite === undefined ? undefined
+        : { kind: shape.composite.isUnion ? "union" : "intersection",
+          signatures: shape.composite.signatures.map(part => originalSignature(kind, part)) };
+      const owner = composition === undefined ? shape.constructorClass ?? shape.declaration : undefined;
+      if (owner === undefined && composition === undefined) throw new Error("An original nonsyntax signature requires its authentic producer owner, never an evaluation occurrence.");
+      const parameters = composition === undefined
+        ? shape.declaration === undefined ? [] : ast.typeParameters(shape.declaration).filter((value): value is Node => value !== undefined)
+        : [...new Set(composition.signatures.flatMap(part => part.typeParameters))];
+      return identities.signature(owner, kind, original, shape.declaration, parameters, composition);
+    } finally { activeSignatures.delete(original); }
   }
 
   function describeSignature(value: SourceInputSignature): SourceInputSignatureShape {
     const original = identities.checkedSignature(value);
     const shape = readOriginalSignature(original);
     return Object.freeze({ identity: value,
-      target: shape.target === undefined ? undefined : originalSignature(value.owner, value.signatureKind, shape.target),
+      target: shape.target === undefined ? undefined : originalSignature(value.signatureKind, shape.target),
       parameters: Object.freeze(shape.parameters.map(parameter => Object.freeze({ ...parameter }))),
       receiver: shape.receiver === undefined ? undefined : Object.freeze({ ...shape.receiver }) });
   }
 
-  function signatureComponent(signature: SourceInputSignature, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent {
+  function signatureComponent(signature: SourceInputSignature, originalRoot: Node, part: { readonly kind: "parameter"; readonly index: number } | { readonly kind: "receiver" | "result" }): SourceInputComponent {
+    assertNode(originalRoot);
     const shape = describeSignature(signature);
     if (part.kind === "parameter" && (!Number.isSafeInteger(part.index) || part.index < 0 || shape.parameters[part.index]?.index !== part.index))
       throw new Error("An original signature component requires its actual original parameter ordinal.");
     if (part.kind === "receiver" && shape.receiver === undefined) throw new Error("An original signature has no receiver component.");
-    return identities.component(signature.owner, [{ ...part, signature }], undefined);
+    return identities.component(originalRoot, [{ ...part, signature }], undefined);
   }
 
   function enumDeclaration(declaration: Node): SourceInputEnumDeclaration {
@@ -139,7 +152,7 @@ export function createSourceDescriptorFacts(options: {
   }
 
   function signature(parent: SourceInputComponent, kind: "call" | "construct", value: TypeSignatureInfo): SourceInputSignatureFacts {
-    const original = originalSignature(parent.root, kind, value.signature);
+    const original = originalSignature(kind, value.signature);
     return Object.freeze({ identity: original,
       receiver: value.thisParameter === undefined ? undefined : child(parent, { kind: "receiver", signature: original }, value.thisParameter.type),
       parameters: Object.freeze(value.parameters.map((parameter, index) => Object.freeze({ declaration: parameter.declaration,
