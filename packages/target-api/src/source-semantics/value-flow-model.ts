@@ -1,15 +1,20 @@
-import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import type { SourceFileSemantics } from "./types.js";
+import type { AstReader, Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
+import type { SourceDescriptorView, SourcePresence } from "../public/source/contracts.js";
+import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
+import type { SourceBindingExposureQueries } from "../source-navigation/binding-mutation-exposure.js";
+import type { SourceProductionResult } from "./descriptor-contracts.js";
 
-export interface SourceValueFlowQueryContext {
+export interface SourceGuardContext {
   readonly ast: AstReader;
-  readonly navigation: SourceProgramNavigation;
-  readonly sourceFacts?: ReadonlySourceFactResolver;
-  semanticsFor(node: Node): SourceFileSemantics;
+  readonly navigation: SourceNodeNavigationFacts;
+  readonly protocols: SourceBindingExposureQueries;
+  readonly view: SourceDescriptorView;
+  flowConditions(reference: Node): SourcePresence<ResolvedSourceFlowConditionInfo>;
+  syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
 }
 
-export interface SourceNativeGuard<Predicate> {
+export interface SourceGuard<Predicate> {
   readonly sourceOperand: Node;
   readonly predicate: Predicate;
 }
