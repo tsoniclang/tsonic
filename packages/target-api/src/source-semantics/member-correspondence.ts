@@ -307,8 +307,10 @@ export function createSourceMemberCorrespondenceQueries(input: {
       if (all.kind !== "resolved") return all;
       for (const original of all.value.members) {
         if (original.kind !== "present" || original.source.optional || original.destination.optional) continue;
-        const from = original.source.readDomain(), to = original.destination.readDomain();
-        if (from.kind === "present" && to.kind === "present" && from.value.kind === "finite" && to.value.kind === "finite" &&
+        const from = original.source.readDomain([]), to = original.destination.readDomain([]);
+        if (from.kind !== "resolved") return from;
+        if (to.kind !== "resolved") return to;
+        if (from.value.kind === "finite" && to.value.kind === "finite" &&
           !from.value.values.some(origin => to.value.kind === "finite" && to.value.values.some(target => sourceLiteralUnitsEqual(origin, target))))
           return resolved(Object.freeze({ kind: "none" }));
       }
