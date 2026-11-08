@@ -1,0 +1,302 @@
+import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
+
+export interface SourceRefusal {
+  readonly kind: "refused";
+  readonly source: "tsonic";
+  readonly code: string;
+  readonly message: string;
+  readonly site: Node;
+  readonly related?: Node;
+}
+
+export type SourceResult<Value> =
+  | { readonly kind: "resolved"; readonly value: Value }
+  | SourceRefusal;
+
+export type SourcePresence<Value> =
+  | { readonly kind: "none" }
+  | { readonly kind: "present"; readonly value: Value };
+
+export type SourceCategory =
+  | "number" | "bigint" | "string" | "boolean" | "symbol"
+  | "object" | "function" | "absence";
+
+export type SourceCategoryDomain =
+  | { readonly kind: "known"; readonly category: SourceCategory }
+  | { readonly kind: "parameter"; readonly declaration: Node }
+  | { readonly kind: "choice"; readonly alternatives: readonly SourceCategoryDomain[] }
+  | { readonly kind: "dynamic" };
+
+export interface SourceSignatureIdentity {
+  readonly owner: Node;
+  readonly kind: "call" | "construct";
+  readonly declaration?: Node;
+  readonly typeParameters: readonly Node[];
+}
+
+export type SourceMemberOrigin =
+  | { readonly kind: "declared"; readonly declaration: Node }
+  | { readonly kind: "class-prototype"; readonly owner: Node }
+  | { readonly kind: "mapped"; readonly owner: Node; readonly key: SourceMemberKey };
+
+export type SourceMemberKey =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "unique-symbol"; readonly declaration: Node };
+
+export interface SourceTypeDescriptorMember {
+  readonly name: string;
+  readonly origin: SourceMemberOrigin;
+  readonly optional: boolean;
+  readonly readonly: boolean;
+  readonly type: SourceTypeDescriptor;
+}
+
+export interface SourceTypeDescriptorSignature {
+  readonly identity: SourceSignatureIdentity;
+  readonly receiver?: { readonly declaration?: Node; readonly type: SourceTypeDescriptor };
+  readonly parameters: readonly {
+    readonly declaration?: Node;
+    readonly kind: "required" | "optional" | "rest";
+    readonly type: SourceTypeDescriptor;
+  }[];
+  readonly result: SourceTypeDescriptor;
+}
+
+export interface SourceTypeDescriptorIndex {
+  readonly declaration: Node;
+  readonly key: SourceTypeDescriptor;
+  readonly value: SourceTypeDescriptor;
+  readonly readonly: boolean;
+}
+
+export interface SourceDeclaredDescriptor {
+  readonly kind: "declared";
+  readonly declaration: Node;
+  readonly typeArguments: readonly SourceTypeDescriptor[];
+  readonly extent?: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" };
+}
+
+export interface SourceParameterDescriptor {
+  readonly kind: "parameter";
+  readonly declaration: Node;
+}
+
+export interface SourceTypeParameter {
+  readonly declaration: Node;
+  readonly owner: Node;
+  readonly index: number;
+  readonly type: SourceParameterDescriptor;
+}
+
+export type SourceTypeParameterRequirement =
+  | { readonly kind: "none" }
+  | { readonly kind: "type"; readonly value: SourceTypeEvidence };
+
+export type SourceTypeDescriptor =
+  | { readonly kind: "primitive"; readonly primitive: SourcePrimitiveKind }
+  | { readonly kind: "string" }
+  | { readonly kind: "intrinsic"; readonly intrinsic: "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol" }
+  | { readonly kind: "union"; readonly types: readonly SourceTypeDescriptor[] }
+  | { readonly kind: "optional"; readonly value: SourceTypeDescriptor }
+  | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceTypeDescriptor }
+  | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly { readonly kind: "required" | "optional" | "rest"; readonly declaration?: Node; readonly type: SourceTypeDescriptor }[] }
+  | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[]; readonly indexes: readonly SourceTypeDescriptorIndex[]; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
+  | { readonly kind: "callable"; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
+  | SourceDeclaredDescriptor
+  | SourceParameterDescriptor
+  | { readonly kind: "projection"; readonly source: SourceTypeDescriptor; readonly projection: SourceDeferredProjection };
+
+export type SourceDeferredProjection =
+  | { readonly kind: "awaited" }
+  | { readonly kind: "component"; readonly component: SourceTypeComponent };
+
+export type SourceComponentSelector =
+  | { readonly kind: "optional-value" }
+  | { readonly kind: "array-element" }
+  | { readonly kind: "tuple-element"; readonly index: number }
+  | { readonly kind: "member"; readonly origin: SourceMemberOrigin }
+  | { readonly kind: "parameter"; readonly signature: SourceSignatureIdentity; readonly index: number }
+  | { readonly kind: "receiver"; readonly signature: SourceSignatureIdentity }
+  | { readonly kind: "signature-tail"; readonly signature: SourceSignatureIdentity; readonly start: number }
+  | { readonly kind: "tuple-slice"; readonly start: number }
+  | { readonly kind: "result"; readonly signature: SourceSignatureIdentity }
+  | { readonly kind: "type-argument"; readonly declaration: Node; readonly index: number }
+  | { readonly kind: "sum-arm"; readonly family: SourceSumFamily; readonly index: number }
+  | { readonly kind: "awaited" };
+
+export interface SourceTypeComponent {
+  readonly root: Node;
+  readonly path: readonly SourceComponentSelector[];
+}
+
+export interface SourceTypeBinding {
+  readonly declaration: Node;
+  readonly value: SourceTypeEvidence;
+}
+
+export interface SourceNumericOrigin {
+  readonly producer: Node;
+  readonly category: SourceCategoryDomain;
+  readonly kind: "literal" | "declared" | "operation" | "application";
+}
+
+export interface SourceTypeEvidence {
+  readonly type: SourceTypeDescriptor;
+  readonly component: SourceTypeComponent;
+  readonly category: SourceCategoryDomain;
+  readonly numeric: SourceNumericOrigin | undefined;
+  readonly sum: SourceSumApplication | undefined;
+}
+
+export interface SourceSumFamily {
+  readonly origin: "authored" | "inferred";
+  readonly component: SourceTypeComponent;
+  readonly parameters: readonly Node[];
+  readonly roles: readonly SourceSumRole[];
+}
+
+export interface SourceSumRole {
+  readonly index: number;
+  readonly component: SourceTypeComponent;
+  readonly template: SourceTypeEvidence;
+}
+
+export interface SourceSumApplication {
+  readonly kind: "open" | "closed";
+  readonly freeParameters: readonly SourceTypeParameter[];
+  readonly family: SourceSumFamily;
+  readonly bindings: readonly SourceTypeBinding[];
+  readonly arms: readonly SourceTypeEvidence[];
+  readonly roles: readonly {
+    readonly role: SourceSumRole;
+    readonly value: SourceTypeEvidence;
+    readonly armIndexes: readonly number[];
+  }[];
+}
+
+export interface SourceDeclaredSlot {
+  readonly origin:
+    | { readonly kind: "declaration"; readonly declaration: Node }
+    | { readonly kind: "parameter"; readonly signature: SourceSignatureIdentity; readonly index: number; readonly declaration?: Node }
+    | { readonly kind: "receiver"; readonly signature: SourceSignatureIdentity; readonly declaration?: Node };
+  readonly type: SourceTypeEvidence;
+}
+
+export interface SourceUseDestination {
+  readonly declaration: SourceDeclaredSlot;
+  readonly applied: SourceTypeEvidence;
+  readonly application: SourceApplicationIdentity | undefined;
+}
+
+export interface SourceApplicationIdentity {
+  readonly invocation: Node;
+  readonly signature: SourceSignatureIdentity;
+  readonly classBindings: readonly SourceTypeBinding[];
+  readonly signatureBindings: readonly SourceTypeBinding[];
+}
+
+export type SourceApplicationReceiver =
+  | { readonly kind: "none" }
+  | { readonly kind: "type"; readonly declaration: Node }
+  | { readonly kind: "value"; readonly occurrence: Node; readonly value: SourceTypeEvidence };
+
+export interface SourceApplication {
+  readonly identity: SourceApplicationIdentity;
+  readonly kind: "call" | "construct" | "function-value";
+  readonly receiver: SourceApplicationReceiver;
+  readonly arguments: readonly SourceArgumentPlace[];
+  readonly result: SourceTypeEvidence;
+}
+
+export interface SourceArgumentPlace {
+  readonly sourceArgument: Node;
+  readonly sourceArgumentIndex: number;
+  readonly effectiveArgument: Node;
+  readonly effectiveArgumentIndex: number;
+  readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+  readonly spreadElementIndex: number | undefined;
+  readonly parameter: {
+    readonly signature: SourceSignatureIdentity;
+    readonly index: number;
+    readonly declaration?: Node;
+    readonly form: "parameter" | "rest-element" | "rest-sequence";
+  };
+  readonly source: SourceTypeEvidence;
+  readonly destination: SourceUseDestination;
+}
+
+export interface SourceValueOperand {
+  readonly occurrence: Node;
+  readonly value: SourceTypeEvidence;
+}
+
+export type SourceValueSelection = {
+  readonly occurrence: Node;
+  readonly result: SourceTypeEvidence;
+} & (
+  | { readonly kind: "conditional"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: SourceValueOperand }
+  | { readonly kind: "and"; readonly control: SourceValueOperand; readonly whenTrue: SourceValueOperand; readonly whenFalse: "control-false" }
+  | { readonly kind: "or"; readonly control: SourceValueOperand; readonly whenTrue: "control-true"; readonly whenFalse: SourceValueOperand }
+  | { readonly kind: "coalesce"; readonly control: SourceValueOperand; readonly whenPresent: SourceTypeEvidence; readonly whenAbsent: SourceValueOperand }
+  | { readonly kind: "await"; readonly operand: SourceValueOperand; readonly completion: SourceTypeEvidence }
+);
+
+export interface SourcePrimitiveOperation {
+  readonly occurrence: Node;
+  readonly kind: "unary" | "binary";
+  readonly operator: string;
+  readonly operands: readonly SourceValueOperand[];
+  readonly result: SourceTypeEvidence;
+}
+
+export type SourceOperation = SourceValueSelection | SourcePrimitiveOperation;
+
+export interface SourceConstruction {
+  readonly occurrence: Node;
+  readonly kind: "array" | "object";
+  readonly value: SourceTypeEvidence;
+  readonly evaluation: readonly {
+    readonly occurrence: Node;
+    readonly form: "value" | "spread" | "key";
+    readonly value: SourceTypeEvidence;
+  }[];
+}
+
+export interface SourceValueFacts {
+  type(occurrence: Node): SourceResult<SourceTypeEvidence>;
+  contextual(occurrence: Node): SourceResult<SourcePresence<SourceTypeEvidence>>;
+  declaredSlot(declaration: Node): SourceResult<SourceDeclaredSlot>;
+  destination(occurrence: Node): SourceResult<SourcePresence<SourceUseDestination>>;
+  operation(occurrence: Node): SourceResult<SourceOperation>;
+  construction(occurrence: Node): SourceResult<SourcePresence<SourceConstruction>>;
+  callableReturn(signature: SourceSignatureIdentity): SourceResult<SourceTypeEvidence>;
+}
+
+export interface SourceApplicationFacts {
+  application(occurrence: Node): SourceResult<SourceApplication>;
+}
+
+export interface SourceDescriptorView {
+  assertEvidence(value: SourceTypeEvidence): void;
+  assertDescriptor(value: SourceTypeDescriptor): void;
+  component(value: SourceTypeEvidence, selector: SourceComponentSelector): SourceResult<SourceTypeEvidence>;
+  substitute(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence>;
+  definition(value: SourceTypeEvidence): SourceResult<SourceTypeEvidence>;
+  freeParameters(value: SourceTypeEvidence): readonly SourceTypeParameter[];
+  typeParameter(declaration: Node): SourceTypeParameter;
+  constraint(parameter: SourceTypeParameter): SourceResult<SourceTypeParameterRequirement>;
+  defaultType(parameter: SourceTypeParameter): SourceResult<SourceTypeParameterRequirement>;
+}
+
+export type SourceCallableRole = "signature" | "body" | "execution" | "deferred";
+
+export interface SourceCallableRoles {
+  readonly signature: boolean;
+  readonly body: boolean;
+  readonly execution: boolean;
+  readonly deferred: boolean;
+}
+
+export declare function sourceCallableRoles(ast: AstReader, node: Node): SourceCallableRoles;
+export declare function sourceEnclosing(ast: AstReader, node: Node | undefined, role: SourceCallableRole): Node | undefined;
