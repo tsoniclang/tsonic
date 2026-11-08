@@ -6,6 +6,7 @@ import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import type { SourceCallParameter } from "./argument-places.js";
+import { produceSourceDefinitionParameters } from "./definition-parameters.js";
 
 export interface SourceCallableProduction extends SourceSemanticProduction {
   readonly navigation: SourceNodeNavigationFacts;
@@ -79,8 +80,9 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
   let result: SourceProductionResult<SourceTypeEvidence>;
   if (original.signatureKind === "construct" && constructedClass !== undefined) {
     const arguments_: SourceTypeEvidence[] = [];
-    for (const declaration of ast.typeParameters(constructedClass)) {
-      if (declaration === undefined) return sourceSemanticRefusal(constructedClass, "A constructed class requires its actual original binder vector.");
+    const parameters = produceSourceDefinitionParameters(context, constructedClass);
+    if (parameters.kind !== "resolved") return parameters;
+    for (const declaration of parameters.value) {
       const value = activeBindings.find(binding => binding.declaration === declaration)?.value;
       if (value === undefined) {
         const parameter = reader.describeSyntax(declaration, activeBindings);
@@ -144,6 +146,34 @@ export function produceSourceHeritageBindings(context: SourceCallableProduction,
     return { kind: "resolved", value: Object.freeze([...values].map(([declaration, value]) => ({ declaration, value }))) };
   }
   return visit(declaration);
+}
+
+export function produceSourceReceiverBindings(context: SourceCallableProduction, receiver: SourceTypeEvidence,
+  bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]> {
+  const { ast, builder, reader } = context;
+  builder.assertEvidence(receiver);
+  if (receiver.type.kind !== "declared") return { kind: "resolved", value: bindings };
+  const declaration = receiver.type.declaration;
+  const parameters = produceSourceDefinitionParameters(context, declaration);
+  if (parameters.kind !== "resolved") return parameters;
+  if (parameters.value.length !== receiver.type.typeArguments.length) throw new Error("A declared receiver must retain its complete registered definition argument vector.");
+  const selected = new Map(bindings.map(binding => [binding.declaration, binding.value]));
+  for (const [index, parameter] of parameters.value.entries()) {
+    const value = builder.component(receiver, { kind: "type-argument", declaration, index });
+    if (value.kind === "refused") return value;
+    selected.set(parameter, value.value);
+  }
+  const environment = [...selected].map(([declaration, value]) => ({ declaration, value }));
+  if (ast.is.IsTypeAliasDeclaration(declaration)) {
+    const body = ast.typeNode(declaration);
+    if (body === undefined) throw new Error("An original type alias requires its authored definition body.");
+    const value = reader.describeSyntax(body, environment);
+    if (value.kind !== "resolved") return value;
+    if (value.value.type.kind === "declared" && value.value.type.declaration === declaration) return sourceSemanticRefusal(declaration,
+      "An original receiver alias depends on its own unexpanded application.", "TSONIC_LOCAL_TYPE_SELF_REFERENCE");
+    return produceSourceReceiverBindings(context, value.value, environment);
+  }
+  return produceSourceHeritageBindings(context, declaration, environment);
 }
 
 export function sourceProducedSignatureDescriptor(value: SourceProducedSignature): SourceTypeDescriptorSignature {

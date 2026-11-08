@@ -14,6 +14,7 @@ import { produceSourceAwaitedType } from "./awaited.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";
 import { sourceEnumOperator, sourceEnumDestination } from "../enum-numeric-uses.js";
+import { produceSourceOperatorCategory, type SourceNumericOperationCategory } from "./operator-categories.js";
 
 export interface SourceOperationProduction extends SourceSemanticProduction {
   value(node: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -29,10 +30,11 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
   const component = builder.componentIdentity(occurrence, []);
   const details = produceSourceEvidenceDetails(context, occurrence);
   if (details.kind !== "resolved") return details;
-  const primitive = (kind: SourcePrimitiveKind, literal = context.literal(occurrence)): SourceTypeEvidence => {
-    const category = kind === "bool" ? "boolean" : kind === "char" ? "string" : "number";
+  const primitive = (kind: SourcePrimitiveKind, literal = context.literal(occurrence),
+    numericCategory: SourceNumericOperationCategory = "number"): SourceTypeEvidence => {
+    const category = kind === "bool" ? "boolean" : kind === "char" ? "string" : numericCategory;
     return builder.evidence({ type: builder.primitive(kind), component,
-      category: { kind: "known", category }, numeric: category === "number" ? {
+      category: { kind: "known", category }, numeric: category === "number" || category === "bigint" ? {
         producer: occurrence, category: { kind: "known", category }, kind: "operation" } : undefined, sum: undefined },
     [], context.input.syntax(occurrence), sourceLiteralValueDomain(literal, category, "present"), details.value);
   };
@@ -120,7 +122,10 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
       const selected = context.unboundLiteral(occurrence) === undefined ? type.primitive : expected.value ?? type.primitive;
       const decision = decideSourcePrimitiveUnaryOperator(unary, selected);
       if (decision.kind === "refused") return refusal(decision.reason);
-      calculation = primitive(decision.result);
+      const category = produceSourceOperatorCategory(context, unary,
+        [{ value: value.value.value, literal: context.literal(syntax.Operand) }], occurrence);
+      if (category.kind !== "resolved") return category;
+      calculation = primitive(decision.result, context.literal(occurrence), category.value);
       if (operator === "logical-not") {
         const disposition = sourceBooleanLiteralDisposition(builder.domain(value.value.value));
         if (disposition !== "dynamic") calculation = literalBool(disposition !== "true");
@@ -246,7 +251,10 @@ export function produceSourceOperation(context: SourceOperationProduction, occur
     if (expected.kind !== "resolved") return expected;
     const decision = decideSourcePrimitiveBinaryOperator(binary, parameter(syntax.Left, leftType.primitive), parameter(syntax.Right, rightType.primitive), expected.value);
     if (decision.kind === "refused") return refusal(decision.reason);
-    calculation = primitive(decision.result);
+    const category = produceSourceOperatorCategory(context, binary,
+      [{ value: left.value.value, literal: context.literal(syntax.Left) }, { value: right.value.value, literal: context.literal(syntax.Right) }], occurrence);
+    if (category.kind !== "resolved") return category;
+    calculation = primitive(decision.result, context.literal(occurrence), category.value);
   } else if (comparison) calculation = primitive("bool");
   else return refusal("This binary operator has no admitted exact Source operand pair.");
   const compound = token.endsWith("EqualsToken") && !["KindEqualsEqualsToken", "KindEqualsEqualsEqualsToken", "KindExclamationEqualsToken",

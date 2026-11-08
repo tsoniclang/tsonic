@@ -9,7 +9,7 @@ import type {
 } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
-import { produceSourceCallableSignature, produceSourceHeritageBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceCallableSignature, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { produceSourceArgumentPlaces, produceSourceDeclaredParameterPlace } from "./argument-places.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import type { SourceTypeFlowSource } from "./types.js";
@@ -105,14 +105,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
           if (joined.kind === "refused") return joined;
           bindings.set(argument.declaration!, joined.value);
         } else if (value.value.type.kind === "declared") {
-          const receiverBindings: SourceTypeBinding[] = [];
-          for (const [index, declaration] of context.ast.typeParameters(value.value.type.declaration).entries()) {
-            if (declaration === undefined) return refusal("A receiver application requires its actual original class binder vector.");
-            const argument = builder.component(value.value, { kind: "type-argument", declaration: value.value.type.declaration, index });
-            if (argument.kind === "refused") return argument;
-            receiverBindings.push({ declaration, value: argument.value });
-          }
-          const inherited = produceSourceHeritageBindings(context, value.value.type.declaration, [...ordered(), ...receiverBindings]);
+          const inherited = produceSourceReceiverBindings(context, value.value, ordered());
           if (inherited.kind !== "resolved") return inherited;
           for (const argument of original.class.arguments) {
             const declaration = argument.declaration!;

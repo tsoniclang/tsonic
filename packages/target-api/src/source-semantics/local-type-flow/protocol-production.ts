@@ -8,7 +8,7 @@ import type { SourceProductionResult } from "../descriptor-contracts.js";
 import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { produceSourceAwaitedType } from "./awaited.js";
 import { createSourceProductionCache } from "./production-cache.js";
-import { produceSourceHeritageBindings, type SourceCallableProduction, type SourceProducedSignature } from "./callable-production.js";
+import { produceSourceReceiverBindings, type SourceCallableProduction, type SourceProducedSignature } from "./callable-production.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 
 interface SourceProtocolProduction extends SourceCallableProduction {
@@ -110,15 +110,7 @@ export function createSourceSolvedProtocolFacts(context: SourceProtocolProductio
     return joined.kind !== "resolved" ? joined : { kind: "resolved", value: { yielded: joined.value[0]!, completed: joined.value[1]!, resumed: joined.value[2]! } };
   }
   function bindingsFor(value: SourceTypeEvidence): SourceProductionResult<readonly SourceTypeBinding[]> {
-    if (value.type.kind !== "declared") return { kind: "resolved", value: [] };
-    const bindings: SourceTypeBinding[] = [];
-    for (const [index, declaration] of ast.typeParameters(value.type.declaration).entries()) {
-      if (declaration === undefined) throw new Error("An original iterable class requires its complete binder vector.");
-      const argument = builder.component(value, { kind: "type-argument", declaration: value.type.declaration, index });
-      if (argument.kind === "refused") return argument;
-      bindings.push({ declaration, value: argument.value });
-    }
-    return produceSourceHeritageBindings(context, value.type.declaration, bindings);
+    return produceSourceReceiverBindings(context, value, []);
   }
   function atomic(source: SourceTypeEvidence, occurrence: Node, mechanism: SourceInputAtomicIteration | undefined): SourceProductionResult<SourceProducedIteration> {
     const definition = builder.produceDefinition(source);

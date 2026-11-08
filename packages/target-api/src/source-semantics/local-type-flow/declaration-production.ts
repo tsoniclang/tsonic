@@ -4,7 +4,7 @@ import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceU
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceCorrespondenceMember } from "../member-correspondence.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceHeritageBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
@@ -97,7 +97,7 @@ export function produceSourceCallableCompletion(production: SourceDeclarationPro
 
 export function produceSourceMemberDestination(production: SourceDeclarationProduction, occurrence: Node,
   receiver: SourceTypeEvidence, member: SourceCorrespondenceMember): SourceProductionResult<SourceUseDestination> {
-  const { builder, ast } = production;
+  const { builder } = production;
   builder.assertEvidence(receiver);
   const declarations = member.writeType === undefined ? member.readOrigins : member.writeOrigins;
   const originalDeclarations = [...new Set(declarations.flatMap(origin => origin.kind === "declared" ? [origin.declaration] : []))];
@@ -108,13 +108,7 @@ export function produceSourceMemberDestination(production: SourceDeclarationProd
   if (original.kind !== "resolved") return original;
   const bindings: SourceTypeBinding[] = [];
   if (receiver.type.kind === "declared") {
-    for (const [index, parameter] of ast.typeParameters(receiver.type.declaration).entries()) {
-      if (parameter === undefined) throw new Error("An original declared receiver requires its complete class binder vector.");
-      const value = builder.component(receiver, { kind: "type-argument", declaration: receiver.type.declaration, index });
-      if (value.kind === "refused") return value;
-      bindings.push({ declaration: parameter, value: value.value });
-    }
-    const inherited = produceSourceHeritageBindings(production, receiver.type.declaration, bindings);
+    const inherited = produceSourceReceiverBindings(production, receiver, bindings);
     if (inherited.kind !== "resolved") return inherited;
     bindings.splice(0, bindings.length, ...inherited.value);
   }
