@@ -22,6 +22,10 @@ export type SourceInputComponentPart =
   | { readonly kind: "type-argument"; readonly declaration: Node; readonly index: number }
   | { readonly kind: "element" }
   | { readonly kind: "optional-value" }
+  | { readonly kind: "union-member"; readonly index: number }
+  | { readonly kind: "index-key" | "index-value"; readonly declaration: Node }
+  | { readonly kind: "argument-place" | "parameter-place"; readonly index: number }
+  | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
   | { readonly kind: "tuple-element"; readonly index: number }
   | { readonly kind: "tuple-slice"; readonly start: number; readonly readonly: boolean }
   | { readonly kind: "signature-tail"; readonly signature: SourceInputSignature; readonly start: number; readonly readonly: boolean };
