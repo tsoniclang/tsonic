@@ -202,7 +202,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
 
   function read(facts: SourceInputTypeFacts, bindings: readonly SourceTypeBinding[], defining = false): SourceProductionResult<SourceTypeEvidence> {
     const declaration = facts.declaration;
-    const last = facts.component.path.at(-1);
+    const last = facts.component.path[facts.component.path.length - 1];
     if (declaration !== undefined && (last?.kind === "parameter" || last?.kind === "receiver"))
       return hooks.declaredValue(facts.component, declaration, bindings);
     const methodHead = last?.kind === "member" && declaration !== undefined &&

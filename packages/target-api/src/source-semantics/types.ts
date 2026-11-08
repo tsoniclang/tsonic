@@ -1,5 +1,5 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceAdmissionFacts, SourceApplicationFacts, SourceDescriptorView, SourceEnumFacts, SourceNavigationFacts, SourcePresence, SourcePropertyName, SourceRefusal, SourceResult, SourceValueFacts } from "../public/source/contracts.js";
+import type { SourceAdmissionFacts, SourceApplicationFacts, SourceDescriptorView, SourceEnumFacts, SourceIntegerFacts, SourceNavigationFacts, SourcePresence, SourcePropertyName, SourceRefusal, SourceResult, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceJsApiFacts } from "../target-analysis/source-profile.js";
 import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
@@ -53,6 +53,7 @@ export interface SourceProgramFacts {
   readonly descriptors: SourceDescriptorView;
   readonly values: SourceValueFacts;
   readonly applications: SourceApplicationFacts;
+  readonly integers: SourceIntegerFacts;
   readonly enums: SourceEnumFacts;
   readonly navigation: SourceNavigationFacts & SourceNodeNavigationFacts;
   readonly objects: SourceObjectFacts;

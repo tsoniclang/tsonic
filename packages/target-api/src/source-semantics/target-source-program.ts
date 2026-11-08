@@ -22,6 +22,8 @@ import { createSourceAnalysisFacts } from "../target-analysis/source-protocol-pr
 import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
 import { createSourceNodeNavigationFacts } from "../source-navigation/facts.js";
 import { createSourcePointerFacts } from "../target-analysis/source-pointer-production.js";
+import { createSourceControlFlowQueries } from "../target-analysis/flow/graph.js";
+import { createSourceIntegerFacts } from "../source-navigation/integer-ranges/index.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
   const { ast, inventory } = input;
@@ -33,6 +35,7 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   let memberUses: ReturnType<typeof createSourceMemberUseQueries> | undefined;
   let solved: ReturnType<typeof analyzeSourceTypeFlow> | undefined;
   let protocols: SourceAnalysisFacts | undefined;
+  let integers: SourceProgramFacts["integers"] | undefined;
   const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
   const unavailableRefusals = new WeakMap<Node, Map<string, SourceRefusal>>();
 
@@ -157,7 +160,7 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     throw new Error("A Source solve must establish its required object and property-name owners before publication.");
   const keyContains = (destination: SourceTypeEvidence, source: SourceTypeEvidence) =>
     sourceKeyDomainContains(owner.builder, destination, source);
-  const objects: SourceObjectFacts = Object.freeze({
+  const objects = Object.freeze<SourceObjectFacts>({
     correspondence: (source, destination, purpose) => settle(completeObjects.correspondence(source, destination, purpose, keyContains)),
     correspondingMember: (source, destination, declaration, purpose) => settle(completeObjects.correspondingMember(source, destination, declaration, purpose, keyContains)),
     use: occurrence => settle(completeObjects.use(occurrence)),
@@ -166,15 +169,31 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   if (completeObjectQueries === undefined) throw new Error("Final Source protocols require the original member value and destination owner.");
   const completeMemberUses = memberUses;
   if (completeMemberUses === undefined) throw new Error("Final Source storage requires the same original member selection owner.");
+  const facts = Object.freeze<SourceProgramFacts>({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
+    descriptors: owner.view, values: solved.values, applications: solved.applications,
+    enums: solved.enums, navigation, profile, objects, refusals: owner.refusals,
+    get protocols() { return requiredProtocols(); },
+    get integers() {
+      if (integers === undefined) throw new Error("Final Source integer queries require their one completed owner.");
+      return integers;
+    } });
+  const program = Object.freeze<TargetSourceProgram>({ ast, sourceFiles,
+    documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
+  const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain);
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
     values: solved.values, navigation, memberPlace: completeMemberUses.place,
     inventory: { members: owner.builder.members, construction: owner.builder.construction },
-    signature, solved: solved.protocols, pointers: createSourcePointerFacts({ core: input.core,
+    signature, solved: solved.protocols, controlFlow, pointers: createSourcePointerFacts({ core: input.core,
       applications: solved.applications, values: solved.values, view: owner.view, assertNode,
       originalComponent: owner.builder.originalComponent, sourceOriginSubjects: owner.builder.sourceOriginSubjects,
       syntax: input.input.syntax, publish, storage: occurrence => requiredProtocols().storage(occurrence), unavailable }), unavailable, settle });
-  const facts: SourceProgramFacts = Object.freeze({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
-    descriptors: owner.view, values: solved.values, applications: solved.applications,
-    enums: solved.enums, navigation, profile, objects, protocols, refusals: owner.refusals });
-  return Object.freeze({ ast, sourceFiles, documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
+  const integerQueries = createSourceIntegerFacts({ ast, navigation, view: owner.view, protocols,
+    enclosing: navigationOwner.analysis.enclosing, value: solved.values.type, operation: solved.values.operation,
+    declaredSlot: solved.values.declaredSlot, application: solved.applications.application, syntaxDomain: solved.syntaxDomain });
+  integers = Object.freeze<SourceProgramFacts["integers"]>({
+    range: occurrence => settle(integerQueries.range(occurrence)),
+    nonnegative: occurrence => settle(integerQueries.nonnegative(occurrence)),
+    induction: declaration => settle(integerQueries.induction(declaration)),
+  });
+  return program;
 }

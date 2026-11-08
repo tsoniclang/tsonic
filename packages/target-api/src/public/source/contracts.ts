@@ -1,4 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourceNodeCountedLoop } from "../../source-model/navigation.js";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 export type { SourcePropertyName } from "../../source-model/property-names.js";
 
@@ -340,6 +341,17 @@ export interface SourceValueFacts {
   operation(occurrence: Node): SourceResult<SourceOperation>;
   construction(occurrence: Node): SourceResult<SourcePresence<SourceConstruction>>;
   callableReturn(signature: SourceSignatureIdentity): SourceResult<SourceTypeEvidence>;
+}
+
+export interface SourceIntegerRange {
+  readonly minimum: bigint;
+  readonly maximum: bigint;
+}
+
+export interface SourceIntegerFacts {
+  range(occurrence: Node): SourceResult<SourcePresence<SourceIntegerRange>>;
+  nonnegative(occurrence: Node): SourceResult<boolean>;
+  induction(declaration: Node): SourceResult<SourcePresence<SourceNodeCountedLoop>>;
 }
 
 export interface SourceApplicationFacts {
