@@ -122,7 +122,9 @@ export function createSourceMemberUseQuery(input: {
         for (const declaration of row.declarations) assertNode(declaration);
         const types = memberTypes(row, reads, writes);
         if (types.kind !== "resolved") return types;
-        const member: SourceCorrespondenceMember = Object.freeze({ ...row, receiver: arm,
+        const member: SourceCorrespondenceMember = Object.freeze({ receiver: arm, key: row.key, name: row.name,
+          declarations: row.declarations, origins: row.origins, readOrigins: row.readOrigins, writeOrigins: row.writeOrigins,
+          getters: row.getters, setters: row.setters, read: row.read, optional: row.optional, readonly: row.readonly,
           readType: types.value.readType, writeType: types.value.writeType });
         let writeDestination: SourceUseDestination | undefined;
         if (types.value.writeType !== undefined) {
@@ -162,8 +164,8 @@ export function createSourceMemberUseQuery(input: {
       let writeType: SourceTypeEvidence | undefined;
       let readonly: boolean;
       if (selection.kind === "array-element" || selection.kind === "tuple-element") {
-        const element = view.component(arm, selection.kind === "array-element"
-          ? { kind: "array-element" } : { kind: "tuple-element", index: selection.index });
+        const element = view.component(arm, selection.kind === "tuple-element"
+          ? { kind: "tuple-element", index: selection.index } : { kind: "array-element" });
         if (element.kind === "refused") return element;
         readonly = arm.type.kind === "array" || arm.type.kind === "tuple" ? arm.type.readonly : true;
         readType = reads ? element.value : undefined;
