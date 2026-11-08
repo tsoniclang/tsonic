@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   sourceBooleanLiteralDisposition, sourceFiniteLiteralDomain, sourceLiteralDomainIncludes,
-  sourceLiteralDomainUnion, sourceLiteralUnitsEqual, sourceOpenLiteralDomain,
+  sourceLiteralDomainIntersection, sourceLiteralDomainUnion, sourceLiteralUnitsEqual, sourceOpenLiteralDomain,
   sourcePresenceLiteralDisposition, sourcePresentLiteralDomain, sourceUnreachableLiteralDomain,
 } from "./domain.js";
 
@@ -12,6 +12,18 @@ test("literal domains distinguish open knowledge from unreachable execution", ()
   assert.equal(sourceLiteralDomainUnion([sourceOpenLiteralDomain, sourceUnreachableLiteralDomain]).kind, "open");
   assert.equal(sourceLiteralDomainIncludes(sourceUnreachableLiteralDomain, { kind: "absence" }), false);
   assert.equal(sourceLiteralDomainIncludes(sourceOpenLiteralDomain, { kind: "absence" }), true);
+});
+
+test("literal domain intersections retain exact category-aware units and independently known presence", () => {
+  const numeric = { kind: "number" as const, value: { kind: "integer" as const, value: 9007199254740993n } };
+  const big = { kind: "bigint" as const, value: 9007199254740993n };
+  const selected = sourceLiteralDomainIntersection([sourceFiniteLiteralDomain([numeric, big, { kind: "absence" }]),
+    sourcePresentLiteralDomain, sourceFiniteLiteralDomain([numeric])]);
+  assert.equal(selected.kind === "finite" && selected.values.length === 1 && sourceLiteralUnitsEqual(selected.values[0]!, numeric), true);
+  assert.equal(sourceLiteralDomainIntersection([sourceOpenLiteralDomain, sourcePresentLiteralDomain]).kind, "open");
+  assert.equal(sourcePresenceLiteralDisposition(sourceLiteralDomainIntersection([sourceOpenLiteralDomain, sourcePresentLiteralDomain])), "present");
+  assert.equal(sourceLiteralDomainIntersection([sourceFiniteLiteralDomain([numeric]), sourceFiniteLiteralDomain([big])]).kind, "unreachable");
+  assert.equal(sourceLiteralDomainIntersection([sourceOpenLiteralDomain, sourceUnreachableLiteralDomain]).kind, "unreachable");
 });
 
 test("literal control disposition is exact bool knowledge and never general truthiness", () => {
