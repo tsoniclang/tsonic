@@ -10,7 +10,7 @@ import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceF
 import { sourceDeclarationFlowEntry, type SourceFlowInitializer } from "./entry.js";
 import { sourceFlowExpression } from "./expressions.js";
 import type { SourceControlFlowQueries, SourceControlFlowSelectedDomain, SourceControlFlowSelection,
-  SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "./model.js";
+  SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../../source-model/control-flow.js";
 import { SourceFlowFailure, SourceFlowRefusal, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
 import { createSourceSwitchCoverage } from "./switch-coverage.js";

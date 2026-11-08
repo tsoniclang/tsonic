@@ -5,11 +5,11 @@ import { targetStronglyConnectedComponents } from "../../graph-components.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import type { SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageCallbackEntry } from "../../../source-model/storage.js";
 
 interface SourceStorageIncomingCallSite {
   readonly invocation: Node;

@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceFlowConstruction, SourceFlowContext } from "./construction.js";
 import { SourceFlowFailure } from "./resources.js";
 import { sourceFlowUnwrap } from "./syntax.js";
-import type { SourceFlowOperation } from "./model.js";
+import type { SourceFlowOperation } from "../../source-model/control-flow.js";
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
 import type { SourceNodeWriteValue } from "../../source-model/navigation.js";
 

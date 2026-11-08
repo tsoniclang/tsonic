@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceApplication, SourceDescriptorView, SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
-import type { SourceProfileDeclarationIdentity } from "./source-profile-identity.js";
+import type { SourceProfileDeclarationIdentity } from "./profile-identity.js";
 
 export type SourceJsCollectionFacts =
   | { readonly kind: "string" }

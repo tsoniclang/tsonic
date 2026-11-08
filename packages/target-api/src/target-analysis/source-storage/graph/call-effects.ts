@@ -1,9 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceApplication } from "../../../public/source/contracts.js";
-import type { SourceJsCallbackEffect } from "../../source-profile.js";
+import type { SourceJsCallbackEffect } from "../../../source-model/profile.js";
 import { sourceStorageValue } from "../model/program.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageCallEffect } from "../model/types.js";
+import type { SourceStorageCallEffect } from "../../../source-model/storage.js";
 
 export function snapshotSourceStorageCallbackEffects(value: unknown, selected: SourceApplication,
   budget: SourceStorageBudget): readonly SourceJsCallbackEffect[] | undefined {

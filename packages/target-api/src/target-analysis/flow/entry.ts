@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { sourceInstanceInitializers } from "../../source-navigation/class-initialization.js";
-import type { SourceDeclarationFlowExecutionRegion } from "./model.js";
+import type { SourceDeclarationFlowExecutionRegion } from "../../source-model/control-flow.js";
 import { SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 
 export interface SourceFlowEntry<Region = SourceDeclarationFlowExecutionRegion> {

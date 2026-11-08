@@ -1,5 +1,5 @@
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageSymbolicMemberAlias } from "./member-selection.js";

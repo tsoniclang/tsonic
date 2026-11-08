@@ -2,7 +2,7 @@ import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { SourceStorageProgram } from "../model/program.js";
 import { sourceStorageComponentType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageProjection } from "../model/subjects.js";
+import type { SourceStorageProjection } from "../../../source-model/storage.js";
 
 export function sourceStorageProjectComponents(
   origin: readonly SourceStorageProjection[],

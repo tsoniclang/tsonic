@@ -1,9 +1,9 @@
 import type { ArgumentPassingMode, Node } from "@tsonic/tsts";
 import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeBinding,
   SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
-import type { SourcePointerFacts } from "./source-pointers.js";
-import type { SourceMarkerFacts } from "./source-markers.js";
-import type { SourceControlFlowQueries } from "./flow/model.js";
+import type { SourcePointerFacts } from "./pointers.js";
+import type { SourceMarkerFacts } from "./markers.js";
+import type { SourceControlFlowQueries } from "./control-flow.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;

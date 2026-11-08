@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceRefusal } from "../../public/source/contracts.js";
-import type { SourceNodeWriteValue } from "../../source-model/navigation.js";
-import type { SourceResourceManagement } from "../source-protocols.js";
+import type { SourceRefusal } from "../public/source/contracts.js";
+import type { SourceNodeWriteValue } from "./navigation.js";
+import type { SourceResourceManagement } from "./protocols.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";

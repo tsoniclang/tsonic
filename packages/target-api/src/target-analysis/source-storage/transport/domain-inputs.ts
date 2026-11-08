@@ -1,7 +1,7 @@
 import type { createSourceStorageTransport } from "./transport.js";
 import type { createSourceStorageDomainWitnesses } from "../graph/domain-witnesses.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageScope } from "../graph/scoped-model.js";
 import { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 

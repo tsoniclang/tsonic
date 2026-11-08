@@ -1,4 +1,4 @@
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageIncomingQuery } from "./edges.js";
 

@@ -4,8 +4,9 @@ import { sourceCallableValueParameters } from "../../../source-navigation/callab
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageCallbackEntry } from "../../../source-model/storage.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectionType } from "./projection-views.js";

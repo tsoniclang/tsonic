@@ -1,9 +1,9 @@
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageValueGuards } from "./guarded-values.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageCallbackEntry } from "../../../source-model/storage.js";
 
 export interface SourceStorageFrame {
   readonly kind: "frame";

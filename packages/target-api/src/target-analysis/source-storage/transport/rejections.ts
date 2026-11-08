@@ -4,8 +4,8 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Expression } from "../../../source-navigation/index.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../model/types.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
+import type { SourceStorageCallbackEntry, SourceStorageUnresolved } from "../../../source-model/storage.js";
 import { sourceStorageSubjectType } from "../model/components.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";

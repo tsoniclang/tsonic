@@ -1,6 +1,6 @@
 import type { Node, Type } from "@tsonic/tsts";
-import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import type { SourceStorageClosedOriginsSelection } from "../source-storage/model/types.js";
+import type { SourceStorageSubject } from "../../source-model/storage.js";
+import type { SourceStorageClosedOriginsSelection } from "../../source-model/storage.js";
 
 export type SourceErrorStorageDemand =
   | { readonly kind: "immutable" }

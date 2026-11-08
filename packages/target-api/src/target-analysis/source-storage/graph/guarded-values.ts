@@ -9,7 +9,8 @@ import { sourcePresenceLiteralDisposition } from "../../../source-model/literals
 import { sourceStorageValue } from "../model/program.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
 
 export interface SourceStorageValueGuards {

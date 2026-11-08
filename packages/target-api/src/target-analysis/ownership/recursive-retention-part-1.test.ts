@@ -3,7 +3,7 @@ import { Node_Expression } from "../../source-navigation/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { type Node } from "@tsonic/tsts";
-import type { SourceDeclarationFlowExecutionRegion } from "../flow/model.js";
+import type { SourceDeclarationFlowExecutionRegion } from "../../source-model/control-flow.js";
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 import { createSourceDeclarationOwnershipQuery } from "./query.js";
 import { fixture } from '../../../../../test/target-api/fixtures/target-analysis/ownership/recursive-retention-fixtures.mjs';

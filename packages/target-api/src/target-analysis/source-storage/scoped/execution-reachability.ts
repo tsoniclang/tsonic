@@ -4,11 +4,11 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceConstructionExpression } from "../../../source-navigation/class-initialization.js";
-import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../../../source-model/storage.js";
 import type { SourceStorageReference, SourceStorageScope, SourceStorageScopedSubject as SourceStorageBoundSubject, SourceStorageTerm } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
 

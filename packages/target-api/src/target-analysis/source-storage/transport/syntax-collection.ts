@@ -1,7 +1,10 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { pointerOperationFactKey } from "@tsonic/tsts";
-import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { createSourceStorageProfileEffects } from "../model/global-call-effects.js";
+import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
+import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
 import { sourceCallableRoles } from "../../../source-navigation/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
@@ -10,7 +13,7 @@ import type { SourceStorageEdgeTypes } from "../model/relations.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageInvocationActual, sourceStorageInvocationArgumentAbsence } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageEffects, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../model/types.js";
+import type { SourceStorageArgumentTransport, SourceStorageCallEffect, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../../../source-model/storage.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import type { createSourceStorageStoredValues } from "../graph/stored-values.js";
@@ -26,7 +29,7 @@ import type { createSourceStorageMemberAccessors } from "../scoped/member-access
 export interface SourceStorageSyntaxCollectionContext {
   readonly source: SourceStorageProgram;
   readonly budget: SourceStorageBudget;
-  readonly effects: SourceStorageEffects;
+  readonly effects: ReturnType<typeof createSourceStorageProfileEffects>;
   readonly mutationOwners: Map<Node, SourceStorageSubject>;
   readonly invocations: Set<Node>;
   readonly pointerInvocations: Set<Node>;
@@ -65,7 +68,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
     callableDeclarations, callableDeclarationRows,
     subject, step, retainCheckedContext, enclosingCallable, valueWrapper, subjectFor, locationFor, connect, projections,
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
-  const { ast, semantics } = source;
+  const { ast } = source;
   const { navigation } = source.facts;
   const visit = (node: Node): void => {
     if (sourceCallableRoles(ast, node).body) {
@@ -157,24 +160,23 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       if (body !== undefined && !ast.is.IsBlock(body)) connect(subjectFor(body), subject(node, "return"));
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-      const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
-      const selected = property ?? semantics.forNode(node).operations.elementAccess(node);
+      const selected = sourceStorageValue(source.facts.objects.use(node));
       const declarations = sourceStorageAccessDeclarations(source, node, "read");
       for (const declaration of declarations ?? []) {
         if (!step()) break;
         if (!ast.is.IsGetAccessorDeclaration(declaration) &&
           (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast))) {
-          if (selected === undefined || selected.accessMode === "write") {
+          if (selected.access === "write" || selected.readType === undefined) {
             budget.reject("Source storage member reads require their exact checked instantiated value type.");
             return;
           }
           connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node),
-            { from: selected.sourceReadType, to: selected.sourceReadType });
+            { from: selected.readType, to: selected.readType });
         }
       }
-      if ((declarations?.length ?? 0) !== 0 || selected?.selectedDeclaration !== undefined) memberAccessors.record(node);
-      if (selected !== undefined && selected.accessMode !== "read") {
-        const owner = subjectFor(selected.receiver.expression);
+      if ((declarations?.length ?? 0) !== 0 || selected.selectedDeclaration.kind === "present") memberAccessors.record(node);
+      if (selected.access !== "read") {
+        const owner = subjectFor(selected.receiver.occurrence);
         if (owner !== undefined) mutationOwners.set(node, owner);
       }
     }
@@ -192,82 +194,73 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
       }
     }
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
+      const selected = sourceStorageValue(source.facts.applications.application(node));
+      if (selected.argumentDisposition === "skip") return;
       invocations.add(node);
       regions.recordInvocation(node);
-      const pointer = source.sourceFacts.getFact(node, pointerOperationFactKey);
+      const pointerFact = sourceStorageValue(source.facts.protocols.pointerOperation(node));
+      const pointer = pointerFact.kind === "present" ? pointerFact.value : undefined;
       const pointerEffect = sourceStoragePointerCallEffect(pointer);
       if (pointerEffect !== undefined) {
         if (!budget.row()) return;
         pointerInvocations.add(node);
       }
       if (pointer?.operation === "store") {
-        const value = subjectFor(pointer.valueExpression);
+        const value = subjectFor(pointer.value.occurrence);
         storedValues.recordWrite(subject(node), Object.freeze({ reference: node, operation: node, kind: "mutation", destination: "pointer",
           value, values: Object.freeze([Object.freeze({ source: undefined,
             subjects: Object.freeze(value === undefined ? [] : [value]), reason: value === undefined
               ? "A native pointer write requires its exact checked value producer." : undefined })]) }));
       }
-      const consumer = semantics.forNode(node);
-      const selected = consumer.operations.call(node);
-      const contributed = selected === undefined ? undefined : pointerEffect ?? effects.call?.(node, selected);
-      if (contributed !== undefined && selected !== undefined) {
+      const contributed = pointerEffect ?? effects.call(selected);
+      if (contributed !== undefined) {
         const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
         if (effect !== undefined) {
-          if (effect.resultAllocation !== undefined && effect.resultAllocation !== node) {
+          if (effect.kind === "result-allocation" && effect.allocation !== node) {
             budget.reject("Source storage allocation requires its exact checked invocation owner.");
             return;
           }
           invocationEffects.set(node, effect);
-          if (effect.resultAlias !== undefined) connect(subjectFor(effect.resultAlias), subjectFor(node));
+          if (effect.kind === "result-alias") connect(subjectFor(effect.argument), subjectFor(node));
         }
       }
-      const signature = selected === undefined ? undefined
-        : consumer.declarations.signatureDeclaration(selected.selectedSignature);
-      if (selected?.sourceSelectedSignatureKind !== "resolved" || signature === undefined && !ast.is.IsNewExpression(node))
+      const signature = selected.identity.signature.declaration;
+      if (signature === undefined && selected.identity.signature.composition.kind === "none" && !ast.is.IsNewExpression(node))
         unresolvedInvocations.set(node, "Source storage argument transport requires its original checked selected signature.");
       if (signature !== undefined) invocationDeclarations.set(node, signature);
-      const target = subjectFor(Node_Expression(ast, node));
+      const target = subjectFor(selected.callee.occurrence);
       if (target !== undefined) invocationTargets.set(node, target);
     }
   };
   const publishInvocationInputs = (node: Node): void => {
-      const consumer = semantics.forNode(node);
-      const selected = consumer.operations.call(node);
-      const signature = selected === undefined ? undefined : consumer.declarations.signatureDeclaration(selected.selectedSignature);
-      if (selected !== undefined) invocationArguments.set(node, Object.freeze([
-        ...selected.sourceArguments.map(argument => argument.expression),
-        ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
+      const selected = sourceStorageValue(source.facts.applications.application(node));
+      if (selected.argumentDisposition === "skip") return;
+      const signature = selected.identity.signature.declaration;
+      invocationArguments.set(node, Object.freeze([
+        ...(selected.receiver.kind === "value" ? [selected.receiver.occurrence] : []),
+        ...selected.sourceArguments.map(argument => sourceStorageValue(argument.operand).occurrence),
       ]));
-      if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
-        const target = subjectFor(Node_Expression(ast, node));
-        const base = sourceSuperConstructor(node, source, step);
+      if (signature !== undefined || selected.identity.signature.composition.kind === "present" || ast.is.IsNewExpression(node)) {
+        const target = subjectFor(selected.callee.occurrence);
+        const base = sourceStorageValue(sourceSuperConstructor(node, source, step));
         if (base !== undefined) connect(subjectFor(base.callee), target);
         const arguments_: SourceStorageArgumentTransport[] = [];
         const input = context.inputSlotsFor(node);
         const selectedSlots = input?.selected.kind === "resolved" ? input.selected.slots : undefined;
-        const checkedParameters = consumer.declarations.signatureParameters(selected.selectedSignature);
-        for (const parameter of selected.sourceSelectedSignatureParameters) {
+        for (const binding of selected.arguments) {
           if (!step()) break;
-          const symbol = checkedParameters[parameter.parameterIndex];
-          if (symbol === undefined || parameter.parameterDeclaration === undefined ||
-            !consumer.declarations.symbolDeclarations(symbol).includes(parameter.parameterDeclaration))
-            unresolvedInvocations.set(node, "Source storage argument transport requires the original checked selected signature parameter identity.");
-        }
-        for (const binding of selected.sourceArgumentBindings) {
-          if (!step()) break;
-          const formal = selected.sourceSelectedSignatureParameters.find(parameter =>
-            parameter.parameterIndex === binding.sourceParameterIndex)?.parameterDeclaration;
-          const formalSymbol = checkedParameters[binding.sourceParameterIndex];
-          if (formal === undefined || formalSymbol === undefined || !consumer.declarations.symbolDeclarations(formalSymbol).includes(formal)) {
+          const formal = binding.parameter.declaration;
+          if (binding.parameter.signature !== selected.identity.signature || formal === undefined ||
+            !navigation.includes(formal) || !ast.is.IsParameterDeclaration(formal)) {
             unresolvedInvocations.set(node, "Source storage argument transport requires the original checked selected signature parameter identity.");
             continue;
           }
           const actual = sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
-          const rest = binding.sourceParameterForm === "parameter" ? undefined
+          const rest = binding.parameter.form === "parameter" ? undefined
             : selectedSlots?.filter(slot =>
-              slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
+              slot.parameter === formal && slot.sourceParameterIndex === binding.parameter.index &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
-          const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
+          const projection = binding.parameter.form === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
           if (actual === undefined || projection === undefined) {
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
@@ -275,33 +268,31 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
           const destination = subject(formal, "input", projection);
           if (destination === undefined || !budget.row()) break;
           const formalFile = ast.getSourceFile(formal);
-          if (formalFile === undefined || !semantics.includes(formalFile)) {
+          if (formalFile === undefined || !navigation.includes(formalFile)) {
             const checkedFile = ast.getSourceFile(node);
-            if (checkedFile === undefined || !semantics.includes(checkedFile)) {
+            if (checkedFile === undefined || !navigation.includes(checkedFile)) {
               unresolvedInvocations.set(node, "A selected formal requires its exact checked invocation source-file owner.");
               continue;
             }
             if (!retainCheckedContext(formal, checkedFile)) break;
           }
           arguments_.push(Object.freeze({ actual: actual.subject, formal: destination, selectedParameterDeclaration: formal,
-            binding: Object.freeze({ ...binding }) }));
+            binding }));
           if (Node_Initializer(ast, formal) === undefined || sourceStorageInvocationArgumentAbsence(source, selected, binding) !== "absent")
             connect(actual.subject, destination, { from: actual.sourceType, to: actual.targetType });
         }
         argumentTransports.set(node, Object.freeze(arguments_));
-        const supplied = pointerInvocations.has(node) ? [] : effects.callbackEntries?.(node, selected);
+        const supplied = pointerInvocations.has(node) ? [] : effects.callbacks(selected);
         const callbacks = supplied === undefined ? undefined : snapshotSourceStorageCallbackEffects(supplied, selected, budget);
         const nativeEntries: SourceStorageCallbackEntry[] = [];
         for (const argument of arguments_) {
           if (!step()) break;
-          if (semantics.forNode(node).types.isNullish(argument.binding.selectedArgumentType)) continue;
-          const known = callbacks?.find(callback => callback.parameterIndex === argument.binding.sourceParameterIndex);
+          if (sourceStorageInvocationArgumentAbsence(source, selected, argument.binding) === "absent") continue;
+          const known = callbacks?.find(callback => callback.parameterIndex === argument.binding.parameter.index);
           if (callbacks !== undefined && known === undefined) continue;
-          const types = semantics.forNode(node).types;
-          const parameterType = types.nonNullableType(argument.binding.selectedParameterType);
-          const argumentType = types.nonNullableType(argument.binding.selectedArgumentType);
-          const callable = parameterType !== undefined && types.callSignatures(parameterType).length !== 0 ||
-            argumentType !== undefined && types.callSignatures(argumentType).length !== 0;
+          const parameterCalls = sourceStorageValue(sourceCallableSignatures(source, argument.binding.destination.applied, source.work));
+          const argumentCalls = sourceStorageValue(sourceCallableSignatures(source, argument.binding.source, source.work));
+          const callable = [...parameterCalls, ...argumentCalls].some(original => original.signature.identity.kind === "call");
           if (known === undefined && !callable) continue;
           if (!budget.row()) break;
           nativeEntries.push(Object.freeze({ kind: "source-storage-callback-entry" as const, invocation: node,

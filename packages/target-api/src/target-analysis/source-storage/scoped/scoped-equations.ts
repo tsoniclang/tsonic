@@ -3,7 +3,8 @@ import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
-import { sourceStorageHasOriginalCallableValue, type SourceStorageSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageEquation, SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";

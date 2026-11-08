@@ -9,8 +9,9 @@ import { Node_Initializer } from "../../../source-navigation/index.js";
 import { sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
-import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
+import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../../../source-model/storage.js";
 import { sourceStorageSelectedInputSlots, sourceStorageInvocationArgumentAbsence, sourceStorageNativeInputSlots } from "./invocation-inputs.js";
 import type { SourceStorageInvocationInputSelectionQuery } from "./invocation-inputs.js";
 

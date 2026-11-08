@@ -4,7 +4,7 @@ import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js
 import type { SourceMemberUse } from "../../source-semantics/member-use.js";
 import type { SourceProductionResult } from "../../source-semantics/descriptor-contracts.js";
 import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
-import type { SourceStoragePlace } from "../source-protocols.js";
+import type { SourceStoragePlace } from "../../source-model/protocols.js";
 import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 
 export interface SourceStoragePlaceInput {

@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceApplication, SourcePresence, SourceResult, SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
-import type { SourcePointerFacts, SourcePointerOperation, SourceRawLocation } from "./source-pointers.js";
-import type { SourceStoragePlace } from "./source-protocols.js";
+import type { SourcePointerFacts, SourcePointerOperation, SourceRawLocation } from "../source-model/pointers.js";
+import type { SourceStoragePlace } from "../source-model/protocols.js";
 import { createSourceMemoryLayoutQuery, type SourcePointerProductionInput } from "./source-pointer-production.js";
 
 function resolved<Value>(value: Value): SourceResult<Value> { return Object.freeze({ kind: "resolved", value }); }

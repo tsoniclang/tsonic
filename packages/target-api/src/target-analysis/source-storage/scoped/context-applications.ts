@@ -3,7 +3,8 @@ import { sourceCallableValueParameters } from "../../../source-navigation/callab
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageInvocationInputQuery } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";
 import type { SourceStorageForwardSelection } from "../model/relations.js";

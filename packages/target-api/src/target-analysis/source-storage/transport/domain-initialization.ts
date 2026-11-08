@@ -7,7 +7,7 @@ import { Node_Initializer } from "../../../source-navigation/index.js";
 
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType, sourceStorageIsScalarType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
 import type { createSourceStorageTransport } from "./transport.js";

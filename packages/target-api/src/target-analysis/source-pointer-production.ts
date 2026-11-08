@@ -4,9 +4,9 @@ import type { SourceInputComponent } from "../host-input/identities.js";
 import type { SourceInputFieldMarker } from "../host-input/marker-input.js";
 import type { SourceApplicationFacts, SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult,
   SourceTypeEvidence, SourceValueFacts } from "../public/source/contracts.js";
-import type { SourceFieldMarker, SourceMarkerFacts } from "./source-markers.js";
-import type { SourceMemoryLayout, SourcePointerFacts, SourcePointerType } from "./source-pointers.js";
-import type { SourceAnalysisFacts } from "./source-protocols.js";
+import type { SourceFieldMarker, SourceMarkerFacts } from "../source-model/markers.js";
+import type { SourceMemoryLayout, SourcePointerFacts, SourcePointerType } from "../source-model/pointers.js";
+import type { SourceAnalysisFacts } from "../source-model/protocols.js";
 import { createSourcePointerOperationQuery } from "./source-pointer-operations.js";
 
 export interface SourcePointerProductionInput {

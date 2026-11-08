@@ -3,7 +3,7 @@ import type { SourceExpressionResultDisposition } from "../../source-navigation/
 import type { ResolvedSourceCallInfo } from "../../source-semantics/call-result-selection.js";
 import type { SourceTypeArgumentBinding } from "../../source-semantics/type-arguments.js";
 import type { SourceTypeComponentEvidence } from "../../source-semantics/types.js";
-import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../flow/model.js";
+import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../../source-model/control-flow.js";
 
 export type SourceFormalBorrowRegion =
   | { readonly kind: "type-argument"; readonly binding: SourceTypeArgumentBinding; readonly declaration: Node }

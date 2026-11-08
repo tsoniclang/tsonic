@@ -6,12 +6,12 @@ import { Node_Expression, Node_Initializer } from "../../../source-navigation/in
 
 import { sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageScopedSubject, SourceStorageScope, SourceStorageRelationWitness } from "../graph/scoped-model.js";
 import { sourceStorageMissingProducerReason } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
-import type { SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageDomainBoundary } from "../../../source-model/storage.js";
 import { createSourceStorageDomainWitnesses, type SourceStorageDomainWitness } from "../graph/domain-witnesses.js";
 import { createSourceStorageDomainPublications } from "../graph/domain-publications.js";
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";

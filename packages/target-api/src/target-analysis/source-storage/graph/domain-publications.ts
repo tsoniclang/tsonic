@@ -1,7 +1,7 @@
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageProjectionReceiver, SourceStorageScope } from "./scoped-model.js";
 
 export interface SourceStoragePublication {

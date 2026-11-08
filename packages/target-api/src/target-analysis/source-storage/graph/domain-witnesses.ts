@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
+import type { SourceStorageDomainBoundary } from "../../../source-model/storage.js";
 import type { SourceStorageScope } from "./scoped-model.js";
 
 export interface SourceStorageDomainWitness extends Omit<SourceStorageDomainBoundary, "bindings"> {

@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceRefusal } from "../../public/source/contracts.js";
-import type { SourceFlowLimits, SourceFlowUnresolved } from "./model.js";
+import type { SourceFlowLimits, SourceFlowUnresolved } from "../../source-model/control-flow.js";
 
 export const defaultSourceFlowLimits: SourceFlowLimits = Object.freeze({
   maximumPoints: 262_144,

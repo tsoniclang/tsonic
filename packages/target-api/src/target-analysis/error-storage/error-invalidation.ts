@@ -1,9 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild, Node_Expression } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import type { SourceStorageSubject } from "../../source-model/storage.js";
 import { sourceStorageHasOriginalCallableValue } from "../source-storage/model/subjects.js";
-import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../../source-model/storage.js";
 import type { SourceErrorStorageDemandQueries } from "./model.js";
 
 export function createSourceErrorInvalidationQuery(

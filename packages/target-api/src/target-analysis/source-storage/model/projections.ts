@@ -3,7 +3,8 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageDynamicMemberKey, sourceStorageArrayLiteralType } from "./components.js";
-import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import type { SourceStorageSubjectQuery } from "./subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 

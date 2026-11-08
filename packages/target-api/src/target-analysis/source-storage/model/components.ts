@@ -3,7 +3,7 @@ import type { SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../..
 import { sourceLiteralUnitKey, type SourceLiteralKey } from "../../../source-model/literals/key.js";
 import { Node_Expression } from "../../../source-navigation/ast.js";
 import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
-import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsMemberProjection } from "./subjects.js";
 import type { SourceStorageProgram } from "./program.js";
 import { sourceStorageValue } from "./program.js";

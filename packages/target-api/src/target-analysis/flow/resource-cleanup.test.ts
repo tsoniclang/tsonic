@@ -5,7 +5,7 @@ import { createTargetSourceProgram } from "../../source-semantics/target-source-
 import { createSourceControlFlowQueries } from "./graph.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
-import type { SourceControlFlowGraph, SourceFlowPoint } from "./model.js";
+import type { SourceControlFlowGraph, SourceFlowPoint } from "../../source-model/control-flow.js";
 import { sourceFlowStatement } from "./statements.js";
 import { SourceFlowFailure } from "./resources.js";
 

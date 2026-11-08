@@ -8,7 +8,7 @@ export { analyzeSourceLiveness, analyzeSourceDefiniteAssignment, analyzeSourceWr
 export { defaultSourceFlowLimits } from "./resources.js";
 export type { SourceControlFlowQueries, SourceControlFlowGraph, SourceControlFlowSelectedDomain, SourceControlFlowSelection, SourceFlowEdge, SourceFlowEdgeKind,
   SourceFlowLattice, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint, SourceFlowProblem,
-  SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
-export type { SourceDeclarationFlowExecutionRegion, SourceDeclarationControlFlowOptions } from "./model.js";
+  SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "../../source-model/control-flow.js";
+export type { SourceDeclarationFlowExecutionRegion, SourceDeclarationControlFlowOptions } from "../../source-model/control-flow.js";
 export type { SourceFlowWriteCount, SourceFlowLivenessSelection, SourceFlowDefiniteAssignmentSelection,
   SourceFlowWritesSelection } from "./instances.js";

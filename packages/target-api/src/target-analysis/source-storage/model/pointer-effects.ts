@@ -1,5 +1,5 @@
-import type { SourcePointerOperation } from "../../source-pointers.js";
-import type { SourceStorageCallEffect } from "./types.js";
+import type { SourcePointerOperation } from "../../../source-model/pointers.js";
+import type { SourceStorageCallEffect } from "../../../source-model/storage.js";
 
 export function sourceStoragePointerCallEffect(operation: SourcePointerOperation | undefined): SourceStorageCallEffect | undefined {
   switch (operation?.operation) {

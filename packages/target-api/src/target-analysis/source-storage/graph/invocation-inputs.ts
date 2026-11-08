@@ -7,11 +7,12 @@ import type { Node } from "@tsonic/tsts";
 import { Node_Initializer, sourceTransparentExpressionOperand } from "../../../source-navigation/index.js";
 import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import { sourceStorageComponentType, sourceStorageOriginalSignature, sourceStorageSubjectType } from "../model/components.js";
-import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../model/types.js";
+import type { SourceStorageArgumentTransport, SourceStorageCallbackEntry, SourceStorageCallableInputSlot, SourceStorageInvocationInputSlots, SourceStorageInputSlotsSelection } from "../../../source-model/storage.js";
 import type { SourceStorageClassValue } from "../model/construction.js";
 import type { SourceStorageAccessorInvocation } from "./scoped-model.js";
 

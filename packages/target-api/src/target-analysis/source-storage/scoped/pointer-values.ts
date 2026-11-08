@@ -4,7 +4,7 @@ import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageProjection } from "../model/subjects.js";
+import type { SourceStorageProjection } from "../../../source-model/storage.js";
 import type { SourceStorageReference, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageOperation } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";

@@ -1,7 +1,7 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDirectCreation, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";

@@ -1,4 +1,4 @@
-import type { SourceStorageLimits } from "./types.js";
+import type { SourceStorageLimits } from "../../../source-model/storage.js";
 
 export interface SourceStorageRows {
   add(cost: number): boolean;

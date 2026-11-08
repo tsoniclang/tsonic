@@ -2,8 +2,8 @@ import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageCallEffect } from "../model/types.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageCallEffect } from "../../../source-model/storage.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 
 export function createSourceStorageGeneratorResumes(source: SourceStorageProgram, budget: SourceStorageBudget,
   queries: {

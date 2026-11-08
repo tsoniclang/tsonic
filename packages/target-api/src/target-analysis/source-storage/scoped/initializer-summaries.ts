@@ -2,7 +2,7 @@ import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsDirectCreation } from "../model/subjects.js";
 import { sourceStorageReference, type SourceStorageFrame, type SourceStorageScope,
   type SourceStorageTerm } from "../graph/scoped-model.js";

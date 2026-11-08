@@ -3,7 +3,7 @@ import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageOperation, SourceStorageReduction, SourceStorageReference, SourceStorageScope, SourceStorageTerm } from "../graph/scoped-model.js";

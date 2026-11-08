@@ -1,9 +1,9 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceApplication, SourceSignatureIdentity } from "../../../public/source/contracts.js";
 import { createSourceCallableValueQuery } from "../../../source-navigation/callable-values.js";
-import type { SourceJsCallStorage } from "../../source-profile.js";
+import type { SourceJsCallStorage } from "../../../source-model/profile.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
-import type { SourceStorageNativeConstructorPremise } from "./types.js";
+import type { SourceStorageNativeConstructorPremise } from "../../../source-model/storage.js";
 import type { SourceStorageProgram } from "./program.js";
 import { sourceStorageValue } from "./program.js";
 

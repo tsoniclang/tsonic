@@ -4,9 +4,9 @@ import { sourceCallableValueParameters } from "../../../source-navigation/callab
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../../../source-model/storage.js";
 import type { SourceStorageInvocationInputQuery, SourceStorageInvocationInputSelectionQuery } from "../graph/invocation-inputs.js";
 import { sourceStorageNativeInputSlots } from "../graph/invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "../graph/graph-queries.js";

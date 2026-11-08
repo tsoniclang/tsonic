@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
-import type { SourceControlFlowGraph, SourceDeclarationFlowExecutionRegion, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
+import type { SourceControlFlowGraph, SourceDeclarationFlowExecutionRegion, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "../../source-model/control-flow.js";
 import { createSourceFlowBudget, SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 
 export interface SourceFlowContext {

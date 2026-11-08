@@ -2,7 +2,7 @@ import type { Node, ProviderVirtualDeclarationFact, SourceFile } from "@tsonic/t
 import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceCallableRole, SourceCallableRoles } from "../source-navigation/callable-boundaries.js";
 import type { SourceExpressionResultDisposition } from "../source-navigation/expression-use-model.js";
-import type { SourceProfileDeclarationIdentity } from "../target-analysis/source-profile-identity.js";
+import type { SourceProfileDeclarationIdentity } from "./profile-identity.js";
 
 export interface SourceNodeReference {
   readonly meaning: "value" | "type" | "namespace";

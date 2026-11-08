@@ -2,7 +2,7 @@ import type { SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
 
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import type { createSourceStorageMemberFlow } from "../graph/member-flow.js";

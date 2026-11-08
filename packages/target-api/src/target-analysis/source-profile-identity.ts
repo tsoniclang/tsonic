@@ -1,13 +1,6 @@
 import type { AstReader, Node, ProviderVirtualDeclarationFact } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
-
-export interface SourceProfileDeclarationIdentity {
-  readonly owner: string;
-  readonly kind: "type" | "member" | "indexer" | "call" | "construct";
-  readonly declaration: Node;
-  readonly declaringName: string | undefined;
-  readonly name: string | undefined;
-}
+import type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";
 
 export function createSourceProfileDeclarationQuery(input: {
   readonly ast: AstReader;

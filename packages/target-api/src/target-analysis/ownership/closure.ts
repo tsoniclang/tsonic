@@ -4,7 +4,7 @@ import { sourceSingleCallValueArgument } from "../../source-navigation/callable-
 import type { SourceCallArgumentCorrespondence } from "../../source-navigation/callable-arguments.js";
 import type { ResolvedSourceCallInfo } from "../../source-navigation/call-info.js";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
-import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../flow/model.js";
+import type { SourceDeclarationFlowExecutionRegion, SourceFlowLimits } from "../../source-model/control-flow.js";
 import type { SourceDeclarationContinuationDependency, SourceDeclarationContinuationSelection,
   SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipUnresolved, SourceDeclarationPendingOperation } from "./model.js";
 import { resolveSourceDeclarationContinuationFlow, type createSourceDeclarationOwnershipValues,

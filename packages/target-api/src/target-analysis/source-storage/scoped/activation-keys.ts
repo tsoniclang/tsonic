@@ -5,9 +5,10 @@ import type { SourceStorageContextFootprint } from "../graph/context-footprints.
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageActivation, SourceStorageFrame, SourceStorageScope, SourceStorageScopeParameter, SourceStorageVariable } from "../graph/scoped-model.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
-import type { SourceStorageCallbackEntry } from "../model/types.js";
+import type { SourceStorageCallbackEntry } from "../../../source-model/storage.js";
 
 export interface SourceStorageCreationContext {
   readonly footprints: { select(subject: SourceStorageSubject): SourceStorageContextFootprint | undefined };

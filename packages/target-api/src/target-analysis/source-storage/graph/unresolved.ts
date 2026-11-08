@@ -1,4 +1,5 @@
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 
 export interface SourceStorageUnresolvedAncestry {

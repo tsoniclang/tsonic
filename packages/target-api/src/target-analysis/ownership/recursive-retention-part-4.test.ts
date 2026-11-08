@@ -4,7 +4,7 @@ import test from "node:test";
 
 import type { Node } from "@tsonic/tsts";
 
-import type { SourceStorageBindings } from "../source-storage/model/types.js";
+import type { SourceStorageBindings } from "../../source-model/storage.js";
 
 import { createSourceDeclarationOwnershipBudget, defaultSourceDeclarationOwnershipLimits } from "./contracts.js";
 

@@ -3,9 +3,9 @@ import type { Node } from "@tsonic/tsts";
 
 import { sourceStorageAllocations, sourceStorageClassLineages } from "../model/construction.js";
 import { sourceConstructionExpression, sourceInstanceInitializers } from "../../../source-navigation/class-initialization.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageQueries, SourceStorageUnresolved } from "../model/types.js";
+import type { SourceStorageBindings, SourceStorageConstructionClass, SourceStorageConstructionSelection, SourceStorageQueries, SourceStorageUnresolved } from "../../../source-model/storage.js";
 
 type ConstructionQueries = Pick<SourceStorageQueries, "subject" | "bindingsForInvocation" |
   "executionRegionsFor" | "subjectFor" | "storageProducersFor">;

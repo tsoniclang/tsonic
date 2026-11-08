@@ -6,7 +6,7 @@ import { ElementAccessExpression_ArgumentExpression } from "../../../source-navi
 import { sourceIndexedStorageProjection, sourceStorageAccessDeclarations, sourceStorageComponentType,
   sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageScope, SourceStorageScopedSubject, SourceStorageProjectionReceiver } from "../graph/scoped-model.js";
 import type { createSourceStorageTransport } from "./transport.js";

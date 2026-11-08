@@ -3,7 +3,8 @@ import { Node_Initializer, ObjectLiteralProperty_Value } from "../../../source-n
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { type SourceStorageSubject, type SourceStorageProjection, sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import { sourceStorageFormalOwner, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageIsMemberProjection, sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
+import type { SourceStorageSubject, SourceStorageProjection } from "../../../source-model/storage.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference, type SourceStorageActivation, type SourceStorageReduction, type SourceStorageScope, type SourceStorageTerm, type SourceStorageReference, type SourceStorageInputFrontier, type SourceStorageRelationWitness, type SourceStorageOperation } from "../graph/scoped-model.js";

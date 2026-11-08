@@ -3,7 +3,7 @@ import { Node_Expression, Node_Initializer } from "../../../source-navigation/in
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
 import { type createSourceStorageExecutionReachability, createSourceStorageInputExecutions, walkSourceStorageExecution } from "./execution-reachability.js";

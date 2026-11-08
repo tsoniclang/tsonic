@@ -5,7 +5,8 @@ import { sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageEdgeTypes } from "../model/relations.js";
-import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsMemberProjection } from "../model/subjects.js";
 
 export type SourceStorageIncomingQuery = (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>;

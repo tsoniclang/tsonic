@@ -9,14 +9,15 @@ import { forEachSourceImmediateEvaluationChild } from "../../../source-navigatio
 import { sourceBindingWriteAtReference } from "../../../source-navigation/references-usage.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { createSourceStorageBudget, type SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageFormalOwner } from "../model/subjects.js";
 import { sourcePresentStorageType, sourceStorageAccessDeclarations, sourceStorageIsScalarType,
   sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { SourceStorageFixedPointQueries } from "../model/relations.js";
 import type { SourceStorageFormalMemberWriteDemandSelection, SourceStorageUnresolved,
-  SourceStorageWriteOccurrence } from "../model/types.js";
+  SourceStorageWriteOccurrence } from "../../../source-model/storage.js";
 import type { SourceBindingWriteValue } from "../../../source-navigation/types.js";
 import type { SourceStorageWriteProjection } from "../model/projections.js";
 import type { SourceStorageStore, SourceStorageWrite } from "../model/stores.js";

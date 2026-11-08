@@ -4,7 +4,8 @@ import type { SourceFile } from "@tsonic/tsts";
 
 import type { SourceStorageProjectionView } from "../graph/scoped-model.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageIsMemberProjection } from "../model/subjects.js";
 
 function selectedView(subject: SourceStorageSubject, views: readonly SourceStorageProjectionView[] | undefined):

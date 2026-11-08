@@ -1,10 +1,10 @@
 import type { SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 import { sourceStorageValue } from "../model/program.js";
-import type { SourceTypedLocationOperation } from "../../source-pointers.js";
+import type { SourceTypedLocationOperation } from "../../../source-model/pointers.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 
 export function createSourceStoragePointerBackings(source: SourceStorageProgram, budget: SourceStorageBudget, queries: {
   subjectFor(node: Node): SourceStorageSubject | undefined;

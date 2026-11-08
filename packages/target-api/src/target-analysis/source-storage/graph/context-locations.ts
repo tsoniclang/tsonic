@@ -1,10 +1,10 @@
 import type { SourceStorageProgram } from "../model/program.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageStore } from "../model/stores.js";
-import type { SourceStorageCallEffect } from "../model/types.js";
+import type { SourceStorageCallEffect } from "../../../source-model/storage.js";
 
 export type SourceStorageContextLocation = "allocation" | "binding";
 

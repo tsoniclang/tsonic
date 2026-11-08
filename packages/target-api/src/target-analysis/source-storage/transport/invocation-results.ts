@@ -3,7 +3,8 @@ import type { Node } from "@tsonic/tsts";
 import { sourceStorageInstanceCaptures } from "../model/construction.js";
 
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageScopedSubject, SourceStorageScope } from "../graph/scoped-model.js";
 
 interface SourceStorageInvocationResultQueries {

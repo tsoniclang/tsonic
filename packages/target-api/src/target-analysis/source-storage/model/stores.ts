@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageSubject } from "./subjects.js";
-import type { SourceStorageWrittenValue } from "./types.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
+import type { SourceStorageWrittenValue } from "../../../source-model/storage.js";
 import type { SourceStorageWriteProjection } from "./projections.js";
 
 export interface SourceStorageWrite {

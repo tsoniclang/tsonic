@@ -3,10 +3,11 @@ import { sourcePresenceLiteralDisposition } from "../../../source-model/literals
 import { sourcePresentStorageType } from "../model/components.js";
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubjectQuery } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageStore } from "../model/stores.js";
 import type { SourceStorageStoredProjection } from "../graph/store-projections.js";
-import type { SourceStorageCallEffect, SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
+import type { SourceStorageCallEffect, SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../../../source-model/storage.js";
 import type { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import type { createSourceStorageMemberFlow } from "../graph/member-flow.js";
 import type { createSourceStorageContextInputs } from "./context-inputs.js";

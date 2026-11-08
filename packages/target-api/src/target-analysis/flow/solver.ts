@@ -1,4 +1,4 @@
-import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowProblem, SourceFlowSolution } from "./model.js";
+import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowProblem, SourceFlowSolution } from "../../source-model/control-flow.js";
 import { sourceFlowOrder } from "./ordering.js";
 import { createSourceFlowBudget, SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 

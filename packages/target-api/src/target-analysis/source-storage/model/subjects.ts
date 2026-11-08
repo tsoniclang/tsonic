@@ -3,25 +3,12 @@ import { sourceStorageValue } from "./program.js";
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { sourceCallableValueParameters } from "../../../source-navigation/callable-parameters.js";
-
-
-export type SourceStorageProjection =
-  | { readonly kind: "array-element" }
-  | { readonly kind: "tuple-element"; readonly index: number }
-  | { readonly kind: "member"; readonly declaration: Node }
-  | { readonly kind: "method-value"; readonly declaration: Node };
+import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 
 export function sourceStorageIsMemberProjection(
   component: SourceStorageProjection,
 ): component is Extract<SourceStorageProjection, { readonly kind: "member" | "method-value" }> {
   return component.kind === "member" || component.kind === "method-value";
-}
-
-export interface SourceStorageSubject {
-  readonly kind: "input" | "value" | "member" | "return" | "receiver";
-  readonly node: Node;
-  readonly projection: readonly SourceStorageProjection[];
-  readonly projectionKey: string;
 }
 
 export type SourceStorageSubjectQuery = (

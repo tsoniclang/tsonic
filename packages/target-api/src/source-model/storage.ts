@@ -1,9 +1,21 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import type { SourceArgumentPlace, SourceRefusal, SourceSignatureIdentity, SourceTypeEvidence } from "../../../public/source/contracts.js";
-import type { TargetSourceProgram } from "../../../source-semantics/types.js";
-import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import type { SourceNodeWriteValue } from "../../../source-model/navigation.js";
-import type { SourceJsCallbackEffect, SourceJsCallStorageEffect } from "../../source-profile.js";
+import type { SourceArgumentPlace, SourceRefusal, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { TargetSourceProgram } from "../source-semantics/types.js";
+import type { SourceNodeWriteValue } from "./navigation.js";
+import type { SourceJsCallbackEffect, SourceJsCallStorageEffect } from "./profile.js";
+
+export type SourceStorageProjection =
+  | { readonly kind: "array-element" }
+  | { readonly kind: "tuple-element"; readonly index: number }
+  | { readonly kind: "member"; readonly declaration: Node }
+  | { readonly kind: "method-value"; readonly declaration: Node };
+
+export interface SourceStorageSubject {
+  readonly kind: "input" | "value" | "member" | "return" | "receiver";
+  readonly node: Node;
+  readonly projection: readonly SourceStorageProjection[];
+  readonly projectionKey: string;
+}
 
 export interface SourceStorageLimits {
   readonly maximumNodes: number;

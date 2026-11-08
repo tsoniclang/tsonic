@@ -1,6 +1,6 @@
 import { createTargetGraphComponentQuery } from "../../graph-component-query.js";
 import type { SourceStorageBudget, SourceStorageRows } from "../model/resource-budget.js";
-import type { SourceStorageSubject } from "../model/subjects.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 import type { SourceStorageContextLocation } from "./context-locations.js";
 
 export interface SourceStorageContextFootprint {

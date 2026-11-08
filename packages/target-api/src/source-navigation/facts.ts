@@ -3,7 +3,7 @@ import type { SourceInputComponent, SourceInputSignature } from "../host-input/i
 import type { SourceInputNodeNavigationQueries, SourceInputHeritage } from "../host-input/navigation-input.js";
 import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceNodeConstructors, SourceNodeHeritage, SourceNodeHeritageEdge, SourceNodeNavigationFacts } from "../source-model/navigation.js";
-import type { SourceProfileDeclarationIdentity } from "../target-analysis/source-profile-identity.js";
+import type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";
 import { createSourceEnclosingQuery, sourceCallableRoles, type SourceCallableRole } from "./callable-boundaries.js";
 
 export interface SourceNodeNavigationOwner {

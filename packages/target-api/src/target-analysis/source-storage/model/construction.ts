@@ -3,8 +3,8 @@ import type { Node } from "@tsonic/tsts";
 import { AsExpressionWithTypeArguments, sourceSuperConstructor } from "../../../source-navigation/index.js";
 
 import type { SourceStorageBudget } from "./resource-budget.js";
-import type { SourceStorageUnresolved } from "./types.js";
-import type { SourceStorageSubject } from "./subjects.js";
+import type { SourceStorageUnresolved } from "../../../source-model/storage.js";
+import type { SourceStorageSubject } from "../../../source-model/storage.js";
 
 export interface SourceStorageClassValue<Bindings> {
   readonly subject: SourceStorageSubject;

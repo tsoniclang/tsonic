@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
+import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "../../source-model/control-flow.js";
 import { solveSourceFlow } from "./solver.js";
 import { SourceFlowFailure } from "./resources.js";
 

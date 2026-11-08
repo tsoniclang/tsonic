@@ -1,5 +1,5 @@
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
-import type { SourceControlFlowGraph } from "./model.js";
+import type { SourceControlFlowGraph } from "../../source-model/control-flow.js";
 import { SourceFlowFailure } from "./resources.js";
 
 export function sourceFlowOrder(graph: SourceControlFlowGraph<unknown>, direction: "forward" | "backward", step: () => void) {
