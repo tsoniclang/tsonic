@@ -11,10 +11,13 @@ import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js"
 import { sourceEvidenceExtends } from "./local-type-flow/evidence-relations.js";
 import { analyzeSourceTypeFlow } from "./local-type-flow/solver.js";
 import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
-import { createSourceMemberUseQuery } from "./member-use.js";
+import { createSourceMemberUseQueries } from "./member-use.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
 import type { SourceObjectFacts, SourceProgramFacts, TargetSourceProgram } from "./types.js";
 import { createSourceAdmissionFacts } from "./admission.js";
+import { createSourcePropertyNameQuery } from "./property-names.js";
+import { createSourceAnalysisFacts } from "../target-analysis/source-protocol-production.js";
+import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
   const { ast, inventory } = input;
@@ -22,7 +25,10 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   let reader: SourceDescriptorReader | undefined;
   let propertyName: ((node: Node) => SourceProductionResult<SourcePropertyName>) | undefined;
   let objectProduction: SourceObjectProduction | undefined;
+  let objectQueries: SourceObjectProductionQueries | undefined;
+  let memberUses: ReturnType<typeof createSourceMemberUseQueries> | undefined;
   let solved: ReturnType<typeof analyzeSourceTypeFlow> | undefined;
+  let protocols: SourceAnalysisFacts | undefined;
   const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
   const unavailableRefusals = new WeakMap<Node, Map<string, SourceRefusal>>();
 
@@ -41,6 +47,10 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     if (objectProduction === undefined) throw new Error("Original Source semantic production requires its single member owner before graph collection.");
     return objectProduction;
   }
+  function requiredProtocols(): SourceAnalysisFacts {
+    if (protocols === undefined) throw new Error("Original Source storage requires its one final protocol owner.");
+    return protocols;
+  }
   function settle<Value>(result: SourceProductionResult<Value>): SourceResult<Value> {
     if (result.kind === "pending") throw new Error("A final Source query cannot publish an unsolved original dependency.");
     return owner.observe(result);
@@ -48,6 +58,13 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
 
   const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
     members: (value, original, bindings) => requiredReader().describeMembers(original, bindings, value),
+    receiverBindings(value, direct) {
+      const original = owner.builder.originalComponent(value);
+      if (original.kind === "present") return requiredReader().inheritedBindings(original.value, direct);
+      return value.type.kind === "declared"
+        ? requiredReader().inheritedBindings(input.input.syntax(value.type.declaration), direct)
+        : { kind: "resolved", value: direct };
+    },
     project(originalSource, source, projection, bindings) {
       return produceSourceProjection({ ast, input: input.input, builder: owner.builder,
         reader: requiredReader(), objects: requiredObjects(), originalSource, source, projection, bindings });
@@ -97,13 +114,12 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     get values() { return requiredSolved().values; },
     get applications() { return requiredSolved().applications; },
     get solvedProtocols() { return requiredSolved().protocols; },
+    storage: occurrence => requiredProtocols().storage(occurrence),
     assertNode,
     assertApplication: application => requiredSolved().assertApplication(application),
     originalComponent: owner.builder.originalComponent,
     sourceOriginSubjects: owner.builder.sourceOriginSubjects,
-    publish, signature, unavailable,
-    literalDomain: node => settle(requiredSolved().literalDomain(node)),
-    syntaxDomain: node => settle(requiredSolved().syntaxDomain(node)) });
+    publish, signature, unavailable });
 
   const navigation = input.navigation(production);
   const profile = input.profile(production);
@@ -120,16 +136,17 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     },
     createPropertyNameQuery(queries) {
       if (propertyName !== undefined) throw new Error("A Source solve must retain one property-name owner before collection.");
-      propertyName = input.propertyName(queries);
+      propertyName = createSourcePropertyNameQuery({ ast, assertNode, ...input.propertyNames, ...queries });
       return propertyName;
     },
     createObjects(queries: SourceObjectProductionQueries) {
       if (objectProduction !== undefined) throw new Error("A Source solve must retain one member-use and correspondence owner.");
-      const use = createSourceMemberUseQuery({ view: owner.view,
+      objectQueries = queries;
+      memberUses = createSourceMemberUseQueries({ view: owner.view,
         inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode,
         select: input.memberUse, value: occurrence => queries.value(occurrence, []), compose: queries.memberValue,
         destination: queries.memberDestination, unavailable });
-      objectProduction = Object.freeze({ ...correspondence, use });
+      objectProduction = Object.freeze({ ...correspondence, use: memberUses.use });
       return objectProduction;
     } });
   input.discharge(solved.dischargedDiagnostics);
@@ -145,7 +162,14 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     correspondingMember: (source, destination, declaration, purpose) => settle(completeObjects.correspondingMember(source, destination, declaration, purpose, keyContains)),
     use: occurrence => settle(completeObjects.use(occurrence)),
     propertyName: name => settle(completePropertyName(name)) });
-  const protocols = input.protocols(production, navigation, objects);
+  const completeObjectQueries = objectQueries;
+  if (completeObjectQueries === undefined) throw new Error("Final Source protocols require the original member value and destination owner.");
+  const completeMemberUses = memberUses;
+  if (completeMemberUses === undefined) throw new Error("Final Source storage requires the same original member selection owner.");
+  protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
+    values: solved.values, navigation, memberPlace: completeMemberUses.place,
+    inventory: { members: owner.builder.members, construction: owner.builder.construction },
+    signature, solved: solved.protocols, pointers: input.pointers(production), unavailable, settle });
   const facts: SourceProgramFacts = Object.freeze({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
     descriptors: owner.view, values: solved.values, applications: solved.applications,
     enums: solved.enums, navigation, profile, objects, protocols, refusals: owner.refusals });

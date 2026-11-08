@@ -28,6 +28,7 @@ export function createSourceDescriptorOwner(input: {
   assertNode(node: Node): void;
   input: SourceDescriptorInput;
   members(value: SourceTypeEvidence, original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceMemberInventory>;
+  receiverBindings(value: SourceTypeEvidence, direct: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
   project(originalSource: SourceTypeEvidence, source: SourceTypeEvidence, projection: SourceDeferredProjection,
     bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
 }): SourceDescriptorOwner {
@@ -299,7 +300,27 @@ export function createSourceDescriptorOwner(input: {
       if (application.kind === "call") {
         input.assertNode(application.identity.invocation);
         interner.assertSignature(application.identity.signature);
-      } else evidence.assert(application.receiver);
+      } else {
+        const receiver = application.receiver;
+        const record = evidence.record(receiver);
+        const direct: SourceTypeBinding[] = [];
+        if (receiver.type.kind === "declared") {
+          const declaration = receiver.type.declaration;
+          for (const [index, parameter] of input.input.ast.typeParameters(declaration).entries()) {
+            if (parameter === undefined) throw new Error("An original receiver requires its complete ordered class binder vector.");
+            const child = record.components.get(components.selectorKey({ kind: "type-argument", declaration, index }));
+            if (child === undefined) throw new Error("An original receiver application requires its actual registered argument evidence.");
+            direct.push({ declaration: parameter, value: child.value });
+          }
+        }
+        const expected = input.receiverBindings(receiver, direct);
+        if (expected.kind !== "resolved") throw new Error("A published receiver destination requires its original class and inherited environment to be solved.");
+        const authenticated = parameters.bindings(expected.value);
+        if (application.bindings.length !== authenticated.length || application.bindings.some((binding, index) => {
+          const original = authenticated[index]!;
+          return binding.declaration !== original.declaration || !evidence.equivalent(binding.value, original.value);
+        })) throw new Error("A receiver destination must retain the exact ordered environment of its actual receiver evidence.");
+      }
       const bindings = application.kind === "receiver" ? application.bindings
         : [...application.identity.classBindings, ...application.identity.signatureBindings];
       const selected = parameters.bindings(bindings);

@@ -218,7 +218,13 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     if (syntax !== undefined && (input.ast.is.IsConditionalTypeNode(syntax) || input.ast.is.IsMappedTypeNode(syntax) || input.ast.is.IsTemplateLiteralTypeNode(syntax) || input.ast.is.IsIntersectionTypeNode(syntax) ||
       input.ast.is.IsIndexedAccessTypeNode(syntax) || input.ast.is.IsTypeOperatorNode(syntax) && input.ast.operatorKindName(syntax) === "KindKeyOfKeyword"))
       return options.syntaxProduction(facts.component, syntax, bindings, reader);
-    if (facts.kind === "unavailable") return facts.declaration === undefined ? unsupported(facts.component) : hooks.declaredValue(facts.component, facts.declaration, bindings);
+    if (facts.kind === "unavailable") {
+      if (syntax !== undefined && syntax !== facts.component.root) {
+        const selected = describeComponent(input.syntax(syntax), bindings);
+        return selected.kind !== "resolved" ? selected : builder.join(component(facts.component), "authored", [selected.value], facts.component);
+      }
+      return facts.declaration === undefined ? unsupported(facts.component) : hooks.declaredValue(facts.component, facts.declaration, bindings);
+    }
     if (facts.kind === "enum") return hooks.declaredValue(facts.component, facts.declaration, bindings);
     if (facts.kind === "parameter") {
       register(facts.parameter);

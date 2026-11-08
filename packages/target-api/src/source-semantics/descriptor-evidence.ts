@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputComponent } from "../host-input/identities.js";
 import { sourceFiniteLiteralDomain, sourceLiteralDomainsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
-  SourceCategoryDomain, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
+  SourceCategoryDomain, SourceMemberOrigin, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
   SourceTypeBinding, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
@@ -96,6 +96,43 @@ export function createSourceEvidenceOwner(input: {
     for (const binding of from.requirementBindings) {
       const other = bindings.get(binding.declaration);
       if (other === undefined || !equivalent(binding.value, other)) { previous.set(right, false); return false; }
+    }
+    if (!memberEvidenceEquivalent(from, to)) { previous.set(right, false); return false; }
+    return true;
+  }
+
+  function memberEvidenceEquivalent(from: SourceEvidenceRecord, to: SourceEvidenceRecord): boolean {
+    const left = from.details.members, right = to.details.members;
+    if (left === right || from.value.type.kind !== "shape" && from.value.type.kind !== "callable") return true;
+    if (left.kind !== "complete" || right.kind !== "complete") return from.original !== undefined && from.original === to.original;
+    if (left.members.length !== right.members.length || left.indexes.length !== right.indexes.length) return false;
+    const nodesEqual = (first: readonly Node[], second: readonly Node[]): boolean => first.length === second.length &&
+      first.every((node, index) => node === second[index]);
+    const originsEqual = (first: readonly SourceMemberOrigin[], second: readonly SourceMemberOrigin[]): boolean => first.length === second.length &&
+      first.every((origin, index) => input.components.selectorKey({ kind: "member", origin }) ===
+        input.components.selectorKey({ kind: "member", origin: second[index]! }));
+    const childrenEqual = (origins: readonly SourceMemberOrigin[]): boolean => origins.length > 0 && origins.every(origin => {
+      const key = input.components.selectorKey({ kind: "member", origin });
+      const first = from.components.get(key), second = to.components.get(key);
+      return first !== undefined && second !== undefined && equivalent(first.value, second.value);
+    });
+    for (const [index, first] of left.members.entries()) {
+      const second = right.members[index]!;
+      const sameKey = first.key.kind === "name" ? second.key.kind === "name" && first.key.name === second.key.name
+        : second.key.kind === "symbol" && first.key.declaration === second.key.declaration;
+      if (!sameKey || first.name !== second.name || first.read !== second.read || first.optional !== second.optional ||
+        first.readonly !== second.readonly || !nodesEqual(first.declarations, second.declarations) ||
+        !nodesEqual(first.getters, second.getters) || !nodesEqual(first.setters, second.setters) ||
+        !originsEqual(first.origins, second.origins) || !originsEqual(first.readOrigins, second.readOrigins) ||
+        !originsEqual(first.writeOrigins, second.writeOrigins)) return false;
+      if (first.read !== "unavailable" && first.readType !== second.readType && !childrenEqual(first.readOrigins)) return false;
+      if (!first.readonly && first.writeType !== second.writeType && !childrenEqual(first.writeOrigins)) return false;
+    }
+    for (const [index, first] of left.indexes.entries()) {
+      const second = right.indexes[index]!;
+      if (first.readonly !== second.readonly || !nodesEqual(first.declarations, second.declarations)) return false;
+      if (first.keyType !== second.keyType || first.readType !== second.readType ||
+        !first.readonly && first.writeType !== second.writeType) return false;
     }
     return true;
   }

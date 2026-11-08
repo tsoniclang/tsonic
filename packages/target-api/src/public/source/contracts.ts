@@ -258,7 +258,7 @@ export interface SourceValueOperand {
 /**
  * Evaluate control once. Native obeys disposition and skips only the unselected branch.
  * Conditional uses true/false; and/or/coalesce use left/right. Native never re-derives it.
- * A present-left coalesce remains refused until the maintainer's Q1 admission ruling.
+ * A statically present coalesce selects left, preserving its value and skipping the right operand.
  */
 export type SourceValueSelection = {
   readonly occurrence: Node;
