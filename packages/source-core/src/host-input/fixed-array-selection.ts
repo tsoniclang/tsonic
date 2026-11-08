@@ -1,9 +1,9 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, SourceFileQueries, Symbol, Type } from "@tsonic/tsts";
 import { sourceIntegerLiteralValue } from "@tsonic/target-api/host";
-import { snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "./facts.js";
-import type { TsonicFixedArrayFact } from "./facts.js";
-import { isTsonicFixedArrayProviderType } from "./provider.js";
+import { snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
+import type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
+import { isTsonicFixedArrayProviderType } from "../fixed-arrays/provider.js";
 
 export interface TsonicFixedArraySyntax {
   readonly authoredTypeNode?: Node;
