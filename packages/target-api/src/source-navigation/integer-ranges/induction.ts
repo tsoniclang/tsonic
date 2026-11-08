@@ -96,9 +96,18 @@ function isIntegerValueArgument(
     return resolved(false);
   const slot = context.declaredSlot(parameter);
   if (slot.kind !== "resolved") return slot;
-  const definition = context.view.definition(slot.value.type);
-  if (definition.kind === "refused") return definition;
-  if (definition.value.type.kind !== "primitive" || sourcePrimitiveIntegerBounds(definition.value.type.primitive) === undefined)
+  let value = slot.value.type;
+  const visited = new Set<typeof value>();
+  while (value.type.kind === "declared" || value.type.kind === "intersection") {
+    if (visited.has(value) || visited.size >= 64) return resolved(false);
+    visited.add(value);
+    const definition = value.type.kind === "intersection"
+      ? context.view.component(value, { kind: "intersection-result" }) : context.view.definition(value);
+    if (definition.kind === "refused") return definition;
+    value = definition.value;
+  }
+  context.view.assertEvidence(value);
+  if (value.type.kind !== "primitive" || sourcePrimitiveIntegerBounds(value.type.primitive) === undefined)
     return resolved(false);
   const passing = context.protocols.argumentPassing(parameter);
   if (passing.kind === "refused") return passing;

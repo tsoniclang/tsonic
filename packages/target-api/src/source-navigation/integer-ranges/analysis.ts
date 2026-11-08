@@ -91,10 +91,11 @@ class CallableIntegerRanges {
     if (selected.kind !== "resolved") { this.#incomplete = selected; return undefined; }
     let value = selected.value;
     const visited = new Set<SourceTypeEvidence>();
-    while (value.type.kind === "declared") {
+    while (value.type.kind === "declared" || value.type.kind === "intersection") {
       if (!this.enter(0) || visited.has(value)) return undefined;
       visited.add(value);
-      const definition = this.#options.view.definition(value);
+      const definition = value.type.kind === "intersection"
+        ? this.#options.view.component(value, { kind: "intersection-result" }) : this.#options.view.definition(value);
       if (definition.kind === "refused") { this.#incomplete = definition; return undefined; }
       value = definition.value;
     }
