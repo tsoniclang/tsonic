@@ -45,29 +45,12 @@ export function collectConsumedPublicExports(sources) {
   };
   for (const file of source.sourceFiles) {
     const visit = node => {
-      if (ast.is.IsImportDeclaration(node)) {
-        const declaration = ast.as.AsImportDeclaration(node);
-        const entry = declaration.ModuleSpecifier === undefined ? undefined : ast.text(declaration.ModuleSpecifier);
-        if (entry !== undefined && !entry.startsWith(".") && !entry.startsWith("/") && !isBuiltin(entry) && !entry.endsWith(".json")) {
-          const importClause = declaration.ImportClause;
-          if (importClause === undefined) add(entry, "all");
-          else {
-            if (!ast.is.IsImportClause(importClause)) throw new Error("Invalid public import clause.");
-            const clause = ast.as.AsImportClause(importClause);
-            if (ast.name(importClause) !== undefined) add(entry, "default");
-            if (clause.NamedBindings !== undefined) {
-              if (ast.is.IsNamespaceImport(clause.NamedBindings)) add(entry, "all");
-              else {
-                if (!ast.is.IsNamedImports(clause.NamedBindings)) throw new Error("Invalid public import bindings.");
-                for (const element of ast.elements(clause.NamedBindings)) {
-                  if (!ast.is.IsImportSpecifier(element)) throw new Error("Invalid public import specifier.");
-                  const imported = ast.as.AsImportSpecifier(element).PropertyName ?? ast.name(element);
-                  if (imported === undefined) throw new Error("Missing original public import name.");
-                  add(entry, ast.text(imported));
-                }
-              }
-            }
-          }
+      const dependency = publicModuleDependency(ast, node);
+      if (dependency !== undefined) {
+        const entry = ast.text(dependency.specifier);
+        if (!entry.startsWith(".") && !entry.startsWith("/") && !isBuiltin(entry) && !entry.endsWith(".json")) {
+          if (dependency.names === "all") add(entry, "all");
+          else for (const name of dependency.names) add(entry, name);
         }
       }
       ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
@@ -76,4 +59,49 @@ export function collectConsumedPublicExports(sources) {
   }
   return [...modules].sort(([left], [right]) => left.localeCompare(right)).map(([entry, exports]) =>
     Object.freeze({ entry, exports: exports === "all" ? exports : Object.freeze([...exports].sort()) }));
+}
+
+export function publicModuleDependency(ast, node) {
+  const importedName = element => {
+    const selected = ast.is.IsImportSpecifier(element) ? ast.as.AsImportSpecifier(element)
+      : ast.is.IsExportSpecifier(element) ? ast.as.AsExportSpecifier(element) : undefined;
+    if (selected === undefined) throw new Error("Invalid public dependency specifier.");
+    const original = selected.PropertyName ?? ast.name(element);
+    if (original === undefined) throw new Error("Missing original public dependency name.");
+    return ast.text(original);
+  };
+  if (ast.is.IsImportDeclaration(node)) {
+    const declaration = ast.as.AsImportDeclaration(node);
+    if (declaration.ModuleSpecifier === undefined) throw new Error("Missing public import module.");
+    if (declaration.ImportClause === undefined) return { specifier: declaration.ModuleSpecifier, names: "all" };
+    if (!ast.is.IsImportClause(declaration.ImportClause)) throw new Error("Invalid public import clause.");
+    const clause = ast.as.AsImportClause(declaration.ImportClause);
+    const names = ast.name(declaration.ImportClause) === undefined ? [] : ["default"];
+    if (clause.NamedBindings !== undefined) {
+      if (ast.is.IsNamespaceImport(clause.NamedBindings)) return { specifier: declaration.ModuleSpecifier, names: "all" };
+      if (!ast.is.IsNamedImports(clause.NamedBindings)) throw new Error("Invalid public import bindings.");
+      names.push(...ast.elements(clause.NamedBindings).map(importedName));
+    }
+    return { specifier: declaration.ModuleSpecifier, names };
+  }
+  if (ast.is.IsExportDeclaration(node)) {
+    const declaration = ast.as.AsExportDeclaration(node);
+    if (declaration.ModuleSpecifier === undefined) return undefined;
+    const clause = declaration.ExportClause;
+    if (clause === undefined || ast.is.IsNamespaceExport(clause)) return { specifier: declaration.ModuleSpecifier, names: "all" };
+    if (!ast.is.IsNamedExports(clause)) throw new Error("Invalid public export bindings.");
+    return { specifier: declaration.ModuleSpecifier, names: ast.elements(clause).map(importedName) };
+  }
+  if (ast.is.IsImportTypeNode(node)) {
+    const selected = ast.as.AsImportTypeNode(node);
+    if (selected.Argument === undefined || !ast.is.IsLiteralTypeNode(selected.Argument)) throw new Error("A public import type requires its literal module.");
+    const specifier = ast.as.AsLiteralTypeNode(selected.Argument).Literal;
+    if (specifier === undefined || !ast.is.IsStringLiteral(specifier)) throw new Error("A public import type requires its original string module.");
+    let qualifier = selected.Qualifier;
+    if (qualifier === undefined) return { specifier, names: "all" };
+    while (qualifier !== undefined && ast.is.IsQualifiedName(qualifier)) qualifier = ast.as.AsQualifiedName(qualifier).Left;
+    if (qualifier === undefined || !ast.is.IsIdentifier(qualifier)) throw new Error("A public import type requires its original exported name.");
+    return { specifier, names: [ast.text(qualifier)] };
+  }
+  return undefined;
 }

@@ -1,4 +1,5 @@
 import { createCompilerSessionFromFiles } from "../../../packages/tsts/dist/src/index.js";
+import { publicModuleDependency } from "./public-declarations.mjs";
 
 const aliases = new Set([
   "KindImportSpecifier", "KindImportClause", "KindExportSpecifier", "KindNamespaceImport", "KindNamespaceExport",
@@ -31,7 +32,7 @@ export function auditPublicTypeBoundary({
   if (syntaxDiagnostics.length !== 0) throw new Error(`Public declarations contain ${syntaxDiagnostics.length} syntax diagnostics.`);
   const sourceFiles = new Map(checked.sourceFiles.map(file => [ast.getFileName(file), file]));
   const declarationEntries = new Map(entries.map(entry => [entry.name, entry]));
-  validateExports();
+  validateDeclarationModules();
   const checkerRoot = moduleExports(checkerEntry);
   const forbidden = new Map(["Type", "Signature", "Symbol", "CheckedSourceProgram"].map(name => {
     const symbol = checkerRoot.exports.find(candidate => checkerRoot.checker.getSymbolName(candidate) === name);
@@ -45,7 +46,7 @@ export function auditPublicTypeBoundary({
     if (type === undefined) throw new Error(`Unresolved canonical site declaration ${name}.`);
     return type;
   });
-  const siteProperties = siteTypes.flatMap(type => checkerRoot.typeShape.getPropertyInfos(type));
+  const siteProperties = siteTypes.map(type => ({ type, properties: checkerRoot.typeShape.getPropertyInfos(type) }));
   const rows = [];
   const exported = new Set();
   for (const { entry, exports } of targets) {
@@ -59,7 +60,7 @@ export function auditPublicTypeBoundary({
   }
   return Object.freeze(rows);
 
-  function validateExports() {
+  function validateDeclarationModules() {
     const pending = [...new Set([checkerEntry, ...targets.map(target => target.entry)])].map(name => {
       const entry = declarationEntries.get(name);
       const file = entry === undefined ? undefined : sourceFiles.get(entry.file);
@@ -73,15 +74,16 @@ export function auditPublicTypeBoundary({
       seen.add(file);
       const checker = checked.getSourceFileQueries(file).checker;
       const visit = node => {
-        if (ast.is.IsExportDeclaration(node)) {
-          const declaration = ast.as.AsExportDeclaration(node);
-          const specifier = declaration?.ModuleSpecifier;
-          if (specifier !== undefined) {
-            const symbol = checker.getModuleSymbolFromSpecifier(specifier);
-            const declarations = symbol === undefined ? [] : checker.getSymbolDeclarations(symbol);
-            if (declarations.length === 0) throw new Error(`Unresolved public declaration module ${ast.text(specifier)} in ${ast.getFileName(file)}.`);
-            for (const original of declarations) pending.push(ast.getSourceFile(original));
+        const dependency = publicModuleDependency(ast, node);
+        if (dependency !== undefined) {
+          const symbol = checker.getModuleSymbolFromSpecifier(dependency.specifier);
+          const declarations = symbol === undefined ? [] : checker.getSymbolDeclarations(symbol);
+          if (declarations.length === 0) throw new Error(`Unresolved public declaration module ${ast.text(dependency.specifier)} in ${ast.getFileName(file)}.`);
+          if (dependency.names !== "all") {
+            const names = new Set(checker.getExportsOfModule(symbol).map(exported => checker.getSymbolName(exported)));
+            for (const name of dependency.names) if (!names.has(name)) throw new Error(`Missing public declaration export ${ast.text(dependency.specifier)}.${name} in ${ast.getFileName(file)}.`);
           }
+          for (const original of declarations) pending.push(ast.getSourceFile(original));
         }
         ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
       };
@@ -197,7 +199,8 @@ export function auditPublicTypeBoundary({
         const original = checker.getSymbolDeclarations(symbol);
         return original.length > 0 && original.every(declaration => checker.isDefaultLibraryDeclaration(declaration));
       })) continue;
-      for (const base of typeShape.getInstantiatedBaseTypes(type) ?? []) add(base, "base");
+      const bases = typeShape.getInstantiatedBaseTypes(type) ?? [];
+      for (const base of bases) add(base, "base");
       const substitution = typeShape.getSubstitutionBaseType(type);
       if (substitution !== undefined && substitution !== type) add(substitution, "substitution");
       const indexed = typeShape.getIndexedAccessComponents(type);
@@ -205,9 +208,25 @@ export function auditPublicTypeBoundary({
         add(indexed.objectType, "indexed-object");
         add(indexed.indexType, "indexed-key");
       }
+      const inheritedSites = new Set();
+      const ancestors = [...bases, ...typeShape.getUnionOrIntersectionTypes(type)];
+      const visitedAncestors = new Set();
+      while (ancestors.length > 0) {
+        const ancestor = ancestors.pop();
+        if (visitedAncestors.has(ancestor)) continue;
+        visitedAncestors.add(ancestor);
+        if (visitedAncestors.size > maximumTypes) {
+          failure = { verdict: "unresolved", detail: `${path}: site ancestry traversal budget exhausted.` };
+          break;
+        }
+        const site = siteProperties.find(original => typeShape.isTypeIdenticalTo(original.type, ancestor));
+        if (site !== undefined) inheritedSites.add(site);
+        else ancestors.push(...(typeShape.getInstantiatedBaseTypes(ancestor) ?? []), ...typeShape.getUnionOrIntersectionTypes(ancestor));
+      }
+      if (failure !== undefined) break;
       for (const property of typeShape.getPropertyInfos(type)) {
-        const inheritedSite = siteProperties.some(original =>
-          original.name === property.name && typeShape.isTypeIdenticalTo(original.type, property.type));
+        const inheritedSite = [...inheritedSites].some(site => site.properties.some(original =>
+          original.name === property.name && typeShape.isTypeIdenticalTo(original.type, property.type)));
         if (!inheritedSite) add(property.type, property.name);
       }
       for (const index of typeShape.getIndexInfos(type)) {

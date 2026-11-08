@@ -12,7 +12,7 @@ function audit(text, options = {}) {
         export interface Symbol { readonly checkerSymbol: unique symbol }
         export interface CheckedSourceProgram { readonly checkerProgram: unique symbol }
         export interface Node { readonly kind: number; readonly parent?: Node }
-        export interface SourceFile extends Node { readonly fileName: string }
+        export interface SourceFile extends Node { readonly fileName: string; readonly checkerState?: { readonly cached: Symbol } }
         export interface ExtensionFactKey<Value> { readonly snapshot: (value: Value) => Value }
       `],
       ["/probe/hidden.d.ts", `import type { Type } from './checker.js'; export interface Hidden { readonly cached: Type }`],
@@ -80,10 +80,14 @@ test("exact sites terminate but extended site payloads do not inherit that exemp
     export interface Sites { readonly node: Node; readonly file: SourceFile }
     export interface Extended extends Node { readonly cached: Type }
     export type Intersection = Node & { readonly cached: Signature };
+    export interface TaggedFile extends SourceFile { readonly tag: string }
+    export interface CopiedSiteField { readonly checkerState: SourceFile["checkerState"] }
   `);
   assert.equal(row(rows, "Sites").verdict, "clean");
   assert.equal(row(rows, "Extended").verdict, "checker");
   assert.equal(row(rows, "Intersection").verdict, "checker");
+  assert.equal(row(rows, "TaggedFile").verdict, "clean");
+  assert.equal(row(rows, "CopiedSiteField").verdict, "checker");
 });
 
 test("ordinary recursive identities terminate and growing generics fail closed at the explicit budget", () => {
@@ -104,8 +108,35 @@ test("missing declarations, unresolved imports and erased any are not a clean bo
   assert.throws(() => audit("export { Missing } from './absent.js';"), /Unresolved public declaration module/u);
   const rows = audit(`export interface Erased { readonly hidden: any }`);
   assert.equal(row(rows, "Erased").verdict, "unresolved");
-  const missingPayload = audit(`import type { Missing } from './absent.js'; export interface Payload { readonly value: Missing }`);
-  assert.equal(row(missingPayload, "Payload").verdict, "unresolved");
+  assert.throws(() => audit(`import type { Missing } from './absent.js'; export interface Payload { readonly value: Missing }`), /Unresolved public declaration module/u);
+  assert.throws(() => audit(`export interface Payload { readonly value: import('./absent.js').Missing }`), /Unresolved public declaration module/u);
+  assert.throws(() => audit(`import type { Missing } from './hidden.js'; export interface Payload { readonly value: Missing }`), /Missing public declaration export/u);
+  assert.throws(() => audit(`export interface Payload { readonly value: import('./hidden.js').Missing }`), /Missing public declaration export/u);
+});
+
+test("reexports and import types use the same complete original public dependency inventory", () => {
+  const sources = new Map([["consumer.ts", `
+    export { transport as exposed } from 'public';
+    export type { Clean as Renamed } from 'public';
+    export type Imported = import('public').Payload;
+    export type Nested = import('public').Namespace.Child;
+    export * from './local.js';
+    export { readFileSync } from 'node:fs';
+  `]]);
+  const targets = collectConsumedPublicExports(sources);
+  assert.deepEqual(targets, [{ entry: "public", exports: ["Clean", "Namespace", "Payload", "transport"] }]);
+  const rows = audit(`
+    export const transport: ExtensionFactKey<Type>;
+    export interface Clean { readonly site: Node }
+    export interface Payload { readonly signature: Signature }
+    export namespace Namespace { export interface Child { readonly symbol: Symbol } }
+  `, { targets });
+  assert.equal(row(rows, "transport", "value").verdict, "checker");
+  assert.equal(row(rows, "Payload").verdict, "checker");
+  assert.equal(rows.some(result => result.subject === "public.Namespace.Child:instance" && result.verdict === "checker"), true);
+  for (const statement of ["export * from 'public';", "export * as exposed from 'public';", "export type Whole = typeof import('public');"]) {
+    assert.deepEqual(collectConsumedPublicExports(new Map([["consumer.ts", statement]])), [{ entry: "public", exports: "all" }]);
+  }
 });
 
 test("actual consumed aliases and namespace imports close fact payloads without a FactKey name heuristic", () => {
