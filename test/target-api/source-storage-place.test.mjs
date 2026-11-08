@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive } from "@tsonic/tsts";
-import { createHostSourceProgram } from "../../packages/host/dist/host-input/program.js";
+import { sourcePrimitive } from "@tsonic/tsts";
+import { getTargetCompilationPaths, resolveProjectPaths } from "../../packages/host/dist/index.js";
+import { createCsharpTargetPack } from "../../../tsonic-csharp/dist/public/index.js";
+import { checkSourceProgramFixture } from "./source-program-fixture.mjs";
 
 const typesModule = "@example/native/types.js";
 const langModule = "@example/native/lang.js";
@@ -24,8 +26,25 @@ export declare function projectPointer<F, T>(pointer: ptr<F> | undefined, fromSo
 `;
 
 function fixture(sourceText, files = {}) {
-  const checked = createCompilerSessionFromFiles({
-    currentDirectory: "/src",
+  const targetPack = createCsharpTargetPack();
+  const target = { id: "csharp", options: { outputType: "Library" } };
+  const project = { entryPoint: "index.ts", rootDir: ".", targets: [target] };
+  const paths = getTargetCompilationPaths(resolveProjectPaths({ projectFilePath: "/src/tsonic.json", project }), target);
+  const semanticsModules = [
+    { moduleSpecifier: typesModule, packageName: "@example/native", subpath: "types.js", exports: [
+      sourcePrimitive("int", "int32", "number", true, 32), { kind: "type-marker", exportName: "ptr", marker: "pointer" },
+    ] },
+    { moduleSpecifier: langModule, packageName: "@example/native", subpath: "lang.js", exports: [
+      ["out", "write-only-reference"], ["ref", "read-write-reference"], ["inref", "read-only-reference"],
+      ["borrow", "shared-borrow"], ["borrowMut", "mutable-borrow"], ["move", "move"], ["addressOf", "address-of"],
+      ["allocatePointer", "allocate"], ["loadPointer", "load"], ["storePointer", "store"],
+      ["equalPointer", "equal-pointer"], ["hashPointer", "hash-pointer"], ["bindPointer", "bind-pointer"],
+      ["projectPointer", "project-pointer"],
+    ].map(([exportName, marker]) => ({ kind: "call-marker", exportName, marker })) },
+  ];
+  const checked = checkSourceProgramFixture({
+    project, projectDirectory: "/src", currentDirectory: "/src", target, targetPack, paths,
+    selectedCapabilities: [], selectedSurfaces: [],
     files: {
       "/src/index.ts": sourceText,
       "/src/node_modules/@example/native/package.json": JSON.stringify({ name: "@example/native", version: "1.0.0", type: "module",
@@ -35,23 +54,12 @@ function fixture(sourceText, files = {}) {
       ...files,
     },
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
-    extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [
-      { moduleSpecifier: typesModule, packageName: "@example/native", subpath: "types.js", exports: [
-        sourcePrimitive("int", "int32", "number", true, 32), { kind: "type-marker", exportName: "ptr", marker: "pointer" },
-      ] },
-      { moduleSpecifier: langModule, packageName: "@example/native", subpath: "lang.js", exports: [
-        ["out", "write-only-reference"], ["ref", "read-write-reference"], ["inref", "read-only-reference"],
-        ["borrow", "shared-borrow"], ["borrowMut", "mutable-borrow"], ["move", "move"], ["addressOf", "address-of"],
-        ["allocatePointer", "allocate"], ["loadPointer", "load"], ["storePointer", "store"],
-        ["equalPointer", "equal-pointer"], ["hashPointer", "hash-pointer"], ["bindPointer", "bind-pointer"],
-        ["projectPointer", "project-pointer"],
-      ].map(([exportName, marker]) => ({ kind: "call-marker", exportName, marker })) },
-    ] })] },
-  }).checkSource();
-  assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics).slice(0, 4096));
-  assert.equal(checked.extensionDiagnostics.length === 0, true, "Legacy publishes neutral observations, not Source admission diagnostics");
-  const source = createHostSourceProgram({ checked, apiFacts: undefined, profileFiles: [] }).source;
-  const file = checked.getSourceFile("/src/index.ts");
+    targetContributions: base => ({ ...base, semanticsModules: [...(base.semanticsModules ?? []), ...semanticsModules] }),
+  });
+  assert.equal(checked.kind === "resolved", true, checked.diagnostics.map(issue => issue.message).join("\n").slice(0, 4096));
+  assert.equal(checked.diagnostics.length === 0, true, "the normal source entry preserves checker, extension and Source diagnostics");
+  const source = checked.value;
+  const file = source.sourceFiles.find(node => source.ast.getFileName(node) === "/src/index.ts");
   assert.equal(file !== undefined, true, "the original project file exists");
   const nodes = source.facts.navigation.nodesForFiles([file]);
   const initializer = name => {
