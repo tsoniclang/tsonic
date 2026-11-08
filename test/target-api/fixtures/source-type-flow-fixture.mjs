@@ -12,13 +12,15 @@ export function sourceTypeFlowFixture(text) {
     selectedCapabilities: [], selectedSurfaces: [], currentDirectory: "/src",
     files: {
       "/src/node_modules/@test/words/package.json": JSON.stringify({ name: "@test/words", version: "1.0.0", type: "module", exports: { ".": "./index.d.ts" } }),
-      "/src/node_modules/@test/words/index.d.ts": "export type int32 = number; export type float32 = number;",
-      "/src/index.ts": `import type { int32, float32 } from "@test/words"; ${text}`,
+      "/src/node_modules/@test/words/index.d.ts": "export type int8 = number; export type int32 = number; export type uint32 = number; export type int64 = bigint; export type float32 = number;",
+      "/src/index.ts": `import type { int8, int32, uint32, int64, float32 } from "@test/words"; ${text}`,
     },
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
     targetContributions: base => ({ ...base, semanticsModules: [...base.semanticsModules ?? [], {
       moduleSpecifier: "@test/words", packageName: "@test/words", exports: [
-        sourcePrimitive("int32", "int32", "number", true, 32), sourcePrimitive("float32", "float32", "number", true, 32),
+        sourcePrimitive("int8", "int8", "number", true, 8), sourcePrimitive("int32", "int32", "number", true, 32),
+        sourcePrimitive("uint32", "uint32", "number", false, 32), sourcePrimitive("int64", "int64", "bigint", true, 64),
+        sourcePrimitive("float32", "float32", "number", true, 32),
       ],
     }] }),
   });
