@@ -1,33 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import type { Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
-import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
+import { createSourceCallOnlyAliasQuery } from "../../packages/target-api/dist/source-navigation/callable-aliases.js";
+import { TargetCompilerResourceLimitFailure } from "../../packages/target-api/dist/artifacts.js";
 
-function fixture(body: string) {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-    "/src/index.ts": `export {};
+function selectedValue(result) {
+  assert.equal(result.kind, "resolved", "the canonical callable query resolves without hiding a Source refusal");
+  return result.value.kind === "present" ? result.value.value : undefined;
+}
+
+function fixture(body) {
+  const { source, file } = sourceTypeFlowFixture(`export {};
 declare function operation(value: number): number;
 declare function operation(value: string): string;
-${body}`,
-  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
-  const declarations = new Map<string, Node>();
-  const visit = (node: Node): void => {
+${body}`);
+  const declarations = new Map();
+  const visit = node => {
     if (source.ast.is.IsVariableDeclaration(node)) declarations.set(source.ast.text(source.ast.name(node)), node);
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
-  const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   visit(file);
   const query = createSourceCallOnlyAliasQuery(source);
   return { source, select(name = "alias") {
     const declaration = declarations.get(name);
     assert.ok(declaration);
-    return query(declaration);
+    return selectedValue(query(declaration));
   } };
 }
 
@@ -37,17 +35,16 @@ function invoke(): boolean { return (alias)(2) === 2 && alias("text") === "text"
 invoke();`);
   const alias = current.select();
   assert.ok(alias);
-  assert.equal(alias, current.select("first"));
+  assert.equal(alias === current.select("first"), true, "one immutable alias closure owns both original bindings");
   assert.equal(alias.declarations.length, 2);
   assert.equal(alias.calls.length, 2);
   assert.ok(Object.isFrozen(alias) && Object.isFrozen(alias.declarations) && Object.isFrozen(alias.calls));
   const selected = alias.calls.map(call => {
-    const semantics = current.source.semantics.forNode(call);
-    const info = semantics.operations.call(call);
-    assert.ok(info);
-    return semantics.declarations.signatureDeclaration(info.selectedSignature);
+    const application = current.source.facts.applications.application(call);
+    assert.equal(application.kind, "resolved", "the original invocation publishes its exact selected Source signature");
+    return application.value.identity.signature.declaration;
   });
-  assert.notEqual(selected[0], selected[1]);
+  assert.equal(selected[0] !== selected[1], true, "the original calls select distinct original overload declarations");
 });
 
 test("property origins retain exact receiver and method declarations without accessor evaluation", () => {
@@ -55,9 +52,9 @@ test("property origins retain exact receiver and method declarations without acc
 declare const operations: Operations;
 const alias = operations.execute; alias(3);`);
   const alias = current.select();
-  assert.ok(alias?.property);
+  assert.equal(alias?.member.kind, "present", "the callable origin retains its canonical member use");
   assert.equal(current.source.ast.kindName(alias.selectedDeclaration), "KindMethodSignature");
-  assert.equal(current.source.ast.text(current.source.ast.name(alias.property.receiver.declaration)), "operations");
+  assert.equal(current.source.ast.text(current.source.ast.name(alias.receiverDeclaration)), "operations");
   for (const body of [
     "const holder = { get execute(): typeof operation { return operation; } }; const alias = holder.execute; alias(3);",
     "function holder(): { execute: typeof operation } { return { execute: operation }; } const alias = holder().execute; alias(3);",
@@ -83,7 +80,7 @@ test("early deferred invocation and excessive alias closures fail closed", () =>
   const declarations = ["const alias = operation;"];
   for (let index = 0; index < 1_025; index += 1) declarations.push(`const alias${index} = ${index === 0 ? "alias" : `alias${index - 1}`};`);
   assert.throws(() => fixture(declarations.join("\n") + "\nalias1024(2);").select(),
-    (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+    (failure) => failure instanceof TargetCompilerResourceLimitFailure &&
       failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "declarations=1024");
 });
 

@@ -1,37 +1,34 @@
 import assert from "node:assert/strict";
-import { TargetCompilerResourceLimitFailure } from "../artifacts.js";
+import { TargetCompilerResourceLimitFailure } from "../../packages/target-api/dist/artifacts.js";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import type { Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceCallableValueQuery } from "./callable-values.js";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
+import { createSourceCallableValueQuery } from "../../packages/target-api/dist/source-navigation/callable-values.js";
 
-function fixture(body: string, options: Parameters<typeof createSourceCallableValueQuery>[1] = {}) {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-    "/src/index.ts": `export {};
+function selectedValue(result) {
+  assert.equal(result.kind, "resolved", "the canonical callable query resolves without hiding a Source refusal");
+  return result.value.kind === "present" ? result.value.value : undefined;
+}
+
+function fixture(body, options = {}) {
+  const { source, file } = sourceTypeFlowFixture(`export {};
 interface Operations { apply(value: object): object; }
 declare const operations: Operations;
-${body}`,
-  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-  assert.equal(checked.diagnostics.length === 0, true,
-    formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
-  const source = createTargetSourceProgram(checked);
-  const expressions = new Map<string, Node>();
-  const visit = (node: Node): void => {
+${body}`);
+  const expressions = new Map();
+  const visit = node => {
     if (source.ast.is.IsVariableDeclaration(node)) {
       const initializer = source.ast.as.AsVariableDeclaration(node)?.Initializer;
       if (initializer !== undefined) expressions.set(source.ast.text(source.ast.name(node)), initializer);
     }
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
-  const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
-  visit(file!);
+  visit(file);
   const query = createSourceCallableValueQuery(source, options);
   return { source, expressions, select(name = "selected") {
     const expression = expressions.get(name);
     assert.equal(expression !== undefined, true, name);
-    return query(expression!);
+    return selectedValue(query(expression));
   } };
 }
 
@@ -40,18 +37,18 @@ test("native callable value selection retains an actual receiver through immutab
     const operation = alias.apply; const selected = (operation satisfies typeof operations.apply);`);
   const selected = current.select();
   assert.equal(selected !== undefined && selected.receiverDeclaration !== undefined, true);
-  assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
-  assert.equal(current.source.ast.kindName(selected!.selectedDeclaration), "KindMethodSignature");
-  assert.equal(selected!.aliases.length, 3);
-  assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected!.aliases), true);
+  assert.equal(current.source.ast.text(current.source.ast.name(selected.receiverDeclaration)), "operations");
+  assert.equal(current.source.ast.kindName(selected.selectedDeclaration), "KindMethodSignature");
+  assert.equal(selected.aliases.length, 3);
+  assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.aliases), true);
 });
 
 test("general callable identity does not require invocation-only use", () => {
   const current = fixture(`const operation = operations.apply; export const selected = operation;
     export function retain(): typeof operations.apply { return operation; }`);
   const selected = current.select();
-  assert.equal(selected !== undefined && selected.property !== undefined, true);
-  assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
+  assert.equal(selected !== undefined && selected.member.kind === "present", true);
+  assert.equal(current.source.ast.text(current.source.ast.name(selected.receiverDeclaration)), "operations");
 });
 
 test("lexical callable identity can inspect erased assertions without certifying a physical asserted origin", () => {
@@ -61,7 +58,7 @@ test("lexical callable identity can inspect erased assertions without certifying
     const original = current.select("original");
     const selected = current.select();
     assert.equal(original !== undefined && selected !== undefined, true, wrapper);
-    assert.equal(selected!.selectedDeclaration === original!.selectedDeclaration, true, wrapper);
+    assert.equal(selected.selectedDeclaration === original.selectedDeclaration, true, wrapper);
     if (!wrapper.includes("satisfies")) assert.equal(fixture(body).select() === undefined, true, "physical callable proof remains assertion-free");
   }
 });
@@ -77,18 +74,18 @@ test("exact callable identity does not turn conditional or short-circuit may-flo
 test("exact binding identity stops at its checked declaration without guessing an opaque initializer", () => {
   const current = fixture(`const original: () => void = false ? (): void => {} : (): void => {};
     const alias = original; const selected = alias; const other = (): void => {};`);
-  const declaration = current.source.ast.parent(current.expressions.get("original")!);
+  const declaration = current.source.ast.parent(current.expressions.get("original"));
   const select = createSourceCallableValueQuery(current.source, { stopAtDeclaration: declaration });
-  const selected = select(current.expressions.get("selected")!);
+  const selected = selectedValue(select(current.expressions.get("selected")));
   assert.equal(selected !== undefined, true);
-  assert.equal(selected!.selectedDeclaration === declaration, true, "the exact binding, not an inferred signature or branch");
-  assert.equal(selected!.aliases.length, 1, "the checked destination terminates the alias walk");
-  assert.equal(select(current.expressions.get("other")!)?.selectedDeclaration === declaration, false, "a different implementation stays different");
+  assert.equal(selected.selectedDeclaration === declaration, true, "the exact binding, not an inferred signature or branch");
+  assert.equal(selected.aliases.length, 1, "the checked destination terminates the alias walk");
+  assert.equal(selectedValue(select(current.expressions.get("other")))?.selectedDeclaration === declaration, false, "a different implementation stays different");
   assert.equal(current.select() === undefined, true, "the physical value query still requires its concrete origin");
 });
 
 test("callable identity query snapshots its expression proof options", () => {
-  const options: { typeAssertions?: "transparent" } = { typeAssertions: "transparent" };
+  const options = { typeAssertions: "transparent" };
   const current = fixture("const original = operations.apply; const selected = original as typeof original;", options);
   delete options.typeAssertions;
   assert.equal(current.select() !== undefined, true, "later caller mutation cannot alter query authority");
@@ -101,9 +98,9 @@ test("foreign callable and receiver parameters remain exact values, never signat
   const selected = current.select();
   const callable = current.select("callable");
   assert.equal(selected !== undefined && callable !== undefined, true);
-  assert.equal(current.source.ast.kindName(selected!.receiverDeclaration), "KindParameter");
-  assert.equal(current.source.ast.kindName(callable!.selectedDeclaration), "KindParameter");
-  assert.equal(current.source.ast.text(current.source.ast.name(callable!.selectedDeclaration)), "operation");
+  assert.equal(current.source.ast.kindName(selected.receiverDeclaration), "KindParameter");
+  assert.equal(current.source.ast.kindName(callable.selectedDeclaration), "KindParameter");
+  assert.equal(current.source.ast.text(current.source.ast.name(callable.selectedDeclaration)), "operation");
 });
 
 test("mutable, evaluated and asserted callable origins cannot acquire immutable value authority", () => {
@@ -134,7 +131,7 @@ test("early alias reads and excessive chains fail closed without an unbounded tr
   for (let index = 0; index < 1_025; index += 1)
     declarations.push(`const alias${index} = ${index === 0 ? "alias" : `alias${index - 1}`};`);
   const large = fixture(declarations.join("\n") + "\nconst selected = alias1024;");
-  assert.throws(() => large.select(), (failure: unknown) => failure instanceof TargetCompilerResourceLimitFailure &&
+  assert.throws(() => large.select(), (failure) => failure instanceof TargetCompilerResourceLimitFailure &&
     failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.evidence?.[0] === "declarations=1024",
   "the unchanged finite alias-chain guard is a resource error, never a different call form");
 });
@@ -142,9 +139,10 @@ test("early alias reads and excessive chains fail closed without an unbounded tr
 test("checked indexed callable access shares the exact native member and receiver proof", () => {
   const current = fixture(`const key = "apply"; const selected = operations[key];`);
   const selected = current.select();
-  assert.equal(selected !== undefined && selected.element !== undefined && selected.property === undefined, true);
-  assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
-  assert.equal(current.source.ast.kindName(selected!.selectedDeclaration), "KindMethodSignature");
+  assert.equal(selected !== undefined && selected.member.kind === "present" && selected.member.value.occurrence === selected.expression &&
+    current.source.ast.is.IsElementAccessExpression(selected.expression), true);
+  assert.equal(current.source.ast.text(current.source.ast.name(selected.receiverDeclaration)), "operations");
+  assert.equal(current.source.ast.kindName(selected.selectedDeclaration), "KindMethodSignature");
 });
 
 test("separate ambient declarations do not certify physically disjoint callable slots", () => {
@@ -158,5 +156,5 @@ test("readonly structural aliases preserve callable selection without relying on
     const other: Other = operations; const selected = other.apply;`);
   const selected = current.select();
   assert.equal(selected !== undefined && selected.receiverDeclaration !== undefined, true);
-  assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
+  assert.equal(current.source.ast.text(current.source.ast.name(selected.receiverDeclaration)), "operations");
 });

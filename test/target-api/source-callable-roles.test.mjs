@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createSourceEnclosingQuery, sourceCallableRoles, sourceEnclosing } from "./callable-boundaries.js";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
+import { createSourceEnclosingQuery, sourceCallableRoles, sourceEnclosing } from "../../packages/target-api/dist/source-navigation/callable-boundaries.js";
 
 function fixture() {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/roles.ts": `
+  const { source, file } = sourceTypeFlowFixture(`
     declare function key(value: string): "method";
     function outer() {
       class Owner {
@@ -18,19 +18,17 @@ function fixture() {
       function named(value = key("named-default")) { return key("named-body"); }
       return { Owner, stored, named };
     }
-  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-  assert.equal(checked.diagnostics.length === 0, true, "role controls are valid checked source");
-  const { ast } = checked;
-  const file = checked.getSourceFile("/src/roles.ts")!;
-  const nodes: Node[] = [];
-  const pending: Node[] = [file];
+  `, { entryPoint: "roles.ts" });
+  const { ast } = source;
+  const nodes = [];
+  const pending = [file];
   while (pending.length > 0) {
-    const node = pending.pop()!;
+    const node = pending.pop();
     nodes.push(node);
     ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
   }
-  const outer = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "outer")!;
-  const call = (label: string): Node => {
+  const outer = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "outer");
+  const call = label => {
     const selected = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.arguments(node)[0]) === label);
     assert.equal(selected !== undefined, true, `${label}: exact original call exists`);
     if (selected === undefined) throw new Error(`Missing ${label} call.`);
@@ -42,7 +40,7 @@ function fixture() {
 test("bodyless computed names retain outer execution while defaults enter actual callable activation", () => {
   const { ast, nodes, outer, call } = fixture();
   for (const label of ["computed", "implementation"]) {
-    for (const role of ["execution", "deferred"] as const) {
+    for (const role of ["execution", "deferred"]) {
       assert.equal(sourceEnclosing(ast, call(label), role) === outer, true, `${label}: computed name is outside the method`);
     }
   }
@@ -51,7 +49,7 @@ test("bodyless computed names retain outer execution while defaults enter actual
     assert.equal(owner !== undefined && sourceCallableRoles(ast, owner).body, true, `${label}: exact callable activation`);
     assert.equal(sourceEnclosing(ast, call(label), "deferred") === owner, true, `${label}: named and stored activations are symmetric`);
   }
-  const overload = nodes.find(node => ast.is.IsMethodDeclaration(node) && ast.body(node) === undefined)!;
+  const overload = nodes.find(node => ast.is.IsMethodDeclaration(node) && ast.body(node) === undefined);
   assert.equal(sourceCallableRoles(ast, overload).signature && !sourceCallableRoles(ast, overload).execution, true,
     "a bodyless overload is a signature, never an execution root");
 });
@@ -59,7 +57,7 @@ test("bodyless computed names retain outer execution while defaults enter actual
 test("class initializer execution retains original static barriers and per-instance deferred regions", () => {
   const { ast, outer, call } = fixture();
   for (const [label, kind, deferred] of [["instance", "KindPropertyDeclaration", true],
-    ["static", "KindPropertyDeclaration", false], ["block", "KindClassStaticBlockDeclaration", false]] as const) {
+    ["static", "KindPropertyDeclaration", false], ["block", "KindClassStaticBlockDeclaration", false]]) {
     const owner = sourceEnclosing(ast, call(label), "execution");
     assert.equal(owner !== undefined && ast.kindName(owner) === kind, true, `${label}: original execution barrier`);
     assert.equal(owner !== undefined && sourceCallableRoles(ast, owner).deferred === deferred, true, `${label}: exact deferral role`);

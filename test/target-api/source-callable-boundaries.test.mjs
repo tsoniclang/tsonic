@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { sourceCallableRoles } from "./callable-boundaries.js";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
+import { sourceCallableRoles } from "../../packages/target-api/dist/source-navigation/callable-boundaries.js";
 
 const sourceText = `
 function declared(): number { return 1; }
@@ -22,19 +22,15 @@ export type { Shape };
 `;
 
 function fixture() {
-  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": sourceText },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
-  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
-  const { ast } = checked;
-  const file = checked.getSourceFile("/src/index.ts");
-  assert.equal(file !== undefined, true);
-  const byKind = new Map<string, Node[]>();
-  const visit = (node: Node): void => {
+  const { source, file } = sourceTypeFlowFixture(sourceText);
+  const { ast } = source;
+  const byKind = new Map();
+  const visit = node => {
     const kind = ast.kindName(node);
     byKind.set(kind, [...(byKind.get(kind) ?? []), node]);
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
-  visit(file!);
+  visit(file);
   return { ast, byKind };
 }
 
@@ -54,6 +50,6 @@ test("callable body boundaries are exactly the seven callable declaration and ex
   assert.equal(byKind.get("KindGetAccessor")?.length, 2);
   for (const kind of ["KindClassStaticBlockDeclaration", "KindClassDeclaration", "KindClassExpression", "KindMethodSignature", "KindBlock"]) {
     assert.equal((byKind.get(kind)?.length ?? 0) > 0, true, `${kind} occurs in the fixture`);
-    assert.equal(byKind.get(kind)!.some(node => sourceCallableRoles(ast, node).body), false, kind);
+    assert.equal(byKind.get(kind).some(node => sourceCallableRoles(ast, node).body), false, kind);
   }
 });
