@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
-import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
+import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 
 export interface SourceProducedApplication {
   readonly application: SourceApplication;
@@ -49,7 +49,7 @@ export type SourceArgumentPlacement =
 
 export interface SourceProducedSignature {
   readonly identity: SourceSignatureIdentity;
-  readonly receiver: { readonly declaration: Node | undefined; readonly value: SourceTypeEvidence } | undefined;
+  readonly receiver: { readonly declaration: Node | undefined; readonly origin: SourceReceiverOrigin; readonly value: SourceTypeEvidence } | undefined;
   readonly parameters: readonly SourceCallParameter[];
   readonly result: SourceTypeEvidence;
 }

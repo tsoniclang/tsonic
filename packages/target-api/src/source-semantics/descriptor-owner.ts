@@ -3,7 +3,7 @@ import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
 import type { SourceInputComponent } from "../host-input/identities.js";
 import { sourceLiteralDomainUnion, sourceOpenLiteralDomain, sourceUnreachableLiteralDomain } from "../source-model/literals/domain.js";
 import type {
-  SourceComponentSelector, SourceDeferredProjection, SourceDescriptorView, SourceRefusal, SourceResult,
+  SourceComponentSelector, SourceConstructionDefinition, SourceDeferredProjection, SourceDescriptorView, SourceRefusal, SourceResult,
   SourceSumApplication, SourceSumFamily, SourceTypeBinding, SourceTypeComponent, SourceTypeEvidence, SourceUseDestination,
 } from "../public/source/contracts.js";
 import { createSourceComponentOwner } from "./descriptor-components.js";
@@ -15,7 +15,7 @@ import { createSourceDescriptorInterner } from "./descriptor-interner.js";
 import { createSourceParameterOwner } from "./descriptor-parameters.js";
 import { createSourceSubstitution } from "./descriptor-substitution.js";
 import { createSourceInventoryOwner } from "./descriptor-inventory.js";
-import type { SourceEvidenceDetails, SourceMemberInventory } from "./member-inventory.js";
+import type { SourceConstructionMemberHistory, SourceEvidenceDetails, SourceMemberInventory } from "./member-inventory.js";
 import { substituteSourceEvidenceDetails } from "./descriptor-details.js";
 
 export interface SourceDescriptorOwner {
@@ -30,22 +30,26 @@ export function createSourceDescriptorOwner(input: {
   input: SourceDescriptorInput;
   members(value: SourceTypeEvidence, original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceMemberInventory>;
   receiverBindings(value: SourceTypeEvidence, direct: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
+  construction(occurrence: Node): SourceProductionResult<SourceMemberInventory>;
   project(originalSource: SourceTypeEvidence, source: SourceTypeEvidence, projection: SourceDeferredProjection,
     bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
 }): SourceDescriptorOwner {
   const refusals = new Set<SourceRefusal>();
-  const definitions = new WeakMap<Node, {
+  interface Definition {
     readonly parameters: readonly Node[];
     readonly produce: () => SourceProductionResult<SourceTypeEvidence>;
     readonly members: () => SourceProductionResult<SourceMemberInventory>;
     result?: SourceResult<SourceTypeEvidence>;
     active: boolean;
-  }>();
+  }
+  const definitions = new WeakMap<Node | SourceConstructionDefinition, Map<"instance" | "value" | "construction", Definition>>();
   const definitionResults = new WeakMap<SourceTypeEvidence, SourceResult<SourceTypeEvidence>>();
   const derivedComponents = new WeakMap<SourceTypeEvidence, Map<string, SourceTypeEvidence>>();
-  const constructions = new WeakMap<Node, { readonly produce: () => SourceProductionResult<SourceMemberInventory>; result?: SourceMemberInventory }>();
+  const constructions = new WeakMap<Node, { readonly produce: () => SourceProductionResult<SourceConstructionMemberHistory>; result?: SourceConstructionMemberHistory }>();
+  const constructionInventories = new WeakMap<Node, SourceMemberInventory>();
   const components = createSourceComponentOwner({ assertNode: input.assertNode,
-    assertSignature: value => interner.assertSignature(value), assertFamily: value => families.assertFamily(value) });
+    assertSignature: value => interner.assertSignature(value), assertFamily: value => families.assertFamily(value),
+    assertConstruction: value => interner.assertConstruction(value) });
   const interner = createSourceDescriptorInterner({ assertNode: input.assertNode,
     assertSignature: input.input.assertSignature, assertComponent: components.assert });
   const evidence = createSourceEvidenceOwner({ components, assertNode: input.assertNode,
@@ -58,16 +62,28 @@ export function createSourceDescriptorOwner(input: {
   const members = createSourceInventoryOwner({ evidence, definition: produceMemberDefinition,
     join: (component, values) => join(component, "inferred", values, undefined) });
 
+  function referenceDefinition(type: Extract<SourceTypeEvidence["type"], { readonly kind: "declared" | "construction-reference" }>): Definition {
+    const owner = type.kind === "declared" ? type.declaration : type.definition;
+    const facet = type.kind === "declared" ? type.facet : "construction";
+    const selected = definitions.get(owner)?.get(facet);
+    if (selected === undefined) throw new Error("A Source reference must register its original definition owner and exact facet before publication.");
+    return selected;
+  }
+
+  function referenceArgument(type: Extract<SourceTypeEvidence["type"], { readonly kind: "declared" | "construction-reference" }>, index: number): SourceComponentSelector {
+    return type.kind === "declared" ? { kind: "type-argument", declaration: type.declaration, index }
+      : { kind: "construction-argument", definition: type.definition, index };
+  }
+
   function produceMemberDefinition(value: SourceTypeEvidence): SourceProductionResult<SourceMemberInventory> {
     const record = evidence.record(value);
-    if (value.type.kind === "declared") {
+    if (value.type.kind === "declared" || value.type.kind === "construction-reference") {
       const declared = value.type;
-      const owner = definitions.get(declared.declaration);
-      if (owner === undefined) throw new Error("A declared Source member inventory requires its original definition owner before publication.");
+      const owner = referenceDefinition(declared);
       const original = owner.members();
       if (original.kind !== "resolved") return original;
       const bindings = owner.parameters.map((declaration, index) => {
-        const child = record.components.get(components.selectorKey({ kind: "type-argument", declaration: declared.declaration, index }));
+        const child = record.components.get(components.selectorKey(referenceArgument(declared, index)));
         if (child === undefined) throw new Error("An applied member inventory requires each original argument's evidence.");
         return { declaration, value: child.value };
       });
@@ -223,7 +239,7 @@ export function createSourceDescriptorOwner(input: {
       { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [] } });
       return retainComponent(value, key, selected);
     }
-    if (value.type.kind === "declared" || value.type.kind === "projection" || value.type.kind === "intersection") {
+    if (value.type.kind === "declared" || value.type.kind === "construction-reference" || value.type.kind === "projection" || value.type.kind === "intersection") {
       const expanded = definition(value);
       if (expanded.kind === "refused") return expanded;
       if (expanded.value === value) throw new Error("A Source component requires a completed original definition, not an unresolved projection.");
@@ -246,7 +262,7 @@ export function createSourceDescriptorOwner(input: {
       if (reduction === undefined) throw new Error("A Source conjunction must retain its exact canonical reduction evidence.");
       return { kind: "resolved", value: reduction.value };
     }
-    if (value.type.kind !== "declared" && value.type.kind !== "projection") return { kind: "resolved", value };
+    if (value.type.kind !== "declared" && value.type.kind !== "construction-reference" && value.type.kind !== "projection") return { kind: "resolved", value };
     const previous = definitionResults.get(value);
     if (previous !== undefined) return previous;
     if (value.type.kind === "projection") {
@@ -258,9 +274,7 @@ export function createSourceDescriptorOwner(input: {
       return result;
     }
     const declared = value.type;
-    const declaration = declared.declaration;
-    const selected = definitions.get(declaration);
-    if (selected === undefined) throw new Error("A declared Source reference must register its original definition owner before publication.");
+    const selected = referenceDefinition(declared);
     if (selected.active) return { kind: "pending", dependencies: Object.freeze([value.component]) };
     if (selected.result === undefined) {
       selected.active = true;
@@ -274,7 +288,7 @@ export function createSourceDescriptorOwner(input: {
     if (selected.result.kind === "refused") { definitionResults.set(value, selected.result); return selected.result; }
     if (declared.typeArguments.length !== selected.parameters.length) throw new Error("A declared Source application requires its complete original parameter vector.");
     const bindings = selected.parameters.map((parameter, index) => {
-      const argument = original.components.get(components.selectorKey({ kind: "type-argument", declaration, index }));
+      const argument = original.components.get(components.selectorKey(referenceArgument(declared, index)));
       if (argument === undefined || argument.value.type !== declared.typeArguments[index]) throw new Error("A declared Source argument requires its exact original evidence.");
       return { declaration: parameter, value: argument.value };
     });
@@ -333,12 +347,10 @@ export function createSourceDescriptorOwner(input: {
         const receiver = application.receiver;
         const record = evidence.record(receiver);
         const direct: SourceTypeBinding[] = [];
-        if (receiver.type.kind === "declared") {
-          const declaration = receiver.type.declaration;
-          const definition = definitions.get(declaration);
-          if (definition === undefined) throw new Error("An original receiver requires its registered declaration and complete binder inventory.");
+        if (receiver.type.kind === "declared" || receiver.type.kind === "construction-reference") {
+          const definition = referenceDefinition(receiver.type);
           for (const [index, parameter] of definition.parameters.entries()) {
-            const child = record.components.get(components.selectorKey({ kind: "type-argument", declaration, index }));
+            const child = record.components.get(components.selectorKey(referenceArgument(receiver.type, index)));
             if (child === undefined) throw new Error("An original receiver application requires its actual registered argument evidence.");
             direct.push({ declaration: parameter, value: child.value });
           }
@@ -361,27 +373,68 @@ export function createSourceDescriptorOwner(input: {
     intrinsic: interner.intrinsic, parameter: parameters.register, optional: interner.optional, union: interner.union,
     array: interner.array, tuple: interner.tuple, shape: interner.shape, callable: interner.callable,
     declared: interner.declared, projection: interner.projection, signature: interner.signature,
+    constructionDefinition(occurrence: Node, captures: readonly Node[]): SourceConstructionDefinition {
+      input.assertNode(occurrence);
+      if (!input.input.ast.is.IsObjectLiteralExpression(occurrence)) throw new Error("A Source construction definition requires its actual original object literal.");
+      captures.forEach(parameters.get);
+      return interner.constructionDefinition(occurrence, captures);
+    },
+    constructionReference: interner.constructionReference,
     componentIdentity: components.identity,
     evidence: (value: SourceTypeEvidence, children: readonly import("./descriptor-contracts.js").SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: import("../source-model/literals/domain.js").SourceLiteralDomain,
       details: SourceEvidenceDetails) => evidence.create(value, children, original, domain, [], details),
     members, produceDefinition,
-    registerConstruction(occurrence: Node, produce: () => SourceProductionResult<SourceMemberInventory>): void {
+    registerConstruction(occurrence: Node, produce: () => SourceProductionResult<SourceConstructionMemberHistory>): void {
       input.assertNode(occurrence);
-      if (!input.input.ast.is.IsObjectLiteralExpression(occurrence)) throw new Error("A construction metadata subject must be an original object literal.");
+      if (!input.input.ast.is.IsObjectLiteralExpression(occurrence) && !input.input.ast.is.IsBindingElement(occurrence))
+        throw new Error("A construction history subject must be its original literal or rest binding.");
       const previous = constructions.get(occurrence);
       if (previous !== undefined && previous.produce !== produce) throw new Error("Each original construction has one metadata producer.");
       if (previous === undefined) constructions.set(occurrence, { produce });
     },
     construction(occurrence: Node): SourceProductionResult<SourceMemberInventory> {
       input.assertNode(occurrence);
+      const previous = constructionInventories.get(occurrence);
+      if (previous !== undefined) return { kind: "resolved", value: previous };
+      const selected = input.construction(occurrence);
+      if (selected.kind !== "resolved") return selected;
+      const inventory = evidence.details({ members: selected.value, origins: { kind: "complete", nodes: [occurrence] } }).members;
+      if (inventory.kind === "definition" || inventory.kind === "production") throw new Error("A construction interpretation must publish its original metadata.");
+      if (inventory.kind === "complete") constructionInventories.set(occurrence, inventory);
+      return { kind: "resolved", value: inventory };
+    },
+    constructionHistory(occurrence: Node): SourceProductionResult<SourceConstructionMemberHistory> {
+      input.assertNode(occurrence);
       const selected = constructions.get(occurrence);
       if (selected === undefined) return { kind: "pending", dependencies: Object.freeze([components.identity(occurrence, [])]) };
       if (selected.result !== undefined) return { kind: "resolved", value: selected.result };
       const result = selected.produce();
       if (result.kind !== "resolved") return result;
-      const frozen = evidence.details({ members: result.value, origins: { kind: "complete", nodes: [occurrence] } }).members;
-      if (frozen.kind === "definition" || frozen.kind === "production") throw new Error("A construction producer must retain original metadata before geometry.");
-      if (frozen.kind === "complete") selected.result = frozen;
+      if (result.value.occurrence !== occurrence) throw new Error("A construction history retains its exact original occurrence.");
+      const evaluations = new Set<Node>();
+      const steps = result.value.steps.map(step => {
+        input.assertNode(step.evaluation);
+        if (evaluations.has(step.evaluation)) throw new Error("A construction history evaluates each original step once.");
+        evaluations.add(step.evaluation);
+        if (step.kind === "own") {
+          const inventory = evidence.details({ members: { kind: "complete", members: [step.member], indexes: [] },
+            origins: { kind: "complete", nodes: [occurrence] } }).members;
+          if (inventory.kind !== "complete") throw new Error("An own construction step retains its exact original row.");
+          return Object.freeze({ ...step, member: inventory.members[0]! });
+        }
+        input.assertNode(step.operand);
+        const excluded = Object.freeze(step.excluded.map(key => {
+          if (key.kind === "symbol") input.assertNode(key.declaration);
+          return Object.freeze({ ...key });
+        }));
+        return Object.freeze({ ...step, excluded, source: () => {
+          const result = step.source();
+          if (result.kind === "resolved") evidence.assert(result.value);
+          return result;
+        } });
+      });
+      const frozen = Object.freeze({ occurrence, steps: Object.freeze(steps) });
+      selected.result = frozen;
       return { kind: "resolved", value: frozen };
     },
     sourceOriginSubjects: (value: SourceTypeEvidence) => evidence.record(value).details.origins,
@@ -391,17 +444,25 @@ export function createSourceDescriptorOwner(input: {
       return selected === undefined ? Object.freeze({ kind: "none" as const })
         : Object.freeze({ kind: "present" as const, value: selected });
     },
-    define(declaration: Node, selectedParameters: readonly Node[], produce: () => SourceProductionResult<SourceTypeEvidence>, selectedMembers: () => SourceProductionResult<SourceMemberInventory>): void {
-      input.assertNode(declaration);
+    define(identity: Parameters<SourceDescriptorBuilder["define"]>[0], selectedParameters: readonly Node[], produce: () => SourceProductionResult<SourceTypeEvidence>, selectedMembers: () => SourceProductionResult<SourceMemberInventory>): void {
+      const declaration = identity.kind === "declaration" ? identity.declaration : identity.definition;
+      const facet = identity.kind === "declaration" ? identity.facet : "construction";
+      if (identity.kind === "declaration") input.assertNode(identity.declaration);
+      else interner.assertConstruction(identity.definition);
       selectedParameters.forEach(parameters.get);
-      const previous = definitions.get(declaration);
+      if (identity.kind === "construction" && (identity.definition.captures.length !== selectedParameters.length ||
+        identity.definition.captures.some((value, index) => value !== selectedParameters[index])))
+        throw new Error("A construction definition requires its complete exact original capture inventory.");
+      let facets = definitions.get(declaration);
+      const previous = facets?.get(facet);
       if (previous !== undefined) {
         if (previous.parameters.length !== selectedParameters.length || previous.parameters.some((parameter, index) => parameter !== selectedParameters[index])) {
           throw new Error("An original Source definition has one exact ordered parameter vector.");
         }
         return;
       }
-      definitions.set(declaration, { parameters: Object.freeze([...selectedParameters]), produce, members: selectedMembers, active: false });
+      if (facets === undefined) { facets = new Map(); definitions.set(declaration, facets); }
+      facets.set(facet, { parameters: Object.freeze([...selectedParameters]), produce, members: selectedMembers, active: false });
     },
     publishFamily: families.publish, applyFamily: (family: SourceSumFamily, bindings: readonly SourceTypeBinding[]) => observe(families.apply(family, bindings)),
     substituteCategory: parameters.category, seal: () => view });

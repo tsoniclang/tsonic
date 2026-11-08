@@ -1,7 +1,7 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputSignature } from "../host-input/identities.js";
 import type {
-  SourceDeclaredDescriptor, SourceDeferredProjection, SourceMemberOrigin,
+  SourceConstructionDefinition, SourceDeclaredDescriptor, SourceDeferredProjection, SourceMemberOrigin, SourceReceiverOrigin,
   SourceParameterDescriptor, SourceSignatureIdentity, SourceTypeComponent,
   SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember,
   SourceTypeDescriptorSignature,
@@ -17,6 +17,7 @@ export interface SourceDescriptorInternerInput {
 export interface SourceDescriptorInterner {
   assertDescriptor(value: SourceTypeDescriptor): void;
   assertSignature(value: SourceSignatureIdentity): void;
+  assertConstruction(value: SourceConstructionDefinition): void;
   key(value: SourceTypeDescriptor): number;
   primitive(primitive: SourcePrimitiveKind): SourceTypeDescriptor;
   string(): SourceTypeDescriptor;
@@ -30,6 +31,8 @@ export interface SourceDescriptorInterner {
   shape(value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "shape" }>, "kind">): SourceTypeDescriptor;
   callable(value: Omit<Extract<SourceTypeDescriptor, { readonly kind: "callable" }>, "kind">): SourceTypeDescriptor;
   declared(value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor;
+  constructionDefinition(occurrence: Node, captures: readonly Node[]): SourceConstructionDefinition;
+  constructionReference(definition: SourceConstructionDefinition, arguments_: readonly SourceTypeDescriptor[]): Extract<SourceTypeDescriptor, { readonly kind: "construction-reference" }>;
   projection(source: SourceTypeDescriptor, projection: SourceDeferredProjection): SourceTypeDescriptor;
   signature(owner: Node | undefined, kind: "call" | "construct", original: SourceInputSignature,
     declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;
@@ -42,6 +45,8 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   const activeSignatures = new Set<SourceInputSignature>();
   const signatureKeys = new WeakMap<SourceSignatureIdentity, number>();
   const objectKeys = new WeakMap<object, number>();
+  const constructions = new WeakMap<Node, SourceConstructionDefinition>();
+  const constructionIdentities = new WeakSet<SourceConstructionDefinition>();
   let nextDescriptorKey = 0;
   let nextSignatureKey = 0;
   let nextObjectKey = 0;
@@ -137,16 +142,45 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
     return freezeSourceMemberOrigin(value);
   }
 
+  function assertConstruction(value: SourceConstructionDefinition): void {
+    if (!constructionIdentities.has(value)) throw new Error("A Source construction definition must belong to this exact descriptor view.");
+  }
+
+  function constructionDefinition(occurrence: Node, captures: readonly Node[]): SourceConstructionDefinition {
+    nodeKey(occurrence);
+    captures.forEach(nodeKey);
+    if (new Set(captures).size !== captures.length) throw new Error("A Source construction requires one occurrence of every original captured binder.");
+    const previous = constructions.get(occurrence);
+    if (previous !== undefined) {
+      if (previous.captures.length !== captures.length || previous.captures.some((value, index) => value !== captures[index]))
+        throw new Error("An original construction has one complete ordered capture vector.");
+      return previous;
+    }
+    const value = Object.freeze({ occurrence, captures: Object.freeze([...captures]) });
+    constructionIdentities.add(value);
+    constructions.set(occurrence, value);
+    return value;
+  }
+
+  function receiverKey(value: SourceReceiverOrigin): readonly unknown[] {
+    switch (value.kind) {
+      case "explicit": return [value.kind, nodeKey(value.declaration)];
+      case "instance": case "static": return [value.kind, nodeKey(value.owner)];
+      case "object": assertConstruction(value.definition); return [value.kind, objectKey(value.definition)];
+      case "lexical": return [value.kind, nodeKey(value.owner), signatureKey(value.signature)];
+    }
+  }
+
   function signatureShapeKey(value: SourceTypeDescriptorSignature): readonly unknown[] {
     return [signatureKey(value.identity), value.receiver === undefined ? null
-      : [optionalNodeKey(value.receiver.declaration), key(value.receiver.type)],
+      : [optionalNodeKey(value.receiver.declaration), receiverKey(value.receiver.origin), key(value.receiver.type)],
     value.parameters.map(parameter => [parameter.kind, optionalNodeKey(parameter.declaration), key(parameter.type)]), key(value.result)];
   }
 
   function freezeSignature(value: SourceTypeDescriptorSignature): SourceTypeDescriptorSignature {
     signatureShapeKey(value);
     return Object.freeze({ identity: value.identity,
-      ...(value.receiver === undefined ? {} : { receiver: Object.freeze({ ...value.receiver }) }),
+      ...(value.receiver === undefined ? {} : { receiver: Object.freeze({ ...value.receiver, origin: Object.freeze({ ...value.receiver.origin }) }) }),
       parameters: Object.freeze(value.parameters.map(parameter => Object.freeze({ ...parameter }))), result: value.result });
   }
 
@@ -190,6 +224,7 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   return Object.freeze({
     assertDescriptor: (value: SourceTypeDescriptor): void => { key(value); },
     assertSignature: (value: SourceSignatureIdentity): void => { signatureKey(value); },
+    assertConstruction,
     key,
     primitive: (primitive: SourcePrimitiveKind): SourceTypeDescriptor =>
       intern(JSON.stringify(["primitive", primitive]), () => ({ kind: "primitive", primitive })),
@@ -224,10 +259,17 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
         indexes: Object.freeze(value.indexes.map(index => Object.freeze({ ...index }))),
         calls: Object.freeze(value.calls.map(freezeSignature)), constructs: Object.freeze(value.constructs.map(freezeSignature)) })),
     declared: (value: Omit<SourceDeclaredDescriptor, "kind">): SourceDeclaredDescriptor =>
-      intern(JSON.stringify(["declared", nodeKey(value.declaration), value.typeArguments.map(key),
+      intern(JSON.stringify(["declared", nodeKey(value.declaration), value.facet, value.typeArguments.map(key),
         value.extent === undefined ? null : [value.extent.length.toString(), value.extent.runtimeBase]]),
-      () => ({ kind: "declared", declaration: value.declaration, typeArguments: Object.freeze([...value.typeArguments]),
+      () => ({ kind: "declared", declaration: value.declaration, facet: value.facet, typeArguments: Object.freeze([...value.typeArguments]),
         ...(value.extent === undefined ? {} : { extent: Object.freeze({ ...value.extent }) }) })),
+    constructionDefinition,
+    constructionReference: (definition: SourceConstructionDefinition, arguments_: readonly SourceTypeDescriptor[]): Extract<SourceTypeDescriptor, { readonly kind: "construction-reference" }> => {
+      assertConstruction(definition);
+      if (arguments_.length !== definition.captures.length) throw new Error("A Source construction reference requires every original capture argument.");
+      return intern(JSON.stringify(["construction-reference", objectKey(definition), arguments_.map(key)]),
+        () => ({ kind: "construction-reference", definition, typeArguments: Object.freeze([...arguments_]) }));
+    },
     projection: (source: SourceTypeDescriptor, projection: SourceDeferredProjection): SourceTypeDescriptor => {
       key(source);
       if (projection.kind === "component") input.assertComponent(projection.component);

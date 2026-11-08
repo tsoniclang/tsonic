@@ -13,6 +13,7 @@ export function createSourceDescriptorFacts(options: {
   const { checked, identities, assertNode } = options;
   const { ast } = checked;
   const syntaxCache = new WeakMap<Node, SourceInputComponent>();
+  const classCache = new WeakMap<Node, ReturnType<SourceDescriptorInput["classFacets"]>>();
   const descriptions = new WeakMap<SourceInputComponent, SourceInputTypeFacts>();
   const memberPublishers = new WeakMap<SourceFileQueries, ReturnType<typeof createSourceInputMemberPublisher>>();
   const enums = new WeakMap<Node, SourceInputEnumDeclaration>();
@@ -63,6 +64,19 @@ export function createSourceDescriptorFacts(options: {
   function child(parent: SourceInputComponent, part: SourceInputComponentPart, type: Type | undefined): SourceInputComponent {
     identities.assertComponent(parent);
     return identities.component(parent.root, [...parent.path, part], type);
+  }
+
+  function classFacets(node: Node): ReturnType<SourceDescriptorInput["classFacets"]> {
+    assertNode(node);
+    if (!ast.is.IsClassDeclaration(node) && !ast.is.IsClassExpression(node))
+      throw new Error("Original class facets require their authentic class declaration or expression.");
+    const previous = classCache.get(node);
+    if (previous !== undefined) return previous;
+    const instance = syntax(node);
+    const value = child(instance, { kind: "class-value" }, queries(node).checker.getTypeAtLocation(node));
+    const result = Object.freeze({ instance, value });
+    classCache.set(node, result);
+    return result;
   }
 
   function members(component: SourceInputComponent): SourceInputMemberInventory {
@@ -236,15 +250,19 @@ export function createSourceDescriptorFacts(options: {
     }
     const named = type === undefined ? undefined : declaration(type, source);
     const defining = named !== undefined && (component.root === named || ast.typeNode(named) === component.root);
+    const classLike = named !== undefined && (ast.is.IsClassDeclaration(named) || ast.is.IsClassExpression(named));
+    const facet = classLike && type !== undefined && (last?.kind === "class-value" ||
+      type === identities.checkedComponent(classFacets(named).value) || types.getConstructSignatures(type).length > 0) ? "value" : "instance";
     let definitionParameters: readonly Node[] | undefined;
     if (defining && type !== undefined && named !== undefined && (ast.is.IsClassDeclaration(named) || ast.is.IsClassExpression(named) || ast.is.IsInterfaceDeclaration(named))) {
-      const original = types.getTypeReferenceArgumentInfos(type);
+      const template = classLike ? identities.checkedComponent(classFacets(named).instance) : type;
+      const original = template === undefined ? undefined : types.getTypeReferenceArgumentInfos(template);
       const parameters = original?.map(binding => declaration(binding.parameter, source));
       if (parameters !== undefined && parameters.every((parameter): parameter is Node => parameter !== undefined))
         definitionParameters = Object.freeze(parameters);
     }
     const common = { component, authoredTypeNode, declaration: selectedDeclaration, literal, primitive,
-      definitionParameters,
+      definitionParameters, definitionFacet: defining && named !== undefined && !ast.is.IsTypeParameterDeclaration(named) && !ast.is.IsEnumDeclaration(named) ? facet : undefined,
       definitionOwner: defining && named !== undefined && !ast.is.IsTypeParameterDeclaration(named) && !ast.is.IsEnumDeclaration(named) ? named : undefined };
     let result: SourceInputTypeFacts;
     if (named !== undefined && ast.is.IsEnumDeclaration(named)) {
@@ -264,7 +282,7 @@ export function createSourceDescriptorFacts(options: {
     } else if (primitive !== undefined) {
       const scalar = primitive.runtimeBase === "number" || primitive.runtimeBase === "bigint" || primitive.runtimeBase === "boolean" || primitive.runtimeBase === "string" ? primitive.runtimeBase : "object";
       result = { ...common, kind: "scalar", scalar };
-    } else if (named !== undefined && !defining && !types.getConstructSignatures(type).some(value => value !== undefined)) {
+    } else if (named !== undefined && !defining) {
       const application = types.getTypeAliasApplication(type);
       const reference = types.getTypeReferenceArgumentInfos(type);
       const arguments_ = application?.declaration === named ? application.bindings.map(value => ({ parameter: value.parameter, argument: value.argument, declaration: value.declaration }))
@@ -275,9 +293,9 @@ export function createSourceDescriptorFacts(options: {
         const parameterNodes = parameters?.filter((value): value is Node => value !== undefined) ?? ast.typeParameters(named).filter((value): value is Node => value !== undefined);
         const argumentTypes = arguments_?.map(value => value.argument) ?? parameterNodes.map(value => identities.checkedComponent(syntax(value)));
         const definitionNode = ast.typeNode(named) ?? named;
-        result = { ...common, kind: "declared", declaration: named, parameters: Object.freeze(parameterNodes),
+        result = { ...common, kind: "declared", declaration: named, facet, parameters: Object.freeze(parameterNodes),
           arguments: Object.freeze(argumentTypes.map((value, index) => child(component, { kind: "type-argument", declaration: named, index }, value))),
-          definition: syntax(definitionNode), extent: options.extent(component, authoredTypeNode) };
+          definition: classLike ? classFacets(named)[facet] : syntax(definitionNode), extent: options.extent(component, authoredTypeNode) };
       }
     } else if (types.isAny(type) || types.isUnknown(type) || types.isNever(type) || types.isNullish(type) || types.isVoidLike(type) || types.isNumberLike(type) || types.isBigIntLike(type) || types.isBooleanLike(type) || types.isStringLike(type) || types.isSymbolLike(type) || types.isNonPrimitive(type)) {
       result = { ...common, kind: "scalar", scalar: types.isAny(type) ? "any" : types.isUnknown(type) ? "unknown" : types.isNever(type) ? "never"
@@ -309,5 +327,5 @@ export function createSourceDescriptorFacts(options: {
     return selected;
   }
 
-  return Object.freeze({ syntax, describe, members, describeSignature, signatureForDeclaration, signatureComponent, enumDeclaration, originalSignature, queries });
+  return Object.freeze({ syntax, classFacets, describe, members, describeSignature, signatureForDeclaration, signatureComponent, enumDeclaration, originalSignature, queries });
 }

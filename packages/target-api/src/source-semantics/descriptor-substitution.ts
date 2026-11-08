@@ -154,6 +154,8 @@ function rebuild(type: SourceTypeDescriptor,
       type: child({ kind: "tuple-element", index }, element.type) })), type.readonly);
     case "declared": return interner.declared({ ...type, typeArguments: type.typeArguments.map((argument, index) =>
       child({ kind: "type-argument", declaration: type.declaration, index }, argument)) });
+    case "construction-reference": return interner.constructionReference(type.definition, type.typeArguments.map((argument, index) =>
+      child({ kind: "construction-argument", definition: type.definition, index }, argument)));
     case "callable": return interner.callable({ calls: type.calls.map(signature), constructs: type.constructs.map(signature) });
     case "shape": return interner.shape({ members: type.members.map(member => ({ ...member,
       type: child({ kind: "member", origin: member.origin }, member.type) })),

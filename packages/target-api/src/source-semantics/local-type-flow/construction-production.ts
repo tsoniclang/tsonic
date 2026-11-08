@@ -3,9 +3,9 @@ import type { SourceConstruction, SourcePresence, SourceTypeBinding, SourceTypeE
 import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralKey } from "../../source-model/literals/key.js";
-import { sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type SourceLiteralDomain } from "../../source-model/literals/domain.js";
+import { sourceLiteralDomainUnion, sourcePresentLiteralDomain, sourceUnreachableLiteralDomain, type SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import type { SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
+import type { SourceConstructionMemberHistory, SourceConstructionMemberStep } from "../member-inventory.js";
 import { Node_Expression, ObjectLiteralProperty_Value, SpreadAssignment_Expression } from "../../source-navigation/ast.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceSemanticProduction } from "./production-context.js";
@@ -27,35 +27,29 @@ export interface SourceLiteralConstruction {
 }
 
 export function createSourceConstructionProduction(context: SourceConstructionProduction): {
-  metadata(occurrence: Node): SourceProductionResult<SourceMemberInventory>;
+  history(occurrence: Node): SourceProductionResult<SourceConstructionMemberHistory>;
   produce(occurrence: Node): SourceProductionResult<SourceLiteralConstruction>;
 } {
   const { ast, builder, reader, input } = context;
-  const metadataCache = new WeakMap<Node, Extract<SourceMemberInventory, { kind: "complete" }>>();
+  const metadataCache = new WeakMap<Node, SourceConstructionMemberHistory>();
   const constructions = new WeakMap<Node, SourceLiteralConstruction>();
   const active = new Set<Node>();
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
   const presence = (value: SourceProductionResult<SourceTypeEvidence>): SourceProductionResult<SourcePresence<SourceTypeEvidence>> =>
     value.kind !== "resolved" ? value : { kind: "resolved", value: { kind: "present", value: value.value } };
-  const identity = (key: SourceLiteralKey): string | Node => key.kind === "name" ? key.name : key.declaration;
 
-  function metadata(occurrence: Node): SourceProductionResult<SourceMemberInventory> {
+  function history(occurrence: Node): SourceProductionResult<SourceConstructionMemberHistory> {
     input.assertNode(occurrence);
     if (!ast.is.IsObjectLiteralExpression(occurrence)) throw new Error("Original construction member metadata requires an object literal.");
     const previous = metadataCache.get(occurrence);
     if (previous !== undefined) return { kind: "resolved", value: previous };
-    const rows = new Map<string | Node, SourceMemberInventoryRow>();
+    const steps: SourceConstructionMemberStep[] = [];
     for (const property of ast.properties(occurrence)) {
       if (property === undefined) throw new Error("An object construction requires every original member occurrence.");
       const spread = SpreadAssignment_Expression(ast, property);
       if (spread !== undefined) {
-        const value = context.value(spread);
-        if (value.kind !== "resolved") return value;
-        const inventory = builder.members(value.value);
-        if (inventory.kind !== "resolved") return inventory;
-        if (inventory.value.kind === "unavailable") return sourceSemanticRefusal(property, "An object spread requires its complete original Source member inventory.");
-        for (const row of inventory.value.members) rows.set(identity(row.key), Object.freeze({ ...row, readonly: false,
-          getters: [], setters: [], read: "property", writeType: row.readType }));
+        steps.push(Object.freeze({ kind: "spread", evaluation: property, operand: spread, excluded: Object.freeze([]),
+          source: () => context.value(spread) }));
         continue;
       }
       const name = ast.name(property);
@@ -67,9 +61,6 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
       const nameText = selected.value.kind === "name" ? selected.value.name
         : selected.value.kind === "well-known-symbol" ? `Symbol.${selected.value.name}` : ast.text(ast.name(selected.value.declaration));
       const getter = ast.is.IsGetAccessorDeclaration(property), setter = ast.is.IsSetAccessorDeclaration(property);
-      const prior = rows.get(identity(key));
-      const pairAccessor = (getter || setter) && prior !== undefined && (prior.getters.length > 0 || prior.setters.length > 0);
-      const declarations = pairAccessor ? [...prior.declarations, property] : [property];
       const origin = Object.freeze({ kind: "declared" as const, declaration: property });
       const initializer = ObjectLiteralProperty_Value(ast, property);
       const readType = (): SourceProductionResult<SourcePresence<SourceTypeEvidence>> =>
@@ -92,19 +83,14 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
         const annotation = ast.typeNode(parameter);
         return presence(annotation === undefined ? context.value(parameter) : reader.describeSyntax(annotation, []));
       };
-      rows.set(identity(key), Object.freeze({ key, name: nameText, declarations: Object.freeze(declarations),
-        origins: pairAccessor ? [...prior.origins, origin] : [origin],
-        readOrigins: setter ? pairAccessor ? prior.readOrigins : [] : [origin],
-        writeOrigins: getter ? pairAccessor ? prior.writeOrigins : [] : [origin],
-        getters: getter ? [property] : pairAccessor ? prior.getters : [], setters: setter ? [property] : pairAccessor ? prior.setters : [],
-        read: setter ? pairAccessor && prior.getters.length > 0 ? "accessor" : "unavailable"
+      steps.push(Object.freeze({ kind: "own", evaluation: property, member: Object.freeze({ key, name: nameText, declarations: Object.freeze([property]),
+        origins: [origin], readOrigins: setter ? [] : [origin], writeOrigins: getter ? [] : [origin],
+        getters: getter ? [property] : [], setters: setter ? [property] : [],
+        read: setter ? "unavailable"
           : getter ? "accessor" : ast.is.IsMethodDeclaration(property) ? "method" : "property",
-        optional: false, readonly: getter && (!pairAccessor || prior.setters.length === 0),
-        readType: setter && pairAccessor ? prior.readType : readType,
-        writeType: getter && pairAccessor ? prior.writeType : writeType,
-        readDomain: setter && pairAccessor ? prior.readDomain : readDomain }));
+        optional: false, readonly: getter, readType, writeType, readDomain }) }));
     }
-    const result = Object.freeze({ kind: "complete" as const, members: Object.freeze([...rows.values()]), indexes: Object.freeze([]) });
+    const result = Object.freeze({ occurrence, steps: Object.freeze(steps) });
     metadataCache.set(occurrence, result);
     return { kind: "resolved", value: result };
   }
@@ -186,10 +172,12 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
   }
 
   function object(occurrence: Node): SourceProductionResult<SourceLiteralConstruction> {
-    const inventory = metadata(occurrence);
-    if (inventory.kind !== "resolved") return inventory;
-    if (inventory.value.kind !== "complete") return sourceSemanticRefusal(occurrence, "An original object construction requires a complete member inventory.");
-    const rows = inventory.value.members;
+    const selected = context.objects.construction(occurrence, occurrence, {
+      read: (original, values) => builder.join(builder.componentIdentity(original, []), "inferred", values, undefined), domain: sourceLiteralDomainUnion });
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind !== "complete") return sourceSemanticRefusal(occurrence, "An original object construction requires a complete member inventory.");
+    const inventory = selected.value.inventory;
+    const rows = inventory.members;
     const expected = context.destination(occurrence);
     if (expected.kind !== "resolved") return expected;
     if (rows.length === 0 && (expected.value.kind === "none" || expected.value.value.applied.type.kind === "intrinsic" &&
@@ -217,7 +205,7 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
     }
     const value = builder.evidence({ type: builder.shape({ members, indexes: [], calls: [], constructs: [] }),
       component: builder.componentIdentity(occurrence, []), category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined },
-    children, input.syntax(occurrence), sourcePresentLiteralDomain, { members: inventory.value, origins: { kind: "complete", nodes: [occurrence] } });
+    children, input.syntax(occurrence), sourcePresentLiteralDomain, { members: inventory, origins: { kind: "complete", nodes: [occurrence] } });
     const evaluation: SourceConstruction["evaluation"][number][] = [];
     for (const property of ast.properties(occurrence)) {
       if (property === undefined) throw new Error("A constructed object requires every original evaluation step.");
@@ -241,5 +229,5 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
     return { kind: "resolved", value: Object.freeze({ value, construction: Object.freeze({ occurrence, kind: "object", value, destination: destination.value,
       evaluation: Object.freeze(evaluation) }) }) };
   }
-  return Object.freeze({ metadata, produce });
+  return Object.freeze({ history, produce });
 }

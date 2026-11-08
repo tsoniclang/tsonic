@@ -62,9 +62,9 @@ export function createSourceEnumFacts(input: {
     if (constant === undefined) result = refuse(declaration, "An enum member requires its complete original constant observation.");
     else if (constant.kind === "rejected") result = refuse(declaration, constant.reason);
     else {
-      builder.define(owner, [], () => nativeBase(owner), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
+      builder.define({ kind: "declaration", declaration: owner, facet: "instance" }, [], () => nativeBase(owner), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
       const category = typeof constant.value === "string" ? "string" : "number";
-      const value = builder.evidence({ type: builder.declared({ declaration: owner, typeArguments: [] }),
+      const value = builder.evidence({ type: builder.declared({ declaration: owner, facet: "instance", typeArguments: [] }),
         component: builder.componentIdentity(declaration, []), category: { kind: "known", category },
         numeric: category === "number" ? { producer: declaration, kind: "literal", category: { kind: "known", category } } : undefined,
         sum: undefined }, [], input.input.syntax(declaration), sourceFiniteLiteralDomain([typeof constant.value === "string"
@@ -97,7 +97,7 @@ export function createSourceEnumFacts(input: {
   }
 
   function nominal(component: SourceInputComponent, declaration: Node): SourceTypeEvidence {
-    builder.define(declaration, [], () => nativeBase(declaration), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
+    builder.define({ kind: "declaration", declaration, facet: "instance" }, [], () => nativeBase(declaration), () => ({ kind: "resolved", value: { kind: "unavailable" } }));
     const categories = new Set<"string" | "number">();
     let complete = true;
     for (const member of ast.as.AsEnumDeclaration(declaration)?.Members?.Nodes ?? []) {
@@ -109,7 +109,7 @@ export function createSourceEnumFacts(input: {
     const category: SourceCategoryDomain = !complete || categories.size === 0 ? { kind: "dynamic" }
       : categories.size === 1 ? { kind: "known", category: [...categories][0]! }
         : { kind: "choice", alternatives: [...categories].map(category => ({ kind: "known", category })) };
-    return builder.evidence({ type: builder.declared({ declaration, typeArguments: [] }), component: input.componentIdentity(component),
+    return builder.evidence({ type: builder.declared({ declaration, facet: "instance", typeArguments: [] }), component: input.componentIdentity(component),
       category, numeric: category.kind === "known" && category.category === "number"
         ? { producer: declaration, kind: "declared", category } : undefined, sum: undefined },
     [], component, sourcePresentLiteralDomain,

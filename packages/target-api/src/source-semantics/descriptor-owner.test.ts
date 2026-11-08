@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
 import type { SourceCategoryDomain, SourceMemberKey, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeDescriptor, SourceTypeEvidence } from "../public/source/contracts.js";
-import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain, type SourceLiteralDomain } from "../source-model/literals/domain.js";
+import { sourceFiniteLiteralDomain, sourceLiteralDomainUnion, sourceOpenLiteralDomain, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
 import type { SourceEvidenceDetails, SourceMemberInventory, SourceMemberInventoryRow } from "./member-inventory.js";
@@ -55,11 +55,20 @@ function fixture() {
       ast: checked.ast, assertNode,
       assertComponent(value) { if (!components.has(value)) throw new Error("Foreign component."); },
       assertSignature(value) { if (!signatures.has(value)) throw new Error("Foreign original signature."); },
-      syntax: original, describe: unexpected, members: unexpected, markers: unexpected, describeSignature: unexpected, signatureForDeclaration: unexpected,
+      syntax: original, classFacets: unexpected, describe: unexpected, members: unexpected, markers: unexpected, describeSignature: unexpected, signatureForDeclaration: unexpected,
       signatureComponent: unexpected, enumDeclaration: unexpected, application: unexpected, constraints: unexpected,
     };
     const owner = createSourceDescriptorOwner({ input, assertNode, members: unexpected, project: unexpected,
+      construction(occurrence) {
+        const selected = objects.construction(occurrence, occurrence, { domain: sourceLiteralDomainUnion,
+          read: (original, values) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined) });
+        return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "complete"
+          ? selected.value.inventory : { kind: "unavailable" } };
+      },
       receiverBindings: (_value, direct) => ({ kind: "resolved", value: direct }) });
+    const objects = createSourceMemberCorrespondenceQueries({ ast: checked.ast, view: owner.view, assertNode,
+      inventory: { members: owner.builder.members, construction: owner.builder.construction, constructionHistory: owner.builder.constructionHistory },
+      domain: owner.builder.domain });
     function signature(declaration: Node, parameters: readonly Node[] = []) {
       assertNode(declaration);
       const source: SourceInputSignature = Object.freeze({ kind: "signature", owner: declaration,
@@ -87,7 +96,7 @@ function fixture() {
       return owner.builder.evidence({ type, component: owner.builder.componentIdentity(root, []), category,
         numeric: undefined, sum: undefined }, children, undefined, domain, details);
     }
-    return { ...owner, evidence, original, signature, composite, assertNode };
+    return { ...owner, evidence, original, signature, composite, assertNode, objects };
   }
   return { checked, file, nodes, named, createView };
 }
@@ -102,17 +111,17 @@ test("nominal identity includes the original declaration and ordered arguments",
   const left = current.named("Left", current.checked.ast.is.IsClassDeclaration);
   const right = current.named("Right", current.checked.ast.is.IsClassDeclaration);
   const integer = builder.primitive("int32"), floating = builder.primitive("float64");
-  const first = builder.declared({ declaration: left, typeArguments: [integer, floating] });
-  assert.equal(first === builder.declared({ declaration: right, typeArguments: [integer, floating] }), false);
-  assert.equal(first === builder.declared({ declaration: left, typeArguments: [floating, integer] }), false);
-  assert.equal(first === builder.declared({ declaration: left, typeArguments: [integer, floating] }), true);
+  const first = builder.declared({ facet: "instance", declaration: left, typeArguments: [integer, floating] });
+  assert.equal(first === builder.declared({ facet: "instance", declaration: right, typeArguments: [integer, floating] }), false);
+  assert.equal(first === builder.declared({ facet: "instance", declaration: left, typeArguments: [floating, integer] }), false);
+  assert.equal(first === builder.declared({ facet: "instance", declaration: left, typeArguments: [integer, floating] }), true);
 });
 
 test("descriptor publication owns vectors but never freezes checked source nodes", () => {
   const current = fixture(), { builder } = current.createView();
   const declaration = current.named("Left", current.checked.ast.is.IsClassDeclaration);
   const arguments_ = [builder.primitive("int32")];
-  const selected = builder.declared({ declaration, typeArguments: arguments_ });
+  const selected = builder.declared({ facet: "instance", declaration, typeArguments: arguments_ });
   arguments_.push(builder.string());
   assert.equal(selected.typeArguments.length, 1);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.typeArguments), true);
@@ -131,7 +140,7 @@ test("publication interns every descriptor kind without accepting copied or fore
     () => builder.union([integer, builder.string()]), () => builder.callable({ calls: [signature], constructs: [] }),
     () => builder.array(integer, false), () => builder.optional(integer),
     () => builder.tuple([{ kind: "required", type: integer }], true),
-    () => builder.declared({ declaration, typeArguments: [integer] }),
+    () => builder.declared({ facet: "instance", declaration, typeArguments: [integer] }),
     () => builder.shape({ members: [{ name: "value", key: { kind: "string", value: "value" }, optional: false, readonly: false, type: integer,
       origin: { kind: "declared", declaration } }], indexes: [], calls: [signature], constructs: [] }),
     () => builder.projection(integer, { kind: "awaited" })];
@@ -148,15 +157,15 @@ test("declared definitions preserve original owners, recursion and pending compl
   const current = fixture(), local = current.createView(), other = current.createView();
   const declaration = current.named("Right", current.checked.ast.is.IsClassDeclaration);
   let complete = false;
-  const nominal = local.evidence(local.builder.declared({ declaration, typeArguments: [] }), { kind: "known", category: "object" });
+  const nominal = local.evidence(local.builder.declared({ facet: "instance", declaration, typeArguments: [] }), { kind: "known", category: "object" });
   const component = local.builder.componentIdentity(declaration, []);
-  local.builder.define(declaration, [], () => complete ? { kind: "resolved", value: nominal }
+  local.builder.define({ kind: "declaration", declaration, facet: "instance" }, [], () => complete ? { kind: "resolved", value: nominal }
     : { kind: "pending", dependencies: [component] }, () => ({ kind: "resolved", value: { kind: "complete", members: [], indexes: [] } }));
   assert.equal(local.builder.produceDefinition(nominal).kind, "pending");
   assert.equal(local.builder.produceDefinition(nominal).kind, "pending");
   complete = true;
   assert.equal(resolved(local.view.definition(nominal)) === nominal, true);
-  const separate = other.evidence(other.builder.declared({ declaration, typeArguments: [] }), { kind: "known", category: "object" });
+  const separate = other.evidence(other.builder.declared({ facet: "instance", declaration, typeArguments: [] }), { kind: "known", category: "object" });
   assert.throws(() => other.view.definition(separate), /register its original definition owner/);
 });
 
@@ -233,7 +242,7 @@ test("evidence publication requires every descriptor child and its original cate
     { type: local.builder.optional(integer.type), children: [{ selector: { kind: "optional-value" }, value: integer }] },
     { type: local.builder.array(integer.type, false), children: [{ selector: { kind: "array-element" }, value: integer }] },
     { type: local.builder.tuple([{ kind: "required", type: integer.type }], false), children: [{ selector: { kind: "tuple-element", index: 0 }, value: integer }] },
-    { type: local.builder.declared({ declaration, typeArguments: [integer.type] }), children: [{ selector: { kind: "type-argument", declaration, index: 0 }, value: integer }] },
+    { type: local.builder.declared({ facet: "instance", declaration, typeArguments: [integer.type] }), children: [{ selector: { kind: "type-argument", declaration, index: 0 }, value: integer }] },
     { type: local.builder.projection(integer.type, { kind: "awaited" }), children: [{ selector: { kind: "projection-source" }, value: integer }] },
     { type: local.builder.shape({ members: [{ name: "value", key: { kind: "string", value: "value" }, origin: memberSelector.origin,
       type: integer.type, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] }),
@@ -241,7 +250,7 @@ test("evidence publication requires every descriptor child and its original cate
     { type: local.builder.shape({ members: [], indexes: [{ declaration: indexDeclaration, key: text.type, value: integer.type, readonly: false }], calls: [], constructs: [] }),
       children: [{ selector: { kind: "index-key", declaration: indexDeclaration }, value: text },
         { selector: { kind: "index-value", declaration: indexDeclaration }, value: integer }] },
-    { type: local.builder.callable({ calls: [{ identity, receiver: { type: text.type },
+    { type: local.builder.callable({ calls: [{ identity, receiver: { type: text.type, origin: { kind: "instance", owner: declaration } },
       parameters: [{ kind: "required", type: integer.type }], result: integer.type }], constructs: [] }),
     children: [{ selector: { kind: "receiver", signature: identity }, value: text },
       { selector: parameterSelector, value: integer }, { selector: resultSelector, value: integer }] },
@@ -312,18 +321,18 @@ test("construction metadata is registered before child production and retained b
     getters: [], setters: [], read: "property", optional: false, readonly: false,
     readDomain: () => ({ kind: "resolved", value: sourceOpenLiteralDomain }),
     readType: () => { forced++; return produce(); }, writeType: produce };
-  const original: SourceMemberInventory = { kind: "complete", members: [row], indexes: [] };
-  local.builder.registerConstruction(occurrence, () => ({ kind: "resolved", value: original }));
+  local.builder.registerConstruction(occurrence, () => ({ kind: "resolved", value: { occurrence,
+    steps: [{ kind: "own", evaluation: declaration, member: row }] } }));
   const metadata = local.builder.construction(occurrence);
   assert.equal(metadata.kind === "resolved" && metadata.value.kind === "complete", true);
   assert.equal(forced, 0);
-  if (metadata.kind !== "resolved") throw new Error("The metadata must be available independently.");
+  if (metadata.kind !== "resolved" || metadata.value.kind !== "complete") throw new Error("The metadata must be available independently.");
   completed = local.evidence(local.builder.primitive("int64"), { kind: "known", category: "number" }, declaration);
   const origin = { kind: "declared" as const, declaration };
   const value = local.evidence(local.builder.shape({ members: [{ name: "value", key: { kind: "string", value: "value" }, origin,
     optional: false, readonly: false, type: completed.type }], indexes: [], calls: [], constructs: [] }), { kind: "known", category: "object" },
   occurrence, sourceOpenLiteralDomain, [{ selector: { kind: "member", origin }, value: completed }],
-  { members: original, origins: { kind: "complete", nodes: [occurrence] } });
+  { members: metadata.value, origins: { kind: "complete", nodes: [occurrence] } });
   const retained = local.builder.members(value);
   assert.equal(retained.kind === "resolved" && retained.value === metadata.value, true);
   assert.equal(forced, 0);
@@ -338,9 +347,9 @@ test("authored slot evidence and a receiver application remain distinct from pro
   const parameter = local.builder.parameter(binder, declaration, 0, [], none, none);
   const original = local.evidence(parameter.type, { kind: "parameter", declaration: binder });
   const broad = local.evidence(local.builder.intrinsic("unknown"), { kind: "dynamic" });
-  const receiver = local.evidence(local.builder.declared({ declaration, typeArguments: [broad.type] }), { kind: "known", category: "object" }, declaration,
+  const receiver = local.evidence(local.builder.declared({ facet: "instance", declaration, typeArguments: [broad.type] }), { kind: "known", category: "object" }, declaration,
     sourceOpenLiteralDomain, [{ selector: { kind: "type-argument", declaration, index: 0 }, value: broad }]);
-  local.builder.define(declaration, [binder], () => ({ kind: "resolved", value: receiver }),
+  local.builder.define({ kind: "declaration", declaration, facet: "instance" }, [binder], () => ({ kind: "resolved", value: receiver }),
     () => ({ kind: "resolved", value: { kind: "complete", members: [], indexes: [] } }));
   const slot = { origin: { kind: "declaration" as const, declaration }, type: original };
   local.builder.assertDestination({ declaration: slot, applied: resolved(local.view.substitute(original, [{ declaration: binder, value: broad }])),
@@ -420,8 +429,7 @@ function literalCorrespondenceFixture(options: { readonly equalTags?: boolean; r
   const selectedDeclaration = current.checked.ast.members(right).find(member => member !== undefined &&
     current.checked.ast.text(current.checked.ast.name(member) ?? member) === "x");
   if (selectedDeclaration === undefined) throw new Error("The exact selected original declaration is required.");
-  const queries = createSourceMemberCorrespondenceQueries({ view: local.view, assertNode: local.assertNode,
-    inventory: { members: local.builder.members, construction: local.builder.construction }, domain: local.builder.domain });
+  const queries = local.objects;
   return { forced, refusal, ready: () => { ready = true; },
     selected: () => queries.correspondingMember(source, destination, selectedDeclaration, "read", () => ({ kind: "resolved", value: "no" })),
     full: () => queries.correspondence(source, destination, "read", () => ({ kind: "resolved", value: "no" })) };
@@ -478,9 +486,9 @@ test("member domains substitute original binders before any read child is produc
     readDomain: bindings => ({ kind: "resolved", value: local.builder.domain(bindings.find(binding => binding.declaration === binder)?.value ?? template) }),
     readType: () => { forced++; return { kind: "resolved", value: { kind: "present", value: template } }; },
     writeType: () => ({ kind: "resolved", value: { kind: "present", value: template } }) };
-  local.builder.define(declaration, [binder], () => ({ kind: "resolved", value: template }),
+  local.builder.define({ kind: "declaration", declaration, facet: "instance" }, [binder], () => ({ kind: "resolved", value: template }),
     () => ({ kind: "resolved", value: { kind: "complete", members: [row], indexes: [] } }));
-  const receiver = local.evidence(local.builder.declared({ declaration, typeArguments: [actual.type] }),
+  const receiver = local.evidence(local.builder.declared({ facet: "instance", declaration, typeArguments: [actual.type] }),
     { kind: "known", category: "object" }, declaration, sourceOpenLiteralDomain,
     [{ selector: { kind: "type-argument", declaration, index: 0 }, value: actual }]);
   const inventory = local.builder.members(receiver);

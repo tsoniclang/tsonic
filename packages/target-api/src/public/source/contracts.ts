@@ -66,7 +66,7 @@ export interface SourceTypeDescriptorMember {
 
 export interface SourceTypeDescriptorSignature {
   readonly identity: SourceSignatureIdentity;
-  readonly receiver?: { readonly declaration?: Node; readonly type: SourceTypeDescriptor };
+  readonly receiver?: { readonly declaration?: Node; readonly origin: SourceReceiverOrigin; readonly type: SourceTypeDescriptor };
   readonly parameters: readonly {
     readonly declaration?: Node;
     readonly kind: "required" | "optional" | "rest";
@@ -85,9 +85,21 @@ export interface SourceTypeDescriptorIndex {
 export interface SourceDeclaredDescriptor {
   readonly kind: "declared";
   readonly declaration: Node;
+  readonly facet: "instance" | "value";
   readonly typeArguments: readonly SourceTypeDescriptor[];
   readonly extent?: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" };
 }
+
+export interface SourceConstructionDefinition {
+  readonly occurrence: Node;
+  readonly captures: readonly Node[];
+}
+
+export type SourceReceiverOrigin =
+  | { readonly kind: "explicit"; readonly declaration: Node }
+  | { readonly kind: "instance" | "static"; readonly owner: Node }
+  | { readonly kind: "object"; readonly definition: SourceConstructionDefinition }
+  | { readonly kind: "lexical"; readonly owner: Node; readonly signature: SourceSignatureIdentity };
 
 export interface SourceParameterDescriptor {
   readonly kind: "parameter";
@@ -117,6 +129,7 @@ export type SourceTypeDescriptor =
   | { readonly kind: "shape"; readonly members: readonly SourceTypeDescriptorMember[]; readonly indexes: readonly SourceTypeDescriptorIndex[]; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | { readonly kind: "callable"; readonly calls: readonly SourceTypeDescriptorSignature[]; readonly constructs: readonly SourceTypeDescriptorSignature[] }
   | SourceDeclaredDescriptor
+  | { readonly kind: "construction-reference"; readonly definition: SourceConstructionDefinition; readonly typeArguments: readonly SourceTypeDescriptor[] }
   | SourceParameterDescriptor
   | { readonly kind: "projection"; readonly source: SourceTypeDescriptor; readonly projection: SourceDeferredProjection };
 
@@ -125,6 +138,8 @@ export type SourceDeferredProjection =
   | { readonly kind: "component"; readonly component: SourceTypeComponent };
 
 export type SourceComponentSelector =
+  | { readonly kind: "class-value" }
+  | { readonly kind: "construction-argument"; readonly definition: SourceConstructionDefinition; readonly index: number }
   | { readonly kind: "optional-value" }
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }

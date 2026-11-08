@@ -12,6 +12,7 @@ import { sourceApplicationStaticReceiver } from "./application-references.js";
 import { sourceScalarCreationDestination } from "./construction-slots.js";
 import type { SourceTypeFlowAnalysisContext } from "./types.js";
 import { sourceEnumDestination, sourceEnumUseRefusal, sourceEnumValueDomain } from "../enum-numeric-uses.js";
+import { produceSourceReceiverUse } from "./receivers.js";
 
 export interface SourceValueProduction extends SourceSemanticProduction {
   readonly context: SourceTypeFlowAnalysisContext;
@@ -81,6 +82,12 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
   }
   if (ast.is.IsStringLiteral(occurrence) || ast.is.IsNoSubstitutionTemplateLiteral(occurrence)) return scalar(builder.string(), "string");
   const kind = ast.kindName(occurrence);
+  if (kind === "KindThisKeyword") {
+    const selected = produceSourceReceiverUse({ ast, input, builder, reader, navigation: context.source.navigation,
+      value: context.value }, occurrence, bindings);
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "present") return builder.join(component, "inferred", [selected.value.value.value], input.syntax(occurrence));
+  }
   if (kind === "KindTrueKeyword" || kind === "KindFalseKeyword") return scalar(builder.primitive("bool"), "boolean");
   if (kind === "KindNullKeyword" || ast.is.IsOmittedExpression(occurrence)) return scalar(builder.intrinsic("absence"), "absence",
     { kind: "finite", values: [{ kind: "absence" }] });
@@ -154,6 +161,10 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
   if (ast.is.IsIdentifier(occurrence) || kind === "KindThisKeyword" || kind === "KindSuperKeyword") {
     const declaration = context.source.navigation.sourceReferenceFor(occurrence)?.declaration;
     if (declaration !== undefined && declaration !== occurrence) {
+      if (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)) {
+        const value = reader.describeComponent(input.classFacets(declaration).value, bindings);
+        return value.kind !== "resolved" ? value : builder.join(component, "inferred", [value.value], input.syntax(occurrence));
+      }
       if (ast.is.IsVariableDeclaration(declaration) || ast.is.IsParameterDeclaration(declaration) || ast.is.IsBindingElement(declaration) || ast.is.IsPropertyDeclaration(declaration)) {
         return production.inferred(occurrence);
       }

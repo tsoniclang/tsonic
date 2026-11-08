@@ -62,7 +62,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     switch (value.kind) {
       case "member": return { kind: "member", origin: { kind: "declared", declaration: value.declaration } };
       case "element": return { kind: "array-element" };
-      case "optional-value": case "index-key": case "index-value": case "type-argument": case "tuple-element": case "tuple-slice": return value;
+      case "class-value": case "optional-value": case "index-key": case "index-value": case "type-argument": case "tuple-element": case "tuple-slice": return value;
       case "parameter": return { kind: "parameter", signature: signature(value.signature), index: value.index };
       case "receiver": case "result": return { kind: value.kind, signature: signature(value.signature) };
       case "signature-tail": return { ...value, signature: signature(value.signature) };
@@ -107,6 +107,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   function category(facts: SourceInputTypeFacts): SourceCategoryDomain {
+    if (facts.definitionFacet === "value" || facts.kind === "declared" && facts.facet === "value") return { kind: "known", category: "function" };
     if (facts.primitive !== undefined) return { kind: "known", category: facts.primitive.runtimeBase };
     if (facts.kind === "parameter") return { kind: "parameter", declaration: facts.parameter };
     if (facts.kind !== "scalar") return { kind: "known", category: facts.kind === "structure" && facts.calls.length > 0 ? "function" : "object" };
@@ -192,7 +193,16 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       if (value.kind !== "resolved") return value;
       children.push({ selector: { kind: "receiver", signature: selectedIdentity }, value: value.value });
       const declaration = input.describeSignature(facts.identity).receiver?.declaration;
-      receiver = { ...(declaration === undefined ? {} : { declaration }), type: value.value.type };
+      if (declaration === undefined) throw new Error("An observed explicit receiver requires its original this declaration.");
+      receiver = { declaration, origin: { kind: "explicit", declaration }, type: value.value.type };
+    } else if (facts.identity.declaration !== undefined) {
+      const selected = hooks.receiver(facts.identity.declaration, local);
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.kind === "present") {
+        const value = selected.value.value;
+        children.push({ selector: { kind: "receiver", signature: selectedIdentity }, value: value.value });
+        receiver = { ...(value.declaration === undefined ? {} : { declaration: value.declaration }), origin: value.origin, type: value.value.type };
+      }
     }
     for (const [index, parameter] of facts.parameters.entries()) {
       const value = describeComponent(parameter.value, local);
@@ -200,7 +210,10 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       parameters.push({ kind: parameter.kind, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }), type: value.value.type });
       children.push({ selector: { kind: "parameter", signature: selectedIdentity, index }, value: value.value });
     }
-    const result = describeComponent(facts.result, local);
+    const owner = facts.identity.owner;
+    const result = facts.identity.signatureKind === "construct" && owner !== undefined &&
+      (input.ast.is.IsClassDeclaration(owner) || input.ast.is.IsClassExpression(owner))
+      ? describeComponent(input.classFacets(owner).instance, local) : describeComponent(facts.result, local);
     if (result.kind !== "resolved") return result;
     children.push({ selector: { kind: "result", signature: selectedIdentity }, value: result.value });
     return { kind: "resolved", value: { identity: selectedIdentity, ...(receiver === undefined ? {} : { receiver }), parameters, result: result.value.type } };
@@ -222,9 +235,10 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     if (!defining && definitionOwner !== undefined && (input.ast.is.IsClassDeclaration(definitionOwner) ||
       input.ast.is.IsClassExpression(definitionOwner) || input.ast.is.IsInterfaceDeclaration(definitionOwner))) {
       const parameters = facts.definitionParameters;
-      if (parameters === undefined) return unsupported(facts.component);
+      const facet = facts.definitionFacet;
+      if (parameters === undefined || facet === undefined) return unsupported(facts.component);
       parameters.forEach(register);
-      builder.define(definitionOwner, parameters, () => read(facts, [], true), () => describeMembers(facts.component, []));
+      builder.define({ kind: "declaration", declaration: definitionOwner, facet }, parameters, () => read(facts, [], true), () => describeMembers(facts.component, []));
       const children: SourceEvidenceComponent[] = [];
       const arguments_: SourceTypeDescriptor[] = [];
       for (const [index, declaration] of parameters.entries()) {
@@ -233,7 +247,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
         arguments_.push(selected.value.type);
         children.push({ selector: { kind: "type-argument", declaration: definitionOwner, index }, value: selected.value });
       }
-      return { kind: "resolved", value: publish(facts, builder.declared({ declaration: definitionOwner, typeArguments: arguments_ }), children) };
+      return { kind: "resolved", value: publish(facts, builder.declared({ declaration: definitionOwner, facet, typeArguments: arguments_ }), children) };
     }
     const syntax = facts.authoredTypeNode;
     if (syntax !== undefined && (input.ast.is.IsConditionalTypeNode(syntax) || input.ast.is.IsMappedTypeNode(syntax) || input.ast.is.IsTemplateLiteralTypeNode(syntax) || input.ast.is.IsIntersectionTypeNode(syntax) ||
@@ -282,10 +296,10 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
         const selected = describeComponent(input.syntax(body), [...values.values()]);
         return selected.kind !== "resolved" ? selected : builder.join(component(facts.component), "authored", [selected.value], facts.component);
       }
-      builder.define(facts.declaration, facts.parameters, () => facts.definition === undefined
+      builder.define({ kind: "declaration", declaration: facts.declaration, facet: facts.facet }, facts.parameters, () => facts.definition === undefined
         ? hooks.declaredValue(facts.component, facts.declaration, []) : describeComponent(facts.definition, []),
       () => describeMembers(facts.definition ?? facts.component, []));
-      return { kind: "resolved", value: publish(facts, builder.declared({ declaration: facts.declaration, typeArguments: arguments_,
+      return { kind: "resolved", value: publish(facts, builder.declared({ declaration: facts.declaration, facet: facts.facet, typeArguments: arguments_,
         ...(facts.extent === undefined ? {} : { extent: facts.extent }) }), children) };
     }
     if (facts.kind === "array") {

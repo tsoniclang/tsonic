@@ -9,6 +9,7 @@ import type { SourceDescriptorReader } from "./descriptor-contracts.js";
 import { createSourceDescriptorOwner } from "./descriptor-owner.js";
 import { createSourceTypeDescriptorReader } from "./local-type-flow/descriptors.js";
 import { produceSourceScalarLiteralDomain } from "./local-type-flow/literal-domains.js";
+import { sourceLiteralDomainUnion } from "../source-model/literals/domain.js";
 import { produceSourceProjection } from "./local-type-flow/projections.js";
 import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js";
 import { sourceKeyDomainContains } from "./local-type-flow/key-domains.js";
@@ -73,6 +74,13 @@ export function composeSourceProgram(input: SourceProgramInput) {
   }
 
   const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
+    construction(occurrence) {
+      const selected = requiredObjects().construction(occurrence, occurrence, {
+        read: (original, values) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
+        domain: sourceLiteralDomainUnion });
+      return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "complete"
+        ? selected.value.inventory : { kind: "unavailable" } };
+    },
     members: (value, original, bindings) => requiredReader().describeMembers(original, bindings, value),
     receiverBindings(value, direct) {
       const original = owner.builder.originalComponent(value);
@@ -85,7 +93,8 @@ export function composeSourceProgram(input: SourceProgramInput) {
       return produceSourceProjection({ ast, input: input.input, builder: owner.builder,
         reader: requiredReader(), objects: requiredObjects(), originalSource, source, projection, bindings });
     } });
-  const memberInventory = Object.freeze({ members: owner.builder.members, construction: owner.builder.construction });
+  const memberInventory = Object.freeze({ members: owner.builder.members, construction: owner.builder.construction,
+    constructionHistory: owner.builder.constructionHistory });
 
   function signature(original: SourceInputSignature): SourceSignatureIdentity {
     input.input.assertSignature(original);
@@ -135,7 +144,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
     value: input.apiFacts.value({ view: owner.view, assertNode,
       assertApplication: application => requiredSolved().assertApplication(application),
       profileDeclaration: input.profileDeclaration }) });
-  const correspondence = createSourceMemberCorrespondenceQueries({ view: owner.view,
+  const correspondence = createSourceMemberCorrespondenceQueries({ ast, view: owner.view,
     inventory: memberInventory, assertNode, domain: owner.builder.domain });
   solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, enclosing: navigationOwner.analysis.enclosing,
     input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,

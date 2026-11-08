@@ -16,6 +16,7 @@ export interface SourceInputComponent {
 }
 
 export type SourceInputComponentPart =
+  | { readonly kind: "class-value" }
   | { readonly kind: "member"; readonly declaration: Node; readonly access: "read" | "write" }
   | { readonly kind: "parameter"; readonly signature: SourceInputSignature; readonly index: number }
   | { readonly kind: "receiver"; readonly signature: SourceInputSignature }

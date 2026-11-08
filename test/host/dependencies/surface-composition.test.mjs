@@ -282,7 +282,7 @@ test("mandatory Source publication rejects a missing enrolled result at its owni
   assert.equal(occurrence !== undefined, true);
   const unexpected = () => { throw new Error("Missing publication must fail before any semantic child production."); };
   const owner = createSourceDescriptorOwner({ input: original.input, assertNode: original.assertNode,
-    members: unexpected, receiverBindings: unexpected, project: unexpected });
+    members: unexpected, receiverBindings: unexpected, project: unexpected, construction: unexpected });
   assert.throws(() => createSourceSolvedFacts(owner.builder, {
     originals: original.inventory.nodes, occurrences: [occurrence], types: new Map(), contextual: new Map(),
     slots: new Map(), destinations: new Map(), operations: new Map(), constructions: new Map(),

@@ -75,6 +75,7 @@ export type SourceInputTypeFacts = {
   readonly authoredTypeNode: Node | undefined;
   readonly declaration: Node | undefined;
   readonly definitionOwner: Node | undefined;
+  readonly definitionFacet: "instance" | "value" | undefined;
   readonly definitionParameters: readonly Node[] | undefined;
   readonly literal: SourceInputScalarLiteral | undefined;
   readonly primitive: { readonly kind: SourcePrimitiveKind; readonly runtimeBase: "number" | "bigint" | "boolean" | "string" | "object" } | undefined;
@@ -82,7 +83,7 @@ export type SourceInputTypeFacts = {
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol" | "absence" | "void" | "any" | "unknown" | "object" | "never" }
   | { readonly kind: "parameter"; readonly parameter: Node; readonly owner: Node; readonly index: number; readonly captures: readonly Node[]; readonly constraint: SourceInputComponent | undefined; readonly defaultType: SourceInputComponent | undefined }
   | { readonly kind: "enum"; readonly declaration: Node }
-  | { readonly kind: "declared"; readonly declaration: Node; readonly parameters: readonly Node[]; readonly arguments: readonly SourceInputComponent[]; readonly definition: SourceInputComponent | undefined; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" } | undefined }
+  | { readonly kind: "declared"; readonly declaration: Node; readonly facet: "instance" | "value"; readonly parameters: readonly Node[]; readonly arguments: readonly SourceInputComponent[]; readonly definition: SourceInputComponent | undefined; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" } | undefined }
   | { readonly kind: "union"; readonly members: readonly SourceInputComponent[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceInputComponent }
   | { readonly kind: "tuple"; readonly readonly: boolean; readonly elements: readonly SourceInputParameter[] }
@@ -96,6 +97,7 @@ export interface SourceDescriptorInput extends SourceInputMarkerQueries {
   assertComponent(component: SourceInputComponent): void;
   assertSignature(signature: SourceInputSignature): void;
   syntax(node: Node): SourceInputComponent;
+  classFacets(declaration: Node): { readonly instance: SourceInputComponent; readonly value: SourceInputComponent };
   describe(component: SourceInputComponent): SourceInputTypeFacts;
   members(component: SourceInputComponent): SourceInputMemberInventory;
   describeSignature(signature: SourceInputSignature): SourceInputSignatureShape;

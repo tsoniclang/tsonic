@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type {
-  SourceComponentSelector, SourceMemberOrigin, SourceSignatureIdentity,
+  SourceComponentSelector, SourceConstructionDefinition, SourceMemberOrigin, SourceSignatureIdentity,
   SourceSumFamily, SourceTypeComponent,
 } from "../public/source/contracts.js";
 import { freezeSourceMemberOrigin, sourceMemberOriginKey } from "./descriptor-model.js";
@@ -16,6 +16,7 @@ export function createSourceComponentOwner(input: {
   assertNode(node: Node): void;
   assertSignature(signature: SourceSignatureIdentity): void;
   assertFamily(family: SourceSumFamily): void;
+  assertConstruction(definition: SourceConstructionDefinition): void;
 }): SourceComponentOwner {
   const components = new WeakSet<SourceTypeComponent>();
   const roots = new WeakMap<Node, Map<string, SourceTypeComponent>>();
@@ -51,7 +52,12 @@ export function createSourceComponentOwner(input: {
 
   function selectorKey(value: SourceComponentSelector): string {
     switch (value.kind) {
-      case "optional-value": case "array-element": case "awaited": case "projection-source": case "intersection-result": return value.kind;
+      case "class-value": case "optional-value": case "array-element": case "awaited": case "projection-source": case "intersection-result": return value.kind;
+      case "construction-argument": {
+        input.assertConstruction(value.definition);
+        if (value.index >= value.definition.captures.length) throw new Error("A construction argument requires an actual original capture ordinal.");
+        return JSON.stringify([value.kind, objectKey(value.definition), ordinal(value.index)]);
+      }
       case "index-key": case "index-value": return JSON.stringify([value.kind, nodeKey(value.declaration)]);
       case "tuple-element": case "union-member": case "intersection-member": case "argument-place": case "parameter-place": return JSON.stringify([value.kind, ordinal(value.index)]);
       case "argument-tail": case "parameter-tail": return JSON.stringify([value.kind, ordinal(value.start)]);

@@ -179,6 +179,9 @@ export function createSourceEvidenceOwner(input: {
       case "declared":
         for (const [index, argument] of type.typeArguments.entries()) child({ kind: "type-argument", declaration: type.declaration, index }, argument);
         break;
+      case "construction-reference":
+        for (const [index, argument] of type.typeArguments.entries()) child({ kind: "construction-argument", definition: type.definition, index }, argument);
+        break;
       case "projection": child({ kind: "projection-source" }, type.source); break;
       case "shape":
         for (const member of type.members) child({ kind: "member", origin: member.origin }, member.type);

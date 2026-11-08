@@ -35,6 +35,8 @@ import { sourceProvenDiagnosticRoots } from "./diagnostic-proofs.js";
 import { produceSourceGuardPredicate } from "./guard-predicates.js";
 import { produceSourceMemberValue } from "./member-value.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { produceSourceReceiver } from "./receivers.js";
+import { produceSourceBindingHistory } from "./binding-production.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
 interface SourceCallableHeadKey {
@@ -185,6 +187,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]) { return returns.query(signature, bindings); }
 
   const hooks: SourceDescriptorProductionHooks = {
+    receiver: (declaration, bindings) => declarationProduction === undefined ? pending(declaration)
+      : produceSourceReceiver(declarationProduction, declaration, bindings),
     literalDomain: (component, bindings) => produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, component, bindings),
     declaredValue: (component, declaration, bindings) => declarationProduction === undefined ? pending(component.root)
       : produceSourceDeclaredComponent(declarationProduction, component, declaration, bindings),
@@ -248,7 +252,12 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     propertyName: context.propertyName, destination: node => destination(node, []),
     element: (source, node) => protocols === undefined ? pending(node) : protocols.element(source, node) });
   for (const node of context.nodes) if (ast.is.IsObjectLiteralExpression(node) && !ast.getSourceFile(node)?.IsDeclarationFile)
-    builder.registerConstruction(node, () => construction!.metadata(node));
+    builder.registerConstruction(node, () => construction!.history(node));
+  for (const node of context.nodes) if (ast.is.IsBindingElement(node) && ast.as.AsBindingElement(node)?.DotDotDotToken !== undefined) {
+    const pattern = ast.parent(node);
+    if (pattern !== undefined && ast.is.IsObjectBindingPattern(pattern))
+      builder.registerConstruction(node, () => produceSourceBindingHistory(declarationProduction!, node));
+  }
   protocols = createSourceSolvedProtocolFacts({ ...declarationProduction, protocolInput: source.protocolInput,
     signature: (original, bindings, root) => produceSourceCallableSignature(declarationProduction!, original, bindings, undefined, root) });
   const collected = collectSourceTypeFlowEdges(context);

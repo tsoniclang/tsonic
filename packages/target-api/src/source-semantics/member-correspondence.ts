@@ -1,10 +1,11 @@
-import type { Node } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceCorrespondenceIndex, SourceCorrespondenceMember, SourceIndexPair, SourceMemberCorrespondence, SourceMemberPair } from "../source-model/members.js";
 import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceLiteralUnitsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import { sourceLiteralUnitKey, type SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceProductionResult } from "../source-model/production.js";
-import type { SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow, SourceMemberSubject } from "./member-inventory.js";
+import type { SourceConstructionMemberReducers, SourceConstructionMembers, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow, SourceMemberSubject } from "./member-inventory.js";
+import { createSourceConstructionMemberQuery } from "./construction-members.js";
 
 export type SourceIndexKeyContains = (destination: SourceTypeEvidence,
   source: SourceTypeEvidence) => SourceProductionResult<"yes" | "no" | "deferred">;
@@ -21,6 +22,7 @@ export type SourceIndexedMemberSelection =
   | { readonly kind: "unavailable"; readonly reason: "unresolved-shape" | "unresolved-key" | "missing-member" | "unreadable-member" };
 
 export interface SourceMemberCorrespondenceProduction {
+  construction(occurrence: Node, before: Node, reducers: SourceConstructionMemberReducers): SourceProductionResult<SourceConstructionMembers>;
   conjunction(parts: readonly SourceTypeEvidence[], reducers: SourceMemberConjunctionReducers):
     SourceProductionResult<SourceMemberInventory>;
   named(receiver: SourceTypeEvidence, key: SourceLiteralKey): SourceProductionResult<SourceIndexedMemberSelection>;
@@ -37,6 +39,7 @@ export interface SourceMemberCorrespondenceProduction {
 }
 
 export function createSourceMemberCorrespondenceQueries(input: {
+  readonly ast: AstReader;
   readonly view: SourceDescriptorView;
   readonly inventory: SourceMemberInventoryQueries;
   readonly assertNode: (node: Node) => void;
@@ -202,6 +205,7 @@ export function createSourceMemberCorrespondenceQueries(input: {
       throw new TypeError("Source member correspondence requires an explicit correspondence or read purpose.");
   };
   const queries: SourceMemberCorrespondenceProduction = Object.freeze({
+    construction: createSourceConstructionMemberQuery({ ast: input.ast, view, inventory, assertNode, key }),
     conjunction(parts: readonly SourceTypeEvidence[], reducers: SourceMemberConjunctionReducers):
       SourceProductionResult<SourceMemberInventory> {
       if (parts.length < 2) throw new Error("A Source member conjunction requires every original part.");

@@ -11,6 +11,7 @@ import type { SourceCallParameter } from "./application-data.js";
 import type { SourceCallableProduction } from "./production-context.js";
 import type { SourceProducedSignature } from "./application-data.js";
 import { produceSourceDefinitionParameters } from "./definition-parameters.js";
+import { produceSourceReceiver } from "./receivers.js";
 
 
 
@@ -82,7 +83,12 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     const value = annotation === undefined ? context.place(input.signatureComponent(original, root, { kind: "receiver" }), activeBindings)
       : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
-    receiver = { declaration, value: value.value };
+    if (declaration === undefined) throw new Error("An explicit receiver must retain its actual original this parameter.");
+    receiver = { declaration, origin: { kind: "explicit", declaration }, value: value.value };
+  } else if (original.declaration !== undefined) {
+    const selected = produceSourceReceiver(context, original.declaration, activeBindings);
+    if (selected.kind !== "resolved") return selected;
+    if (selected.value.kind === "present") receiver = selected.value.value;
   }
   let result: SourceProductionResult<SourceTypeEvidence>;
   if (original.signatureKind === "construct" && constructedClass !== undefined) {
@@ -98,7 +104,7 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
       } else arguments_.push(value);
     }
     const component = builder.componentIdentity(root, [{ kind: "result", signature: identity }]);
-    result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass,
+    result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass, facet: "instance",
       typeArguments: arguments_.map(value => value.type) }), component, category: { kind: "known", category: "object" },
     numeric: undefined, sum: undefined }, arguments_.map((value, index) => ({ selector: { kind: "type-argument" as const,
       declaration: constructedClass, index }, value })), input.syntax(constructedClass), sourcePresentLiteralDomain,
@@ -185,7 +191,7 @@ export function produceSourceReceiverBindings(context: SourceCallableProduction,
 
 export function sourceProducedSignatureDescriptor(value: SourceProducedSignature): SourceTypeDescriptorSignature {
   return Object.freeze({ identity: value.identity, ...(value.receiver === undefined ? {} : { receiver: {
-    ...(value.receiver.declaration === undefined ? {} : { declaration: value.receiver.declaration }), type: value.receiver.value.type } }),
+    ...(value.receiver.declaration === undefined ? {} : { declaration: value.receiver.declaration }), origin: value.receiver.origin, type: value.receiver.value.type } }),
   parameters: value.parameters.map(parameter => ({ kind: parameter.kind, type: parameter.type.type,
     ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) })), result: value.result.type });
 }
