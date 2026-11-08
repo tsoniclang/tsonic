@@ -21,7 +21,13 @@ export interface SourceJsApiMember {
   readonly name: string;
   readonly receiver: "readonly" | "mutating" | "static";
   readonly parameters: readonly ("value" | "callback" | "index" | "count" | "key" | "options" | "rest")[];
+  readonly resultPresence: SourceJsApiResultPresence;
 }
+
+export type SourceJsApiResultPresence =
+  | { readonly kind: "declaration" }
+  | { readonly kind: "serialization"; readonly valueParameterIndex: 0; readonly replacerParameterIndex: 1;
+      readonly replacerAppliesTo: "root-and-descendants"; readonly proof: "present-serializable-root" };
 
 export interface SourceJsCallbackEffect {
   readonly parameterIndex: number;

@@ -1,16 +1,17 @@
 import type { SourceJsApiMember } from "@tsonic/target-api/source";
 
 type Parameter = SourceJsApiMember["parameters"][number];
-type Row = readonly [name: string, parameters: readonly Parameter[]];
+type Row = readonly [name: string, parameters: readonly Parameter[], resultPresence?: SourceJsApiMember["resultPresence"]];
 type Meaning = Omit<SourceJsApiMember, "declaration" | "name">;
 
 function createMemberTable(): (owner: string, name: string) => Meaning | undefined {
   const table = new Map<string, Meaning>();
   const define = (declarations: readonly string[], owner: Meaning["owner"], receiver: Meaning["receiver"], rows: readonly Row[]) => {
-    for (const declaration of declarations) for (const [name, parameters] of rows) {
+    for (const declaration of declarations) for (const [name, parameters, resultPresence] of rows) {
       const key = `${declaration}.${name}`;
       if (table.has(key)) throw new Error(`The JS profile has duplicate member meaning for '${key}'.`);
-      table.set(key, Object.freeze({ owner, receiver, parameters: Object.freeze([...parameters]) }));
+      table.set(key, Object.freeze({ owner, receiver, parameters: Object.freeze([...parameters]),
+        resultPresence: resultPresence ?? Object.freeze({ kind: "declaration" }) }));
     }
   };
   const rows = (names: readonly string[], parameters: readonly Parameter[] = []): readonly Row[] =>
@@ -83,7 +84,9 @@ function createMemberTable(): (owner: string, name: string) => Meaning | undefin
     ...rows(["atan2", "pow", "imul"], ["value", "value"]), ...rows(["max", "min", "hypot"], ["rest"]),
     ...rows(["random", "E", "LN10", "LN2", "LOG10E", "LOG2E", "PI", "SQRT1_2", "SQRT2"]),
   ]);
-  define(["JSON"], "json", "static", [["parse", ["value", "callback"]], ["stringify", ["value", "value", "value"]]]);
+  define(["JSON"], "json", "static", [["parse", ["value", "callback"]], ["stringify", ["value", "value", "value"],
+    Object.freeze({ kind: "serialization", valueParameterIndex: 0, replacerParameterIndex: 1,
+      replacerAppliesTo: "root-and-descendants", proof: "present-serializable-root" })]]);
   define(["ObjectConstructor"], "object", "static", [
     ...rows(["keys", "values", "entries", "fromEntries", "getOwnPropertyNames", "freeze", "isFrozen", "create"], ["value"]),
     ["assign", ["value", "rest"]], ["hasOwn", ["value", "key"]], ["is", ["value", "value"]],
