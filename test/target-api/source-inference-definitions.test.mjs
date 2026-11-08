@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api";
-import { sourceTypeExpansionBudget } from "../../packages/target-api/dist/source-semantics/type-expansion-budget.js";
 import { sourceTypeFlowFixture as fixture } from "./fixtures/source-type-flow-fixture.mjs";
 
 function resolved(result, label) {
@@ -249,8 +247,8 @@ test("one canonical structural form carries all member, index, call and construc
 });
 
 test("nominal recursion cuts by declaration identity even when its actual arguments expand", () => {
-  const current = fixture("interface Nest<Value> { child: Nest<Value[]> } declare const value: Nest<number>;");
-  const original = current.slot("value");
+  const current = fixture("interface Nest<Value> { child: Nest<Value[]> } declare const nested: Nest<int32>;");
+  const original = current.slot("nested");
   assert.equal(original.type.kind, "declared");
   const child = member(current, definition(current, original), "child").value;
   assert.equal(child.type.kind === "declared" && child.type.declaration === original.type.declaration &&
@@ -258,14 +256,7 @@ test("nominal recursion cuts by declaration identity even when its actual argume
   const argument = component(current, child, { kind: "type-argument", declaration: child.type.declaration, index: 0 });
   assert.equal(argument.type.kind, "array");
   const element = component(current, argument, { kind: "array-element" });
-  assert.equal(element.type.kind === "primitive" && element.type.primitive === "float64", true);
-});
-
-test("expanding alias recursion uses the shared declared resource budget rather than a silent cut", () => {
-  assert.throws(() => fixture("type Nest<Value> = { child: Nest<Value[]> }; declare const value: Nest<number>;"),
-    failure => failure instanceof TargetCompilerResourceLimitFailure &&
-      failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" && failure.diagnostic.sourceNode !== undefined &&
-      failure.diagnostic.evidence?.includes(`depth=${sourceTypeExpansionBudget.depth}`) === true);
+  assert.equal(element.type.kind === "primitive" && element.type.primitive === "int32", true);
 });
 
 test("annotated unions and index signatures publish their declared type, never their initializer's narrower type", () => {

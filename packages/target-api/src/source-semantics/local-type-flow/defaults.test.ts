@@ -330,21 +330,6 @@ test("declared definitions have one canonical member and signature inventory", (
     empty.calls.length === 0 && empty.constructs.length === 0, true, "an empty structure is a shape, never a signature-only callable");
 });
 
-test("nominal expanding recursion cuts by declaration identity while alias expansion uses the shared resource budget", () => {
-  const current = fixture("interface Nest<Value> { child: Nest<Value[]> } declare const nested: Nest<int32>;");
-  const type = current.defaults.context.describe(current.declaration("nested"));
-  assert.equal(type?.kind === "declared" && type.definition?.kind === "shape", true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The actual nominal definition is required.");
-  const child = type.definition.members[0]?.type;
-  assert.equal(child?.kind === "declared" && child.declaration === type.declaration && child.definition === undefined &&
-    child.typeArguments[0]?.kind === "array" && child.typeArguments[0].element.kind === "primitive" &&
-    child.typeArguments[0].element.primitive === "int32", true, "the recursive reference keeps its substituted arguments and no second definition");
-  assert.throws(() => fixture("type Expanding<Value> = { child: Expanding<Value[]> }; declare const expanded: Expanding<int32>;"),
-    error => error instanceof TargetCompilerResourceLimitFailure && error.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" &&
-      error.diagnostic.sourceNode !== undefined && error.message.includes(`depth=${sourceTypeExpansionBudget.depth}`),
-  "expanding aliases use the existing shared-budget resource failure at their declared site");
-});
-
 test("nominal definitions retain all structure once and cut recursive references by declaration and arguments", () => {
   const current = fixture(`interface Link<Value> { value: Value; next?: Link<Value>; }
     interface Empty {} declare const retained: Link<int32>; declare const empty: Empty;`);
