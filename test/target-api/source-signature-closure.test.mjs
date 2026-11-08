@@ -3,7 +3,6 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { sourceFlowOwnerFixture } from "../host/fixtures/source-flow-owner.mjs";
 import { Node_Initializer } from "../../packages/target-api/dist/source-navigation/ast.js";
-import { collectSourceTypeFlowEdges } from "../../packages/target-api/dist/source-semantics/local-type-flow/edges.js";
 import { collectSourceTypeFlowSignatures } from "../../packages/target-api/dist/source-semantics/local-type-flow/signatures.js";
 import { createSourceTypeFlowTerms } from "../../packages/target-api/dist/source-semantics/local-type-flow/term-groups.js";
 
@@ -24,7 +23,7 @@ function fixture(text) {
     assert.equal(selected !== undefined, true, `the original ${kind}/${name ?? ""}/${occurrence} is required`);
     return selected;
   };
-  return { source, context, find, nodes };
+  return { source, flow, context, find, nodes };
 }
 
 function variable(node, path = []) {
@@ -541,7 +540,7 @@ test("C2388 contextual authored results do not become inferred signatures", () =
     }
     function inferred() { const values = [1]; take(values); return values; }`);
   const { context } = current;
-  const collected = collectSourceTypeFlowEdges(context);
+  const collected = current.flow.graph;
   const terms = createSourceTypeFlowTerms(current.source.ast, collected);
   const signatures = collectSourceTypeFlowSignatures(context, collected, terms.isInference);
   const arrow = current.nodes.find(node => current.source.ast.is.IsArrowFunction(node));
