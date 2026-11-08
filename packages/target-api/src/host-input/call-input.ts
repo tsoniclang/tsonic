@@ -13,9 +13,12 @@ export interface SourceInputDiagnosticIdentity {
 
 export type SourceInputDiagnosticCoverage =
   | { readonly kind: "complete"; readonly root: SourceInputDiagnosticIdentity; readonly obligations: readonly {
+    readonly kind: "applicability" | "backing";
     readonly diagnostic: SourceInputDiagnosticIdentity;
     readonly application: SourceInputApplication | undefined;
-  }[] }
+  }[]; readonly purpose:
+    | { readonly kind: "alternative-applicability"; readonly invocation: Node; readonly notes: readonly SourceInputDiagnosticIdentity[] }
+    | { readonly kind: "other" } }
   | { readonly kind: "unavailable"; readonly root: SourceInputDiagnosticIdentity };
 
 export interface SourceInputTypeArgument {
@@ -100,7 +103,11 @@ export interface SourceInputCallCandidate {
   readonly diagnosticCoverage: readonly SourceInputDiagnosticCoverage[];
 }
 
-export type SourceInputCallSelection =
+export type SourceInputDeclarationOrder =
+  | { readonly kind: "available"; readonly signatures: readonly SourceInputSignature[] }
+  | { readonly kind: "unavailable" };
+
+export type SourceInputCallSelection = { readonly declarationOrder: SourceInputDeclarationOrder } & (
   | { readonly kind: "applicable"; readonly selection: SourceInputCallCandidate & {
     readonly result: SourceInputComponent;
     readonly parameters: readonly {
@@ -111,4 +118,4 @@ export type SourceInputCallSelection =
     }[];
   } }
   | { readonly kind: "conditional-candidates"; readonly candidates: readonly SourceInputCallCandidate[]; readonly diagnostics: readonly SourceInputDiagnosticIdentity[] }
-  | { readonly kind: "untyped"; readonly diagnostics: readonly SourceInputDiagnosticIdentity[] };
+  | { readonly kind: "untyped"; readonly diagnostics: readonly SourceInputDiagnosticIdentity[] });

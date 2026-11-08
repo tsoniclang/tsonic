@@ -1,19 +1,19 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { SourceApplication, SourceApplicationFacts, SourceDeclaredSlot, SourceDescriptorView, SourcePresence, SourcePropertyName, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination, SourceValueFacts } from "../public/source/contracts.js";
-import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
+import type { SourceApplication, SourceApplicationFacts, SourceDeclaredSlot, SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
 import type { SourceJsApiFacts } from "../target-analysis/source-profile.js";
 import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
 import type { SourceProductionResult } from "../source-semantics/descriptor-contracts.js";
 import type { SourceCorrespondenceMember } from "../source-semantics/member-correspondence.js";
-import type { SourceObjectProduction } from "../source-semantics/member-use.js";
 import type { SourceOriginSubjects } from "../source-semantics/member-inventory.js";
-import type { SourceObjectFacts } from "../source-semantics/types.js";
+import type { SourcePointerFacts } from "../target-analysis/source-pointers.js";
+import type { SourceMarkerFacts } from "../target-analysis/source-markers.js";
 import type { SourceDescriptorInput } from "./descriptor-input.js";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
 import type { SourceInputDiagnosticIdentity } from "./call-input.js";
 import type { SourceInputMemberUseSelection } from "./member-input.js";
 import type { SourceInputProtocolQueries } from "./protocol-input.js";
+import type { SourcePropertyNameFacts } from "./property-name-input.js";
 
 export type { SourceObjectProduction } from "../source-semantics/member-use.js";
 
@@ -32,6 +32,7 @@ export interface SourceFactProduction {
   readonly values: SourceValueFacts;
   readonly applications: SourceApplicationFacts;
   readonly solvedProtocols: Pick<SourceAnalysisFacts, "iteration" | "generator" | "yield">;
+  readonly storage: SourceAnalysisFacts["storage"];
   assertNode(node: Node): void;
   assertApplication(application: SourceApplication): void;
   originalComponent(value: SourceTypeEvidence): SourcePresence<SourceInputComponent>;
@@ -39,8 +40,6 @@ export interface SourceFactProduction {
   publish(component: SourceInputComponent, receiver?: SourceTypeEvidence): SourceResult<SourceTypeEvidence>;
   signature(original: SourceInputSignature): SourceSignatureIdentity;
   unavailable(node: Node, reason: string): SourceRefusal;
-  literalDomain(node: Node): SourceResult<SourceLiteralDomain>;
-  syntaxDomain(node: Node): SourceResult<SourceLiteralDomain>;
 }
 
 export interface SourceObjectProductionQueries {
@@ -60,12 +59,9 @@ export interface SourceProgramInput {
   readonly input: SourceDescriptorInput;
   readonly protocolInput: SourceInputProtocolQueries;
   navigation(production: SourceFactProduction): SourceNodeNavigationFacts;
-  propertyName(queries: {
-    literalDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
-    syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
-  }): (node: Node) => SourceProductionResult<SourcePropertyName>;
+  readonly propertyNames: SourcePropertyNameFacts;
   memberUse(occurrence: Node): SourceInputMemberUseSelection;
   profile(production: SourceFactProduction): SourcePresence<SourceJsApiFacts>;
-  protocols(production: SourceFactProduction, navigation: SourceNodeNavigationFacts, objects: SourceObjectFacts): SourceAnalysisFacts;
+  pointers(production: SourceFactProduction): SourcePointerFacts & SourceMarkerFacts;
   discharge(diagnostics: readonly SourceInputDiagnosticIdentity[]): void;
 }
