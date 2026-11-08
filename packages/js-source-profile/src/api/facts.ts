@@ -4,7 +4,7 @@ import type { SourceApplication, SourceJsApiFacts, SourceJsApiMember, SourceJsCa
   SourceJsCollectionFacts, SourcePresence, SourceResult, SourceTypeEvidence } from "@tsonic/target-api/source";
 import { jsTypedArrayElementKinds } from "../declarations/typed-arrays.js";
 import { jsSourceSemanticsIdentity } from "../identities/source.js";
-import { createJsProfileIdentityQuery } from "./identity.js";
+import { jsProfileIdentity } from "./identity.js";
 import { jsProfileMemberMeaning } from "./members.js";
 import { jsProfileArrayEffect } from "./array-effects.js";
 import { jsProfileCallbackEffects, jsProfileCallRefusal, jsProfileInvocationOnlyParameters,
@@ -23,7 +23,11 @@ const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ k
 
 export function createJsSourceApiFacts(input: SourceJsApiFactsInput): SourceJsApiFacts {
   const { view, assertApplication } = input;
-  const scoped = createJsProfileIdentityQuery(input);
+  const scoped = (declaration: Node) => {
+    input.assertNode(declaration);
+    const selected = input.profileDeclaration(declaration);
+    return selected.kind === "none" ? undefined : jsProfileIdentity(selected.value);
+  };
   const members = new WeakMap<Node, SourceJsApiMember | null>();
   const collections = new WeakMap<SourceTypeEvidence, SourceResult<SourcePresence<SourceJsCollectionFacts>>>();
   const storage = new WeakMap<SourceApplication, SourceJsCallStorage | null>();
@@ -34,11 +38,13 @@ export function createJsSourceApiFacts(input: SourceJsApiFactsInput): SourceJsAp
   const operation = (declaration: Node, facet: "member" | "storage" | "callbacks") => {
     const selected = scoped(declaration);
     const declared = selected?.identity;
-    if (selected === undefined || declared?.declaringName === undefined) return undefined;
-    const memberName = declared.kind === "member" || declared.declaringName === "Global" ? declared.name
+    if (selected === undefined || declared === undefined) return undefined;
+    const ownerName = declared.declaringName ?? (declared.kind === "call" ? "Global" : undefined);
+    if (ownerName === undefined) return undefined;
+    const memberName = declared.kind === "member" || ownerName === "Global" ? declared.name
       : declared.kind === "construct" ? "constructor" : declared.kind === "call" ? "call" : undefined;
     if (memberName === undefined) return undefined;
-    const named = Object.freeze({ ownerName: declared.declaringName, memberName });
+    const named = Object.freeze({ ownerName, memberName });
     if (selected.scope === "shared" && (facet === "member" || !jsProfileNativeOperation(named) &&
       (facet === "callbacks" || memberName !== "constructor" && memberName !== "call"))) return undefined;
     return Object.freeze({ identity: declared, named });
