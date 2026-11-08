@@ -12,6 +12,7 @@ export interface SourceStorageAnalysisInputs {
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;
   readonly aggregate: (original: Node, values: readonly SourceTypeEvidence[]) => SourceResult<SourceTypeEvidence>;
   readonly literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain;
+  readonly syntaxDomain: (original: Node) => SourceProductionResult<SourceLiteralDomain>;
   readonly flowConditions: (original: Node) => SourcePresence<ResolvedSourceFlowConditionInfo>;
   readonly enclosing: (original: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean) => Node | undefined;
 }
