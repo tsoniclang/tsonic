@@ -3,6 +3,7 @@ import type {
   SourceComponentSelector, SourceMemberOrigin, SourceSignatureIdentity,
   SourceSumFamily, SourceTypeComponent,
 } from "../public/source/contracts.js";
+import { freezeSourceMemberOrigin, sourceMemberOriginKey } from "./descriptor-model.js";
 
 export interface SourceComponentOwner {
   identity(root: Node, path: readonly SourceComponentSelector[]): SourceTypeComponent;
@@ -45,22 +46,20 @@ export function createSourceComponentOwner(input: {
   }
 
   function originKey(value: SourceMemberOrigin): readonly unknown[] {
-    if (value.kind === "declared") return [value.kind, nodeKey(value.declaration)];
-    if (value.kind === "class-prototype") return [value.kind, nodeKey(value.owner)];
-    return [value.kind, nodeKey(value.owner), value.key.kind, value.key.kind === "unique-symbol"
-      ? nodeKey(value.key.declaration) : value.key.value];
+    return sourceMemberOriginKey(value, nodeKey);
   }
 
   function selectorKey(value: SourceComponentSelector): string {
     switch (value.kind) {
       case "optional-value": case "array-element": case "awaited": case "projection-source": return value.kind;
       case "index-key": case "index-value": return JSON.stringify([value.kind, nodeKey(value.declaration)]);
-      case "tuple-element": return JSON.stringify([value.kind, ordinal(value.index)]);
+      case "tuple-element": case "union-member": case "argument-place": case "parameter-place": return JSON.stringify([value.kind, ordinal(value.index)]);
+      case "argument-tail": case "parameter-tail": return JSON.stringify([value.kind, ordinal(value.start)]);
       case "member": return JSON.stringify([value.kind, originKey(value.origin)]);
       case "parameter": return JSON.stringify([value.kind, signatureKey(value.signature), ordinal(value.index)]);
       case "receiver": case "result": return JSON.stringify([value.kind, signatureKey(value.signature)]);
       case "signature-tail": return JSON.stringify([value.kind, signatureKey(value.signature), ordinal(value.start), value.readonly]);
-      case "tuple-slice": return JSON.stringify([value.kind, ordinal(value.start), value.readonly]);
+      case "tuple-slice": return JSON.stringify([value.kind, ordinal(value.start), ordinal(value.endCount), value.readonly]);
       case "type-argument": return JSON.stringify([value.kind, nodeKey(value.declaration), ordinal(value.index)]);
       case "sum-arm": {
         input.assertFamily(value.family);
@@ -71,9 +70,7 @@ export function createSourceComponentOwner(input: {
 
   function snapshot(value: SourceComponentSelector): SourceComponentSelector {
     if (value.kind !== "member") return Object.freeze({ ...value });
-    const origin = value.origin.kind === "mapped"
-      ? Object.freeze({ ...value.origin, key: Object.freeze({ ...value.origin.key }) })
-      : Object.freeze({ ...value.origin });
+    const origin = freezeSourceMemberOrigin(value.origin);
     return Object.freeze({ kind: "member", origin });
   }
 

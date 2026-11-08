@@ -3,7 +3,7 @@ import type { SourceInputComponent } from "../host-input/identities.js";
 import { sourceFiniteLiteralDomain, type SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
   SourceCategoryDomain, SourceNumericOrigin, SourceSumApplication, SourceTypeDescriptor,
-  SourceTypeEvidence,
+  SourceTypeBinding, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
 import type { SourceComponentOwner } from "./descriptor-components.js";
@@ -13,12 +13,13 @@ export interface SourceEvidenceRecord {
   readonly components: ReadonlyMap<string, SourceEvidenceComponent>;
   readonly original: SourceInputComponent | undefined;
   readonly domain: SourceLiteralDomain;
+  readonly requirementBindings: readonly SourceTypeBinding[];
 }
 
 export interface SourceEvidenceOwner {
   assert(value: SourceTypeEvidence): void;
   record(value: SourceTypeEvidence): SourceEvidenceRecord;
-  create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain): SourceTypeEvidence;
+  create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[]): SourceTypeEvidence;
   category(value: SourceCategoryDomain): SourceCategoryDomain;
   categoryKey(value: SourceCategoryDomain): string;
 }
@@ -68,7 +69,7 @@ export function createSourceEvidenceOwner(input: {
     return Object.freeze({ ...value, category: category(value.category) });
   }
 
-  function create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain): SourceTypeEvidence {
+  function create(value: SourceTypeEvidence, children: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain, requirementBindings: readonly SourceTypeBinding[]): SourceTypeEvidence {
     input.assertDescriptor(value.type);
     input.components.assert(value.component);
     if (original !== undefined) input.assertOriginal(original);
@@ -80,6 +81,13 @@ export function createSourceEvidenceOwner(input: {
     }
     const selectedDomain = domain.kind === "finite" ? sourceFiniteLiteralDomain(domain.values) : Object.freeze({ ...domain });
     const entries = new Map<string, SourceEvidenceComponent>();
+    const bound = new Set<Node>();
+    for (const binding of requirementBindings) {
+      input.assertNode(binding.declaration);
+      record(binding.value);
+      if (bound.has(binding.declaration)) throw new Error("A requirement environment binds each original parameter exactly once.");
+      bound.add(binding.declaration);
+    }
     for (const child of children) {
       record(child.value);
       const selectorKey = input.components.selectorKey(child.selector);
@@ -90,7 +98,8 @@ export function createSourceEvidenceOwner(input: {
     }
     const selected: SourceTypeEvidence = Object.freeze({ type: value.type, component: value.component,
       category: selectedCategory, numeric: selectedNumeric, sum: value.sum });
-    records.set(selected, Object.freeze({ value: selected, components: entries, original, domain: selectedDomain }));
+    records.set(selected, Object.freeze({ value: selected, components: entries, original, domain: selectedDomain,
+      requirementBindings: Object.freeze(requirementBindings.map(binding => Object.freeze({ ...binding }))) }));
     return selected;
   }
 

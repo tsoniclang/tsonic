@@ -1,4 +1,4 @@
-import type { CheckedSourceProgram, Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
 import type { SourceInputBackingConstraint, SourceInputCallSelection } from "./call-input.js";
 
@@ -15,6 +15,25 @@ export interface SourceInputSignatureFacts {
   readonly result: SourceInputComponent;
 }
 
+export interface SourceInputSignatureShape {
+  readonly identity: SourceInputSignature;
+  readonly target: SourceInputSignature | undefined;
+  readonly parameters: readonly {
+    readonly index: number;
+    readonly declaration: Node | undefined;
+    readonly rest: boolean;
+    readonly optional: boolean;
+  }[];
+  readonly receiver: { readonly declaration: Node | undefined } | undefined;
+}
+
+export type SourceInputScalarLiteral =
+  | { readonly kind: "boolean"; readonly value: boolean }
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "bigint"; readonly value: bigint }
+  | { readonly kind: "symbol"; readonly declaration: Node };
+
 export interface SourceInputMemberFacts {
   readonly name: string;
   readonly declarations: readonly Node[];
@@ -30,10 +49,11 @@ export type SourceInputTypeFacts = {
   readonly component: SourceInputComponent;
   readonly authoredTypeNode: Node | undefined;
   readonly declaration: Node | undefined;
+  readonly literal: SourceInputScalarLiteral | undefined;
   readonly primitive: { readonly kind: SourcePrimitiveKind; readonly runtimeBase: "number" | "bigint" | "boolean" | "string" | "object" } | undefined;
 } & (
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol" | "absence" | "void" | "any" | "unknown" | "object" | "never" }
-  | { readonly kind: "parameter"; readonly parameter: Node; readonly owner: Node; readonly index: number; readonly constraint: SourceInputComponent | undefined; readonly defaultType: SourceInputComponent | undefined }
+  | { readonly kind: "parameter"; readonly parameter: Node; readonly owner: Node; readonly index: number; readonly captures: readonly Node[]; readonly constraint: SourceInputComponent | undefined; readonly defaultType: SourceInputComponent | undefined }
   | { readonly kind: "declared"; readonly declaration: Node; readonly parameters: readonly Node[]; readonly arguments: readonly SourceInputComponent[]; readonly definition: SourceInputComponent | undefined; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" } | undefined }
   | { readonly kind: "union"; readonly members: readonly SourceInputComponent[] }
   | { readonly kind: "array"; readonly readonly: boolean; readonly element: SourceInputComponent }
@@ -43,12 +63,14 @@ export type SourceInputTypeFacts = {
 );
 
 export interface SourceDescriptorInput {
+  readonly ast: AstReader;
+  assertNode(node: Node): void;
   assertComponent(component: SourceInputComponent): void;
   assertSignature(signature: SourceInputSignature): void;
   syntax(node: Node): SourceInputComponent;
   describe(component: SourceInputComponent): SourceInputTypeFacts;
+  describeSignature(signature: SourceInputSignature): SourceInputSignatureShape;
   application(invocation: Node): SourceInputCallSelection;
   constraints(occurrence: Node): readonly SourceInputBackingConstraint[];
 }
 
-export declare function createSourceDescriptorInput(checked: CheckedSourceProgram): SourceDescriptorInput;

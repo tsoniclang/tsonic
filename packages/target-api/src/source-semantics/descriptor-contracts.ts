@@ -1,6 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputComponent, SourceInputSignature } from "../host-input/identities.js";
-import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type {
   SourceCategoryDomain, SourceComponentSelector, SourceDeclaredDescriptor,
@@ -35,6 +34,7 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
   string(): SourceTypeDescriptor;
   intrinsic(intrinsic: Extract<SourceTypeDescriptor, { readonly kind: "intrinsic" }>["intrinsic"]): SourceTypeDescriptor;
   parameter(declaration: Node, owner: Node, index: number,
+    captures: readonly Node[],
     constraint: () => SourceResult<SourceTypeParameterRequirement>,
     defaultType: () => SourceResult<SourceTypeParameterRequirement>): SourceTypeParameter;
   optional(value: SourceTypeDescriptor): SourceTypeDescriptor;
@@ -48,6 +48,7 @@ export interface SourceDescriptorBuilder extends SourceDescriptorView {
   componentIdentity(root: Node, path: readonly SourceComponentSelector[]): SourceTypeComponent;
   evidence(value: SourceTypeEvidence, components: readonly SourceEvidenceComponent[], original: SourceInputComponent | undefined, domain: SourceLiteralDomain): SourceTypeEvidence;
   domain(value: SourceTypeEvidence): SourceLiteralDomain;
+  /** Calls the sole publishFamily producer, then wraps its application in exact component/category/domain evidence. */
   join(component: SourceTypeComponent, origin: "authored" | "inferred", roles: readonly SourceTypeEvidence[], original: SourceInputComponent | undefined): SourceResult<SourceTypeEvidence>;
   originalComponent(value: SourceTypeEvidence): SourceInputComponent;
   signature(owner: Node, kind: "call" | "construct", original: SourceInputSignature, declaration: Node | undefined, parameters: readonly Node[]): SourceSignatureIdentity;

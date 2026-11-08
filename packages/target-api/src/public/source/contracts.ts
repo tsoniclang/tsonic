@@ -1,4 +1,5 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 
 export interface SourceRefusal {
   readonly kind: "refused";
@@ -41,7 +42,7 @@ export type SourceMemberOrigin =
 
 export type SourceMemberKey =
   | { readonly kind: "string"; readonly value: string }
-  | { readonly kind: "number"; readonly value: number }
+  | { readonly kind: "number"; readonly value: Extract<SourceLiteralUnit, { readonly kind: "number" }>["value"] }
   | { readonly kind: "unique-symbol"; readonly declaration: Node };
 
 export interface SourceTypeDescriptorMember {
@@ -115,13 +116,15 @@ export type SourceComponentSelector =
   | { readonly kind: "optional-value" }
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
+  | { readonly kind: "union-member" | "argument-place" | "parameter-place"; readonly index: number }
+  | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
   | { readonly kind: "member"; readonly origin: SourceMemberOrigin }
   | { readonly kind: "index-key" | "index-value"; readonly declaration: Node }
   | { readonly kind: "projection-source" }
   | { readonly kind: "parameter"; readonly signature: SourceSignatureIdentity; readonly index: number }
   | { readonly kind: "receiver"; readonly signature: SourceSignatureIdentity }
   | { readonly kind: "signature-tail"; readonly signature: SourceSignatureIdentity; readonly start: number; readonly readonly: boolean }
-  | { readonly kind: "tuple-slice"; readonly start: number; readonly readonly: boolean }
+  | { readonly kind: "tuple-slice"; readonly start: number; readonly endCount: number; readonly readonly: boolean }
   | { readonly kind: "result"; readonly signature: SourceSignatureIdentity }
   | { readonly kind: "type-argument"; readonly declaration: Node; readonly index: number }
   | { readonly kind: "sum-arm"; readonly family: SourceSumFamily; readonly index: number }
@@ -207,7 +210,9 @@ export interface SourceApplication {
   readonly identity: SourceApplicationIdentity;
   readonly kind: "call" | "construct" | "function-value";
   readonly receiver: SourceApplicationReceiver;
+  /** Authored evaluation order, including empty spreads. Emit each operand once from this vector only. */
   readonly sourceArguments: readonly SourceAuthoredArgument[];
+  /** Parameter bindings only; sourceArgumentIndex joins each binding to its authored evaluation. */
   readonly arguments: readonly SourceArgumentPlace[];
   readonly result: SourceTypeEvidence;
 }
@@ -240,6 +245,11 @@ export interface SourceValueOperand {
   readonly value: SourceTypeEvidence;
 }
 
+/**
+ * Evaluate control once. Native obeys disposition and skips only the unselected branch.
+ * Conditional uses true/false; and/or/coalesce use left/right. Native never re-derives it.
+ * A present-left coalesce remains refused until the maintainer's Q1 admission ruling.
+ */
 export type SourceValueSelection = {
   readonly occurrence: Node;
   readonly result: SourceTypeEvidence;
@@ -263,9 +273,23 @@ export type SourcePrimitiveOperator =
   | "add" | "subtract" | "multiply" | "divide" | "remainder" | "power"
   | "bit-and" | "bit-or" | "bit-xor" | "shift-left" | "shift-right" | "shift-right-unsigned"
   | "negate" | "positive" | "bit-not" | "logical-not"
-  | "less" | "less-equal" | "greater" | "greater-equal" | "equal" | "not-equal";
+  | "less" | "less-equal" | "greater" | "greater-equal" | "equal" | "not-equal" | "equal-strict" | "not-equal-strict";
 
-export type SourceOperation = SourceValueSelection | SourcePrimitiveOperation;
+export type SourceStorageOperation = {
+  readonly occurrence: Node;
+  readonly result: SourceTypeEvidence;
+} & (
+  | { readonly kind: "assignment"; readonly target: Node; readonly source: SourceValueOperand; readonly destination: SourceUseDestination }
+  | { readonly kind: "compound"; readonly operator: SourcePrimitiveOperator; readonly target: Node;
+      readonly operands: readonly [SourceValueOperand, SourceValueOperand]; readonly destination: SourceUseDestination;
+      readonly calculation: SourceTypeEvidence }
+  | { readonly kind: "update"; readonly operator: "increment" | "decrement"; readonly form: "prefix" | "postfix";
+      readonly operand: SourceValueOperand; readonly destination: SourceUseDestination }
+  | { readonly kind: "sequence"; readonly operands: readonly SourceValueOperand[] }
+  | { readonly kind: "in" | "instanceof"; readonly left: SourceValueOperand; readonly right: SourceValueOperand }
+);
+
+export type SourceOperation = SourceValueSelection | SourcePrimitiveOperation | SourceStorageOperation;
 
 export interface SourceConstruction {
   readonly occurrence: Node;
@@ -279,6 +303,7 @@ export interface SourceConstruction {
 }
 
 export interface SourceValueFacts {
+  /** Complete original-order value/refusal domain. Declaration and type-name nodes are not value occurrences. */
   occurrences(): readonly Node[];
   type(occurrence: Node): SourceResult<SourceTypeEvidence>;
   contextual(occurrence: Node): SourceResult<SourcePresence<SourceTypeEvidence>>;

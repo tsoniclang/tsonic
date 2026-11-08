@@ -1,11 +1,12 @@
 import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 import type { SourceInputSignature } from "../host-input/identities.js";
 import type {
-  SourceDeclaredDescriptor, SourceDeferredProjection, SourceMemberKey, SourceMemberOrigin,
+  SourceDeclaredDescriptor, SourceDeferredProjection, SourceMemberOrigin,
   SourceParameterDescriptor, SourceSignatureIdentity, SourceTypeComponent,
   SourceTypeDescriptor, SourceTypeDescriptorIndex, SourceTypeDescriptorMember,
   SourceTypeDescriptorSignature,
 } from "../public/source/contracts.js";
+import { freezeSourceMemberOrigin, sourceMemberOriginKey } from "./descriptor-model.js";
 
 export interface SourceDescriptorInternerInput {
   assertNode(node: Node): void;
@@ -125,21 +126,13 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
     return absent ? optional(value) : value;
   }
 
-  function memberKey(value: SourceMemberKey): readonly (string | number)[] {
-    return value.kind === "unique-symbol" ? [value.kind, nodeKey(value.declaration)]
-      : [value.kind, String(value.value)];
-  }
-
   function originKey(value: SourceMemberOrigin): readonly unknown[] {
-    return value.kind === "declared" ? [value.kind, nodeKey(value.declaration)]
-      : value.kind === "class-prototype" ? [value.kind, nodeKey(value.owner)]
-      : [value.kind, nodeKey(value.owner), memberKey(value.key)];
+    return sourceMemberOriginKey(value, nodeKey);
   }
 
   function freezeOrigin(value: SourceMemberOrigin): SourceMemberOrigin {
     originKey(value);
-    return value.kind === "mapped" ? Object.freeze({ ...value, key: Object.freeze({ ...value.key }) })
-      : Object.freeze({ ...value });
+    return freezeSourceMemberOrigin(value);
   }
 
   function signatureShapeKey(value: SourceTypeDescriptorSignature): readonly unknown[] {

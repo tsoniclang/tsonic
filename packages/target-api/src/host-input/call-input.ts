@@ -33,20 +33,13 @@ export interface SourceInputApplication {
   readonly receiver: SourceInputCallValue | undefined;
   readonly class: { readonly declaration: Node; readonly arguments: readonly SourceInputTypeArgument[] } | undefined;
   readonly signatureArguments: readonly SourceInputTypeArgument[];
-  readonly parameters: readonly {
-    readonly index: number;
-    readonly declaration: Node | undefined;
-    readonly kind: "required" | "optional" | "rest";
-    readonly component: SourceInputComponent;
-  }[];
-  readonly result: SourceInputComponent;
 }
 
 export interface SourceInputAuthoredArgument {
   readonly occurrence: Node;
   readonly expression: Node;
   readonly form: "value" | "spread";
-  readonly component: SourceInputComponent;
+  readonly component: SourceInputComponent | undefined;
 }
 
 export interface SourceInputArgumentBinding {
@@ -58,8 +51,8 @@ export interface SourceInputArgumentBinding {
   readonly spreadElementIndex: number | undefined;
   readonly parameterIndex: number;
   readonly parameterForm: "parameter" | "rest-element" | "rest-sequence";
-  readonly source: SourceInputComponent;
-  readonly destination: SourceInputComponent;
+  readonly source: SourceInputComponent | undefined;
+  readonly destination: SourceInputComponent | undefined;
 }
 
 export type SourceInputArgumentMap =
@@ -98,6 +91,14 @@ export interface SourceInputCallCandidate {
 }
 
 export type SourceInputCallSelection =
-  | { readonly kind: "applicable"; readonly selection: SourceInputCallCandidate }
+  | { readonly kind: "applicable"; readonly selection: SourceInputCallCandidate & {
+    readonly result: SourceInputComponent;
+    readonly parameters: readonly {
+      readonly index: number;
+      readonly declaration: Node | undefined;
+      readonly kind: "required" | "optional" | "rest";
+      readonly component: SourceInputComponent;
+    }[];
+  } }
   | { readonly kind: "conditional-candidates"; readonly candidates: readonly SourceInputCallCandidate[]; readonly diagnostics: readonly SourceInputDiagnosticIdentity[] }
   | { readonly kind: "untyped"; readonly diagnostics: readonly SourceInputDiagnosticIdentity[] };
