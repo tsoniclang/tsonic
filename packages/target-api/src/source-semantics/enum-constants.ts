@@ -1,8 +1,8 @@
 import { AsEnumMember } from "../source-navigation/checked-casts.js";
-import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "../source-navigation/types.js";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
-import { analyzeSourceEnumNumericUses } from "./enum-numeric-uses.js";
+import type { Node, SourceFile } from "@tsonic/tsts";
+import type { SourceDescriptorInput } from "../host-input/descriptor-input.js";
+import type { SourceNodeNavigationFacts } from "../source-model/navigation.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-model/literals/token.js";
 import type { SourceEnumAdmissionIssue, SourceEnumConstantIndex,
   SourceEnumConstantSelection, SourceEnumIntegerWidthSelection } from "./enum-model.js";
 
@@ -27,11 +27,11 @@ const resolved = (value: bigint | string): Constant => Object.freeze({ kind: "re
 const rejected = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "source" });
 const resourceExhausted = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "resource" });
 
-export function analyzeSourceEnumConstants(
-  source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationSymbol" | "declarationUseSummary" | "sourceFiles" | "expressionResultDisposition">,
+export function createSourceEnumConstantLedger(
+  source: { readonly input: SourceDescriptorInput; readonly sourceFiles: readonly SourceFile[] },
+  navigation: Pick<SourceNodeNavigationFacts, "sourceReferenceFor" | "declarationUseSummary" | "sourceFiles" | "expressionResultDisposition">,
 ): SourceEnumConstantIndex {
-  const { ast } = source;
+  const { ast } = source.input;
   const members: Node[] = [];
   const declarations: { readonly declaration: Node; readonly members: readonly Node[] }[] = [];
   type DeclarationGroup = {
@@ -42,6 +42,7 @@ export function analyzeSourceEnumConstants(
   const groupsByDeclaration = new WeakMap<Node, DeclarationGroup>();
   const previous = new WeakMap<Node, Node>();
   const membership = new WeakSet<Node>();
+  const checkedConstants = new WeakMap<Node, { readonly value: unknown }>();
   for (const file of source.sourceFiles) {
     if (file === undefined) continue;
     const pending: Node[] = [file];
@@ -62,10 +63,8 @@ export function analyzeSourceEnumConstants(
         declarations.push(declaration);
         let group = groupsByDeclaration.get(node);
         if (group === undefined) {
-          const symbol = navigation.declarationSymbol(node, file);
-          if (symbol === undefined) throw new Error("A checked enum declaration requires its actual declaration symbol.");
-          const checkedDeclarations = source.getSourceFileQueries(file).checker.getSymbolDeclarations(symbol)
-            .filter((selected): selected is Node => selected !== undefined && ast.is.IsEnumDeclaration(selected));
+          const facts = source.input.enumDeclaration(node);
+          const checkedDeclarations = facts.declarations;
           if (!checkedDeclarations.includes(node)) throw new Error("A checked enum symbol requires its actual declaration membership.");
           group = { checkedDeclarations: new Set(checkedDeclarations), declarations: [] };
           for (const selected of checkedDeclarations) {
@@ -74,6 +73,9 @@ export function analyzeSourceEnumConstants(
             groupsByDeclaration.set(selected, group);
           }
           groups.add(group);
+        }
+        for (const member of source.input.enumDeclaration(node).members) {
+          checkedConstants.set(member.declaration, { value: member.constant.kind === "unavailable" ? undefined : member.constant.value });
         }
         group.declarations.push(declaration);
       }
@@ -84,7 +86,6 @@ export function analyzeSourceEnumConstants(
   }
 
   const completed = new WeakMap<Node, Constant>();
-  const checkedConstants = new WeakMap<Node, { readonly value: unknown }>();
   const selections = new WeakMap<Node, SourceEnumConstantSelection>();
   const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
   const disagreements = new WeakMap<Node, Constant>();
@@ -165,17 +166,12 @@ export function analyzeSourceEnumConstants(
   }
   const constants = Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
     integerWidth: (declaration: Node) => widths.get(declaration) });
-  issues.push(...analyzeSourceEnumNumericUses(source, navigation, constants));
   return Object.freeze({ ...constants, issues: Object.freeze(issues) });
 
   function checkedConstant(member: Node): unknown {
     const existing = checkedConstants.get(member);
     if (existing !== undefined) return existing.value;
-    const file = ast.getSourceFile(member);
-    if (file === undefined) throw new Error("A checked enum member must belong to its source file.");
-    const value = source.getSourceFileQueries(file).typeShape.getConstantValue(member);
-    checkedConstants.set(member, { value });
-    return value;
+    throw new Error("An original enum member requires its factual observed constant entry, including unavailable.");
   }
 
   function enumDisagreement(member: Node, exact: bigint, checked: unknown): string {
@@ -314,10 +310,7 @@ export function analyzeSourceEnumConstants(
     }
     const file = ast.getSourceFile(node);
     if (file === undefined) return rejected("The enum constant reference is outside the checked source program.");
-    const checker = source.getSourceFileQueries(file).checker;
-    const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration
-      : ast.is.IsPropertyAccessExpression(node) ? checker.getResolvedPropertyAccessInfo(node)?.selectedDeclaration
-        : ast.is.IsElementAccessExpression(node) ? checker.getResolvedElementAccessInfo(node)?.selectedDeclaration : undefined;
+    const declaration = navigation.sourceReferenceFor(node)?.declaration;
     if (declaration !== undefined && membership.has(declaration)) return depends(node, [declaration], values => values[0]!);
     if (declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.variableDeclarationKind(declaration) === "const") {
       const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;

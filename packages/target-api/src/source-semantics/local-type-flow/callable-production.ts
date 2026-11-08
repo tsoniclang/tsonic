@@ -1,17 +1,21 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceInputSignature } from "../../host-input/identities.js";
+import type { SourceInputComponent, SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeDescriptorSignature, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
-import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
+import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.js";
 import { sourceSemanticRefusal, type SourceSemanticProduction } from "./semantic-production.js";
 import type { SourceCallParameter } from "./argument-places.js";
+import { produceSourceDefinitionParameters } from "./definition-parameters.js";
 
 export interface SourceCallableProduction extends SourceSemanticProduction {
   readonly navigation: SourceNodeNavigationFacts;
   value(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
-  parameter(declaration: Node, signature: SourceSignatureIdentity, index: number, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  place(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  parameter(component: SourceInputComponent, declaration: Node | undefined, signature: SourceSignatureIdentity, index: number,
+    bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   completion(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
+  observeSignature(signature: SourceSignatureIdentity, result: SourceTypeEvidence, bindings: readonly SourceTypeBinding[], root: Node): void;
 }
 
 export interface SourceProducedSignature {
@@ -21,10 +25,26 @@ export interface SourceProducedSignature {
   readonly result: SourceTypeEvidence;
 }
 
+export function produceSourceParameterPresence(context: Pick<SourceSemanticProduction, "builder" | "reader">,
+  component: SourceInputComponent, value: SourceTypeEvidence, optional: boolean): SourceProductionResult<SourceTypeEvidence> {
+  if (!optional) return { kind: "resolved", value };
+  const { builder, reader } = context;
+  const identity = reader.componentIdentity(component);
+  if (value.type.kind === "optional" || value.sum?.arms.some(arm => arm.type.kind === "intrinsic" &&
+    (arm.type.intrinsic === "absence" || arm.type.intrinsic === "void")) || value.type.kind === "intrinsic" &&
+    (value.type.intrinsic === "absence" || value.type.intrinsic === "void")) return builder.join(identity, "authored", [value], component);
+  const absence = builder.evidence({ type: builder.intrinsic("absence"), component: identity,
+    category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
+  { kind: "finite", values: [{ kind: "absence" }] },
+  { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(value) });
+  return builder.join(identity, "authored", [value, absence], component);
+}
+
 export function produceSourceCallableSignature(context: SourceCallableProduction, original: SourceInputSignature,
-  bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined): SourceProductionResult<SourceProducedSignature> {
+  bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined, root: Node): SourceProductionResult<SourceProducedSignature> {
   const { ast, input, builder, reader } = context;
   input.assertSignature(original);
+  input.assertNode(root);
   const shape = input.describeSignature(original);
   if (shape.identity !== original) throw new Error("A Source callable shape requires its exact original signature witness.");
   for (const declaration of original.typeParameters) {
@@ -39,33 +59,48 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     : produceSourceHeritageBindings(context, constructedClass, bindings);
   if (inherited.kind !== "resolved") return inherited;
   const activeBindings = inherited.value;
+  function inheritedDeclaration(index: number | "receiver" | "result"): Node | undefined {
+    const seen = new Set<SourceInputSignature>([original]);
+    let current = shape.target;
+    while (current !== undefined) {
+      if (seen.has(current)) throw new Error("An original signature target relation cannot contain a cycle.");
+      seen.add(current);
+      const target = input.describeSignature(current);
+      const declaration = index === "result" ? current.declaration : index === "receiver" ? target.receiver?.declaration
+        : target.parameters[index]?.declaration;
+      if (declaration !== undefined) return declaration;
+      current = target.target;
+    }
+    return undefined;
+  }
   const parameters: SourceCallParameter[] = [];
   for (const parameter of shape.parameters) {
     if (parameter.index !== parameters.length) throw new Error("A Source signature requires its original complete formal ordinal vector.");
-    const declaration = parameter.declaration;
-    if (declaration === undefined) return sourceSemanticRefusal(original.owner,
-      "An original synthetic callable parameter requires an authenticated Source declaration or application component.", "TSONIC_LOCAL_TYPE_SIGNATURE");
-    const annotation = ast.typeNode(declaration);
-    const value = annotation === undefined ? context.parameter(declaration, identity, parameter.index, activeBindings)
+    const component = input.signatureComponent(original, root, { kind: "parameter", index: parameter.index });
+    const declaration = parameter.declaration ?? inheritedDeclaration(parameter.index);
+    const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
+    const value = annotation === undefined ? context.parameter(component, declaration, identity, parameter.index, activeBindings)
       : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
-    parameters.push({ index: parameter.index, declaration, kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: value.value });
+    const present = produceSourceParameterPresence(context, component, value.value, parameter.optional && !parameter.rest);
+    if (present.kind !== "resolved") return present;
+    parameters.push({ index: parameter.index, declaration, kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: present.value });
   }
   let receiver: SourceProducedSignature["receiver"];
   if (shape.receiver !== undefined) {
-    const declaration = shape.receiver.declaration;
+    const declaration = shape.receiver.declaration ?? inheritedDeclaration("receiver");
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
-    if (declaration === undefined || annotation === undefined) return sourceSemanticRefusal(original.owner,
-      "An explicit callable receiver requires its actual original receiver declaration and type.", "TSONIC_LOCAL_TYPE_SIGNATURE");
-    const value = reader.describeSyntax(annotation, activeBindings);
+    const value = annotation === undefined ? context.place(input.signatureComponent(original, root, { kind: "receiver" }), activeBindings)
+      : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
     receiver = { declaration, value: value.value };
   }
   let result: SourceProductionResult<SourceTypeEvidence>;
   if (original.signatureKind === "construct" && constructedClass !== undefined) {
     const arguments_: SourceTypeEvidence[] = [];
-    for (const declaration of ast.typeParameters(constructedClass)) {
-      if (declaration === undefined) return sourceSemanticRefusal(constructedClass, "A constructed class requires its actual original binder vector.");
+    const parameters = produceSourceDefinitionParameters(context, constructedClass);
+    if (parameters.kind !== "resolved") return parameters;
+    for (const declaration of parameters.value) {
       const value = activeBindings.find(binding => binding.declaration === declaration)?.value;
       if (value === undefined) {
         const parameter = reader.describeSyntax(declaration, activeBindings);
@@ -73,19 +108,21 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
         arguments_.push(parameter.value);
       } else arguments_.push(value);
     }
-    const component = builder.componentIdentity(original.owner, [{ kind: "result", signature: identity }]);
+    const component = builder.componentIdentity(root, [{ kind: "result", signature: identity }]);
     result = { kind: "resolved", value: builder.evidence({ type: builder.declared({ declaration: constructedClass,
       typeArguments: arguments_.map(value => value.type) }), component, category: { kind: "known", category: "object" },
     numeric: undefined, sum: undefined }, arguments_.map((value, index) => ({ selector: { kind: "type-argument" as const,
-      declaration: constructedClass, index }, value })), undefined, sourceOpenLiteralDomain) };
+      declaration: constructedClass, index }, value })), input.syntax(constructedClass), sourcePresentLiteralDomain,
+    { members: { kind: "definition" }, origins: { kind: "complete", nodes: [constructedClass] } }) };
   } else {
-    const declaration = original.declaration;
-    if (declaration === undefined) return sourceSemanticRefusal(original.owner,
-      "This callable completion requires its actual original result component; an implicit declaration cannot be invented.", "TSONIC_LOCAL_TYPE_SIGNATURE");
-    const annotation = ast.typeNode(declaration);
-    result = annotation === undefined ? context.completion(declaration, activeBindings) : reader.describeSyntax(annotation, activeBindings);
+    const declaration = original.declaration ?? inheritedDeclaration("result");
+    const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
+    result = annotation !== undefined ? reader.describeSyntax(annotation, activeBindings)
+      : declaration === undefined ? context.place(input.signatureComponent(original, root, { kind: "result" }), activeBindings)
+        : context.completion(declaration, activeBindings);
   }
   if (result.kind !== "resolved") return result;
+  context.observeSignature(identity, result.value, bindings, root);
   return { kind: "resolved", value: Object.freeze({ identity, receiver, parameters: Object.freeze(parameters), result: result.value }) };
 }
 
@@ -127,6 +164,34 @@ export function produceSourceHeritageBindings(context: SourceCallableProduction,
     return { kind: "resolved", value: Object.freeze([...values].map(([declaration, value]) => ({ declaration, value }))) };
   }
   return visit(declaration);
+}
+
+export function produceSourceReceiverBindings(context: SourceCallableProduction, receiver: SourceTypeEvidence,
+  bindings: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]> {
+  const { ast, builder, reader } = context;
+  builder.assertEvidence(receiver);
+  if (receiver.type.kind !== "declared") return { kind: "resolved", value: bindings };
+  const declaration = receiver.type.declaration;
+  const parameters = produceSourceDefinitionParameters(context, declaration);
+  if (parameters.kind !== "resolved") return parameters;
+  if (parameters.value.length !== receiver.type.typeArguments.length) throw new Error("A declared receiver must retain its complete registered definition argument vector.");
+  const selected = new Map(bindings.map(binding => [binding.declaration, binding.value]));
+  for (const [index, parameter] of parameters.value.entries()) {
+    const value = builder.component(receiver, { kind: "type-argument", declaration, index });
+    if (value.kind === "refused") return value;
+    selected.set(parameter, value.value);
+  }
+  const environment = [...selected].map(([declaration, value]) => ({ declaration, value }));
+  if (ast.is.IsTypeAliasDeclaration(declaration)) {
+    const body = ast.typeNode(declaration);
+    if (body === undefined) throw new Error("An original type alias requires its authored definition body.");
+    const value = reader.describeSyntax(body, environment);
+    if (value.kind !== "resolved") return value;
+    if (value.value.type.kind === "declared" && value.value.type.declaration === declaration) return sourceSemanticRefusal(declaration,
+      "An original receiver alias depends on its own unexpanded application.", "TSONIC_LOCAL_TYPE_SELF_REFERENCE");
+    return produceSourceReceiverBindings(context, value.value, environment);
+  }
+  return produceSourceHeritageBindings(context, declaration, environment);
 }
 
 export function sourceProducedSignatureDescriptor(value: SourceProducedSignature): SourceTypeDescriptorSignature {

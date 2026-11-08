@@ -4,7 +4,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { analyzeSourceResourceScopes, createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { analyzeSourceResourceScopes, createSourceControlFlowQueries } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { sourceStorageClassLineages } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 const classes = `
@@ -25,6 +25,7 @@ function fixture(text) {
   }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true, "unannotated authored construction checks");
   const source = createTargetSourceProgram(checked);
+  const flowQueries = createSourceControlFlowQueries(source);
   const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const ast = source.ast;
   const named = name => storage.nodes.find(node => (ast.is.IsClassDeclaration(node) || ast.is.IsVariableDeclaration(node)) &&
@@ -32,17 +33,17 @@ function fixture(text) {
   const construct = name => storage.invocations.find(node => ast.is.IsNewExpression(node) &&
     ast.text(ast.as.AsNewExpression(node).Expression) === name);
   const constructor = name => ast.members(named(name)).find(ast.is.IsConstructorDeclaration);
-  return { source, storage, ast, named, construct, constructor };
+  return { source, flowQueries, storage, ast, named, construct, constructor };
 }
 
 function flow(current, declaration) {
-  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" } });
+  const selected = current.flowQueries.declaration(declaration, { domain: { kind: "source" } });
   assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked graph");
   return selected.graph;
 }
 
 function declarationFlow(current, declaration, limits) {
-  const selected = createSourceDeclarationControlFlow(current.source, declaration, { domain: { kind: "source" }, limits });
+  const selected = current.flowQueries.declaration(declaration, { domain: { kind: "source" }, limits });
   assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "declaration graph");
   return selected.graph;
 }

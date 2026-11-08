@@ -1,6 +1,6 @@
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
-import { compareSourceNumericLiteralMagnitude } from "../literal-token.js";
-import type { SourceLiteralValue } from "../literal-values-model.js";
+import { compareSourceNumericLiteralMagnitude } from "../../source-model/literals/token.js";
+import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 
 export const sourcePrimitiveOperatorKinds = Object.freeze([
   "bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
@@ -10,7 +10,7 @@ export const sourcePrimitiveOperatorKinds = Object.freeze([
 export const sourcePrimitiveBinaryOperators = Object.freeze([
   "add", "subtract", "multiply", "divide", "remainder", "power", "bit-and", "bit-or", "bit-xor",
   "shift-left", "shift-right", "shift-right-unsigned", "less", "less-equal", "greater", "greater-equal",
-  "equal", "not-equal",
+  "equal", "not-equal", "equal-strict", "not-equal-strict",
 ] as const);
 
 export const sourcePrimitiveUnaryOperators = Object.freeze([
@@ -82,9 +82,9 @@ const integrals: ReadonlySet<SourcePrimitiveKind> = new Set([
 ]);
 const shiftCounts: ReadonlySet<SourcePrimitiveKind> = new Set([...smallIntegrals, "int32", "int64"]);
 const comparisonOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set([
-  "less", "less-equal", "greater", "greater-equal", "equal", "not-equal",
+  "less", "less-equal", "greater", "greater-equal", "equal", "not-equal", "equal-strict", "not-equal-strict",
 ]);
-const equalityOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["equal", "not-equal"]);
+const equalityOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["equal", "not-equal", "equal-strict", "not-equal-strict"]);
 const bitwiseOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["bit-and", "bit-or", "bit-xor"]);
 const shiftOperators: ReadonlySet<SourcePrimitiveBinaryOperator> = new Set(["shift-left", "shift-right", "shift-right-unsigned"]);
 
@@ -161,6 +161,10 @@ const integerBounds: Readonly<Partial<Record<SourcePrimitiveKind, readonly [bigi
 };
 const float32OverflowThreshold = (1n << 128n) - (1n << 103n);
 const decimalOverflowThresholdTwice = (((1n << 96n) - 1n) << 1n) + 1n;
+
+export function sourcePrimitiveIntegerBounds(primitive: SourcePrimitiveKind): readonly [bigint, bigint] | undefined {
+  return integerBounds[primitive];
+}
 
 export function sourcePrimitiveOperatorLiteralFits(literal: SourceLiteralValue, primitive: SourcePrimitiveKind): boolean {
   if (literal.form === "array") return false;

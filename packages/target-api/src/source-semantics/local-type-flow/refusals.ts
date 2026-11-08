@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeFlowRefusal, SourceTypeFlowRefusalCode } from "./types.js";
+import type { SourceTypeFlowRefusalCode } from "./types.js";
+import type { SourceRefusal } from "../../public/source/contracts.js";
 
 const reasons: Readonly<Record<SourceTypeFlowRefusalCode, string>> = Object.freeze({
   TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE: "A mapped member requires one checked string literal, number literal or unique symbol key.",
@@ -10,7 +11,7 @@ const reasons: Readonly<Record<SourceTypeFlowRefusalCode, string>> = Object.free
   TSONIC_UNTYPED_ARRAY_LITERAL: "This empty array has no element type. Declare one, e.g. 'function emptyBuffer(): number[]'.",
   TSONIC_LOCAL_TYPE_ACCUMULATOR: "The accumulator's callback result differs from its non-cyclic source type. Write a matching seed such as '0.0' or annotate the accumulator.",
   TSONIC_LOCAL_TYPE_UNION: "A union cannot choose one exact local source type. Annotate the value or the selected call's result.",
-  TSONIC_LOCAL_TYPE_SELF_REFERENCE: "This local type depends on itself or leaves through a stored function value. Annotate the value or the function signature.",
+  TSONIC_LOCAL_TYPE_SELF_REFERENCE: "This source type depends on its own unresolved result.",
   TSONIC_LOCAL_TYPE_ADDRESS: "An open local's address requires a fixed storage type. Annotate the local before taking its address.",
   TSONIC_LOCAL_TYPE_LIMIT: "Local type inference exceeds 64 bindings, 1024 uses per binding, or depth 4. Annotate the declaration.",
   TSONIC_LOCAL_TYPE_GENERIC: "The pinned generic declaration cannot establish one exact source instantiation. Annotate the arguments or provide explicit type arguments.",
@@ -21,7 +22,7 @@ export function createSourceTypeFlowRefusal(
   code: SourceTypeFlowRefusalCode,
   site: Node,
   related?: Node,
-): SourceTypeFlowRefusal {
+): SourceRefusal {
   return Object.freeze({ kind: "refused", source: "tsonic", code, site,
-    ...(related === undefined ? {} : { related }), reason: reasons[code] });
+    ...(related === undefined ? {} : { related }), message: reasons[code] });
 }

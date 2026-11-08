@@ -1,6 +1,5 @@
 import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
 import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
-import type { TargetSourceProgram } from "../../source-semantics/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -74,13 +73,17 @@ export interface SourceFlowLimits {
 
 export interface SourceControlFlowSelectedDomain {
   readonly kind: "selected";
-  readonly source: TargetSourceProgram;
   readonly nodes: readonly Node[];
 }
 
 export interface SourceDeclarationControlFlowOptions {
   readonly domain: { readonly kind: "source" } | SourceControlFlowSelectedDomain;
   readonly limits?: Partial<SourceFlowLimits>;
+}
+
+export interface SourceControlFlowQueries {
+  domain(nodes: readonly Node[]): { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain } | SourceFlowUnresolved;
+  declaration(declaration: Node, options: SourceDeclarationControlFlowOptions): SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion>;
 }
 
 export interface SourceFlowWork {

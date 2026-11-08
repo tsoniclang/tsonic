@@ -7,7 +7,8 @@ import {
 import { createTargetSourceProgram } from "../target-source-program.js";
 import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
-import { createSourceTypeFlowTerms, sourceTypeDescriptorStructure } from "./terms.js";
+import { sourceTypeDescriptorStructure } from "./terms.js";
+import { createSourceTypeFlowTerms } from "./term-groups.js";
 import { sourceTypeFlowDiscardedValue } from "./value-syntax.js";
 import type { SourceTypeFlowNode, SourceTypeFlowVariable } from "./types.js";
 
@@ -418,14 +419,22 @@ test("accumulator dependency keeps its non-cyclic seed distinct from receiver el
   assert.equal(call?.argumentPlaces.length, 1, "the seed is the one non-callback argument inference place");
 });
 
-test("inline argument closures share a root while stored closures never acquire outer links", () => {
+test("inline and stored closures keep original activation roots and directed outer producers", () => {
   const inline = fixture(`function run() { const values = [1]; return values.transform(value => value * 2); }`);
   const callable = inline.graph.calls.find(call => inline.text(call.node).includes(".transform("));
   const parameter = inline.graph.nodes.find(entry => entry.kind === "parameter");
-  assert.equal(callable !== undefined && parameter !== undefined && inline.entry(callable.node).root === parameter.root, true);
+  assert.equal(callable !== undefined && parameter !== undefined && inline.entry(callable.node).root !== parameter.root, true);
+  assert.equal(parameter !== undefined && inline.source.ast.is.IsArrowFunction(parameter.root), true);
   assert.equal(inline.graph.refusals.length, 0);
   const stored = fixture(`function run() { const values = [1]; const callback = () => values[0]; return callback; }`);
-  assert.equal(stored.graph.refusals.some(refusal => refusal.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE"), true);
+  assert.equal(stored.graph.refusals.length, 0);
+  const declaration = stored.declaration("values");
+  const captured = stored.graph.nodes.find(entry => entry.kind === "read" && entry.declaration === declaration &&
+    entry.root !== stored.entry(declaration).root);
+  assert.equal(captured !== undefined && captured.variable.path.length === 0, true,
+    "the stored closure keeps one directed read of the original producer without an equality link");
+  assert.equal(captured !== undefined && stored.graph.producerInputs.some(input => input.purpose === "value" &&
+    input.source === stored.entry(declaration).variable && input.target === captured.variable), true);
   assert.equal(stored.graph.links.every(link => {
     const first = stored.graph.nodes.find(entry => entry.node === link.source.node);
     const second = stored.graph.nodes.find(entry => entry.node === link.target.node);
@@ -737,7 +746,7 @@ test("LM literal data stay linked while methods and both accessor forms retain f
   }
   const getter = ast.properties(literal).find(node => node !== undefined && ast.is.IsGetAccessorDeclaration(node));
   assert.equal(shape.members.find(member => member.name === "current")?.declaration === getter, true);
-  const receivers = current.syntax.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+  const receivers = current.syntax.filter(node => sourceTypeFlowObjectLiteralReceiver(current.source, node) === literal);
   assert.equal(receivers.length, 4);
   for (const receiver of receivers) {
     const record = current.entry(receiver);
@@ -765,11 +774,11 @@ test("LM lexical arrows keep the literal receiver while ordinary functions and c
   const literal = current.syntax.find(node => ast.is.IsObjectLiteralExpression(node));
   const receivers = current.syntax.filter(node => ast.kindName(node) === "KindThisKeyword");
   assert.equal(receivers.length, 3);
-  const captured = receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+  const captured = receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(current.source, node) === literal);
   assert.equal(captured.length, 1);
   const root = captured[0] === undefined ? undefined : current.entry(captured[0]).root;
   assert.equal(root !== undefined && ast.is.IsArrowFunction(root), true);
-  assert.equal(receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === undefined).length, 2);
+  assert.equal(receivers.filter(node => sourceTypeFlowObjectLiteralReceiver(current.source, node) === undefined).length, 2);
   assert.equal(current.graph.refusals.some(issue => issue.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE"), false);
 });
 
@@ -797,14 +806,32 @@ test("C2330 object members resolve only against their retained element tuple inv
 });
 
 test("C2330 a missing operation operand publishes one graph refusal without a partial term or derived record", () => {
+  const current = fixture('function run() { const result = "text" + 1; return result; }');
+  const expression = current.node('"text" + 1', node => current.source.ast.is.IsBinaryExpression(node));
+  const operand = current.source.ast.as.AsBinaryExpression(expression)?.Left;
+  assert.equal(operand !== undefined, true);
+  const original = createSourceTypeFlowAnalysisContext(current.source).context;
+  const graph = collectSourceTypeFlowEdges({ ...original,
+    describe(node, component, arguments_) {
+      return node === operand ? undefined : original.describe(node, component, arguments_);
+    },
+  });
+  assert.equal(graph.refusals.length === 1 && graph.refusals[0]?.site === expression &&
+    graph.refusals[0]!.code === "TSONIC_LOCAL_TYPE_UNSUPPORTED", true);
+  assert.equal(graph.nodes.some(record => record.node === expression), false);
+  assert.equal(graph.derived.some(operation => operation.node === expression), false);
+});
+
+test("M5 captured arithmetic retains its original producer and one complete operation", () => {
   const current = fixture("function run() { const outer = 1; const saved = () => outer + 1; return saved; }");
   const expression = current.node("outer + 1", node => current.source.ast.is.IsBinaryExpression(node));
   const reference = current.source.ast.as.AsBinaryExpression(expression)?.Left;
-  assert.equal(current.graph.refusals.length === 1 && current.graph.refusals[0]?.site === reference &&
-    current.graph.refusals[0]!.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
-    current.graph.refusals[0]!.related === current.declaration("outer"), true);
-  assert.equal(current.graph.nodes.some(record => record.node === expression), false);
-  assert.equal(current.graph.derived.some(operation => operation.node === expression), false);
+  const derived = current.graph.derived.filter(operation => operation.node === expression);
+  assert.equal(current.graph.refusals.length, 0);
+  assert.equal(derived.length, 1);
+  assert.equal(derived[0]?.operands.length, 2);
+  assert.equal(current.graph.producerInputs.some(input => input.purpose === "value" &&
+    input.source === current.entry(current.declaration("outer")).variable && input.target.node === reference), true);
 });
 
 test("C2332 discarded selections retain operand effects without creating a result graph record", () => {

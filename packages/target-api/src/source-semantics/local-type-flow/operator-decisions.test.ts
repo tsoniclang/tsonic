@@ -3,8 +3,8 @@ import test from "node:test";
 import type { SourcePrimitiveKind } from "@tsonic/tsts";
 import { createCompilerSessionFromFiles, type AstReader, type Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
-import { parseSourceNumericLiteral } from "../literal-token.js";
-import type { SourceLiteralValue } from "../literal-values-model.js";
+import { parseSourceNumericLiteral } from "../../source-model/literals/token.js";
+import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import { createTargetSourceProgram } from "../target-source-program.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,

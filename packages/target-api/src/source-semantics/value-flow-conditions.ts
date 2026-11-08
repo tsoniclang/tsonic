@@ -1,17 +1,23 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
-import { sourceGuardPreservesBinding } from "./guard-preservation.js";
-import type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-model.js";
 import { createSourceSyntaxDomain } from "../source-navigation/node-inventory.js";
+import type { SourceProductionResult } from "./descriptor-contracts.js";
+import { resolveSourceFlowConditions } from "./flow-conditions.js";
+import { sourceGuardPreservesBinding } from "./guard-preservation.js";
+import type { SourceGuard, SourceGuardContext } from "./value-flow-model.js";
 
-export function selectSourceNativeGuardResult<Member, Predicate>(
-  context: SourceValueFlowQueryContext,
+function resolved<Value>(value: Value): SourceProductionResult<Value> { return Object.freeze({ kind: "resolved", value }); }
+
+export function selectSourceGuardResult<Member, Predicate>(
+  context: SourceGuardContext,
   expression: Node,
-  membersFor: (reference: Node) => readonly Member[] | undefined,
-  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
-  testMember: (member: Member, predicate: Predicate) => boolean | undefined,
-): boolean | undefined {
+  membersFor: (reference: Node) => SourceProductionResult<readonly Member[] | undefined>,
+  selectGuard: (expression: Node) => SourceProductionResult<SourceGuard<Predicate> | undefined>,
+  testMember: (member: Member, predicate: Predicate) => SourceProductionResult<boolean | undefined>,
+): SourceProductionResult<boolean | undefined> {
+  context.navigation.callableRoles(expression);
   let current = expression;
   let negated = false;
   const contains = createSourceSyntaxDomain(context.ast, expression);
@@ -19,103 +25,88 @@ export function selectSourceNativeGuardResult<Member, Predicate>(
   while (contains(current) && !visited.has(current)) {
     visited.add(current);
     const kind = context.ast.kindName(current);
-    if (kind === "KindTrueKeyword" || kind === "KindFalseKeyword") return (kind === "KindTrueKeyword") !== negated;
+    if (kind === "KindTrueKeyword" || kind === "KindFalseKeyword") return resolved((kind === "KindTrueKeyword") !== negated);
     if (context.ast.is.IsParenthesizedExpression(current) || context.ast.is.IsSatisfiesExpression(current) ||
       context.ast.is.IsNonNullExpression(current)) {
       const inner = Node_Expression(context.ast, current);
-      if (inner === undefined) return undefined;
+      if (inner === undefined) return resolved(undefined);
       current = inner;
       continue;
     }
-    if (context.ast.is.IsPrefixUnaryExpression(current) &&
-      context.ast.operatorKindName(current) === "KindExclamationToken") {
+    if (context.ast.is.IsPrefixUnaryExpression(current) && context.ast.operatorKindName(current) === "KindExclamationToken") {
       const operand = context.ast.as.AsPrefixUnaryExpression(current)?.Operand;
-      if (operand === undefined) return undefined;
+      if (operand === undefined) return resolved(undefined);
       current = operand;
       negated = !negated;
       continue;
     }
     const guard = selectGuard(current);
-    if (guard === undefined) return undefined;
-    const members = membersFor(guard.sourceOperand);
-    if (members === undefined || members.length === 0) return undefined;
-    const selected = selectSourceGuardedValueMembers(context, guard.sourceOperand, members, selectGuard, testMember) ?? members;
-    if (selected.length === 0) return undefined;
-    const results = selected.map(member => testMember(member, guard.predicate));
-    const result = results.every(value => value === true) ? true
-      : results.every(value => value === false) ? false : undefined;
-    return result === undefined ? undefined : result !== negated;
+    if (guard.kind !== "resolved") return guard;
+    if (guard.value === undefined) return resolved(undefined);
+    const members = membersFor(guard.value.sourceOperand);
+    if (members.kind !== "resolved") return members;
+    if (members.value === undefined || members.value.length === 0) return resolved(undefined);
+    const narrowed = selectSourceGuardedValueMembers(context, guard.value.sourceOperand, members.value, selectGuard, testMember);
+    if (narrowed.kind !== "resolved") return narrowed;
+    const selected = narrowed.value ?? members.value;
+    if (selected.length === 0) return resolved(undefined);
+    const results: (boolean | undefined)[] = [];
+    for (const member of selected) {
+      const result = testMember(member, guard.value.predicate);
+      if (result.kind !== "resolved") return result;
+      results.push(result.value);
+    }
+    const result = results.every(value => value === true) ? true : results.every(value => value === false) ? false : undefined;
+    return resolved(result === undefined ? undefined : result !== negated);
   }
-  return undefined;
+  return resolved(undefined);
 }
 
-export function selectSourceGuardedTypeMembers<Predicate>(
-  context: SourceValueFlowQueryContext,
+export function selectSourceGuardedEvidenceMembers<Predicate>(
+  context: SourceGuardContext,
   reference: Node,
-  sourceType: Type,
-  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
-  testType: (type: Type, predicate: Predicate) => boolean | undefined,
-): readonly Type[] | undefined {
-  const types = context.semanticsFor(reference).types;
-  if (!types.isUnion(sourceType)) return undefined;
-  const members = types.unionOrIntersectionTypes(sourceType);
-  let cyclic = false;
-  const test = (type: Type, predicate: Predicate): boolean | undefined => {
-    const active = new Set<Type>();
-    const results: (boolean | undefined)[] = [];
-    const pending: { readonly type: Type; readonly children?: number }[] = [{ type }];
-    while (pending.length > 0) {
-      const current = pending.pop()!;
-      if (current.children !== undefined) {
-        const parts = results.splice(results.length - current.children);
-        active.delete(current.type);
-        results.push(types.isIntersection(current.type)
-          ? parts.includes(false) ? false : parts.every(value => value === true) ? true : undefined
-          : parts.every(value => value === true) ? true : parts.every(value => value === false) ? false : undefined);
-      } else if (active.has(current.type)) {
-        cyclic = true;
-        return undefined;
-      } else if (!types.isUnion(current.type) && !types.isIntersection(current.type)) {
-        results.push(testType(current.type, predicate));
-      } else {
-        const parts = types.unionOrIntersectionTypes(current.type);
-        if (parts.length === 0) return undefined;
-        active.add(current.type);
-        pending.push({ type: current.type, children: parts.length });
-        for (const part of parts) pending.push({ type: part });
-      }
-    }
-    return results.length === 1 ? results[0] : undefined;
-  };
-  const selected = selectSourceGuardedValueMembers(context, reference, members, selectGuard,
-    (member, predicate) => test(member, predicate));
-  return cyclic ? undefined : selected;
+  value: SourceTypeEvidence,
+  selectGuard: (expression: Node) => SourceProductionResult<SourceGuard<Predicate> | undefined>,
+  testEvidence: (evidence: SourceTypeEvidence, predicate: Predicate) => SourceProductionResult<boolean | undefined>,
+): SourceProductionResult<readonly SourceTypeEvidence[] | undefined> {
+  context.view.assertEvidence(value);
+  if (value.sum === undefined) return resolved(undefined);
+  for (const arm of value.sum.arms) context.view.assertEvidence(arm);
+  return selectSourceGuardedValueMembers(context, reference, value.sum.arms, selectGuard, (member, predicate) => {
+    context.view.assertEvidence(member);
+    return testEvidence(member, predicate);
+  });
 }
 
 export function selectSourceGuardedValueMembers<Member, Predicate>(
-  context: SourceValueFlowQueryContext,
+  context: SourceGuardContext,
   reference: Node,
   members: readonly Member[],
-  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
-  testMember: (member: Member, predicate: Predicate) => boolean | undefined,
-): readonly Member[] | undefined {
-  if (!context.ast.is.IsIdentifier(reference)) return undefined;
+  selectGuard: (expression: Node) => SourceProductionResult<SourceGuard<Predicate> | undefined>,
+  testMember: (member: Member, predicate: Predicate) => SourceProductionResult<boolean | undefined>,
+): SourceProductionResult<readonly Member[] | undefined> {
+  context.navigation.callableRoles(reference);
+  if (!context.ast.is.IsIdentifier(reference)) return resolved(undefined);
   const binding = context.navigation.referenceFor(reference);
-  if (binding === undefined ||
-    !context.ast.is.IsVariableDeclaration(binding.declaration) &&
-    !context.ast.is.IsParameterDeclaration(binding.declaration) &&
-    !context.ast.is.IsBindingElement(binding.declaration)) return undefined;
+  if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
+    !context.ast.is.IsParameterDeclaration(binding.declaration) && !context.ast.is.IsBindingElement(binding.declaration)) return resolved(undefined);
   const summary = context.navigation.declarationUseSummary(binding.declaration);
-  if (summary.exported) return undefined;
+  if (summary.exported) return resolved(undefined);
   const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   const enter = createSourceSyntaxDomain(context.ast, reference);
-  if (sourceBindingHasMutableExposure(context, summary, enter)) return undefined;
-  const flow = context.semanticsFor(reference).operations.flowConditions(reference);
-  if (flow === undefined || flow.reference !== reference) return undefined;
+  const exposure = sourceBindingHasMutableExposure(context, summary, enter);
+  if (exposure.kind === "refused") return exposure;
+  if (exposure.value) return resolved(undefined);
+  const original = context.flowConditions(reference);
+  const selectedFlow = resolveSourceFlowConditions(context, reference, original.kind === "present" ? original.value : undefined);
+  if (selectedFlow.kind !== "resolved") return selectedFlow;
+  const flow = selectedFlow.value;
+  if (flow === undefined || flow.reference !== reference) return resolved(undefined);
   let selected = members;
   let consulted = false;
   let invalid = false;
-  const selectCondition = (expression: Node, assumed: boolean, values: readonly Member[]): readonly Member[] | undefined => {
+  const selectCondition = (expression: Node, assumed: boolean, values: readonly Member[]):
+    SourceProductionResult<readonly Member[] | undefined> => {
     const active = new Set<Node>();
     const results: (readonly Member[] | undefined)[] = [];
     const pending: { readonly expression: Node; readonly assumed: boolean;
@@ -133,25 +124,19 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
         continue;
       }
       const node = current.expression;
-      if (!enter(node) || active.has(node)) { invalid = true; return undefined; }
+      if (!enter(node) || active.has(node)) { invalid = true; return resolved(undefined); }
       active.add(node);
       const transparent = context.ast.is.IsParenthesizedExpression(node) || context.ast.is.IsSatisfiesExpression(node) ||
         context.ast.is.IsNonNullExpression(node);
       const negated = context.ast.is.IsPrefixUnaryExpression(node) && context.ast.operatorKindName(node) === "KindExclamationToken";
       if (transparent || negated) {
         const operand = negated ? context.ast.as.AsPrefixUnaryExpression(node)?.Operand : Node_Expression(context.ast, node);
-        if (operand === undefined) {
-          active.delete(node);
-          results.push(undefined);
-          continue;
-        }
-        pending.push({ ...current, combine: "transparent" }, { expression: operand,
-          assumed: negated ? !current.assumed : current.assumed });
+        if (operand === undefined) { active.delete(node); results.push(undefined); continue; }
+        pending.push({ ...current, combine: "transparent" }, { expression: operand, assumed: negated ? !current.assumed : current.assumed });
         continue;
       }
       const operator = context.ast.operatorKindName(node);
-      if (context.ast.is.IsBinaryExpression(node) &&
-        (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken")) {
+      if (context.ast.is.IsBinaryExpression(node) && (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken")) {
         const binary = context.ast.as.AsBinaryExpression(node);
         if (binary?.Left !== undefined && binary.Right !== undefined) {
           pending.push({ ...current, combine: (operator === "KindAmpersandAmpersandToken") === current.assumed ? "intersection" : "union" },
@@ -163,26 +148,36 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
         continue;
       }
       const guard = selectGuard(node);
-      results.push(guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand) ||
-        context.navigation.referenceFor(guard.sourceOperand)?.declaration !== binding.declaration ? undefined
-        : values.filter(member => {
-          const result = testMember(member, guard.predicate);
-          return result === undefined || result === current.assumed;
-        }));
+      if (guard.kind !== "resolved") return guard;
+      if (guard.value === undefined || !context.ast.is.IsIdentifier(guard.value.sourceOperand) ||
+        context.navigation.referenceFor(guard.value.sourceOperand)?.declaration !== binding.declaration) results.push(undefined);
+      else {
+        const retained: Member[] = [];
+        for (const member of values) {
+          const result = testMember(member, guard.value.predicate);
+          if (result.kind !== "resolved") return result;
+          if (result.value === undefined || result.value === current.assumed) retained.push(member);
+        }
+        results.push(Object.freeze(retained));
+      }
       active.delete(node);
     }
-    return results.length === 1 ? results[0] : undefined;
+    return resolved(results.length === 1 ? results[0] : undefined);
   };
   for (const condition of flow.conditions) {
-    if (!enter(condition.expression)) return undefined;
-    if (condition.assignments.some(assignment =>
-      context.navigation.bindingWritesWithin(binding.symbol, assignment).length > 0)) continue;
-    if (capturedWrites && !sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter)) continue;
+    if (!enter(condition.expression)) return resolved(undefined);
+    if (condition.assignments.some(assignment => context.navigation.declarationWrites(binding.declaration, assignment).length > 0)) continue;
+    if (capturedWrites) {
+      const preserved = sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter);
+      if (preserved.kind === "refused") return preserved;
+      if (!preserved.value) continue;
+    }
     const narrowed = selectCondition(condition.expression, condition.assumed, selected);
-    if (invalid) return undefined;
-    if (narrowed === undefined) continue;
+    if (narrowed.kind !== "resolved") return narrowed;
+    if (invalid) return resolved(undefined);
+    if (narrowed.value === undefined) continue;
     consulted = true;
-    selected = narrowed;
+    selected = narrowed.value;
   }
-  return consulted ? Object.freeze([...selected]) : undefined;
+  return resolved(consulted ? Object.freeze([...selected]) : undefined);
 }

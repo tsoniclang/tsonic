@@ -15,7 +15,7 @@ import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject,
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceStorageSubjectType } from "../model/components.js";
-import { isSourceCallableBodyBoundary } from "../../../source-navigation/index.js";
+import { sourceCallableRoles } from "../../../source-navigation/index.js";
 import { createSourceStorageContextFootprints } from "../graph/context-footprints.js";
 import { sourceStorageActivationOwner } from "./activation-keys.js";
 import type { SourceStorageValueGuards } from "../graph/guarded-values.js";
@@ -462,7 +462,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       if (!temporary.add(1)) return undefined;
       visited.add(current);
-      if (isSourceCallableBodyBoundary(source.ast, current) || source.ast.is.IsClassDeclaration(current) ||
+      if (sourceCallableRoles(source.ast, current).body || source.ast.is.IsClassDeclaration(current) ||
         source.ast.is.IsClassExpression(current)) {
         if (!temporary.add(1)) return undefined;
         owners.push(current);

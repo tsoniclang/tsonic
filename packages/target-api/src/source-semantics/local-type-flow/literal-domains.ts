@@ -75,7 +75,7 @@ export function produceSourceScalarLiteralDomain(ast: AstReader, original: Node,
   if (facts.kind === "scalar") {
     if (facts.scalar === "never") return sourceUnreachableLiteralDomain;
     if (facts.scalar === "absence" || facts.scalar === "void") return sourceFiniteLiteralDomain([{ kind: "absence" }]);
-    if (facts.scalar === "number" || facts.scalar === "bigint" || facts.scalar === "boolean") return sourcePresentLiteralDomain;
+    if (facts.scalar === "number" || facts.scalar === "bigint" || facts.scalar === "boolean" || facts.scalar === "string") return sourcePresentLiteralDomain;
   }
   return sourceOpenLiteralDomain;
 }
@@ -135,21 +135,22 @@ export function createSourceLiteralDomainQueries(input: {
   readonly ast: AstReader;
   readonly input: SourceDescriptorInput;
   readonly builder: SourceDescriptorBuilder;
-  readonly value: (node: Node) => SourceProductionResult<SourceTypeEvidence>;
-  readonly syntaxValue: (node: Node) => SourceProductionResult<SourceTypeEvidence>;
+  readonly value: (node: Node, bindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceTypeEvidence>;
+  readonly syntaxValue: (node: Node, bindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceTypeEvidence>;
+  readonly component: (component: SourceInputComponent, bindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceTypeEvidence>;
 }): {
   literalDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
   syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain>;
 } {
   return Object.freeze({
     literalDomain(node: Node): SourceProductionResult<SourceLiteralDomain> {
-      const result = input.value(node);
+      const result = input.value(node, []);
       return result.kind === "resolved" ? { kind: "resolved", value: input.builder.domain(result.value) } : result;
     },
     syntaxDomain(node: Node): SourceProductionResult<SourceLiteralDomain> {
       input.input.assertNode(node);
       return produceSourceComponentLiteralDomain({ ast: input.ast, input: input.input, builder: input.builder,
-        value: original => input.value(original), component: original => input.syntaxValue(original.root) }, input.input.syntax(node), []);
+        value: input.syntaxValue, component: input.component }, input.input.syntax(node), []);
     },
   });
 }

@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import { sourceIntegerLiteralValue } from "./integer-literal.js";
+import { sourceIntegerLiteralValue } from "../source-model/literals/integer.js";
 
 interface SourceIntegerConstantSummary {
   readonly value: bigint;

@@ -4,7 +4,7 @@ import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipContract,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationOwnershipValues } from "./model.js";
 import { sourceDeclarationOwnershipUnresolved } from "./contracts.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
+import { sourceCallableRoles } from "../../source-navigation/index.js";
 
 export interface SourceNativeTaskSpawn {
   readonly node: Node;
@@ -60,7 +60,7 @@ export function analyzeSourceDeclarationNativeTaskGraph(input: {
       }
       visited.add(current);
       if (source.ast.is.IsClassStaticBlockDeclaration(current)) return current;
-      if (isSourceCallableBodyBoundary(source.ast, current))
+      if (sourceCallableRoles(source.ast, current).body)
         return generator(current) ? current : undefined;
       if (source.ast.is.IsSourceFile(current)) return undefined;
     }

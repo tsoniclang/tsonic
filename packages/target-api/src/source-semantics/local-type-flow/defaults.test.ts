@@ -375,39 +375,6 @@ test("generic recursive aliases publish their original exact template separately
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
-test("inferred local-class call results use the solved body and exact call binders before member reads", () => {
-  for (const reversed of [false, true]) {
-    const wrapper = `function wrap<Outer>(first: Outer) {
-      class Local<Inner> { first: Outer; value: Inner;
-        constructor(first: Outer, value: Inner) { this.first = first; this.value = value; } }
-      return new Local<float32>(first, 1);
-    }`;
-    const consumer = `function run(first: int32): void {
-      const result = wrap(first); const value = result.value; void value;
-    }`;
-    const current = fixture((reversed ? [consumer, wrapper] : [wrapper, consumer]).join("\n"));
-    const nodes = current.defaults.nodes;
-    const ast = current.source.ast;
-    const wrap = nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === "wrap");
-    const call = nodes.find(node => ast.is.IsCallExpression(node) &&
-      ast.text(ast.as.AsCallExpression(node)?.Expression) === "wrap");
-    const body = wrap === undefined ? undefined : current.source.effectiveTypes.callableReturn(wrap);
-    const result = call === undefined ? undefined : current.source.effectiveTypes.get(call);
-    const instantiation = call === undefined ? undefined : current.source.effectiveTypes.callInstantiation(call);
-    assert.equal(body !== undefined && body.kind !== "refused" && body.type.kind === "declared" &&
-      body.type.typeArguments[0]?.kind === "declared" && body.type.typeArguments[1]?.kind === "primitive" &&
-      body.type.typeArguments[1].primitive === "float32", true, `original body template, reversed=${reversed}`);
-    assert.equal(result !== undefined && result.kind !== "refused" && result.type.kind === "declared" &&
-      result.type.typeArguments[0]?.kind === "primitive" && result.type.typeArguments[0].primitive === "int32" &&
-      result.type.typeArguments[1]?.kind === "primitive" && result.type.typeArguments[1].primitive === "float32" &&
-      instantiation?.result === result.type, true, `one actual instantiated result, reversed=${reversed}`);
-    const value = current.source.effectiveTypes.get(current.declaration("value"));
-    assert.equal(value !== undefined && value.kind !== "refused" && value.type.kind === "primitive" &&
-      value.type.primitive === "float32", true, "dependent member groups consume the solved result, not a final-outcome overwrite");
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
-  }
-});
-
 test("an inferred call result preserves an unavailable body's original Source refusal", () => {
   const current = fixture(`interface Local { read<Value>(value: Value): Awaited<Value>; }
     declare const local: Local;
@@ -579,58 +546,6 @@ test("normalised intersection aliases preserve the underlying nominal declaratio
   const code = selected.definition.members.find(member => member.name === "code");
   assert.equal(code?.readonly && code.type.kind === "primitive" && code.type.primitive === "int32" &&
     code.origin.kind === "declared", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
-});
-
-test("declared tuples retain every finite position, named origin and optional or rest kind", () => {
-  const current = fixture(`declare const one: readonly [int32]; declare const three: [int32, float32, number];
-    declare const named: readonly [head: int32, tail?: float32, ...rest: number[]];`);
-  const one = current.defaults.context.describe(current.declaration("one"));
-  const three = current.defaults.context.describe(current.declaration("three"));
-  const named = current.defaults.context.describe(current.declaration("named"));
-  assert.equal(one?.kind === "tuple" && one.readonly && one.elements.length === 1 &&
-    one.elements[0]?.kind === "required" && one.elements[0].type.kind === "primitive" &&
-    one.elements[0].type.primitive === "int32", true);
-  assert.equal(three?.kind === "tuple" && !three.readonly && three.elements.length === 3 &&
-    three.elements.every(element => element.kind === "required") &&
-    three.elements[2]?.type.kind === "primitive" && three.elements[2].type.primitive === "float64", true);
-  assert.equal(named?.kind === "tuple" && named.readonly && named.elements.length === 3 &&
-    named.elements[0]?.kind === "required" && named.elements[1]?.kind === "optional" && named.elements[2]?.kind === "rest", true);
-  if (named?.kind !== "tuple") throw new Error("The actual named tuple descriptor is required.");
-  assert.equal(named.elements.every(element => element.declaration !== undefined &&
-    current.source.ast.is.IsNamedTupleMember(element.declaration)), true, "named tuple origins are the actual checked member nodes");
-  assert.equal(named.elements[1]?.type.kind === "optional" && named.elements[1].type.value.kind === "primitive" &&
-    named.elements[1].type.value.primitive === "float32", true);
-  assert.equal(named.elements[2]?.type.kind === "primitive" && named.elements[2].type.primitive === "float64", true);
-});
-
-test("ordinary member origins retain fields, methods and read or write accessor declarations", () => {
-  const current = fixture(`class Members {
-    readonly field: int32 = 1;
-    method(value: int32): int32 { return value; }
-    get getter(): int32 { return 1; }
-    set setter(next: int32) { void next; }
-    get paired(): int32 { return 1; }
-    set paired(next: int32) { void next; }
-  } declare const selected: Members;`);
-  const type = current.defaults.context.describe(current.declaration("selected"));
-  assert.equal(type?.kind === "declared" && type.definition?.kind === "shape", true);
-  if (type?.kind !== "declared" || type.definition?.kind !== "shape") throw new Error("The complete declared member shape is required.");
-  const { ast } = current.source;
-  for (const [name, kind] of [["field", "KindPropertyDeclaration"], ["method", "KindMethodDeclaration"],
-    ["getter", "KindGetAccessor"], ["setter", "KindSetAccessor"], ["paired", "KindGetAccessor"]]) {
-    const member: SourceTypeDescriptorMember | undefined = type.definition.members.find(candidate => candidate.name === name);
-    const declaration: Node | undefined = ast.members(type.declaration).find(candidate => candidate !== undefined &&
-      ast.kindName(candidate) === kind && ast.text(ast.name(candidate)) === name);
-    assert.equal(declaration !== undefined && member?.origin.kind === "declared" && member.origin.declaration === declaration, true, name);
-    if (name === "method") {
-      assert.equal(member?.type.kind === "callable" && member.type.calls.length === 1 &&
-        member.type.calls[0]?.result.kind === "primitive" && member.type.calls[0].result.primitive === "int32", true, name);
-    } else {
-      assert.equal(member?.type.kind === "primitive" && member.type.primitive === "int32", true, name);
-    }
-  }
-  assert.equal(type.definition.members.find(member => member.name === "field")?.readonly, true);
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 

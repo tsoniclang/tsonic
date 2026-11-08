@@ -39,6 +39,11 @@ export function sourceDeclarationFlowEntry(source: TargetSourceProgram, declarat
     superInitializers: [], completionInitializers: [], syntaxRoots, rootExecutions };
   if (ast.is.IsSourceFile(declaration)) return { ...empty, body: declaration,
     bodyExecution: region(declaration, declaration, "module"), entryInitializers: [] };
+  if (ast.is.IsClassStaticBlockDeclaration(declaration)) {
+    const body = ast.as.AsClassStaticBlockDeclaration(declaration)?.Body;
+    if (body === undefined) throw new SourceFlowFailure("Static block flow requires its original checked body.", declaration);
+    return { ...empty, body, bodyExecution: region(declaration, body, "static-initializer"), entryInitializers: [] };
+  }
   if (ast.is.IsPropertyDeclaration(declaration)) {
     const owner = ast.parent(declaration);
     const initializer = Node_Initializer(ast, declaration);

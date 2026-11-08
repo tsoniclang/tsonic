@@ -2,7 +2,7 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import { sourceStorageIsDataMember, sourceStorageMemberSubject, type SourceStorageSubject, type SourceStorageSubjectQuery } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceNodesEqual } from "../../../source-navigation/index.js";
-import { isSourceCallableBodyBoundary } from "../../../source-navigation/callable-boundaries.js";
+import { sourceCallableRoles } from "../../../source-navigation/callable-boundaries.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageEdgeTypes } from "../model/relations.js";
@@ -66,7 +66,7 @@ export function createSourceStorageSyntaxCollection(context: SourceStorageSyntax
     regions, memberAccessors, storedValues, writeFor, connectWrite, recordThrow } = context;
   const { ast, navigation, semantics } = source;
   const visit = (node: Node): void => {
-    if (isSourceCallableBodyBoundary(ast, node) && ast.body(node) !== undefined) {
+    if (sourceCallableRoles(ast, node).body) {
       if (!callableDeclarationRows.add(1)) return;
       callableDeclarations.push(node);
     }

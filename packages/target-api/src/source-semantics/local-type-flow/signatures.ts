@@ -1,6 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
-import { createSourceTypeFlowDeclaredSlotReader } from "./declared-slots.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowGraph,
@@ -42,7 +41,6 @@ export function collectSourceTypeFlowSignatures(
   const entries: SignatureVariable[] = [];
   const seeds: { readonly variable: SignatureVariable; readonly origin: SignatureOrigin }[] = [];
   const { ast } = context.source;
-  const declaredSlots = createSourceTypeFlowDeclaredSlotReader(context);
 
   const entry = (variable: SourceTypeFlowVariable): SignatureVariable => {
     let path = variables.get(variable.node);
@@ -91,9 +89,9 @@ export function collectSourceTypeFlowSignatures(
 
   const seed = (node: Node, variable: SourceTypeFlowVariable): void => {
     if (!isInference(variable)) return;
-    const origin = signatureOrigin(ast, node, declaration =>
+    const origin = signatureOrigin(ast, context.source.navigation, node, declaration =>
       context.source.navigation.declarationUseSummary(declaration).exported);
-    if (origin !== undefined && declaredSlots.returned(origin.owner, context.source.semantics.forNode(origin.owner)) === undefined) {
+    if (origin !== undefined && ast.typeNode(origin.owner) === undefined) {
       seeds.push({ variable: entry(variable), origin });
     }
   };
@@ -122,6 +120,7 @@ export function collectSourceTypeFlowSignatures(
     source.dependencies.add(target);
     target.dependencies.add(source);
   }
+  for (const input of graph.producerInputs) entry(input.target).dependencies.add(entry(input.source));
   for (const derived of graph.derived) {
     const result = entry(derived.result);
     seed(derived.node, derived.result);
@@ -157,11 +156,12 @@ export function collectSourceTypeFlowSignatures(
 
 function signatureOrigin(
   ast: AstReader,
+  navigation: SourceTypeFlowAnalysisContext["source"]["navigation"],
   node: Node,
   exported: (declaration: Node) => boolean,
 ): SignatureOrigin | undefined {
   if ((ast.is.IsParameterDeclaration(node) || ast.is.IsPropertyDeclaration(node)) &&
-    Node_Initializer(ast, node) !== undefined) return initializerSignature(ast, node);
+    Node_Initializer(ast, node) !== undefined) return initializerSignature(ast, navigation, node);
   if (ast.is.IsVariableDeclaration(node) && exported(node)) {
     return { site: node, owner: node };
   }
@@ -176,16 +176,16 @@ function signatureOrigin(
     }
     if ((ast.is.IsReturnStatement(parent) || ast.is.IsYieldExpression(parent)) &&
       Node_Expression(ast, parent) === current) {
-      const owner = enclosingCallable(ast, parent);
-      return owner !== undefined && ast.typeNode(owner) === undefined && !inlineArgument(ast, owner)
+      const owner = navigation.enclosing(parent, "body");
+      return owner !== undefined && ast.typeNode(owner) === undefined
         ? { site: parent, owner } : undefined;
     }
     if (ast.is.IsArrowFunction(parent) && ast.body(parent) === current) {
-      return ast.typeNode(parent) === undefined && !inlineArgument(ast, parent)
+      return ast.typeNode(parent) === undefined
         ? { site: parent, owner: parent } : undefined;
     }
     if ((ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
-      Node_Initializer(ast, parent) === current) return initializerSignature(ast, parent);
+      Node_Initializer(ast, parent) === current) return initializerSignature(ast, navigation, parent);
     if (ast.is.IsExportAssignment(parent) && Node_Expression(ast, parent) === current) {
       return { site: parent, owner: parent };
     }
@@ -194,40 +194,13 @@ function signatureOrigin(
   }
 }
 
-function initializerSignature(ast: AstReader, declaration: Node): SignatureOrigin | undefined {
+function initializerSignature(ast: AstReader, navigation: SourceTypeFlowAnalysisContext["source"]["navigation"], declaration: Node): SignatureOrigin | undefined {
   if (ast.typeNode(declaration) !== undefined) return undefined;
   if (ast.is.IsParameterDeclaration(declaration)) {
-    const owner = enclosingCallable(ast, declaration);
-    if (owner === undefined || inlineArgument(ast, owner)) return undefined;
+    const owner = navigation.enclosing(declaration, "body");
+    if (owner === undefined) return undefined;
   }
   return { site: declaration, owner: declaration };
-}
-
-function enclosingCallable(ast: AstReader, node: Node): Node | undefined {
-  for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
-    if (ast.is.IsFunctionDeclaration(owner) || ast.is.IsFunctionExpression(owner) ||
-      ast.is.IsArrowFunction(owner) || ast.is.IsMethodDeclaration(owner) ||
-      ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner) ||
-      ast.is.IsConstructorDeclaration(owner)) return owner;
-    if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsSourceFile(owner)) return undefined;
-  }
-  return undefined;
-}
-
-function inlineArgument(ast: AstReader, callable: Node): boolean {
-  if (!ast.is.IsArrowFunction(callable) && !ast.is.IsFunctionExpression(callable)) return false;
-  let current = callable;
-  for (;;) {
-    const parent = ast.parent(current);
-    if (parent === undefined) return false;
-    if ((ast.is.IsParenthesizedExpression(parent) || ast.is.IsAsExpression(parent) ||
-      ast.is.IsSatisfiesExpression(parent)) && Node_Expression(ast, parent) === current) {
-      current = parent;
-      continue;
-    }
-    return (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) &&
-      ast.arguments(parent).some(argument => argument === current);
-  }
 }
 
 function comparePaths(

@@ -8,8 +8,9 @@ export const sourceTypeFlowBinaryOperators: ReadonlyMap<string, SourceTypeFlowOp
   ["KindGreaterThanGreaterThanGreaterThanToken", "shift-right-unsigned"],
   ["KindLessThanToken", "less"], ["KindLessThanEqualsToken", "less-equal"],
   ["KindGreaterThanToken", "greater"], ["KindGreaterThanEqualsToken", "greater-equal"],
-  ["KindEqualsEqualsToken", "equal"], ["KindEqualsEqualsEqualsToken", "equal"],
-  ["KindExclamationEqualsToken", "not-equal"], ["KindExclamationEqualsEqualsToken", "not-equal"],
+  ["KindEqualsEqualsToken", "equal"], ["KindEqualsEqualsEqualsToken", "equal-strict"],
+  ["KindExclamationEqualsToken", "not-equal"], ["KindExclamationEqualsEqualsToken", "not-equal-strict"],
+  ["KindEqualsToken", "assignment"], ["KindInKeyword", "in"], ["KindInstanceOfKeyword", "instanceof"],
   ["KindAmpersandAmpersandToken", "logical-and"], ["KindBarBarToken", "logical-or"],
   ["KindQuestionQuestionToken", "coalesce"], ["KindCommaToken", "sequence"],
   ["KindPlusEqualsToken", "add"], ["KindMinusEqualsToken", "subtract"],
@@ -24,5 +25,5 @@ export const sourceTypeFlowBinaryOperators: ReadonlyMap<string, SourceTypeFlowOp
 
 export const sourceTypeFlowUnaryOperators: ReadonlyMap<string, SourceTypeFlowOperator> = new Map([
   ["KindPlusToken", "positive"], ["KindMinusToken", "negate"], ["KindTildeToken", "bit-not"],
-  ["KindExclamationToken", "logical-not"], ["KindPlusPlusToken", "identity"], ["KindMinusMinusToken", "identity"],
+  ["KindExclamationToken", "logical-not"], ["KindPlusPlusToken", "increment"], ["KindMinusMinusToken", "decrement"],
 ]);

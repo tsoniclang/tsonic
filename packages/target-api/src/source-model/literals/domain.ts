@@ -114,6 +114,15 @@ export function sourceLiteralDomainIncludes(domain: SourceLiteralDomain, value: 
     : domain.kind === "finite" && domain.values.some(candidate => sourceLiteralUnitsEqual(candidate, value));
 }
 
+export function sourceLiteralDomainIntersection(values: readonly SourceLiteralDomain[]): SourceLiteralDomain {
+  if (values.some(value => value.kind === "unreachable")) return sourceUnreachableLiteralDomain;
+  const finite = values.find(value => value.kind === "finite");
+  if (finite?.kind === "finite") return sourceFiniteLiteralDomain(finite.values.filter(unit =>
+    values.every(value => sourceLiteralDomainIncludes(value, unit))));
+  return values.some(value => value.kind === "open" && value.presence === "present")
+    ? sourcePresentLiteralDomain : sourceOpenLiteralDomain;
+}
+
 export function sourceLiteralDomainsEqual(left: SourceLiteralDomain, right: SourceLiteralDomain): boolean {
   if (left.kind !== right.kind) return false;
   if (left.kind === "open") return right.kind === "open" && left.presence === right.presence;

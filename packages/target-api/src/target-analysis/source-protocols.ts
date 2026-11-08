@@ -3,6 +3,7 @@ import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceSignatureI
   SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
 import type { SourcePointerFacts } from "./source-pointers.js";
 import type { SourceMarkerFacts } from "./source-markers.js";
+import type { SourceControlFlowQueries } from "./flow/model.js";
 
 export interface SourceIterationValues {
   readonly yielded: SourceTypeEvidence;
@@ -107,6 +108,7 @@ export type SourceArgumentPassing =
   | { readonly role: "argument"; readonly mode: ArgumentPassingMode; readonly storageExpression: Node };
 
 export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFacts {
+  readonly controlFlow: SourceControlFlowQueries;
   iteration(occurrence: Node): SourceResult<SourcePresence<SourceIteration>>;
   generator(declaration: Node): SourceResult<SourcePresence<SourceGenerator>>;
   yield(occurrence: Node): SourceResult<SourcePresence<SourceYield>>;

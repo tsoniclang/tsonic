@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeEvidence } from "../public/source/contracts.js";
+import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceLiteralUnitsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
-import type { SourceLiteralKey } from "../source-model/literals/key.js";
+import { sourceLiteralUnitKey, type SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceProductionResult } from "./descriptor-contracts.js";
 import type { SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow, SourceMemberSubject } from "./member-inventory.js";
 
@@ -61,7 +61,23 @@ export interface SourceMemberCorrespondenceQueries {
 export type SourceIndexKeyContains = (destination: SourceTypeEvidence,
   source: SourceTypeEvidence) => SourceProductionResult<"yes" | "no" | "deferred">;
 
+export interface SourceMemberConjunctionReducers {
+  read(values: readonly SourceTypeEvidence[]): SourceProductionResult<SourceTypeEvidence>;
+  write(values: readonly SourceTypeEvidence[]): SourceProductionResult<SourceTypeEvidence>;
+  domain(values: readonly SourceLiteralDomain[]): SourceLiteralDomain;
+}
+
+export type SourceIndexedMemberSelection =
+  | { readonly kind: "available"; readonly members: readonly SourceMemberInventoryRow[];
+      readonly indexes: readonly SourceIndexInventoryRow[] }
+  | { readonly kind: "unavailable"; readonly reason: "unresolved-shape" | "unresolved-key" | "missing-member" | "unreadable-member" };
+
 export interface SourceMemberCorrespondenceProduction {
+  conjunction(parts: readonly SourceTypeEvidence[], reducers: SourceMemberConjunctionReducers):
+    SourceProductionResult<SourceMemberInventory>;
+  named(receiver: SourceTypeEvidence, key: SourceLiteralKey): SourceProductionResult<SourceIndexedMemberSelection>;
+  indexed(receiver: SourceTypeEvidence, key: SourceTypeEvidence,
+    keyContains: SourceIndexKeyContains): SourceProductionResult<SourceIndexedMemberSelection>;
   correspondence(source: SourceTypeEvidence, destination: SourceTypeEvidence, purpose: "correspondence" | "read",
     keyContains: SourceIndexKeyContains): SourceProductionResult<SourceMemberCorrespondence>;
   correspondingMember(source: SourceTypeEvidence, destination: SourceTypeEvidence, declaration: Node,
@@ -238,6 +254,132 @@ export function createSourceMemberCorrespondenceQueries(input: {
       throw new TypeError("Source member correspondence requires an explicit correspondence or read purpose.");
   };
   const queries: SourceMemberCorrespondenceProduction = Object.freeze({
+    conjunction(parts: readonly SourceTypeEvidence[], reducers: SourceMemberConjunctionReducers):
+      SourceProductionResult<SourceMemberInventory> {
+      if (parts.length < 2) throw new Error("A Source member conjunction requires every original part.");
+      const groups = new Map<string | Node, SourceMemberInventoryRow[]>();
+      const indexes: SourceIndexInventoryRow[] = [];
+      for (const part of parts) {
+        const selected = membersFor(evidence(part));
+        if (selected.kind !== "resolved") return selected;
+        if (selected.value.kind !== "complete") return selected;
+        for (const row of selected.value.members) {
+          const identity = key(row.key);
+          const previous = groups.get(identity);
+          if (previous === undefined) groups.set(identity, [row]);
+          else previous.push(row);
+        }
+        indexes.push(...selected.value.indexes);
+      }
+      const selectedMembers: SourceMemberInventoryRow[] = [];
+      for (const originals of groups.values()) {
+        const first = originals[0]!;
+        const rows = Object.freeze([...originals]);
+        const reduce = (role: "read" | "write"): SourceProductionResult<SourcePresence<SourceTypeEvidence>> => {
+          const selected: SourceTypeEvidence[] = [];
+          for (const row of rows) {
+            if (role === "read" && row.read === "unavailable") continue;
+            const current = role === "read" ? row.readType() : row.writeType();
+            if (current.kind !== "resolved") return current;
+            if (current.value.kind === "present") {
+              view.assertEvidence(current.value.value);
+              selected.push(current.value.value);
+            }
+          }
+          if (selected.length === 0) return resolved(Object.freeze({ kind: "none" }));
+          const value = role === "read" ? reducers.read(Object.freeze(selected)) : reducers.write(Object.freeze(selected));
+          if (value.kind !== "resolved") return value;
+          view.assertEvidence(value.value);
+          return resolved(Object.freeze({ kind: "present", value: value.value }));
+        };
+        const readKinds = new Set(rows.map(row => row.read).filter(kind => kind !== "unavailable"));
+        const read: SourceCorrespondenceMember["read"] = readKinds.size === 0 ? "unavailable"
+          : readKinds.has("accessor") ? "accessor" : readKinds.has("property") ? "property" : "method";
+        selectedMembers.push(Object.freeze({ key: first.key, name: first.name,
+          declarations: Object.freeze(rows.flatMap(row => row.declarations)),
+          origins: Object.freeze(rows.flatMap(row => row.origins)),
+          readOrigins: Object.freeze(rows.flatMap(row => row.readOrigins)),
+          writeOrigins: Object.freeze(rows.flatMap(row => row.writeOrigins)),
+          getters: Object.freeze(rows.flatMap(row => row.getters)),
+          setters: Object.freeze(rows.flatMap(row => row.setters)),
+          read, optional: rows.every(row => row.optional), readonly: rows.every(row => row.readonly),
+          readType: () => reduce("read"), writeType: () => reduce("write"),
+          readDomain(bindings: readonly SourceTypeBinding[]) {
+            const selected: SourceLiteralDomain[] = [];
+            for (const row of rows) {
+              if (row.read === "unavailable") continue;
+              const current = row.readDomain(bindings);
+              if (current.kind !== "resolved") return current;
+              selected.push(current.value);
+            }
+            return resolved(reducers.domain(Object.freeze(selected)));
+          } }));
+      }
+      return resolved(Object.freeze({ kind: "complete", members: Object.freeze(selectedMembers),
+        indexes: Object.freeze(indexes) }));
+    },
+    indexed(receiver: SourceTypeEvidence, selectedKey: SourceTypeEvidence,
+      keyContains: SourceIndexKeyContains): SourceProductionResult<SourceIndexedMemberSelection> {
+      view.assertEvidence(receiver);
+      view.assertEvidence(selectedKey);
+      const selectedMembers = new Set<SourceMemberInventoryRow>();
+      const selectedIndexes = new Set<SourceIndexInventoryRow>();
+      for (const arm of receiver.sum?.arms ?? [receiver]) {
+        const original = membersFor(evidence(arm));
+        if (original.kind !== "resolved") return original;
+        if (original.value.kind !== "complete") return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-shape" }));
+        for (const keyArm of selectedKey.sum?.arms ?? [selectedKey]) {
+          view.assertEvidence(keyArm);
+          const keyDomain = domain(keyArm);
+          if (keyDomain.kind === "unreachable") continue;
+          const named: SourceMemberInventoryRow[] = [];
+          let unmatched = false;
+          if (keyDomain.kind === "finite") {
+            for (const unit of keyDomain.values) {
+              const selected = sourceLiteralUnitKey(unit);
+              if (selected === undefined) return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-key" }));
+              const candidates = rowIndexes.get(arm)!.get(key(selected)) ?? [];
+              if (candidates.length > 1) return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-shape" }));
+              if (candidates.length === 0) unmatched = true;
+              else named.push(candidates[0]!);
+            }
+            if (!unmatched) {
+              if (named.some(row => row.read === "unavailable"))
+                return resolved(Object.freeze({ kind: "unavailable", reason: "unreadable-member" }));
+              for (const row of named) selectedMembers.add(row);
+              continue;
+            }
+            if (named.length !== 0) return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-key" }));
+          }
+          let matched = false;
+          const deferred: SourceTypeEvidence[] = [];
+          for (const candidate of original.value.indexes) {
+            const indexKey = candidate.keyType();
+            if (indexKey.kind !== "resolved") return indexKey;
+            view.assertEvidence(indexKey.value);
+            const coverage = keyContains(keyArm, indexKey.value);
+            if (coverage.kind !== "resolved") return coverage;
+            if (coverage.value === "deferred") deferred.push(indexKey.value);
+            else if (coverage.value === "yes") { selectedIndexes.add(candidate); matched = true; }
+          }
+          if (deferred.length !== 0) return Object.freeze({ kind: "pending",
+            dependencies: Object.freeze([keyArm.component, ...deferred.map(value => value.component)]) });
+          if (!matched) return resolved(Object.freeze({ kind: "unavailable", reason: "missing-member" }));
+        }
+      }
+      return resolved(Object.freeze({ kind: "available", members: Object.freeze([...selectedMembers]),
+        indexes: Object.freeze([...selectedIndexes]) }));
+    },
+    named(receiver: SourceTypeEvidence, selectedKey: SourceLiteralKey): SourceProductionResult<SourceIndexedMemberSelection> {
+      view.assertEvidence(receiver);
+      if (selectedKey.kind === "symbol") assertNode(selectedKey.declaration);
+      const selected = membersFor(evidence(receiver));
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.kind !== "complete") return resolved(Object.freeze({ kind: "unavailable", reason: "unresolved-shape" }));
+      const selectedMembers = rowIndexes.get(receiver)!.get(key(selectedKey)) ?? [];
+      return resolved(selectedMembers.length === 0 ? Object.freeze({ kind: "unavailable", reason: "missing-member" })
+        : Object.freeze({ kind: "available", members: Object.freeze([...selectedMembers]), indexes: Object.freeze([]) }));
+    },
     protocolMember(receiver: SourceTypeEvidence, role: "next" | "done" | "value"):
       SourceProductionResult<SourcePresence<SourceMemberInventoryRow> | { readonly kind: "unavailable" }> {
       if (role !== "next" && role !== "done" && role !== "value")

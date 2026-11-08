@@ -3,8 +3,8 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint, SourceFlowOperation,
   SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../flow/model.js";
-import { createSourceControlFlowDomain, createSourceDeclarationControlFlow } from "../flow/graph.js";
-import { isSourceCallableBodyBoundary } from "../../source-navigation/index.js";
+import { createSourceControlFlowQueries } from "../flow/graph.js";
+import { sourceCallableRoles } from "../../source-navigation/index.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
 import type { SourceDeclarationOwnershipBudget, SourceDeclarationOwnershipValue, SourceDeclarationOwnershipValues,
   SourceDeclarationOwnershipUnresolved, SourceDeclarationContinuationDependency, SourceDeclarationPendingOperation } from "./model.js";
@@ -38,7 +38,8 @@ export function createSourceDeclarationOwnershipValues(input: {
   readonly limits: Partial<SourceFlowLimits>;
 }) {
   const { source, budget } = input;
-  const domain = createSourceControlFlowDomain(source, input.sourceNodes);
+  const flow = createSourceControlFlowQueries(source);
+  const domain = flow.domain(input.sourceNodes);
   const checkedNodes: ReadonlySet<Node> = new Set(input.nodes);
   const runtimeSubset = domain.kind === "resolved" && domain.domain.nodes.reduce(
     (count, node) => count + (checkedNodes.has(node) ? 1 : 0), 0) === checkedNodes.size;
@@ -54,7 +55,7 @@ export function createSourceDeclarationOwnershipValues(input: {
       "Materialized continuation nodes must belong to their complete checked source syntax domain.");
     const existing = graphs.get(declaration);
     if (existing !== undefined) return Object.freeze({ kind: "resolved", graph: existing });
-    const selected = createSourceDeclarationControlFlow(source, declaration, { domain: domain.domain, limits: input.limits });
+    const selected = flow.declaration(declaration, { domain: domain.domain, limits: input.limits });
     if (selected.kind === "unresolved") return sourceDeclarationOwnershipFlowFailure(selected, declaration);
     const rows = rowsFor(declaration);
     if (!rows.add(1)) { rows.release(); return budget.failure()!; }
@@ -62,18 +63,12 @@ export function createSourceDeclarationOwnershipValues(input: {
     return selected;
   };
   const declarationFor = (node: Node): Node | SourceDeclarationOwnershipUnresolved => {
-    const visited = new Set<Node>();
-    const creation = isSourceCallableBodyBoundary(source.ast, node) || source.ast.is.IsClassDeclaration(node) ||
-      source.ast.is.IsClassExpression(node);
-    for (let current: Node | undefined = creation ? source.ast.parent(node) : node;
-      current !== undefined; current = source.ast.parent(current)) {
-      if (!budget.step(node)) return budget.failure()!;
-      if (visited.has(current)) return sourceDeclarationOwnershipUnresolved(node, "A declaration-local value has cyclic checked ancestry.");
-      visited.add(current);
-      if (isSourceCallableBodyBoundary(source.ast, current) || source.ast.is.IsPropertyDeclaration(current) ||
-        source.ast.is.IsClassStaticBlockDeclaration(current) || source.ast.is.IsSourceFile(current)) return current;
-    }
-    return sourceDeclarationOwnershipUnresolved(node, "A local value requires its actual checked declaration or module owner.");
+    if (!budget.step(node)) return budget.failure()!;
+    const roles = sourceCallableRoles(source.ast, node);
+    const owner = roles.execution && !roles.body && !source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node)
+      ? node : source.navigation.enclosing(node, "execution", () => budget.step(node));
+    if (budget.failure() !== undefined) return budget.failure()!;
+    return owner ?? sourceDeclarationOwnershipUnresolved(node, "A local value requires its actual checked declaration or module owner.");
   };
   const regionFor = (node: Node): SourceDeclarationFlowExecutionRegion | SourceDeclarationOwnershipUnresolved => {
     if (!budget.step(node)) return budget.failure()!;

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues, compareSourceNumericLiteralMagnitude, createTargetSourceProgram } from "../public/source.js";
-import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
-import { parseNativeIntegerLiteral } from "./integer-literal.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "../source-model/literals/token.js";
+import { parseNativeIntegerLiteral } from "../source-model/literals/integer.js";
 
 const float32Midpoint = (1n << 128n) - (1n << 103n);
 

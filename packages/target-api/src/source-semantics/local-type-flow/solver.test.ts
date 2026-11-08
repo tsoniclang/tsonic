@@ -9,7 +9,8 @@ import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";
 import type { SourceLiteralMemberCorrespondence } from "./types.js";
 import type { SourceStructuralMemberPair } from "../structural-members.js";
-import { createSourceTypeFlowTerms, sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { sourceTypeDescriptorsEqual, sourceTypeDescriptorStructure, sourceTypeDescriptorTupleValue } from "./terms.js";
+import { createSourceTypeFlowTerms } from "./term-groups.js";
 import { sourceTypeFlowHomomorphicInput } from "./mapped-types.js";
 import { sourceTypeDescriptorMemberOriginsEqual } from "../../public/source.js";
 import { sourceTypeDescriptorMemberOrigin } from "./member-origins.js";
@@ -55,7 +56,24 @@ function fixture(text: string) {
     if (outcome === undefined || outcome.kind === "refused") throw new Error(`The resolved ${name} is required.`);
     return outcome.type;
   };
-  return { source, nodes, declaration, type };
+  const refusalSummary = () => source.effectiveTypes.refusals().map(issue => {
+    const range = source.ast.authoredRange(issue.site);
+    const file = source.ast.getSourceFile(issue.site);
+    const text = range.kind === "authored" && file !== undefined
+      ? source.ast.getSourceText(file).slice(range.start, Math.min(range.end, range.start + 128))
+      : source.ast.kindName(issue.site);
+    return `${issue.code}@${source.ast.pos(issue.site)}:${text}:${issue.reason}`;
+  }).join("; ").slice(0, 4096);
+  return { source, nodes, declaration, type, refusalSummary };
+}
+
+function descriptorSummary(type: SourceTypeDescriptor): string {
+  if (type.kind === "primitive") return type.primitive;
+  if (type.kind === "intrinsic") return type.intrinsic;
+  if (type.kind === "optional") return `optional(${descriptorSummary(type.value)})`;
+  if (type.kind === "array") return `array(${descriptorSummary(type.element)})`;
+  if (type.kind === "union") return type.types.map(descriptorSummary).join("|");
+  return type.kind;
 }
 
 for (const [expression, code, reason] of [
@@ -399,7 +417,8 @@ test("C2408 every formal shape retains authored binding provenance and exact nat
       const outcome = current.source.effectiveTypes.get(literal);
       const physical = outcome === undefined || outcome.kind === "refused" ? undefined : outcome.construction ?? outcome.type;
       assert.equal(physical?.kind === "primitive" && physical.primitive === "float32", true,
-        label + ": the original authored float32 survives the checker's number erasure");
+        label + ": the original authored float32 survives the checker's number erasure; actual=" +
+          (physical === undefined ? "missing" : descriptorSummary(physical)) + "; " + current.refusalSummary());
     }
   }
 });
@@ -1020,7 +1039,7 @@ for (const [name, body] of [
 ] as const) {
   test(`C30 ${name} owns the construction type without joining fixed element carriers`, () => {
     const current = fixture(body);
-    assert.equal(current.source.effectiveTypes.refusals().length, 0);
+    assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
     const literal = current.nodes.find(node => current.source.ast.is.IsArrayLiteralExpression(node));
     if (literal === undefined) throw new Error("The original declared array literal is required.");
     const outcome = current.source.effectiveTypes.get(literal);
@@ -2692,7 +2711,7 @@ test("LM solved literal receivers retain declared widths, signature identities a
     if (shape.kind !== "shape") throw new Error("The literal's canonical shape is required.");
     const count = shape.members.find(member => member.name === "count");
     assert.equal(count?.type.kind === "primitive" && count.type.primitive === sample.countWidth, true, sample.name);
-    const receivers = current.nodes.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+    const receivers = current.nodes.filter(node => sourceTypeFlowObjectLiteralReceiver(current.source, node) === literal);
     assert.equal(receivers.length, 4, sample.name);
     for (const receiver of receivers) {
       const published = current.source.effectiveTypes.get(receiver);
@@ -2761,7 +2780,7 @@ test("LM checked computed, numeric, quoted and symbol members keep their actual 
         `accessor ${ast.pos(property)}: one readable paired member`);
     }
   }
-  const receivers = current.nodes.filter(node => sourceTypeFlowObjectLiteralReceiver(ast, node) === literal);
+  const receivers = current.nodes.filter(node => sourceTypeFlowObjectLiteralReceiver(current.source, node) === literal);
   assert.equal(receivers.length, 8);
   for (const receiver of receivers) {
     const selected = current.source.effectiveTypes.get(receiver);
@@ -3068,15 +3087,19 @@ test("C2330 bigint equality retains absence and native-integral comparisons with
   assert.equal(current.source.effectiveTypes.refusals().length, 5);
 });
 
-test("C2330 an unavailable operation operand retains its one original-site Source refusal", () => {
+test("C2330 a stored operation operand retains its original solved producer", () => {
   const current = fixture("function run(): void { const outer = 1; const saved = () => outer + 1; void saved; }");
   const { ast } = current.source;
   const expression = current.nodes.find(node => ast.is.IsBinaryExpression(node));
   const reference = expression === undefined ? undefined : ast.as.AsBinaryExpression(expression)?.Left;
   const outcome = expression === undefined ? undefined : current.source.effectiveTypes.get(expression);
-  assert.equal(outcome?.kind === "refused" && outcome.site === reference && outcome.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" &&
-    outcome.related === current.declaration("outer"), true);
-  assert.equal(current.source.effectiveTypes.refusals().length === 1 && current.source.effectiveTypes.refusals()[0] === outcome, true);
+  const producer = current.source.effectiveTypes.get(current.declaration("outer"));
+  const captured = reference === undefined ? undefined : current.source.effectiveTypes.get(reference);
+  assert.equal(outcome !== undefined && outcome.kind !== "refused" && outcome.type.kind === "primitive" &&
+    outcome.type.primitive === "int64", true);
+  assert.equal(producer !== undefined && producer.kind !== "refused" && captured !== undefined && captured.kind !== "refused" &&
+    captured.type === producer.type, true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
 });
 
 test("C2332 discarded selectors publish no result while conditions and effects keep their own outcomes", () => {
@@ -3573,21 +3596,23 @@ test("C2337 signed literal calculation arms do not replace the published scalar 
   }
 });
 
-test("C2337 a stored capture keeps one canonical refusal per original owner through repeated reads and compound writes", () => {
+test("C2337 stored captures retain each original cell through repeated reads and compound writes", () => {
   const current = fixture(`function run(): void { let visits = 0; let other = 0;
     const read = () => { visits += 1; return visits + visits; };
     const second = () => { other += 1; return other; }; void read; void second; }`);
   const { ast } = current.source;
   const issues = current.source.effectiveTypes.refusals();
-  assert.equal(issues.length, 2);
+  assert.equal(issues.length, 0);
   for (const name of ["visits", "other"]) {
     const declaration = current.declaration(name);
-    const matching = issues.filter(issue => issue.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE" && issue.related === declaration);
-    assert.equal(matching.length, 1, name);
+    const producer = current.source.effectiveTypes.get(declaration);
+    assert.equal(producer !== undefined && producer.kind !== "refused" && producer.type.kind === "primitive" &&
+      producer.type.primitive === "int64", true, name);
     const captured = current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.text(node) === name && ast.name(declaration) !== node);
     for (const node of captured) {
       const outcome = current.source.effectiveTypes.get(node);
-      assert.equal(outcome === matching[0], true, name);
+      assert.equal(producer !== undefined && producer.kind !== "refused" && outcome !== undefined && outcome.kind !== "refused" &&
+        outcome.type === producer.type, true, name);
     }
   }
 });
@@ -4099,7 +4124,16 @@ test("C2342 discarded closures project captures from the retained owner without 
   const retained = fixture(`function run(flag: boolean): void { const value = flag ? 1 : 2;
     const read = () => value + 1; void read; }`);
   const issues = retained.source.effectiveTypes.refusals();
-  assert.equal(issues.length === 1 && issues[0]?.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE", true);
+  assert.equal(issues.length, 0);
+  const retainedDeclaration = retained.declaration("value");
+  const retainedProducer = retained.source.effectiveTypes.get(retainedDeclaration);
+  const retainedReads = retained.nodes.filter(node => retained.source.ast.is.IsIdentifier(node) &&
+    retained.source.navigation.sourceReferenceFor(node)?.declaration === retainedDeclaration);
+  assert.equal(retainedReads.length > 0 && retainedReads.every(node => {
+    const outcome = retained.source.effectiveTypes.get(node);
+    return retainedProducer !== undefined && retainedProducer.kind !== "refused" && outcome !== undefined &&
+      outcome.kind !== "refused" && outcome.type === retainedProducer.type;
+  }), true);
 });
 
 test("C2344 discarded comma selection consumes never completion without admitting a normal numeric coalesce", () => {
@@ -4512,7 +4546,8 @@ test("C2384 later declared aggregate demands select the scalar arm before the nu
       throw new Error(row.name + ": the original solved array is required.");
     }
     assert.equal(sourceTypeDescriptorsEqual(whole.type.element, row.destination.element), true,
-      row.name + ": complete declared element storage, including every union arm or absence");
+      row.name + ": complete declared element storage, including every union arm or absence; actual=" +
+        descriptorSummary(whole.type.element) + "; expected=" + descriptorSummary(row.destination.element) + "; " + current.refusalSummary());
     assert.equal(current.type(row.values) === whole.type, true, row.name + ": the local retains the allocation descriptor");
     if (row.use === "return") assert.equal(current.type(row.alias) === whole.type, true, row.name + ": exact alias identity");
     for (const read of current.nodes.filter(node => ast.is.IsIdentifier(node) && ast.text(node) === row.values && ast.name(declaration) !== node)) {
@@ -4616,7 +4651,7 @@ test("C2421 contextual callback heads retain optional absence and defaulted head
     "a missing parameter head never fabricates a callable parameter");
   const plus = current.type("plus");
   assert.equal(plus.kind === "primitive" && plus.primitive === "int32", true);
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
 });
 
 test("C2421 for-of patterns retain their original tuple, rest member and absence descriptors", () => {
@@ -4685,7 +4720,7 @@ test("C2421 named function values and their aliases retain the callable, not its
     assert.equal(original !== undefined && original.kind !== "refused" && selected !== undefined && selected.kind !== "refused" &&
       sourceTypeDescriptorsEqual(original.type, selected.type), true, name + ": the alias keeps its original callable producer");
   }
-  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0, current.refusalSummary());
 });
 
 test("C2424 closed nominal guard reads retain authored members without changing their declared storage", () => {
@@ -4920,4 +4955,43 @@ test("C2388 parameter names publish their already solved declaration descriptor"
       "the identifier name retains its canonical declaration fact without a second type query");
   }
   assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("R123 bool controls retain each selected native value domain", () => {
+  const current = fixture(`declare function nativeValue(): int32;
+    declare function textValue(): string;
+    function run(flag: boolean): void {
+      const integralAnd = flag && nativeValue();
+      const integralOr = flag || nativeValue();
+      const textAnd = flag && textValue();
+      const textOr = flag || textValue();
+      const booleanValue = flag && !flag;
+      void integralAnd; void integralOr; void textAnd; void textOr; void booleanValue;
+    }`);
+  for (const name of ["integralAnd", "integralOr", "textAnd", "textOr"]) {
+    const type = sourceTypeDescriptorStructure(current.type(name));
+    assert.equal(type.kind === "union" && type.types.length === 2 &&
+      type.types.some(member => member.kind === "primitive" && member.primitive === "bool") &&
+      type.types.some(member => name.startsWith("integral")
+        ? member.kind === "primitive" && member.primitive === "int32" : member.kind === "string"), true, name);
+  }
+  const selected = sourceTypeDescriptorStructure(current.type("booleanValue"));
+  assert.equal(selected.kind === "primitive" && selected.primitive === "bool", true);
+  assert.equal(current.source.effectiveTypes.refusals().length, 0);
+});
+
+test("R123 value selection never admits a nonbool left control", () => {
+  const current = fixture(`function run(value: number): void {
+    const conjunction = value && "text"; const disjunction = value || "text";
+    void conjunction; void disjunction;
+  }`);
+  const { ast } = current.source;
+  const operators = current.nodes.filter(node => ast.is.IsBinaryExpression(node) &&
+    ["KindAmpersandAmpersandToken", "KindBarBarToken"].includes(ast.operatorKindName(node) ?? ""));
+  assert.equal(operators.length, 2);
+  assert.equal(operators.every(node => {
+    const result = current.source.effectiveTypes.get(node);
+    return result?.kind === "refused" && result.site === node &&
+      result.reason === "A logical operator requires an exact bool left operand.";
+  }), true);
 });

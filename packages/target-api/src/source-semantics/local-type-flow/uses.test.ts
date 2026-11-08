@@ -127,7 +127,7 @@ function fixture(program: string, options: { readonly files?: Readonly<Record<st
   }
   function graph(): SourceTypeFlowGraph {
     return Object.freeze({ roots: Object.freeze([root!]), nodes: Object.freeze([...nodes]), calls: Object.freeze([...calls]),
-      links: Object.freeze([...links]), derived: Object.freeze([]), refusals: Object.freeze([]) });
+      links: Object.freeze([...links]), producerInputs: Object.freeze([]), derived: Object.freeze([]), refusals: Object.freeze([]) });
   }
   function link(source: SourceTypeFlowVariable, target: SourceTypeFlowVariable, site: Node): void {
     links.push(Object.freeze({ source, target, site }));
@@ -539,11 +539,11 @@ declare function take(value: int32): void; function run() { const n = 1; ${body}
   }
 });
 
-test("U21 a stored closure cannot transport an open group's inference across roots", () => {
+test("U21 a stored capture alone never invents a recursive type obligation", () => {
   const current = fixture("function run() { const n = 1; const callback = () => n; void callback; }");
   current.track("n");
   const uses = current.run();
-  assert.equal(uses.length === 1 && uses[0]?.kind === "refused" && uses[0].refusal.code === "TSONIC_LOCAL_TYPE_SELF_REFERENCE", true, "the stored capture is reported from actual use evidence");
+  assert.equal(uses.length, 0, "capture is a directed producer dependency, not a type cycle");
 });
 
 test("U23 wrappers keep the final argument occurrence without duplicating a fill", () => {
