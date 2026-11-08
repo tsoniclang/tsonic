@@ -1,15 +1,15 @@
 import type { Node, ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
-import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
+import type { SourceProductionResult } from "./descriptor-contracts.js";
 import type { SourceGuardContext } from "./value-flow-model.js";
 import type { SourceResult } from "../public/source/contracts.js";
 import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 import { sourceStatementAlwaysExits } from "./native-control-flow.js";
 
 export function resolveSourceFlowConditions(
-  context: Pick<SourceGuardContext, "ast" | "navigation" | "protocols">,
+  context: Pick<SourceGuardContext, "ast" | "navigation" | "protocols" | "enclosing">,
   reference: Node,
   checked: ResolvedSourceFlowConditionInfo | undefined,
-): SourceResult<ResolvedSourceFlowConditionInfo | undefined> {
+): SourceProductionResult<ResolvedSourceFlowConditionInfo | undefined> {
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
   if (checked === undefined || checked.reference !== reference) return resolved(undefined);
   const conditions = [...checked.conditions];
@@ -26,9 +26,10 @@ export function resolveSourceFlowConditions(
     return resolved(undefined);
   };
   let current = reference;
+  const execution = context.enclosing(reference, "execution", enter);
   while (enter()) {
     const parent = context.ast.parent(current);
-    if (parent === undefined || sourceBindingCallableKinds.has(context.ast.kindName(parent))) break;
+    if (parent === undefined || parent === execution) break;
     if (context.ast.is.IsIfStatement(parent)) {
       const statement = context.ast.as.AsIfStatement(parent);
       const retained = statement?.ThenStatement === current ? retain(statement.Expression, true)
@@ -52,10 +53,13 @@ export function resolveSourceFlowConditions(
         if (!enter()) return resolved(undefined);
         if (previous === undefined || !context.ast.is.IsIfStatement(previous)) continue;
         const statement = context.ast.as.AsIfStatement(previous);
-        const thenExits = sourceStatementAlwaysExits(context.ast, statement?.ThenStatement, () => undefined, enter);
-        const elseExits = sourceStatementAlwaysExits(context.ast, statement?.ElseStatement, () => undefined, enter);
-        if (thenExits !== elseExits) {
-          const retained = retain(statement?.Expression, elseExits);
+        const unknown = () => Object.freeze({ kind: "resolved" as const, value: undefined });
+        const thenExits = sourceStatementAlwaysExits(context.ast, statement?.ThenStatement, unknown, enter);
+        if (thenExits.kind !== "resolved") return thenExits;
+        const elseExits = sourceStatementAlwaysExits(context.ast, statement?.ElseStatement, unknown, enter);
+        if (elseExits.kind !== "resolved") return elseExits;
+        if (thenExits.value !== elseExits.value) {
+          const retained = retain(statement?.Expression, elseExits.value);
           if (retained.kind === "refused") return retained;
         }
       }

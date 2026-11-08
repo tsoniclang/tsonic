@@ -14,6 +14,7 @@ export function selectSourceValueGuard(
   { ast, navigation, syntaxDomain }: Pick<SourceGuardContext, "ast" | "navigation" | "syntaxDomain">,
   expression: Node,
 ): SourceProductionResult<SourceValueGuard | undefined> {
+  navigation.callableRoles(expression);
   const resolved = (value: SourceValueGuard | undefined): SourceProductionResult<SourceValueGuard | undefined> =>
     Object.freeze({ kind: "resolved", value });
   const contains = createSourceSyntaxDomain(ast, expression);

@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
-import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import type { SourceGuardContext } from "./value-flow-model.js";
 import type { SourceResult } from "../public/source/contracts.js";
 
 export function sourceGuardPreservesBinding(
-  context: Pick<SourceGuardContext, "ast" | "navigation" | "protocols">,
+  context: Pick<SourceGuardContext, "ast" | "navigation" | "protocols" | "enclosing">,
   condition: Node,
   reference: Node,
   assumed: boolean,
@@ -29,11 +29,12 @@ export function sourceGuardPreservesBinding(
   };
   if (!stable(condition)) return resolved(false);
   let current = reference;
+  const execution = context.enclosing(reference, "execution", enter);
   const visited = new Set<Node>();
   while (enter(current) && !visited.has(current)) {
     visited.add(current);
     const parent = context.ast.parent(current);
-    if (parent === undefined || sourceBindingCallableKinds.has(context.ast.kindName(parent))) return resolved(false);
+    if (parent === undefined || parent === execution) return resolved(false);
     if (context.ast.is.IsWhileStatement(parent) || context.ast.is.IsDoStatement(parent) ||
       context.ast.is.IsForStatement(parent) || context.ast.is.IsForInStatement(parent) ||
       context.ast.is.IsForOfStatement(parent)) return resolved(false);
