@@ -1,4 +1,4 @@
-import type { AstReader, Node, SourcePrimitiveKind } from "@tsonic/tsts";
+import type { Node, SourcePrimitiveKind } from "@tsonic/tsts";
 
 export interface SourceRefusal {
   readonly kind: "refused";
@@ -245,10 +245,16 @@ export type SourceValueSelection = {
 export interface SourcePrimitiveOperation {
   readonly occurrence: Node;
   readonly kind: "unary" | "binary";
-  readonly operator: string;
+  readonly operator: SourcePrimitiveOperator;
   readonly operands: readonly SourceValueOperand[];
   readonly result: SourceTypeEvidence;
 }
+
+export type SourcePrimitiveOperator =
+  | "add" | "subtract" | "multiply" | "divide" | "remainder" | "power"
+  | "bit-and" | "bit-or" | "bit-xor" | "shift-left" | "shift-right" | "shift-right-unsigned"
+  | "negate" | "positive" | "bit-not" | "logical-not"
+  | "less" | "less-equal" | "greater" | "greater-equal" | "equal" | "not-equal";
 
 export type SourceOperation = SourceValueSelection | SourcePrimitiveOperation;
 
@@ -298,5 +304,7 @@ export interface SourceCallableRoles {
   readonly deferred: boolean;
 }
 
-export declare function sourceCallableRoles(ast: AstReader, node: Node): SourceCallableRoles;
-export declare function sourceEnclosing(ast: AstReader, node: Node | undefined, role: SourceCallableRole): Node | undefined;
+export interface SourceNavigationFacts {
+  callableRoles(node: Node): SourceCallableRoles;
+  enclosing(node: Node | undefined, role: SourceCallableRole): Node | undefined;
+}
