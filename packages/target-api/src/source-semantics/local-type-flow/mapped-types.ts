@@ -1,77 +1,139 @@
-import type { Node, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics } from "../types.js";
-import { sourceTypeFlowTypeDeclaration } from "./defaults.js";
-import type { SourceTypeFlowSource } from "./types.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
+import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain, sourcePresentLiteralDomain, type SourceLiteralUnit } from "../../source-model/literals/domain.js";
+import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
+import { sourceSemanticRefusal, type SourceSyntaxProduction } from "./semantic-production.js";
+import { sourceKeyEvidence, sourceMemberKeyDomain } from "./type-keys.js";
 
-export function sourceTypeFlowHomomorphicInput(source: SourceTypeFlowSource, queries: SourceFileSemantics, type: Type,
-  authoredTypeNode?: Node): Type | undefined {
-  const { ast } = source;
-  type Bindings = ReadonlyMap<Node, Type>;
-  const visited = new Set<Node>();
-
-  function argument(node: Node, bindings: Bindings): Type | undefined {
-    const selected = queries.types.authoredType(node);
-    if (selected === undefined) return undefined;
-    const declaration = sourceTypeFlowTypeDeclaration(source, queries, selected, node);
-    if (declaration !== undefined && bindings.has(declaration)) return bindings.get(declaration);
-    return selected;
+export function produceSourceMappedType(context: SourceSyntaxProduction): SourceProductionResult<SourceTypeEvidence> {
+  const { ast, builder, reader, syntax } = context;
+  if (!ast.is.IsMappedTypeNode(syntax)) throw new Error("A Source mapped producer requires its original mapped TypeNode.");
+  const mapped = ast.as.AsMappedTypeNode(syntax);
+  const parameter = mapped?.TypeParameter;
+  if (mapped === undefined || parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter) || mapped.Type === undefined) {
+    return sourceSemanticRefusal(syntax, "An original mapped type is missing its parameter or value component.");
   }
-
-  function mappedInput(node: Node, bindings: Bindings, alias?: Node): Type | undefined {
-    const mapped = ast.as.AsMappedTypeNode(node);
-    const parameter = mapped?.TypeParameter;
-    const constraint = parameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(parameter)?.Constraint;
-    if (mapped === undefined || parameter === undefined || constraint === undefined || mapped.NameType !== undefined ||
-      mapped.Members !== undefined && mapped.Members.Nodes.length > 0 || !ast.is.IsTypeOperatorNode(constraint) ||
-      ast.operatorKindName(constraint) !== "KindKeyOfKeyword") return undefined;
-    const selected = ast.as.AsTypeOperatorNode(constraint)?.Type;
-    const indexed = mapped.Type === undefined || !ast.is.IsIndexedAccessTypeNode(mapped.Type)
-      ? undefined : ast.as.AsIndexedAccessTypeNode(mapped.Type);
-    if (selected === undefined || indexed?.ObjectType === undefined || indexed.IndexType === undefined) return undefined;
-    const selectedType = queries.types.authoredType(selected);
-    const objectType = queries.types.authoredType(indexed.ObjectType);
-    const indexType = queries.types.authoredType(indexed.IndexType);
-    if (selectedType === undefined || objectType === undefined || indexType === undefined) return undefined;
-    const owner = sourceTypeFlowTypeDeclaration(source, queries, selectedType, selected);
-    if (owner === undefined || !ast.is.IsTypeParameterDeclaration(owner) ||
-      alias !== undefined && !ast.typeParameters(alias).includes(owner) ||
-      owner !== sourceTypeFlowTypeDeclaration(source, queries, objectType, indexed.ObjectType) ||
-      sourceTypeFlowTypeDeclaration(source, queries, indexType, indexed.IndexType) !== parameter) return undefined;
-    return argument(selected, bindings);
+  const constraint = ast.as.AsTypeParameterDeclaration(parameter)?.Constraint;
+  if (constraint === undefined) return sourceSemanticRefusal(parameter, "An original mapped parameter requires its key constraint.");
+  const annotation = mapped.Type;
+  const questionToken = mapped.QuestionToken;
+  const withKey = (value: SourceTypeEvidence): readonly SourceTypeBinding[] => [...context.bindings.filter(binding => binding.declaration !== parameter),
+    { declaration: parameter, value }];
+  const component = builder.componentIdentity(syntax, []);
+  const isKeyOf = ast.is.IsTypeOperatorNode(constraint) && ast.operatorKindName(constraint) === "KindKeyOfKeyword";
+  const sourceNode = isKeyOf ? ast.as.AsTypeOperatorNode(constraint)?.Type : undefined;
+  const source = sourceNode === undefined ? undefined : reader.describeSyntax(sourceNode, context.bindings);
+  if (source !== undefined && source.kind !== "resolved") return source;
+  if (source?.kind === "resolved" && builder.freeParameters(source.value).length > 0) {
+    return { kind: "resolved", value: builder.evidence({ type: builder.projection(source.value.type, { kind: "component", component }),
+      component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined },
+    [{ selector: { kind: "projection-source" }, value: source.value }], context.component, sourceOpenLiteralDomain) };
   }
+  const sourceDefinition = source?.kind === "resolved" ? builder.definition(source.value) : undefined;
+  if (sourceDefinition?.kind === "refused") return sourceDefinition;
+  const sourceValue = sourceDefinition?.kind === "resolved" ? sourceDefinition.value : undefined;
+  const sourceType = sourceValue?.type;
+  const modifier = (token: Node | undefined, original: boolean): boolean => token === undefined ? original : ast.kindName(token) !== "KindMinusToken";
+  const readonly = (original: boolean) => modifier(mapped.ReadonlyToken, original);
+  const optional = (original: boolean) => modifier(mapped.QuestionToken, original);
 
-  function authored(node: Node, bindings: Bindings): Type | undefined {
-    if (ast.is.IsParenthesizedTypeNode(node)) {
-      const inner = ast.as.AsParenthesizedTypeNode(node)?.Type;
-      return inner === undefined ? undefined : authored(inner, bindings);
+  function option(value: SourceTypeEvidence, wasOptional: boolean): SourceProductionResult<SourceTypeEvidence> {
+    if (questionToken === undefined) return { kind: "resolved", value };
+    if (!optional(wasOptional)) {
+      if (!wasOptional || value.type.kind !== "optional") return { kind: "resolved", value };
+      return builder.component(value, { kind: "optional-value" });
     }
-    if (ast.is.IsMappedTypeNode(node)) return mappedInput(node, bindings);
-    const reference = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
-      : ast.is.IsImportTypeNode(node) ? ast.as.AsImportTypeNode(node)?.Qualifier : undefined;
-    const declaration = reference === undefined ? undefined : source.navigation.sourceReferenceFor(reference)?.declaration;
-    if (declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration) || visited.has(declaration)) return undefined;
-    visited.add(declaration);
-    const arguments_: Type[] = [];
-    for (const child of ast.typeArguments(node)) {
-      const selected = child === undefined ? undefined : argument(child, bindings);
-      if (selected === undefined) return undefined;
-      arguments_.push(selected);
-    }
-    const application = queries.types.instantiateAlias(declaration, arguments_);
-    if (application?.kind !== "direct" || application.declaration !== declaration) return undefined;
-    const instantiated = new Map(application.bindings.map(binding => [binding.declaration, binding.argument]));
-    return ast.is.IsMappedTypeNode(application.typeNode)
-      ? mappedInput(application.typeNode, instantiated, declaration) : authored(application.typeNode, instantiated);
+    const absence = builder.evidence({ type: builder.intrinsic("absence"), component,
+      category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
+    sourceFiniteLiteralDomain([{ kind: "absence" }]));
+    return builder.join(component, "authored", [value, absence], undefined);
   }
 
-  let selected: Type | undefined;
-  if (authoredTypeNode !== undefined) selected = authored(authoredTypeNode, new Map());
-  else {
-    const application = queries.types.aliasApplication(type);
-    if (application?.kind !== "direct" || !queries.types.isIdentical(application.result, type)) return undefined;
-    const bindings = new Map(application.bindings.map(binding => [binding.declaration, binding.argument]));
-    selected = ast.is.IsMappedTypeNode(application.typeNode)
-      ? mappedInput(application.typeNode, bindings, application.declaration) : authored(application.typeNode, bindings);
+  function valueFor(key: SourceTypeEvidence, wasOptional: boolean): SourceProductionResult<SourceTypeEvidence> {
+    const value = reader.describeSyntax(annotation, withKey(key));
+    return value.kind !== "resolved" ? value : option(value.value, wasOptional);
   }
-  return selected === undefined || queries.types.isAny(selected) || queries.types.isUnknown(selected) ? undefined : selected;
+
+  if (mapped.NameType === undefined && sourceValue !== undefined && (sourceType?.kind === "array" || sourceType?.kind === "tuple")) {
+    const children: SourceEvidenceComponent[] = [];
+    if (sourceType.kind === "array") {
+      const key = builder.evidence({ type: builder.primitive("float64"), component: builder.componentIdentity(parameter, []),
+        category: { kind: "known", category: "number" }, numeric: undefined, sum: undefined }, [], undefined, sourcePresentLiteralDomain);
+      const value = valueFor(key, false);
+      if (value.kind !== "resolved") return value;
+      children.push({ selector: { kind: "array-element" }, value: value.value });
+      return { kind: "resolved", value: builder.evidence({ type: builder.array(value.value.type, readonly(sourceType.readonly)), component,
+        category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, context.component, sourceOpenLiteralDomain) };
+    }
+    const elements: Extract<SourceTypeDescriptor, { readonly kind: "tuple" }>["elements"][number][] = [];
+    for (const [index, element] of sourceType.elements.entries()) {
+      const key = sourceKeyEvidence(context, parameter, { kind: "string", value: String(index) });
+      const value = valueFor(key, element.kind === "optional");
+      if (value.kind !== "resolved") return value;
+      elements.push({ kind: element.kind === "rest" ? "rest" : optional(element.kind === "optional") ? "optional" : "required",
+        type: value.value.type, ...(element.declaration === undefined ? {} : { declaration: element.declaration }) });
+      children.push({ selector: { kind: "tuple-element", index }, value: value.value });
+    }
+    return { kind: "resolved", value: builder.evidence({ type: builder.tuple(elements, readonly(sourceType.readonly)), component,
+      category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, context.component, sourceOpenLiteralDomain) };
+  }
+
+  const keys: { readonly unit: SourceLiteralUnit; readonly original: SourceTypeDescriptorMember | undefined }[] = [];
+  if (sourceType?.kind === "shape") {
+    for (const member of sourceType.members) {
+      const key = sourceMemberKeyDomain(context, member);
+      if (key.kind !== "resolved") return key;
+      keys.push({ unit: key.value, original: member });
+    }
+    if (sourceType.indexes.length > 0) return sourceSemanticRefusal(syntax,
+      "This mapped type requires its original complete finite key domain before member publication.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+  } else {
+    const keyType = reader.describeSyntax(constraint, context.bindings);
+    if (keyType.kind !== "resolved") return keyType;
+    if (builder.freeParameters(keyType.value).length > 0) {
+      return { kind: "resolved", value: builder.evidence({ type: builder.projection(keyType.value.type, { kind: "component", component }),
+        component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined },
+      [{ selector: { kind: "projection-source" }, value: keyType.value }], context.component, sourceOpenLiteralDomain) };
+    }
+    const domain = builder.domain(keyType.value);
+    if (domain.kind === "unreachable") return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members: [], indexes: [], calls: [], constructs: [] }),
+      component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, [], context.component, sourceOpenLiteralDomain) };
+    if (domain.kind !== "finite") return sourceSemanticRefusal(syntax,
+      "This mapped type requires its original complete finite key domain before member publication.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    for (const unit of domain.values) keys.push({ unit, original: undefined });
+  }
+  const children: SourceEvidenceComponent[] = [];
+  const members: SourceTypeDescriptorMember[] = [];
+  const names = new Set<string | Node>();
+  for (const key of keys) {
+    const keyValue = sourceKeyEvidence(context, parameter, key.unit);
+    const selectedKey = mapped.NameType === undefined ? { kind: "resolved" as const, value: keyValue }
+      : reader.describeSyntax(mapped.NameType, withKey(keyValue));
+    if (selectedKey.kind !== "resolved") return selectedKey;
+    const selectedDomain = builder.domain(selectedKey.value);
+    if (selectedDomain.kind === "unreachable") continue;
+    if (selectedDomain.kind !== "finite" || selectedDomain.values.length !== 1) return sourceSemanticRefusal(syntax,
+      "A mapped member requires one exact original mapped key.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    const unit = selectedDomain.values[0]!;
+    const name = sourceLiteralUnitKey(unit);
+    if (name === undefined) return sourceSemanticRefusal(syntax, "A mapped member key is not an exact property key.", "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    const identity = name.kind === "name" ? name.name : name.declaration;
+    if (names.has(identity)) return sourceSemanticRefusal(syntax,
+      `Mapped member '${name.kind === "name" ? name.name : "unique symbol"}' has several original key producers.`, "TSONIC_SOURCE_MAPPED_KEY_NOT_SINGLE");
+    names.add(identity);
+    const mappedKey: SourceMemberKey = unit.kind === "symbol" ? { kind: "unique-symbol", declaration: unit.declaration }
+      : unit.kind === "number" ? { kind: "number", value: unit.value }
+      : unit.kind === "string" ? { kind: "string", value: unit.value } : (() => { throw new Error("An admitted mapped key requires its exact key category."); })();
+    const origin: SourceMemberOrigin = mapped.NameType === undefined && key.original !== undefined
+      ? key.original.origin : { kind: "mapped", owner: syntax, key: mappedKey };
+    const value = valueFor(keyValue, key.original?.optional ?? false);
+    if (value.kind !== "resolved") return value;
+    const member: SourceTypeDescriptorMember = { name: name.kind === "name" ? name.name : "", origin,
+      optional: optional(key.original?.optional ?? false), readonly: readonly(key.original?.readonly ?? false), type: value.value.type };
+    members.push(member);
+    children.push({ selector: { kind: "member", origin }, value: value.value });
+  }
+  return { kind: "resolved", value: builder.evidence({ type: builder.shape({ members, indexes: [], calls: [], constructs: [] }),
+    component, category: { kind: "known", category: "object" }, numeric: undefined, sum: undefined }, children, context.component, sourceOpenLiteralDomain) };
 }
