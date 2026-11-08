@@ -9,7 +9,7 @@ import { createSourcePropertyNameInput } from "./navigation/property-names.js";
 import { sourceProjectFiles } from "./navigation/navigation.js";
 import { createSourceProtocolInput } from "./protocols.js";
 
-export function createHostSourceProgram(options: {
+export function createHostSourceProgramInput(options: {
   readonly checked: CheckedSourceProgram;
   readonly apiFacts: SourceJsApiFactsFactory | undefined;
   readonly profileFiles: readonly TargetSourceProfileFile[];
@@ -86,6 +86,10 @@ export function createHostSourceProgram(options: {
       }
     },
   };
-  const source = createTargetSourceProgram(input);
-  return Object.freeze({ source, dischargedDiagnostics });
+  return Object.freeze({ input, dischargedDiagnostics });
+}
+
+export function createHostSourceProgram(options: Parameters<typeof createHostSourceProgramInput>[0]) {
+  const original = createHostSourceProgramInput(options);
+  return Object.freeze({ source: createTargetSourceProgram(original.input), dischargedDiagnostics: original.dischargedDiagnostics });
 }

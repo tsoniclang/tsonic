@@ -24,8 +24,14 @@ import { createSourceNodeNavigationFacts } from "../source-navigation/facts.js";
 import { createSourcePointerFacts } from "../target-analysis/source-pointer-production.js";
 import { createSourceControlFlowQueries } from "../target-analysis/flow/graph.js";
 import { createSourceIntegerFacts } from "../source-navigation/integer-ranges/index.js";
+import { createSourceStorageAnalysis } from "../target-analysis/source-storage/analysis.js";
+import type { SourceStorageAnalysisInputs } from "../target-analysis/source-storage/model/program.js";
 
 export function createTargetSourceProgram(input: SourceProgramInput): TargetSourceProgram {
+  return composeSourceProgram(input).program;
+}
+
+export function composeSourceProgram(input: SourceProgramInput) {
   const { ast, inventory } = input;
   const sourceFiles = Object.freeze([...input.sourceFiles]);
   let reader: SourceDescriptorReader | undefined;
@@ -76,6 +82,7 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
       return produceSourceProjection({ ast, input: input.input, builder: owner.builder,
         reader: requiredReader(), objects: requiredObjects(), originalSource, source, projection, bindings });
     } });
+  const memberInventory = Object.freeze({ members: owner.builder.members, construction: owner.builder.construction });
 
   function signature(original: SourceInputSignature): SourceSignatureIdentity {
     input.input.assertSignature(original);
@@ -126,7 +133,7 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
       assertApplication: application => requiredSolved().assertApplication(application),
       profileDeclaration: input.profileDeclaration }) });
   const correspondence = createSourceMemberCorrespondenceQueries({ view: owner.view,
-    inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode, domain: owner.builder.domain });
+    inventory: memberInventory, assertNode, domain: owner.builder.domain });
   solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, enclosing: navigationOwner.analysis.enclosing,
     input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
     createDescriptorReader(hooks) {
@@ -146,7 +153,7 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
       if (objectProduction !== undefined) throw new Error("A Source solve must retain one member-use and correspondence owner.");
       objectQueries = queries;
       memberUses = createSourceMemberUseQueries({ view: owner.view,
-        inventory: { members: owner.builder.members, construction: owner.builder.construction }, assertNode,
+        inventory: memberInventory, assertNode,
         select: input.memberUse, value: occurrence => queries.value(occurrence, []), compose: queries.memberValue,
         destination: queries.memberDestination, unavailable });
       objectProduction = Object.freeze({ ...correspondence, use: memberUses.use });
@@ -180,9 +187,17 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
   const program = Object.freeze<TargetSourceProgram>({ ast, sourceFiles,
     documents: createSourceProgramDocuments(ast, input.programSourceFiles), facts });
   const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain);
+  const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
+    objects: completeObjects, settle,
+    aggregate(original, values) {
+      assertNode(original);
+      return owner.observe(owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined));
+    },
+    literalDomain: owner.builder.domain, syntaxDomain: solved.syntaxDomain,
+    flowConditions: input.protocolInput.flowConditions, enclosing: navigationOwner.analysis.enclosing });
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
     values: solved.values, navigation, memberPlace: completeMemberUses.place,
-    inventory: { members: owner.builder.members, construction: owner.builder.construction },
+    inventory: memberInventory, storageAnalysis: options => createSourceStorageAnalysis(program, storageInputs, options),
     signature, solved: solved.protocols, controlFlow, pointers: createSourcePointerFacts({ core: input.core,
       applications: solved.applications, values: solved.values, view: owner.view, assertNode,
       originalComponent: owner.builder.originalComponent, sourceOriginSubjects: owner.builder.sourceOriginSubjects,
@@ -195,5 +210,5 @@ export function createTargetSourceProgram(input: SourceProgramInput): TargetSour
     nonnegative: occurrence => settle(integerQueries.nonnegative(occurrence)),
     induction: declaration => settle(integerQueries.induction(declaration)),
   });
-  return program;
+  return Object.freeze({ program, flow: solved.analysis });
 }
