@@ -111,5 +111,5 @@ export interface SourceAnalysisFacts {
   resourceManagement(declaration: Node): SourceResult<SourcePresence<SourceResourceManagement>>;
   callableCompletion(declaration: Node): SourceResult<SourcePresence<SourceCallableCompletion>>;
   storage(occurrence: Node): SourceResult<SourcePresence<SourceStoragePlace>>;
-  argumentPassing(occurrence: Node): SourcePresence<SourceArgumentPassing>;
+  argumentPassing(occurrence: Node): SourceResult<SourcePresence<SourceArgumentPassing>>;
 }
