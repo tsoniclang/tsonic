@@ -75,17 +75,13 @@ export function sourceStorageInvocationArgumentAbsence(
 }
 
 type SourceStorageCallableInputEvidence = {
-  readonly kind: "selected-signature" | "source-implementation";
-  readonly signature: SourceSignatureIdentity | undefined;
-  readonly value?: SourceTypeEvidence;
+  readonly signature: SourceSignatureIdentity;
+  readonly value: SourceTypeEvidence;
 };
 
 function signatureFor(source: SourceStorageProgram, identity: SourceSignatureIdentity | undefined, value?: SourceTypeEvidence) {
-  if (identity === undefined) return undefined;
-  const original = value === undefined && identity.declaration !== undefined
-    ? sourceStorageOriginalSignature(source, identity.declaration) : undefined;
-  const candidates = value === undefined ? original === undefined ? [] : [original]
-    : sourceStorageValue(sourceCallableSignatures(source, value, source.work));
+  if (identity === undefined || value === undefined) return undefined;
+  const candidates = sourceStorageValue(sourceCallableSignatures(source, value, source.work));
   const selected = candidates.filter(candidate => candidate.signature.identity === identity);
   return selected.length === 1 ? selected[0] : undefined;
 }
@@ -130,9 +126,7 @@ export function sourceStorageCallableInputSlots(source: SourceStorageProgram, de
   step: () => boolean): readonly SourceStorageCallableInputSlot[] | undefined {
   const { ast } = source;
   source.facts.navigation.callableRoles(declaration);
-  if (evidence.kind === "source-implementation" && ast.body(declaration) === undefined) return undefined;
-  const original = evidence.kind === "source-implementation" ? sourceStorageOriginalSignature(source, declaration)
-    : signatureFor(source, evidence.signature, evidence.value);
+  const original = signatureFor(source, evidence.signature, evidence.value);
   if (original === undefined || original.signature.identity.declaration !== declaration) return undefined;
   const parameters = effectiveParameters(source, original.value, original.signature, step);
   if (parameters === undefined) return undefined;
@@ -179,12 +173,14 @@ export function sourceStorageInvocationInputSelection(source: SourceStorageProgr
     signature = signatures.length === 1 ? signatures[0]!.signature.identity : undefined;
   } else if (entry?.kind === "source-storage-accessor-entry") {
     declaration = entry.declaration;
-    const original = sourceStorageOriginalSignature(source, declaration);
+    const original = sourceStorageOriginalSignature(source, declaration,
+      source.facts.navigation.callableRoles(declaration).body ? "body" : "signature");
     signature = original?.signature.identity;
     callable = original?.value;
   } else if (selectedCall === undefined) {
     declaration = node;
-    const original = sourceStorageOriginalSignature(source, node);
+    const original = sourceStorageOriginalSignature(source, node,
+      source.facts.navigation.callableRoles(node).body ? "body" : "signature");
     signature = original?.signature.identity;
     callable = original?.value;
   }
@@ -192,14 +188,15 @@ export function sourceStorageInvocationInputSelection(source: SourceStorageProgr
   const unresolved: SourceStorageInputSlotsSelection = Object.freeze({ kind: "unresolved",
     reason: "Source storage invocation inputs require their exact checked selected signature and implementation parameters." });
   const included = declaration !== undefined && source.facts.navigation.includes(declaration);
-  const canonical = declaration === undefined || declaration === key || !included
-    ? undefined : read(declaration);
-  if (declaration !== undefined && declaration !== key && included && canonical === undefined)
+  const implementationDeclaration = declaration !== undefined && included && source.facts.navigation.callableRoles(declaration).body
+    ? declaration : undefined;
+  const canonical = implementationDeclaration === undefined || implementationDeclaration === key
+    ? undefined : read(implementationDeclaration);
+  if (implementationDeclaration !== undefined && implementationDeclaration !== key && canonical === undefined)
     return undefined;
   const shared = canonical !== undefined && canonical.signature === signature;
-  const selectedSlots = shared || declaration === undefined || signature === undefined ? undefined
-    : sourceStorageCallableInputSlots(source, declaration,
-      { kind: "selected-signature", signature, ...(callable === undefined ? {} : { value: callable }) }, step);
+  const selectedSlots = shared || declaration === undefined || signature === undefined || callable === undefined ? undefined
+    : sourceStorageCallableInputSlots(source, declaration, { signature, value: callable }, step);
   const selected: SourceStorageInputSlotsSelection = shared ? canonical.selected : selectedSlots === undefined ? unresolved
     : Object.freeze({ kind: "resolved", slots: selectedSlots });
   const implementations: { readonly declaration: Node; readonly selected: SourceStorageInputSlotsSelection }[] = [];

@@ -4,7 +4,7 @@ import type { SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceU
 import type { SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceCorrespondenceMember } from "../member-correspondence.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceBodyCallable, produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
+import { produceSourceParameterPresence, produceSourceReceiverBindings, type SourceCallableProduction } from "./callable-production.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
@@ -13,6 +13,7 @@ import { produceSourceBindingValue } from "./binding-production.js";
 
 export interface SourceDeclarationProduction extends SourceCallableProduction {
   readonly context: SourceTypeFlowAnalysisContext;
+  callableHead(declaration: Node, role: "body" | "signature", bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   inferred(node: Node): SourceProductionResult<SourceTypeEvidence>;
   iteration(declaration: Node): SourceProductionResult<SourceTypeEvidence | undefined>;
   enumValue(component: SourceInputComponent, declaration: Node): SourceProductionResult<SourceTypeEvidence>;
@@ -26,7 +27,7 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
   let value: SourceProductionResult<SourceTypeEvidence>;
   if (production.navigation.callableRoles(declaration).body && !ast.is.IsGetAccessorDeclaration(declaration) &&
     !ast.is.IsSetAccessorDeclaration(declaration) && production.navigation.callableRoles(declaration).signature) {
-    value = produceSourceBodyCallable(production, declaration, bindings);
+    value = production.callableHead(declaration, "body", bindings);
   } else if (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||
     ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
     ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)) {

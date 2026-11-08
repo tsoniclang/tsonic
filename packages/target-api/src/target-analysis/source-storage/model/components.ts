@@ -179,10 +179,10 @@ export function sourceStorageArrayLiteralType(source: SourceStorageProgram, node
   return sourceStorageValue(source.facts.values.type(node));
 }
 
-export function sourceStorageOriginalSignature(source: SourceStorageProgram, declaration: Node):
+export function sourceStorageOriginalSignature(source: SourceStorageProgram, declaration: Node, role: "body" | "signature"):
   { readonly value: SourceTypeEvidence; readonly signature: SourceTypeDescriptorSignature } | undefined {
-  const slot = sourceStorageValue(source.facts.values.declaredSlot(declaration));
-  const selected = sourceStorageValue(sourceCallableSignatures(source, slot.type, source.work))
+  const head = sourceStorageValue(source.analysis.settle(source.analysis.callableHead(declaration, role, Object.freeze([]))));
+  const selected = sourceStorageValue(sourceCallableSignatures(source, head, source.work))
     .filter(original => original.signature.identity.declaration === declaration);
   return selected.length === 1 ? selected[0] : undefined;
 }
@@ -193,12 +193,14 @@ export function sourceStorageSubjectType(source: SourceStorageProgram, value: So
   if (sourceFile !== undefined && sourceFile !== source.ast.getSourceFile(value.node)) return undefined;
   let selected: SourceTypeEvidence | undefined;
   if (value.kind === "return") {
-    const original = sourceStorageOriginalSignature(source, value.node);
+    const original = sourceStorageOriginalSignature(source, value.node,
+      source.facts.navigation.callableRoles(value.node).body ? "body" : "signature");
     if (original === undefined) return undefined;
     const generator = sourceStorageValue(source.facts.protocols.generator(value.node));
     if (generator.kind === "present") selected = generator.value.values.completed;
     else {
-      selected = sourceStorageValue(source.facts.values.callableReturn(original.signature.identity));
+      selected = sourceStorageValue(source.facts.descriptors.component(original.value,
+        { kind: "result", signature: original.signature.identity }));
       if (source.ast.hasModifierKind(value.node, "async"))
         selected = sourceStorageValue(source.facts.descriptors.component(selected, { kind: "awaited" }));
     }
@@ -226,7 +228,16 @@ function sourceStorageReceiverType(source: SourceStorageProgram, node: Node): So
   while (!visited.has(node)) {
     source.work(node);
     visited.add(node);
-    const original = sourceStorageOriginalSignature(source, node);
+    if (source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node)) {
+      const original = sourceStorageValue(source.analysis.settle(source.analysis.declared(node, Object.freeze([]))));
+      source.facts.descriptors.assertEvidence(original.type);
+      if (original.origin.kind !== "declaration" || original.origin.declaration !== node ||
+        original.type.type.kind !== "declared" || original.type.type.declaration !== node)
+        throw new Error("A class receiver template requires its exact original declared-instance owner.");
+      return original.type;
+    }
+    const original = sourceStorageOriginalSignature(source, node,
+      source.facts.navigation.callableRoles(node).body ? "body" : "signature");
     if (original?.signature.receiver !== undefined)
       return sourceStorageValue(source.facts.descriptors.component(original.value,
         { kind: "receiver", signature: original.signature.identity }));

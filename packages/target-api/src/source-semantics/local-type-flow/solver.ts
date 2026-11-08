@@ -18,7 +18,7 @@ import { createSourceSolvedFacts } from "./publication.js";
 import { createSourceLiteralDomainQueries, produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { createSourceSolvedProtocolFacts } from "./protocol-production.js";
 import { produceSourceApplication, type SourceApplicationProduction, type SourceProducedApplication } from "./applications.js";
-import { produceSourceCallableSignature, produceSourceHeritageBindings } from "./callable-production.js";
+import { produceSourceCallableHead, produceSourceCallableSignature, produceSourceHeritageBindings } from "./callable-production.js";
 import { produceSourceDeclaredComponent, produceSourceDeclaredSlot, produceSourceCallableCompletion,
   produceSourceMemberDestination, sourceUnresolvedDeclaration, type SourceDeclarationProduction } from "./declaration-production.js";
 import { produceSourceOperation } from "./operation-production.js";
@@ -34,6 +34,11 @@ import { produceSourceGuardPredicate } from "./guard-predicates.js";
 import { produceSourceMemberValue } from "./member-value.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
+
+interface SourceCallableHeadKey {
+  readonly declaration: Node;
+  readonly role: "body" | "signature";
+}
 
 export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const { ast, input, descriptorBuilder: builder } = source;
@@ -80,6 +85,11 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     } });
   const completions = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
     produce: (node, bindings) => declarationProduction === undefined ? pending(node) : produceSourceCallableCompletion(declarationProduction, node, bindings) });
+  const callableHeadKeys = new WeakMap<Node, Map<"body" | "signature", SourceCallableHeadKey>>();
+  const callableHeads = createSourceProductionCache<SourceCallableHeadKey, SourceTypeEvidence>({
+    dependency: key => dependency(key.declaration),
+    produce: (key, bindings) => declarationProduction === undefined ? pending(key.declaration)
+      : produceSourceCallableHead(declarationProduction, key.declaration, bindings) });
   const returns = createSourceProductionCache<SourceSignatureIdentity, SourceTypeEvidence>({
     dependency: signature => dependency(signatureRoot(signature)),
     produce(signature, bindings) {
@@ -153,6 +163,23 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   }
   function operation(node: Node): SourceProductionResult<SourceOperation> { return operations.query(node, []); }
   function completion(declaration: Node, bindings: readonly SourceTypeBinding[]) { return completions.query(declaration, bindings); }
+  function callableHead(declaration: Node, role: "body" | "signature",
+    bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
+    input.assertNode(declaration);
+    if (role !== "body" && role !== "signature") throw new Error("An original callable-head question requires its exact role.");
+    if (!source.navigation.callableRoles(declaration)[role])
+      throw new Error("An original callable-head question requires its actual declaration role.");
+    for (const binding of bindings) {
+      input.assertNode(binding.declaration);
+      builder.typeParameter(binding.declaration);
+      builder.assertEvidence(binding.value);
+    }
+    let roles = callableHeadKeys.get(declaration);
+    if (roles === undefined) { roles = new Map(); callableHeadKeys.set(declaration, roles); }
+    let key = roles.get(role);
+    if (key === undefined) { key = Object.freeze({ declaration, role }); roles.set(role, key); }
+    return callableHeads.query(key, bindings);
+  }
   function callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]) { return returns.query(signature, bindings); }
 
   const hooks: SourceDescriptorProductionHooks = {
@@ -189,7 +216,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     },
   });
   slots = createSourceTypeFlowDeclaredSlotReader(context, expected);
-  declarationProduction = { ...semantic(), context, navigation: source.navigation, value, place,
+  declarationProduction = { ...semantic(), context, navigation: source.navigation, value, place, callableHead,
     parameter(component, declaration, _signature, index, bindings) {
       if (declaration === undefined) return place(component, bindings);
       const contextual = slots!.parameter(declaration, bindings);
@@ -308,7 +335,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   }
 
   const constraints = [...new Set(context.nodes.flatMap(node => input.constraints(node)))].filter(constraint => constraint.application === undefined);
-  const revision = () => values.revision() + declarations.revision() + completions.revision() + applications.revision() + operations.revision() + destinations.revision();
+  const revision = () => values.revision() + declarations.revision() + completions.revision() + callableHeads.revision() + applications.revision() + operations.revision() + destinations.revision();
   let previous = -1;
   while (previous !== revision()) {
     previous = revision();
@@ -399,7 +426,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     }
     return context.reader.describeSyntax(node, bindings);
   } });
-  return Object.freeze({ ...published, ...domains, enums: enums.facts, protocols: protocols.facts,
+  return Object.freeze({ ...published, ...domains, enums: enums.facts, protocols: protocols.facts, callableHead,
     analysis: Object.freeze({ context, graph: collected, uses }),
     dischargedDiagnostics: Object.freeze([...diagnostics]) });
 }

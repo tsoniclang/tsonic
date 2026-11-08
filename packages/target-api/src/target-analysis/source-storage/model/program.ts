@@ -1,5 +1,5 @@
 import type { Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
-import type { SourceCallableRole, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { SourceDeclaredSlot, SourceCallableRole, SourcePresence, SourceRefusal, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../../source-semantics/descriptor-contracts.js";
 import type { SourceMemberInventoryQueries } from "../../../source-semantics/member-inventory.js";
 import type { SourceMemberCorrespondenceProduction } from "../../../source-semantics/member-correspondence.js";
@@ -10,6 +10,8 @@ export interface SourceStorageAnalysisInputs {
   readonly inventory: SourceMemberInventoryQueries;
   readonly objects: SourceMemberCorrespondenceProduction;
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;
+  readonly callableHead: (declaration: Node, role: "body" | "signature", orderedBindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceTypeEvidence>;
+  readonly declared: (declaration: Node, orderedBindings: readonly SourceTypeBinding[]) => SourceProductionResult<SourceDeclaredSlot>;
   readonly aggregate: (original: Node, values: readonly SourceTypeEvidence[]) => SourceResult<SourceTypeEvidence>;
   readonly literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain;
   readonly syntaxDomain: (original: Node) => SourceProductionResult<SourceLiteralDomain>;

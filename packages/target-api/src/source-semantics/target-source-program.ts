@@ -191,7 +191,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain);
   const attributes = createSourceAttributeFacts({ input: input.core, assertNode });
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
-    objects: completeObjects, settle,
+    objects: completeObjects, settle, callableHead: solved.callableHead, declared: completeObjectQueries.declared,
     aggregate(original, values) {
       assertNode(original);
       return owner.observe(owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined));
