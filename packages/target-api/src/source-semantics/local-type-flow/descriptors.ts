@@ -6,6 +6,8 @@ import type { SourceLiteralDomain } from "../../source-model/literals/domain.js"
 import { sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader, SourceEvidenceComponent, SourceProductionResult } from "../descriptor-contracts.js";
 import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryRow } from "../member-inventory.js";
+import { failTargetCompilerResourceLimit } from "../../artifacts.js";
+import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import { composeSourceTypeBindings } from "../descriptor-details.js";
 
 export interface SourceDescriptorReaderInput {
@@ -29,9 +31,12 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   const { input, builder, hooks } = options;
   const cache = new WeakMap<SourceInputComponent, Map<string, SourceResult<SourceTypeEvidence>>>();
   const active = new WeakMap<SourceInputComponent, Set<string>>();
+  const expanded = new WeakMap<SourceInputComponent, Set<string>>();
   const ids = new WeakMap<object, number>();
   const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
   const registering = new Set<Node>();
+  let expansionDepth = 0;
+  let expandedTypes = 0;
   let nextId = 0;
 
   function identity(value: object): number {
@@ -363,7 +368,18 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     let reading = active.get(original);
     if (reading === undefined) { reading = new Set(); active.set(original, reading); }
     if (reading.has(key)) return { kind: "pending", dependencies: [component(original)] };
+    if (expansionDepth >= sourceTypeExpansionBudget.depth)
+      failTargetCompilerResourceLimit("tsonic", "Source type expansion", "depth", sourceTypeExpansionBudget.depth, original.root);
+    let previousExpansions = expanded.get(original);
+    if (previousExpansions?.has(key) !== true) {
+      if (expandedTypes >= sourceTypeExpansionBudget.types)
+        failTargetCompilerResourceLimit("tsonic", "Source type expansion", "types", sourceTypeExpansionBudget.types, original.root);
+      if (previousExpansions === undefined) { previousExpansions = new Set(); expanded.set(original, previousExpansions); }
+      previousExpansions.add(key);
+      expandedTypes++;
+    }
     reading.add(key);
+    expansionDepth++;
     try {
       const result = read(input.describe(original), bindings);
       if (result.kind === "pending") return result;
@@ -371,7 +387,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
       if (results === undefined) { results = new Map(); cache.set(original, results); }
       results.set(key, options.observe(result));
       return result;
-    } finally { reading.delete(key); }
+    } finally { expansionDepth--; reading.delete(key); }
   }
 
   const reader: SourceDescriptorReader = Object.freeze({
