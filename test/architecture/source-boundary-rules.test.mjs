@@ -71,3 +71,26 @@ test("Native-owned failures and the exact resource infrastructure code stay inde
   assert.deepEqual(findings('const code = "TSONIC_COMPILER_RESOURCE_LIMIT";', "src/analysis/example.ts"), []);
   assert.equal(findings('const code = "TSONIC_COMPILER_RESOURCE_LIMIT_OTHER";', "src/analysis/example.ts").length, 1);
 });
+
+test("Native follows demand dispositions without comparing Host refusal codes", () => {
+  for (const text of [
+    'if (source.disposition !== "false" || source.whenTrue.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
+    'if (source.disposition !== "true" || source.whenFalse.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
+    'if (source.disposition !== "left" || controlledRight.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
+    'if (application.argumentDisposition !== "skip" || argument.operand.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
+    'if ("TSONIC_COMPILER_RESOURCE_LIMIT" === refusal.code) reject();',
+    'const code = "TSONIC_COMPILER_RESOURCE_LIMIT"; const alias = code; if (refusal.code == alias) reject();',
+    'switch (refusal.code) { case "TSONIC_SOURCE_FORM_UNSUPPORTED": reject(); }',
+    'if (refusal.code === `TSONIC_SOURCE_FORM_UNSUPPORTED`) reject();',
+  ]) assert.equal(findings(text, "src/analysis/native-operands.ts").some(row => row.rule === "native-source-code-comparison"), true);
+  assert.deepEqual(findings(`
+    function selected(source) {
+      if (source.disposition === "left") return source.control;
+      if (source.whenTrue.kind === "refused") return source.whenTrue;
+      return source.whenTrue.value;
+    }
+    function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
+      message: refusal.message, sourceNode: refusal.site }; }
+    const example = "refusal.code === 'TSONIC_SOURCE_FORM_UNSUPPORTED'";
+  `, "src/analysis/native-operands.ts"), []);
+});
