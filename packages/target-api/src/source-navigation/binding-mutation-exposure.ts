@@ -1,10 +1,14 @@
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { ArgumentPassingMode, AstReader, Node } from "@tsonic/tsts";
 import type { SourceNodeUseSummary } from "../source-model/navigation.js";
-import type { SourceAnalysisFacts } from "../target-analysis/source-protocols.js";
-import type { SourceResult } from "../public/source/contracts.js";
+import type { SourcePresence, SourceResult } from "../public/source/contracts.js";
+
+export interface SourceBindingExposureQueries {
+  argumentPassing(node: Node): SourceResult<SourcePresence<{ readonly mode: ArgumentPassingMode }>>;
+  pointerOperation(node: Node): SourceResult<SourcePresence<{ readonly operation: string }>>;
+}
 
 export function sourceBindingHasMutableExposure(
-  input: { readonly ast: AstReader; readonly protocols: Pick<SourceAnalysisFacts, "argumentPassing" | "pointerOperation"> },
+  input: { readonly ast: AstReader; readonly protocols: SourceBindingExposureQueries },
   summary: SourceNodeUseSummary,
   enter: (node: Node) => boolean,
 ): SourceResult<boolean> {
@@ -16,7 +20,8 @@ export function sourceBindingHasMutableExposure(
       if (!enter(node) || visited.has(node)) return resolved(true);
       visited.add(node);
       const passing = input.protocols.argumentPassing(node);
-      if (passing.kind === "present" && !immutablePassingModes.has(passing.value.mode)) return resolved(true);
+      if (passing.kind === "refused") return passing;
+      if (passing.value.kind === "present" && !immutablePassingModes.has(passing.value.value.mode)) return resolved(true);
       const pointer = input.protocols.pointerOperation(node);
       if (pointer.kind === "refused") return pointer;
       if (pointer.value.kind === "present" && pointer.value.value.operation === "address-of") return resolved(true);
