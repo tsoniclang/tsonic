@@ -24,6 +24,9 @@ export function createSourceSubstitution(input: {
   function substitute(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence> {
     const record = input.evidence.record(value);
     const selectedBindings = input.parameters.bindings(bindings);
+    const environment = new Map(record.requirementBindings.map(binding => [binding.declaration, binding]));
+    for (const binding of selectedBindings) environment.set(binding.declaration, binding);
+    const requirementBindings = Object.freeze([...environment.values()]);
     const free = input.parameters.free(value);
     if (!selectedBindings.some(binding => free.some(parameter => parameter.declaration === binding.declaration))) {
       return { kind: "resolved", value };
@@ -41,14 +44,19 @@ export function createSourceSubstitution(input: {
     } else if (value.type.kind === "parameter") {
       const declaration = value.type.declaration;
       const binding = selectedBindings.find(candidate => candidate.declaration === declaration);
-      if (binding === undefined || binding.value === value) return { kind: "resolved", value };
+      if (binding === undefined || binding.value === value) {
+        const retained = input.evidence.create(value, [...record.components.values()], record.original, record.domain, requirementBindings);
+        const selected = { kind: "resolved" as const, value: retained };
+        entries.set(identity, selected);
+        return selected;
+      }
       const remaining = selectedBindings.filter(candidate => candidate.declaration !== declaration);
       const replacement = substitute(binding.value, remaining);
       if (replacement.kind === "refused") result = replacement;
       else {
         const source = input.evidence.record(replacement.value);
         result = { kind: "resolved", value: input.evidence.create({ ...replacement.value, component: value.component },
-          [...source.components.values()], source.original, source.domain) };
+          [...source.components.values()], source.original, source.domain, source.requirementBindings) };
       }
     } else {
       const children: SourceEvidenceComponent[] = [];
@@ -81,18 +89,18 @@ export function createSourceSubstitution(input: {
           else {
             const record = input.evidence.record(projected.value);
             result = { kind: "resolved", value: input.evidence.create({ ...projected.value, component: value.component },
-              [...record.components.values()], record.original, record.domain) };
+              [...record.components.values()], record.original, record.domain, record.requirementBindings) };
           }
         } else result = { kind: "resolved", value: input.evidence.create({ ...value,
           type: input.interner.projection(selected.type, value.type.projection),
-          category: input.parameters.category(value.category, selectedBindings) }, children, record.original, record.domain) };
+          category: input.parameters.category(value.category, selectedBindings) }, children, record.original, record.domain, requirementBindings) };
       } else {
         const type = rebuild(value.type, child, input.interner);
         const category = input.parameters.category(value.category, selectedBindings);
         const numeric = value.numeric === undefined ? undefined
           : { ...value.numeric, category: input.parameters.category(value.numeric.category, selectedBindings) };
         result = { kind: "resolved", value: input.evidence.create({ type, component: value.component,
-          category, numeric, sum: undefined }, children, record.original, record.domain) };
+          category, numeric, sum: undefined }, children, record.original, record.domain, requirementBindings) };
       }
     }
     entries.set(identity, result);
