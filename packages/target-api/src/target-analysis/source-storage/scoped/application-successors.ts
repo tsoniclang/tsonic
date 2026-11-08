@@ -1,6 +1,8 @@
 import type { SourceStorageProgram } from "../model/program.js";
-
-import { Node_Expression } from "../../../source-navigation/index.js";
+import { sourceStorageValue } from "../model/program.js";
+import { sourcePresenceLiteralDisposition } from "../../../source-model/literals/domain.js";
+import { sourceCallableSignatures } from "../../../source-navigation/callable-parameters.js";
+import { sourceSuperConstructor } from "../../../source-navigation/class-initialization.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
 import { sourceStorageSubjectType } from "../model/components.js";
@@ -31,11 +33,14 @@ interface SourceStorageApplicationSuccessorContext extends Pick<ReturnType<typeo
 export function createSourceStorageApplicationSuccessors(context: SourceStorageApplicationSuccessorContext) {
   const { source, budget, transport, scopes, equations, absent, nativeInputExecutions, conditionalExecutions,
     rejections, replaceChild, dispatchDependencies, independentCalleeFor, regionsFor, classLineages, leaf } = context;
-  const { ast, semantics } = source;
+  const { ast } = source;
   const { navigation } = source.facts;
   return (term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStoragePendingReduction | undefined => {
+    const application = transport.accessorTargets.has(term.invocation) ? undefined
+      : sourceStorageValue(source.facts.applications.application(term.invocation));
     const resumes = term.callback === undefined && transport.invocationEffects.get(term.invocation)?.kind === "receiver-resume";
     const dependencies = resumes || term.activation.kind !== "invoke" ? [] : dispatchDependencies(term.invocation, term.scope);
+    if (application?.argumentDisposition === "skip") return { ...absent, dependencies };
     if (term.callee.kind !== "leaf" && term.callee.kind !== "input-frontier") {
       return replaceChild(term.callee, callee => callee === term.callee ? term : Object.freeze({ ...term, callee }), {
         contributes: false,
@@ -65,7 +70,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
         if (implementations === undefined) return undefined;
         for (const candidate of implementations) {
           if (!budget.step()) return undefined;
-          if (semantics.forNode(candidate).operations.generator(candidate) === undefined) continue;
+          if (sourceStorageValue(source.facts.protocols.generator(candidate)).kind === "none") continue;
           const activation = scopes.boundActivation(term.callee.scope, candidate);
           const body = ast.body(candidate);
           if (activation?.invocation !== node || body === undefined) continue;
@@ -85,7 +90,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
     }
     if (term.callback !== undefined) {
       const type = sourceStorageSubjectType(source, term.callee.subject);
-      if (type !== undefined && semantics.forNode(term.invocation).types.isNullish(type)) return absent;
+      if (type !== undefined && sourcePresenceLiteralDisposition(source.analysis.literalDomain(type)) === "absent") return absent;
       const selected = navigation.callableImplementation(node);
       const demand = term.mode === "execution" ? transport.subjectFor(term.demand) : undefined;
       if (term.mode !== "execution" || demand === undefined) return undefined;
@@ -106,7 +111,8 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       if (terms === undefined) return undefined;
       return { kind: "replace", terms, dependencies };
     }
-    const construction = ast.is.IsNewExpression(term.invocation) || ast.kindName(Node_Expression(ast, term.invocation)) === "KindSuperKeyword";
+    const construction = application?.kind === "construct" ||
+      sourceStorageValue(sourceSuperConstructor(term.invocation, source, budget.step)) !== undefined;
     if (construction && (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) {
       const lineages = classLineages(term.callee);
       if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
@@ -146,7 +152,8 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       }
     }
     const contract = transport.invocationDeclarations.get(term.invocation);
-    const nativeAllocation = transport.invocationEffects.get(term.invocation)?.resultAllocation === term.invocation;
+    const effect = transport.invocationEffects.get(term.invocation);
+    const nativeAllocation = effect?.kind === "result-allocation" && effect.allocation === term.invocation;
     if (missingBody && transport.isOpaque(term.invocation) && contract === undefined) {
       const result = transport.subject(term.invocation, "value", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [Object.freeze({
@@ -156,7 +163,8 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
     }
     if (missingBody && (transport.isOpaque(term.invocation) || nativeAllocation) &&
       (contract !== undefined && ast.body(contract) === undefined || transport.declarationIsAmbient(node) === true &&
-        semantics.forNode(node).declarations.declarationSignature(node) !== undefined)) {
+        application !== undefined && sourceStorageValue(sourceCallableSignatures(source, application.callee.value, source.work))
+          .some(selected => selected.signature.identity === application.identity.signature))) {
       const result = transport.subject(term.invocation, "value", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
         ? [leaf(result, term.scope)] : term.mode === "execution" ? []
@@ -174,10 +182,10 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
       budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
     }
     const candidate = selected.implementation.declaration;
-    const generator = semantics.forNode(candidate).operations.generator(candidate);
+    const generator = sourceStorageValue(source.facts.protocols.generator(candidate));
     const asynchronous = ast.hasModifierKind(candidate, "async");
     const scope = asynchronous && term.activation.kind !== "entered" &&
-      (term.mode === "throw" || term.mode === "value" && generator === undefined)
+      (term.mode === "throw" || term.mode === "value" && generator.kind === "none")
       ? term.scope : equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
     if (scope === undefined) return undefined;
     if (term.mode === "throw") {
@@ -190,7 +198,7 @@ export function createSourceStorageApplicationSuccessors(context: SourceStorageA
         term.activation.kind === "entered" ? term.activation.actualTypes : undefined);
       return regions === undefined ? undefined : { kind: "replace", terms: regions };
     }
-    if (generator !== undefined) {
+    if (generator.kind === "present") {
       const result = transport.subject(term.invocation, "value", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, scope)], dependencies };
     }

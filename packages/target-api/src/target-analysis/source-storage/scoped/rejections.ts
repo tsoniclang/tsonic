@@ -1,4 +1,5 @@
 import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
 
@@ -22,7 +23,7 @@ export function createSourceStorageScopedRejections(source: SourceStorageProgram
   const relevantRows = budget.createRows();
   let caughtSites: ReadonlyMap<Node, readonly Node[]> | undefined;
   const nativeThrows = new Set([...transport.pointerInvocations,
-    ...[...transport.invocationEffects].filter(([, effect]) => effect.resumeReceiver === true).map(([invocation]) => invocation)]);
+    ...[...transport.invocationEffects].filter(([, effect]) => effect.kind === "receiver-resume").map(([invocation]) => invocation)]);
   const reachesNativeThrow = (invocation: Node): boolean | undefined => {
     const previous = relevant.get(invocation);
     if (previous !== undefined) return previous;
@@ -40,7 +41,9 @@ export function createSourceStorageScopedRejections(source: SourceStorageProgram
   const invocationThrows = (invocation: Node, scope: SourceStorageScope): readonly SourceStorageTerm[] | undefined => {
     if (transport.pointerInvocations.has(invocation)) return queries.pointerThrows(invocation, scope);
     if (transport.invocationEffects.get(invocation)?.kind === "receiver-resume") {
-      const receiver = transport.subjectFor(source.semantics.forNode(invocation).operations.call(invocation)?.sourceReceiver?.expression);
+      const application = sourceStorageValue(source.facts.applications.application(invocation));
+      if (application.argumentDisposition === "skip") return [];
+      const receiver = transport.subjectFor(application.receiver.kind === "value" ? application.receiver.occurrence : undefined);
       if (receiver === undefined) return undefined;
       const terms: SourceStorageTerm[] = [queries.application(invocation, receiver, scope, [], { mode: "throw" })];
       return terms;
