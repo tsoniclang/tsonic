@@ -25,17 +25,19 @@ export function createSourceStoragePointerLocations(source: SourceStorageProgram
   };
   const address = (operation: Extract<SourceTypedLocationOperation, { readonly operation: "address-of" }>,
     scope: SourceStorageScope): readonly SourceStoragePointerLocation[] | undefined => budget.withRows(rows => {
-    const { ast } = source;
-    const storage = operation.storage.occurrence;
-    if (!ast.is.IsPropertyAccessExpression(storage) && !ast.is.IsElementAccessExpression(storage)) {
-      const subject = transport.locationFor(storage);
+    const selectedPlace = sourceStorageValue(source.facts.protocols.storage(operation.storage.occurrence));
+    if (selectedPlace.kind === "none" || !selectedPlace.value.writable) return undefined;
+    const place = selectedPlace.value;
+    if (place.kind === "binding") {
+      const subject = transport.locationFor(place.storage);
       return subject === undefined ? undefined : [Object.freeze({ kind: "leaf", subject,
         scope: queries.creatorScope(subject.node, scope) })];
     }
-    const selected = sourceStorageValue(source.facts.objects.use(storage));
-    const receiver = transport.subjectFor(selected.receiver.occurrence);
-    const components = [...sourceIndexedStorageProjection(source, storage),
-      ...selected.writeDeclarations.map(declaration => Object.freeze({ kind: "member" as const, declaration }))];
+    if (place.kind === "pointer") return undefined;
+    const receiver = transport.subjectFor(place.receiver.occurrence);
+    const components = place.kind === "member"
+      ? place.declarations.map(declaration => Object.freeze({ kind: "member" as const, declaration }))
+      : sourceIndexedStorageProjection(source, place.storage);
     if (receiver === undefined || components.length === 0) return undefined;
     const originals = queries.read(sourceStorageReference(receiver, scope));
     if (originals === undefined) return undefined;
@@ -52,7 +54,7 @@ export function createSourceStoragePointerLocations(source: SourceStorageProgram
       if (type === undefined) return undefined;
       for (const component of components) {
         if (!budget.step()) return undefined;
-        sourceStorageProjectComponents(original.subject.projection, type, selected.receiver.value,
+        sourceStorageProjectComponents(original.subject.projection, type, place.receiver.value,
           [component], source, budget, projection => {
             const subject = transport.subject(original.subject.node, original.subject.kind, projection);
             if (subject !== undefined && rows.add(1)) result.push(original.kind === "input-frontier"
