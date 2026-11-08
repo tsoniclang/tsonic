@@ -5,7 +5,6 @@ import { createCompilerSessionFromFiles, type AstReader, type Node } from "@tson
 import { analyzeSourceLiteralValues } from "../literal-values.js";
 import { parseSourceNumericLiteral } from "../../source-model/literals/token.js";
 import type { SourceLiteralValue } from "../../source-model/literals/value.js";
-import { createTargetSourceProgram } from "../target-source-program.js";
 import {
   decideSourcePrimitiveBinaryOperator, decideSourcePrimitiveUnaryOperator,
   sourcePrimitiveBinaryOperators, sourcePrimitiveOperatorKinds, sourcePrimitiveOperatorLiteralFits, sourcePrimitiveOperatorIsIntegral,
@@ -356,11 +355,10 @@ function operatorLiteralFacts(expressions: readonly string[], provenance: "autho
     "/src/index.ts": expressions.map((expression, index) => `export const value${index} = ${expression};`).join("\n"),
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0);
-  const source = createTargetSourceProgram(checked);
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The checked literal program requires its source file.");
   const ast: AstReader = provenance === "checked"
-    ? { ...source.ast, authoredRange: () => ({ kind: "synthetic" }) } : source.ast;
+    ? { ...checked.ast, authoredRange: () => ({ kind: "synthetic" }) } : checked.ast;
   const values = analyzeSourceLiteralValues(ast, [file]);
   const literals: SourceLiteralValue[] = [];
   const visit = (node: Node): void => {

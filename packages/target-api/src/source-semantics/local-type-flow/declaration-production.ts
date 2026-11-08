@@ -61,7 +61,7 @@ export function produceSourceDeclaredComponent(production: SourceDeclarationProd
   declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
   const { ast, input, reader, context } = production;
   input.assertComponent(component);
-  const last = component.path.at(-1);
+  const last = component.path[component.path.length - 1];
   if (last?.kind === "result") return production.completion(declaration, bindings);
   if (last?.kind === "parameter" || last?.kind === "receiver") {
     const annotation = ast.typeNode(declaration);

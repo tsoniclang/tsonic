@@ -120,7 +120,7 @@ export function produceSourceComponentLiteralDomain(context: {
     const literal = sourceOriginalLiteralDomain(ast, original.root);
     if (literal !== undefined) return { kind: "resolved", value: literal };
   }
-  const part = original.path.at(-1);
+  const part = original.path[original.path.length - 1];
   if (part?.kind === "member" && (ast.is.IsPropertyAssignment(part.declaration) || ast.is.IsPropertyDeclaration(part.declaration))) {
     const initializer = Node_Initializer(ast, part.declaration);
     if (initializer !== undefined && ast.is.IsObjectLiteralExpression(original.root))

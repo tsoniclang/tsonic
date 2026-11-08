@@ -18,8 +18,8 @@ test("each Host refusal keeps one exact reason and original source association",
     const first = createSourceTypeFlowRefusal(code, site, site); const second = createSourceTypeFlowRefusal(code, site);
     assert.equal(first.source, "tsonic"); assert.equal(first.kind, "refused"); assert.equal(first.code, code);
     assert.equal(first.site === site && first.related === site, true);
-    assert.equal(first.reason, second.reason);
-    assert.equal(first.reason.includes("nnotate") || first.reason.includes("Declare one"), true);
+    assert.equal(first.message, second.message);
+    assert.equal(first.message.includes("nnotate") || first.message.includes("Declare one"), true);
     assert.equal(Object.isFrozen(first), true);
   }
 });
