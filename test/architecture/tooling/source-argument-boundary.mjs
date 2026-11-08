@@ -7,7 +7,7 @@ const syntaxAccessors = new Set([
   "PrefixUnaryExpression_Operand", "Node_Operand", "Node_Expression", "sourceTransparentExpressionOperand",
   "CallExpression_Arguments", "NewExpression_Arguments",
 ]);
-const meaningFields = new Set(["operator", "category", "presence", "disposition"]);
+const meaningFields = new Set(["operator", "category", "presence", "disposition", "argumentDisposition", "optionalCall", "optionalChain", "chainContinuation"]);
 const meaningTypes = new Set(["SourceCategory", "SourceCategoryDomain", "SourceValueSelection", "SourcePrimitiveOperator", "SourceOperation"]);
 const factsTypes = new Set(["SourceProgramFacts", "SourceDescriptorView", "SourceValueFacts", "SourceApplicationFacts"]);
 const functionKinds = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindGetAccessor", "KindSetAccessor"]);

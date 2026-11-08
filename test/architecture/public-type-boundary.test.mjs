@@ -14,6 +14,13 @@ function audit(text, options = {}) {
         export interface Node { readonly kind: number; readonly parent?: Node }
         export interface SourceFile extends Node { readonly fileName: string; readonly checkerState?: { readonly cached: Symbol } }
         export interface ExtensionFactKey<Value> { readonly snapshot: (value: Value) => Value }
+        export interface TypeCheckerQueries { getTypeAtLocation(node: Node): Type }
+        export interface SourceFileQueries { readonly checker: TypeCheckerQueries }
+        export interface SourceProgramQueries { getSourceFileQueries(file: SourceFile): SourceFileQueries }
+        export interface CompilerExtension {
+          analyzeSource?(context: { readonly source: SourceProgramQueries }): void;
+          providerExportMaterialized?(context: { readonly symbol: Symbol }): void;
+        }
       `],
       ["/probe/hidden.d.ts", `import type { Type } from './checker.js'; export interface Hidden { readonly cached: Type }`],
       ["/workspace/packages/host/dist/host-input/private.d.ts", `export interface Builder { define(value: string): object }`],
@@ -181,6 +188,21 @@ test("a checker-free private Host builder is still forbidden in every public val
   `);
   assert.equal(row(rows, "Leaked").verdict, "private-host");
   assert.equal(row(rows, "StaticBuilder", "value").verdict, "private-host");
+});
+
+test("a public compiler contribution cannot transitively expose raw extension analysis or materialized symbols", () => {
+  const rows = audit(`
+    import type { CompilerExtension } from './checker.js';
+    export interface Extensions { readonly extensions?: readonly CompilerExtension[] }
+    export interface AnalysisOnly { readonly extension: Pick<CompilerExtension, 'analyzeSource'> }
+    export interface ProviderOnly { readonly extension: Pick<CompilerExtension, 'providerExportMaterialized'> }
+    export interface SemanticsModules {
+      readonly semanticsModules: readonly { readonly moduleSpecifier: string;
+        readonly exports: readonly { readonly kind: 'primitive'; readonly exportName: string; readonly primitive: 'int32' }[] }[];
+    }
+  `);
+  for (const name of ["Extensions", "AnalysisOnly", "ProviderOnly"]) assert.equal(row(rows, name).verdict, "checker", name);
+  assert.equal(row(rows, "SemanticsModules").verdict, "clean", "pure configured module data does not expose a compiler hook");
 });
 
 test("public Host factory closure cannot expose private Source producers or domain evaluators", () => {

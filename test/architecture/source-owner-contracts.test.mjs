@@ -48,6 +48,10 @@ for (const [label, text] of [
   ["typed category arrow", 'import type { SourceCategory } from "@tsonic/target-api/source"; const select = (node): SourceCategory => source.ast.is.IsStringLiteral(node) ? "string" : "number";'],
   ["meaning field write", 'const selected = source.ast.operatorKindName(node); output.operator = selected;'],
   ["namespace accessor", 'import * as syntax from "@tsonic/target-api/source"; return { disposition: syntax.ConditionalExpression_Condition(node) ? "left" : "right" };'],
+  ["argument disposition", 'const syntax = source.ast; return { argumentDisposition: syntax.as.AsCallExpression(node).QuestionDotToken ? "skip" : "evaluate" };'],
+  ["optional invocation", 'const syntax = source.ast; return { optionalCall: syntax.as.AsCallExpression(node).QuestionDotToken !== undefined };'],
+  ["member guard", 'const syntax = source.ast; return { optionalChain: syntax.as.AsPropertyAccessExpression(node).QuestionDotToken !== undefined };'],
+  ["continuation guard", 'const syntax = source.ast; return { chainContinuation: syntax.kindName(node) === "KindPropertyAccessExpression" };'],
 ]) test(`Source ownership rejects Native syntax-derived ${label}`, () => {
   const rows = sourceMeaningSyntaxFindings(new Map([["example.ts", text]]));
   assert.equal(rows.some(row => row.rule === "native-rechooses-source-meaning-from-syntax"), true);
@@ -63,6 +67,10 @@ test("Source AST accessors remain legal for emission structure and original-node
     const view = source.facts.values;
     const publication = view.operation(original);
     const retained = { operator: publication.value.operator, disposition: publication.value.disposition };
+    const application = source.facts.applications.application(original);
+    const member = source.facts.objects.use(original);
+    const guards = { argumentDisposition: application.value.argumentDisposition, optionalCall: application.value.optionalCall,
+      optionalChain: member.value.optionalChain, chainContinuation: member.value.chainContinuation };
     function category(node): SourceCategory { return source.facts.values.type(operand(node)).value.category.category; }
     const example = "return { category: source.ast.kindName(node) }";
   `]])), []);
