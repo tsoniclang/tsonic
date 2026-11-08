@@ -34,8 +34,8 @@ export function checkSourceProgramFixture(options) {
     }),
   });
   try {
-    const originalCompilerContributions = session.sourceCompilerContributions();
     const originalProfileContributions = session.sourceProfileContributions();
+    const originalCompilerContributions = session.sourceCompilerContributions();
     const targetContributions = options.targetContributions === undefined
       ? originalCompilerContributions : options.targetContributions(originalCompilerContributions);
     const profileContributions = options.sourceProfile === undefined
