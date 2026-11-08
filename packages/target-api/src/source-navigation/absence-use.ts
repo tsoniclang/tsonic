@@ -1,40 +1,42 @@
-import type { AstReader, Node } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourcePresence, SourceResult } from "../public/source/contracts.js";
+import type { SourceNavigationQueryContext } from "./query-context.js";
 import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_OperatorToken, Node_Expression } from "./ast.js";
-import type { SourceNavigationTypeQueries } from "./query-context.js";
 
-export type SourceAbsenceUse = "coalesce" | "comparison" | undefined;
+export type SourceAbsenceUse = "coalesce" | "comparison";
 
-export function sourceAbsenceUse(expression: Node, context: {
-  readonly ast: AstReader;
-  semanticsFor(node: Node): { readonly types: Pick<SourceNavigationTypeQueries, "expressionType" | "isNullish" | "isVoidLike"> };
-}): SourceAbsenceUse {
+export function sourceAbsenceUse(expression: Node, source: SourceNavigationQueryContext):
+  SourceResult<SourcePresence<SourceAbsenceUse>> {
+  const { ast } = source;
+  if (!source.facts.navigation.includes(expression)) throw new Error("Source absence uses require their original occurrence.");
+  const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
+  const present = (value: SourceAbsenceUse): SourceResult<SourcePresence<SourceAbsenceUse>> =>
+    Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "present", value }) });
   let receiver = expression;
   const seen = new Set<Node>();
-  for (let depth = 0; depth <= 2048; depth += 1) {
-    if (seen.has(receiver)) return undefined;
+  while (!seen.has(receiver)) {
     seen.add(receiver);
-    const parent = context.ast.parent(receiver);
-    if (parent === undefined) return undefined;
-    const kind = context.ast.kindName(parent);
-    if ((kind === "KindParenthesizedExpression" || kind === "KindSatisfiesExpression") &&
-      Node_Expression(context.ast, parent) === receiver) {
+    const parent = ast.parent(receiver);
+    if (parent === undefined) return none;
+    const kind = ast.kindName(parent);
+    if ((kind === "KindParenthesizedExpression" || kind === "KindSatisfiesExpression") && Node_Expression(ast, parent) === receiver) {
       receiver = parent;
       continue;
     }
-    if (kind !== "KindBinaryExpression") return undefined;
-    const operator = BinaryExpression_OperatorToken(context.ast, parent);
-    if (operator !== undefined && context.ast.kindName(operator) === "KindQuestionQuestionToken")
-      return BinaryExpression_Left(context.ast, parent) === receiver ? "coalesce" : undefined;
+    if (kind !== "KindBinaryExpression") return none;
+    const operator = BinaryExpression_OperatorToken(ast, parent);
+    if (operator !== undefined && ast.kindName(operator) === "KindQuestionQuestionToken")
+      return BinaryExpression_Left(ast, parent) === receiver ? present("coalesce") : none;
     if (operator === undefined || !["KindEqualsEqualsToken", "KindExclamationEqualsToken",
-      "KindEqualsEqualsEqualsToken", "KindExclamationEqualsEqualsToken"].includes(context.ast.kindName(operator))) return undefined;
-    const left = BinaryExpression_Left(context.ast, parent);
-    const right = BinaryExpression_Right(context.ast, parent);
+      "KindEqualsEqualsEqualsToken", "KindExclamationEqualsEqualsToken"].includes(ast.kindName(operator))) return none;
+    const left = BinaryExpression_Left(ast, parent), right = BinaryExpression_Right(ast, parent);
     const other = left === receiver ? right : right === receiver ? left : undefined;
-    if (other === undefined) return undefined;
-    const semantics = context.semanticsFor(parent);
-    const type = semantics.types.expressionType(other);
-    return type !== undefined && (semantics.types.isNullish(type) || semantics.types.isVoidLike(type))
-      ? "comparison" : undefined;
+    if (other === undefined) return none;
+    const selected = source.facts.values.type(other);
+    if (selected.kind === "refused") return selected;
+    const alternatives = selected.value.sum?.arms ?? [selected.value];
+    return alternatives.length > 0 && alternatives.every(value => value.category.kind === "known" && value.category.category === "absence")
+      ? present("comparison") : none;
   }
-  return undefined;
+  return none;
 }

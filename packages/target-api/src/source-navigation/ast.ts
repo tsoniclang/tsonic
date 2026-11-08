@@ -1,14 +1,4 @@
-import type { AstReader, ExtensionFactSubject, Node } from "@tsonic/tsts";
-
-export function asSourceNode(
-  subject: ExtensionFactSubject | undefined,
-  ast: Pick<AstReader, "kind">,
-): Node | undefined {
-  if (subject === undefined) {
-    return undefined;
-  }
-  return ast.kind(subject as Node) === undefined ? undefined : subject as Node;
-}
+import type { AstReader, Node } from "@tsonic/tsts";
 
 export function Node_Name(ast: AstReader, node: Node | undefined): Node | undefined {
   return node === undefined ? undefined : ast.name(node);

@@ -1,4 +1,6 @@
-import type { AstReader, Node, ResolvedSourcePropertyAccessInfo, ResolvedSourceElementAccessInfo } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourcePresence, SourceResult } from "../public/source/contracts.js";
+import type { SourceMemberUse } from "../source-semantics/member-use.js";
 import type { SourceNavigationQueryContext } from "./query-context.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 import { Node_Expression } from "./ast.js";
@@ -7,8 +9,7 @@ import { failTargetCompilerResourceLimit } from "../artifacts.js";
 export interface SourceCallableValue {
   readonly expression: Node;
   readonly selectedDeclaration: Node;
-  readonly property?: ResolvedSourcePropertyAccessInfo;
-  readonly element?: ResolvedSourceElementAccessInfo;
+  readonly member: SourcePresence<SourceMemberUse>;
   readonly receiverDeclaration?: Node;
   readonly aliases: readonly Node[];
 }
@@ -36,11 +37,16 @@ export function sourceCallableValueExpression(
 }
 
 export function createSourceCallableValueQuery(source: SourceNavigationQueryContext, options: SourceCallableValueOptions = {}):
-  (expression: Node) => SourceCallableValue | undefined {
-  const { ast, navigation } = source;
+  (expression: Node) => SourceResult<SourcePresence<SourceCallableValue>> {
+  const { ast } = source;
+  const { navigation, objects } = source.facts;
   const expressionOptions = Object.freeze({ typeAssertions: options.typeAssertions });
   const stopAtDeclaration = options.stopAtDeclaration;
-  const cache = new WeakMap<Node, SourceCallableValue | null>();
+  if (stopAtDeclaration !== undefined) navigation.callableRoles(stopAtDeclaration);
+  const cache = new WeakMap<Node, SourceResult<SourcePresence<SourceCallableValue>>>();
+  const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
+  const selected = (value: SourceCallableValue): SourceResult<SourcePresence<SourceCallableValue>> =>
+    Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "present", value: Object.freeze(value) }) });
   const member = (node: Node): boolean => ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node);
   const receiverCache = new WeakMap<Node, boolean>();
   const receiverUnchanged = (declaration: Node): boolean => {
@@ -81,65 +87,62 @@ export function createSourceCallableValueQuery(source: SourceNavigationQueryCont
     receiverCache.set(declaration, unchanged);
     return unchanged;
   };
-  const select = (input: Node): SourceCallableValue | undefined => {
+  const select = (input: Node): SourceResult<SourcePresence<SourceCallableValue>> => {
+    navigation.callableRoles(input);
     const cached = cache.get(input);
-    if (cached !== undefined) return cached ?? undefined;
-    cache.set(input, null);
+    if (cached !== undefined) return cached;
     const aliases = new Set<Node>();
     const visited = new Set<Node>();
-    const resolve = (inputExpression: Node, depth: number): SourceCallableValue | undefined => {
+    const resolve = (inputExpression: Node, depth: number): SourceResult<SourcePresence<SourceCallableValue>> => {
       if (depth >= 256) failTargetCompilerResourceLimit("tsonic", "Callable value selection", "depth", 256, inputExpression);
       let expression = sourceCallableValueExpression(ast, inputExpression, expressionOptions);
       while (expression !== undefined && ast.is.IsIdentifier(expression)) {
         const declaration = navigation.sourceReferenceFor(expression)?.declaration;
-        if (declaration === undefined || navigation.declarationUseSummary(declaration).bindingWritten) return undefined;
-        if (declaration === stopAtDeclaration) return {
-          expression, selectedDeclaration: declaration, aliases: Object.freeze([...aliases]),
-        };
+        if (declaration === undefined || navigation.declarationUseSummary(declaration).bindingWritten) return none;
+        if (declaration === stopAtDeclaration) return selected({
+          expression, selectedDeclaration: declaration, member: Object.freeze({ kind: "none" }), aliases: Object.freeze([...aliases]),
+        });
         const initializer = ast.is.IsVariableDeclaration(declaration)
           ? ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
-        if (initializer === undefined) return {
-          expression, selectedDeclaration: declaration, aliases: Object.freeze([...aliases]),
-        };
+        if (initializer === undefined) return selected({
+          expression, selectedDeclaration: declaration, member: Object.freeze({ kind: "none" }), aliases: Object.freeze([...aliases]),
+        });
         if (ast.variableDeclarationKind(declaration) !== "const" || !ast.is.IsIdentifier(ast.name(declaration)) ||
           visited.has(declaration) ||
-          sourceMayReadBeforeInitialization(declaration, ast, navigation)) return undefined;
+          sourceMayReadBeforeInitialization(declaration, ast, navigation)) return none;
         if (visited.size >= 1_024) failTargetCompilerResourceLimit("tsonic", "Callable value aliases", "declarations", 1_024, inputExpression);
         visited.add(declaration);
         aliases.add(declaration);
         expression = sourceCallableValueExpression(ast, initializer, expressionOptions);
       }
-      if (expression === undefined || !member(expression)) return undefined;
-      const operations = source.semantics.forNode(expression).operations;
-      const property = ast.is.IsPropertyAccessExpression(expression) ? operations.propertyAccess(expression) : undefined;
-      const element = ast.is.IsElementAccessExpression(expression) ? operations.elementAccess(expression) : undefined;
-      const access = property ?? element;
-      const declaration = access?.selectedDeclaration;
-      if (access === undefined || access.optionalChain || declaration === undefined ||
+      if (expression === undefined || !member(expression)) return none;
+      const use = objects.use(expression);
+      if (use.kind === "refused") return use;
+      const access = use.value;
+      const declaration = access.selectedDeclaration.kind === "present" ? access.selectedDeclaration.value : undefined;
+      if (access.optionalChain || declaration === undefined ||
         ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration) ||
-        navigation.expressionValueFlow(expression).memberWritten) return undefined;
-      const receiver = resolve(access.receiver.expression, depth + 1);
-      if (receiver === undefined || !receiverUnchanged(receiver.selectedDeclaration)) return undefined;
+        navigation.expressionValueFlow(expression).memberWritten) return none;
+      const receiver = resolve(access.receiver.occurrence, depth + 1);
+      if (receiver.kind === "refused") return receiver;
+      if (receiver.value.kind === "none" || !receiverUnchanged(receiver.value.value.selectedDeclaration)) return none;
       const references = navigation.referencesToDeclaration(declaration);
       if (references.length > 131_072) failTargetCompilerResourceLimit("tsonic", "Callable member references", "references", 131_072, expression);
       for (const reference of references) {
         const parent = ast.parent(reference);
         const access = member(reference) ? reference : parent !== undefined && member(parent) ? parent : undefined;
-        const operations = access === undefined ? undefined : source.semantics.forNode(access).operations;
-        const selectedAccess = access === undefined ? undefined : ast.is.IsPropertyAccessExpression(access)
-          ? operations?.propertyAccess(access) : operations?.elementAccess(access);
-        if (selectedAccess === undefined || selectedAccess.accessMode === "read") continue;
-        return undefined;
+        if (access === undefined) continue;
+        const selectedAccess = objects.use(access);
+        if (selectedAccess.kind === "refused") return selectedAccess;
+        if (selectedAccess.value.access === "read") continue;
+        return none;
       }
-      return { expression, selectedDeclaration: declaration,
-        ...(property === undefined ? {} : { property }), ...(element === undefined ? {} : { element }),
-        receiverDeclaration: receiver.selectedDeclaration, aliases: Object.freeze([...aliases]) };
+      return selected({ expression, selectedDeclaration: declaration,
+        member: Object.freeze({ kind: "present", value: access }),
+        receiverDeclaration: receiver.value.value.selectedDeclaration, aliases: Object.freeze([...aliases]) });
     };
-    let selected: SourceCallableValue | undefined;
-    try { selected = resolve(input, 0); }
-    catch (failure) { cache.delete(input); throw failure; }
-    const result = selected === undefined ? undefined : Object.freeze(selected);
-    cache.set(input, result ?? null);
+    const result = resolve(input, 0);
+    cache.set(input, result);
     return result;
   };
   return select;

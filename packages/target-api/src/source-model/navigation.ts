@@ -2,8 +2,10 @@ import type { Node, ProviderVirtualDeclarationFact, SourceFile } from "@tsonic/t
 import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceCallableRole, SourceCallableRoles } from "../source-navigation/callable-boundaries.js";
 import type { SourceExpressionResultDisposition } from "../source-navigation/expression-use-model.js";
+import type { SourceProfileDeclarationIdentity } from "../target-analysis/source-profile-identity.js";
 
 export interface SourceNodeReference {
+  readonly meaning: "value" | "type" | "namespace";
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
   readonly project: boolean;
@@ -73,8 +75,47 @@ export interface SourceNodeUseSummary {
   readonly aliasedOrStored: boolean;
   readonly captured: boolean;
   readonly exported: boolean;
-  readonly escapeKinds: readonly ("argument" | "capture" | "export" | "return" | "storage" | "yield")[];
+  readonly escapeKinds: readonly SourceNodeEscapeKind[];
   readonly hasUnclassifiedValueUse: boolean;
+}
+
+export type SourceNodeEscapeKind = "argument" | "capture" | "export" | "return" | "storage" | "yield";
+
+export interface SourceNodeParameterUseSummary extends SourceNodeUseSummary {
+  readonly kind: "parameter";
+  readonly passedAsArgument: boolean;
+  readonly returned: boolean;
+  readonly yielded: boolean;
+}
+
+export interface SourceNodeEffects {
+  readonly invokes: boolean;
+  readonly mutates: boolean;
+  readonly suspends: boolean;
+  readonly mayThrow: boolean;
+}
+
+export interface SourceNodeCountedLoop {
+  readonly statement: Node;
+  readonly counterDeclaration: Node;
+  readonly start: Node;
+  readonly bound: Node;
+  readonly body: Node;
+  readonly direction: "ascending";
+  readonly comparison: "exclusive-upper-bound";
+  readonly step: 1;
+}
+
+export interface SourceNodeReferenceIndexStatistics {
+  readonly constructionPasses: 1;
+  readonly sourceFiles: number;
+  readonly nodesVisited: number;
+  readonly referenceCandidates: number;
+  readonly selectedReferences: number;
+  readonly selectedDeclarations: number;
+  readonly reverseEdges: number;
+  readonly indexedSymbols: number;
+  readonly moduleExportsExamined: number;
 }
 
 export interface SourceNodeValueFlow {
@@ -112,6 +153,7 @@ export type SourceNodeHeritage =
 
 export interface SourceNodeConstructorSignature {
   readonly identity: SourceSignatureIdentity;
+  readonly base: SourcePresence<{ readonly declaration: Node; readonly identity: SourceSignatureIdentity }>;
   readonly parameters: readonly {
     readonly parameterIndex: number;
     readonly parameterName: string;
@@ -131,6 +173,7 @@ export type SourceNodeConstructors =
 export interface SourceNodeNavigationFacts {
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];
+  readonly referenceIndexStatistics: SourceNodeReferenceIndexStatistics;
   includes(node: Node): boolean;
   callableRoles(node: Node): SourceCallableRoles;
   enclosing(node: Node | undefined, role: SourceCallableRole): Node | undefined;
@@ -154,20 +197,16 @@ export interface SourceNodeNavigationFacts {
   referencesToDeclaration(declaration: Node): readonly Node[];
   declarationUses(declaration: Node): readonly SourceNodeUse[];
   declarationUseSummary(declaration: Node): SourceNodeUseSummary;
-  parameterUseSummary(parameter: Node): (SourceNodeUseSummary & {
-    readonly kind: "parameter"; readonly passedAsArgument: boolean; readonly returned: boolean; readonly yielded: boolean;
-  }) | undefined;
-  countedLoop(statement: Node): {
-    readonly statement: Node; readonly counterDeclaration: Node; readonly start: Node; readonly bound: Node;
-    readonly body: Node; readonly direction: "ascending"; readonly comparison: "exclusive-upper-bound"; readonly step: 1;
-  } | undefined;
+  parameterUseSummary(parameter: Node): SourceNodeParameterUseSummary | undefined;
+  countedLoop(statement: Node): SourceNodeCountedLoop | undefined;
   expressionValueFlow(expression: Node): SourceNodeValueFlow;
   expressionResultUse(expression: Node): "consumed" | "discarded";
   expressionResultDisposition(expression: Node): SourceExpressionResultDisposition;
-  expressionEffects(expression: Node): { readonly invokes: boolean; readonly mutates: boolean; readonly suspends: boolean; readonly mayThrow: boolean };
+  expressionEffects(expression: Node): SourceNodeEffects;
   hasReferenceOutside(declaration: Node, excluded: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;
   isProjectConstructibleObject(node: Node | undefined): boolean;
   isProjectDeclaration(node: Node | undefined): boolean;
   providerDeclaration(node: Node): SourcePresence<ProviderVirtualDeclarationFact>;
+  profileDeclaration(node: Node): SourcePresence<SourceProfileDeclarationIdentity>;
 }
