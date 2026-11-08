@@ -1,20 +1,14 @@
-import { AsBinaryExpression } from "../../source-navigation/checked-casts.js";
 import type { Node } from "@tsonic/tsts";
+import type { SourceApplication, SourceOperation, SourceResult, SourceValueOperand, SourceValueSelection } from "../../public/source/contracts.js";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
-import { sourceCallableRoles } from "../../source-navigation/callable-boundaries.js";
 import { sourceFlowBinding, sourceFlowReference, sourceFlowWriteValue } from "./bindings.js";
-import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
+import { sourceFlowNullishEdges } from "./conditions.js";
 import { sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
-import { SourceFlowFailure } from "./resources.js";
+import { SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 import { sourceFlowUnwrap } from "./syntax.js";
 
-const assignments: ReadonlySet<string> = new Set(["KindEqualsToken", "KindPlusEqualsToken", "KindMinusEqualsToken",
-  "KindAsteriskEqualsToken", "KindAsteriskAsteriskEqualsToken", "KindSlashEqualsToken", "KindPercentEqualsToken",
-  "KindLessThanLessThanEqualsToken", "KindGreaterThanGreaterThanEqualsToken", "KindGreaterThanGreaterThanGreaterThanEqualsToken",
-  "KindAmpersandEqualsToken", "KindBarEqualsToken", "KindCaretEqualsToken", "KindAmpersandAmpersandEqualsToken",
-  "KindBarBarEqualsToken", "KindQuestionQuestionEqualsToken"]);
 const literalKinds: ReadonlySet<string> = new Set(["KindNumericLiteral", "KindBigIntLiteral", "KindStringLiteral",
   "KindNoSubstitutionTemplateLiteral", "KindRegularExpressionLiteral", "KindTrueKeyword", "KindFalseKeyword",
   "KindNullKeyword", "KindThisKeyword", "KindSuperKeyword", "KindOmittedExpression", "KindMetaProperty"]);
@@ -29,12 +23,13 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
     return build.emit(node, binding === undefined ? { kind: "evaluate" } : { kind: "read", binding }, next, context);
   }
   if (isTypeSyntaxNode(ast, node)) return next;
-  if (sourceCallableRoles(ast, node).body) return sourceFlowClosure(build, node, next, context);
+  if (build.source.facts.navigation.callableRoles(node).body) return sourceFlowClosure(build, node, next, context);
   if (ast.is.IsBlock(node)) return build.statement(node, next, context);
   if (isChainOperand(build, node)) return chain(build, node, next, next, context);
   if (ast.is.IsAwaitExpression(node)) {
-    const expression = ast.as.AsAwaitExpression(node)?.Expression;
-    if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked await operand.", node);
+    const selected = operation(build, node);
+    if (selected.kind !== "await") throw new SourceFlowFailure("Source flow requires its published await operation.", node);
+    const expression = selected.operand.occurrence;
     const awaitPoint = build.emit(node, { kind: "await", awaitKind: "authored", value: expression }, next, context, true, "resume");
     return build.expression(expression, awaitPoint, context);
   }
@@ -45,23 +40,22 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
     return expression === undefined ? suspension : build.expression(expression, suspension, context);
   }
   if (ast.is.IsConditionalExpression(node)) {
-    const selected = ast.as.AsConditionalExpression(node);
-    if (selected?.Condition === undefined || selected.WhenTrue === undefined || selected.WhenFalse === undefined) {
-      throw new SourceFlowFailure("Source flow requires a complete checked conditional.", node);
-    }
+    const selected = operation(build, node);
+    if (selected.kind !== "conditional") throw new SourceFlowFailure("Source flow requires its published conditional operation.", node);
+    if (selected.disposition === "true") return build.expression(selected.control.occurrence,
+      build.expression(demandedOperand(selected.whenTrue).occurrence, next, context), context);
+    if (selected.disposition === "false") return build.expression(selected.control.occurrence,
+      build.expression(demandedOperand(selected.whenFalse).occurrence, next, context), context);
     const branch = build.point(node, { kind: "branch" });
-    sourceFlowBooleanEdges(build, branch, selected.Condition, build.expression(selected.WhenTrue, next, context),
-      build.expression(selected.WhenFalse, next, context));
-    return build.expression(selected.Condition, branch, context);
+    build.edge(branch, build.expression(demandedOperand(selected.whenTrue).occurrence, next, context), "true");
+    build.edge(branch, build.expression(demandedOperand(selected.whenFalse).occurrence, next, context), "false");
+    return build.expression(selected.control.occurrence, branch, context);
   }
   if (ast.is.IsBinaryExpression(node)) return binary(build, node, next, context);
   if (ast.is.IsPrefixUnaryExpression(node) || ast.is.IsPostfixUnaryExpression(node)) {
-    const original = ast.is.IsPrefixUnaryExpression(node) ? ast.as.AsPrefixUnaryExpression(node)?.Operand
-      : ast.as.AsPostfixUnaryExpression(node)?.Operand;
-    if (original === undefined) throw new SourceFlowFailure("Source flow requires a checked unary operand.", node);
-    const operand = sourceFlowUnwrap(build, original);
-    const operator = ast.operatorKindName(node);
-    if (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") {
+    const selected = operation(build, node);
+    if (selected.kind === "update") {
+      const operand = sourceFlowUnwrap(build, selected.operand.occurrence);
       const binding = ast.is.IsIdentifier(operand) ? sourceFlowBinding(build, operand) : undefined;
       const value = sourceFlowWriteValue(build, operand, { kind: "value", expression: node, projection: [] });
       const write = build.emit(node, binding === undefined
@@ -70,37 +64,24 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
             value }, next, context, binding === undefined);
       return sourceFlowReference(build, operand, write, context, true);
     }
-    return build.expression(operand, build.emit(node, { kind: "evaluate" }, next, context,
-      build.source.navigation.expressionEffects(node).mayThrow), context);
+    if (selected.kind !== "unary") throw new SourceFlowFailure("Source flow requires its published unary operation.", node);
+    return sourceFlowSequence(selected.operands.map(operand => operand.occurrence),
+      build.emit(node, { kind: "evaluate" }, next, context,
+        build.source.facts.navigation.expressionEffects(node).mayThrow), context, build.expression);
   }
   if (ast.is.IsNewExpression(node)) {
-    const expression = ast.as.AsNewExpression(node)?.Expression;
-    if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked constructor.", node);
+    const application = selectedApplication(build, node);
+    if (application.kind !== "construct") throw new SourceFlowFailure("Source flow requires its published construction.", node);
     const invoke = build.emit(node, { kind: "evaluate" }, next, context, true);
-    return build.expression(expression, sourceFlowSequence(ast.arguments(node), invoke, context, build.expression), context);
+    return build.expression(application.callee.occurrence, applicationArguments(build, application, invoke, context), context);
   }
   if (ast.is.IsDeleteExpression(node)) {
     const expression = ast.as.AsDeleteExpression(node)?.Expression;
     if (expression === undefined) throw new SourceFlowFailure("Source flow requires a checked delete operand.", node);
     const target = sourceFlowUnwrap(build, expression);
-    const access = ast.is.IsPropertyAccessExpression(target) ? ast.as.AsPropertyAccessExpression(target)
-      : ast.is.IsElementAccessExpression(target) ? ast.as.AsElementAccessExpression(target) : undefined;
-    if (access?.Expression === undefined) throw new SourceFlowFailure("Source flow requires a checked property deletion.", node);
-    let entry = build.emit(node, { kind: "evaluate" }, next, context, true);
-    if (ast.is.IsElementAccessExpression(target)) {
-      const argument = ast.as.AsElementAccessExpression(target)?.ArgumentExpression;
-      if (argument === undefined) throw new SourceFlowFailure("Source flow requires a checked deletion index.", node);
-      entry = build.expression(argument, entry, context);
-    }
-    if (access.QuestionDotToken !== undefined) {
-      const branch = build.point(target, { kind: "branch" });
-      build.edge(branch, next, "nullish");
-      build.edge(branch, entry, "present");
-      entry = branch;
-    }
-    const receiver = access.Expression;
-    return isChainOperand(build, receiver)
-      ? chain(build, receiver, entry, next, context) : build.expression(receiver, entry, context);
+    if (!ast.is.IsPropertyAccessExpression(target) && !ast.is.IsElementAccessExpression(target))
+      throw new SourceFlowFailure("Source flow requires its original property deletion.", node);
+    return memberChain(build, target, build.emit(node, { kind: "evaluate" }, next, context, true), next, context);
   }
   if (ast.is.IsClassExpression(node) || ast.is.IsClassDeclaration(node)) {
     let entry = sourceFlowClosure(build, node, next, context);
@@ -154,28 +135,47 @@ function chain(build: SourceFlowConstruction, node: Node, next: number, skipped:
     return isChainOperand(build, operand) ? chain(build, operand, entry, skipped, context)
       : build.expression(operand, entry, context);
   }
-  const access = ast.is.IsPropertyAccessExpression(node) ? ast.as.AsPropertyAccessExpression(node)
-    : ast.is.IsElementAccessExpression(node) ? ast.as.AsElementAccessExpression(node)
-    : ast.is.IsCallExpression(node) ? ast.as.AsCallExpression(node) : undefined;
-  if (access?.Expression === undefined) return build.expression(node, next, context);
-  const completion = ast.is.IsCallExpression(node) && ast.kindName(access.Expression) === "KindSuperKeyword"
-    ? build.initializeSuper(next, context) : next;
-  let entry = build.emit(node, { kind: "evaluate" }, completion, context, true);
-  if (ast.is.IsCallExpression(node)) entry = sourceFlowSequence(ast.arguments(node), entry, context, build.expression);
-  if (ast.is.IsElementAccessExpression(node)) {
-    const argument = ast.as.AsElementAccessExpression(node)?.ArgumentExpression;
-    if (argument === undefined) throw new SourceFlowFailure("Source flow requires a checked element index.", node);
-    entry = build.expression(argument, entry, context);
+  if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))
+    return memberChain(build, node, build.emit(node, { kind: "evaluate" }, next, context, true), skipped, context);
+  if (!ast.is.IsCallExpression(node)) throw new SourceFlowFailure("Source flow requires an original evaluation chain.", node);
+  const application = selectedApplication(build, node);
+  if (application.kind !== "call") throw new SourceFlowFailure("Source flow requires its published invocation.", node);
+  const receiver = application.callee.occurrence;
+  const completion = ast.kindName(receiver) === "KindSuperKeyword" ? build.initializeSuper(next, context) : next;
+  let entry = skipped;
+  if (application.argumentDisposition !== "skip") {
+    const invoke = build.emit(node, { kind: "evaluate" }, completion, context, true);
+    entry = applicationArguments(build, application, invoke, context);
+    if (application.optionalCall && application.argumentDisposition === "dynamic") {
+      const branch = build.point(node, { kind: "branch" });
+      build.edge(branch, skipped, "nullish");
+      build.edge(branch, entry, "present");
+      entry = branch;
+    }
   }
-  if (access.QuestionDotToken !== undefined) {
-    const branch = build.point(node, { kind: "branch" });
-    build.edge(branch, skipped, "nullish");
-    build.edge(branch, entry, "present");
-    entry = branch;
-  }
-  const receiver = access.Expression;
   return isChainOperand(build, receiver)
     ? chain(build, receiver, entry, skipped, context) : build.expression(receiver, entry, context);
+}
+
+function memberChain(build: SourceFlowConstruction, node: Node, next: number, skipped: number,
+  context: SourceFlowContext): number {
+  const selected = build.source.facts.objects.use(node);
+  if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+  const member = selected.value;
+  if (member.occurrence !== node) throw new SourceFlowFailure("Source flow requires the identical member occurrence.", node);
+  const selectedKey = member.key;
+  const evaluateKey = (): number => selectedKey.kind === "present"
+    ? build.expression(selectedKey.value.occurrence, next, context) : next;
+  let entry: number;
+  if (member.optionalChain) {
+    const branch = build.point(node, { kind: "branch" });
+    sourceFlowNullishEdges(build, branch, member.receiver.occurrence, () => skipped, evaluateKey);
+    entry = branch;
+  } else entry = evaluateKey();
+  const receiver = member.receiver.occurrence;
+  return isChainOperand(build, receiver)
+    ? chain(build, receiver, entry, member.chainContinuation || member.optionalChain ? skipped : entry, context)
+    : build.expression(receiver, entry, context);
 }
 
 function isChainOperand(build: SourceFlowConstruction, node: Node): boolean {
@@ -186,46 +186,93 @@ function isChainOperand(build: SourceFlowConstruction, node: Node): boolean {
 
 function binary(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
   const { ast } = build.source;
-  const selected = AsBinaryExpression(ast, node);
-  if (selected?.Left === undefined || selected.Right === undefined) throw new SourceFlowFailure("Source flow requires both checked binary operands.", node);
-  const left = sourceFlowUnwrap(build, selected.Left);
-  const right = selected.Right;
-  const operator = ast.operatorKindName(node) ?? "";
-  if (assignments.has(operator)) {
+  const selected = operation(build, node);
+  if (selected.kind === "assignment" || selected.kind === "compound" || selected.kind === "selection-assignment") {
+    const left = sourceFlowUnwrap(build, selected.target);
+    if (selected.kind === "selection-assignment" && selected.selection.disposition === "left")
+      return sourceFlowReference(build, left, next, context, true);
+    const right = selected.kind === "assignment" ? selected.source.occurrence
+      : selected.kind === "compound" ? selected.operands[1].occurrence
+      : demandedOperand(rightOperand(selected.selection)).occurrence;
     if (ast.is.IsArrayLiteralExpression(left) || ast.is.IsObjectLiteralExpression(left)) {
+      if (selected.kind !== "assignment") throw new SourceFlowFailure("Source flow requires a plain pattern assignment.", node);
       return build.expression(right, build.pattern(left, next, context, false, { kind: "value", expression: right, projection: [] }), context);
     }
     const binding = ast.is.IsIdentifier(left) ? sourceFlowBinding(build, left) : undefined;
-    const assignedValue = sourceFlowWriteValue(build, left, { kind: "value", expression: operator === "KindEqualsToken" ||
-      operator === "KindAmpersandAmpersandEqualsToken" || operator === "KindBarBarEqualsToken" ||
-      operator === "KindQuestionQuestionEqualsToken" ? right : node, projection: [] });
+    const assignedValue = sourceFlowWriteValue(build, left, { kind: "value",
+      expression: selected.kind === "compound" ? node : right, projection: [] });
     const write = build.emit(node, binding === undefined ? { kind: "write-location", location: left, value: assignedValue }
       : { kind: "write", binding, reference: left, initialization: false, value: assignedValue }, next, context, binding === undefined);
     let value = build.expression(right, write, context);
-    if (operator === "KindAmpersandAmpersandEqualsToken" || operator === "KindBarBarEqualsToken" || operator === "KindQuestionQuestionEqualsToken") {
+    if (selected.kind === "selection-assignment" && selected.selection.disposition === "dynamic") {
       const branch = build.point(node, { kind: "branch" });
-      branchEdges(build, branch, left, operator, value, next);
+      branchEdges(build, branch, selected.selection.kind, value, next);
       value = branch;
     }
-    return sourceFlowReference(build, left, value, context, operator !== "KindEqualsToken");
+    return sourceFlowReference(build, left, value, context, selected.kind !== "assignment");
   }
-  if (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken" || operator === "KindQuestionQuestionToken") {
+  if (selected.kind === "and" || selected.kind === "or" || selected.kind === "coalesce") {
+    if (selected.disposition === "left") return build.expression(selected.control.occurrence, next, context);
+    const right = build.expression(demandedOperand(rightOperand(selected)).occurrence, next, context);
+    if (selected.disposition === "right") return build.expression(selected.control.occurrence, right, context);
     const branch = build.point(node, { kind: "branch" });
-    branchEdges(build, branch, left, operator, build.expression(right, next, context), next);
-    return build.expression(left, branch, context);
+    branchEdges(build, branch, selected.kind, right, next);
+    return build.expression(selected.control.occurrence, branch, context);
   }
+  const operands = selected.kind === "binary" || selected.kind === "sequence" ? selected.operands
+    : selected.kind === "in" || selected.kind === "instanceof" ? [selected.left, selected.right] : undefined;
+  if (operands === undefined) throw new SourceFlowFailure("Source flow requires its published binary operation.", node);
   const finish = build.emit(node, { kind: "evaluate" }, next, context,
-    operator !== "KindCommaToken" && build.source.navigation.expressionEffects(node).mayThrow);
-  return build.expression(left, build.expression(right, finish, context), context);
+    selected.kind !== "sequence" && build.source.facts.navigation.expressionEffects(node).mayThrow);
+  return sourceFlowSequence(operands.map(operand => operand.occurrence), finish, context, build.expression);
 }
 
-function branchEdges(build: SourceFlowConstruction, point: number, condition: Node, operator: string, evaluated: number, skipped: number): void {
-  if (operator === "KindQuestionQuestionToken" || operator === "KindQuestionQuestionEqualsToken") {
-    sourceFlowNullishEdges(build, point, condition, evaluated, skipped);
+type LogicalSelection = Extract<SourceValueSelection, { readonly kind: "and" | "or" | "coalesce" }>;
+
+function rightOperand(selection: LogicalSelection): SourceResult<SourceValueOperand> {
+  return selection.kind === "and" ? selection.whenTrue
+    : selection.kind === "or" ? selection.whenFalse : selection.whenAbsent;
+}
+
+function branchEdges(build: SourceFlowConstruction, point: number, kind: LogicalSelection["kind"], evaluated: number, skipped: number): void {
+  if (kind === "coalesce") {
+    build.edge(point, evaluated, "nullish");
+    build.edge(point, skipped, "present");
   } else {
-    const conjunction = operator === "KindAmpersandAmpersandToken" || operator === "KindAmpersandAmpersandEqualsToken";
-    sourceFlowBooleanEdges(build, point, condition, conjunction ? evaluated : skipped, conjunction ? skipped : evaluated);
+    build.edge(point, kind === "and" ? evaluated : skipped, "true");
+    build.edge(point, kind === "and" ? skipped : evaluated, "false");
   }
+}
+
+function operation(build: SourceFlowConstruction, node: Node): SourceOperation {
+  const selected = build.source.facts.values.operation(node);
+  if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+  if (selected.value.occurrence !== node) throw new SourceFlowFailure("Source flow requires the identical published operation.", node);
+  return selected.value;
+}
+
+function selectedApplication(build: SourceFlowConstruction, node: Node): SourceApplication {
+  const selected = build.source.facts.applications.application(node);
+  if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+  if (selected.value.identity.invocation !== node) throw new SourceFlowFailure("Source flow requires the identical published application.", node);
+  return selected.value;
+}
+
+function demandedOperand(selected: SourceResult<SourceValueOperand>): SourceValueOperand {
+  if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+  return selected.value;
+}
+
+function applicationArguments(build: SourceFlowConstruction, application: SourceApplication, next: number,
+  context: SourceFlowContext): number {
+  if (application.argumentDisposition === "skip") return next;
+  const argumentsInOrder: Node[] = [];
+  for (const argument of application.sourceArguments) {
+    build.source.facts.navigation.callableRoles(argument.occurrence);
+    demandedOperand(argument.operand);
+    argumentsInOrder.push(argument.occurrence);
+  }
+  return sourceFlowSequence(argumentsInOrder, next, context, build.expression);
 }
 
 export function sourceFlowClosure(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {

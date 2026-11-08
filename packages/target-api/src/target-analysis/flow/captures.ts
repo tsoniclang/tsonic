@@ -14,7 +14,7 @@ export function createSourceFlowCaptureQuery(source: TargetSourceProgram, step: 
     step(node);
     const existing = completed.get(node);
     if (existing !== undefined) return existing;
-    const selected = sourceLexicalEnvironment(node, [node], source.ast, source.navigation, domain, () => true, step);
+    const selected = sourceLexicalEnvironment(node, [node], source.ast, source.facts.navigation, domain, () => true, step);
     if (selected.kind === "unresolved") throw new SourceFlowFailure(selected.reason, node);
     const eager = new Set<Node>();
     forEachSourceImmediateEvaluationChild(source.ast, node, child => { step(child); eager.add(child); });

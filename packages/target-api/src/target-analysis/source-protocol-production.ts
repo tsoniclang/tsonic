@@ -11,6 +11,7 @@ import type { SourceMarkerFacts } from "./source-markers.js";
 import type { SourcePointerFacts } from "./source-pointers.js";
 import type { SourceAnalysisFacts, SourceDisposalAlternative, SourceResourceManagement } from "./source-protocols.js";
 import { createSourceStoragePlaceQueries } from "./source-storage/place.js";
+import type { SourceControlFlowQueries } from "./flow/model.js";
 
 export function createSourceAnalysisFacts(options: {
   readonly ast: AstReader;
@@ -24,11 +25,12 @@ export function createSourceAnalysisFacts(options: {
   readonly signature: (original: SourceInputSignature) => SourceSignatureIdentity;
   readonly solved: Pick<SourceAnalysisFacts, "iteration" | "generator" | "yield">;
   readonly pointers: SourcePointerFacts & SourceMarkerFacts;
+  readonly controlFlow: SourceControlFlowQueries;
   readonly unavailable: (node: Node, reason: string) => SourceRefusal;
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;
 }): SourceAnalysisFacts {
   const { ast, input, view, assertNode, values, navigation, memberPlace, inventory, signature,
-    solved, pointers, unavailable, settle } = options;
+    solved, pointers, controlFlow, unavailable, settle } = options;
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
   const present = <Value>(value: Value): SourcePresence<Value> => Object.freeze({ kind: "present", value });
   const none = Object.freeze({ kind: "none" } as const);
@@ -126,6 +128,7 @@ export function createSourceAnalysisFacts(options: {
       disposal: Object.freeze({ kind: "selected", alternatives: Object.freeze(alternatives) }) })));
   };
   const facts: SourceAnalysisFacts = Object.freeze({
+    controlFlow,
     iteration(occurrence) { assertNode(occurrence); return solved.iteration(occurrence); },
     generator(declaration) { assertNode(declaration); return solved.generator(declaration); },
     yield(occurrence) { assertNode(occurrence); return solved.yield(occurrence); },

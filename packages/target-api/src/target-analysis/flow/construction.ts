@@ -1,8 +1,10 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
 import type { SourceControlFlowGraph, SourceDeclarationFlowExecutionRegion, SourceFlowEdge, SourceFlowEdgeKind, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
-import { createSourceFlowBudget, SourceFlowFailure } from "./resources.js";
+import { createSourceFlowBudget, SourceFlowFailure, SourceFlowRefusal } from "./resources.js";
 
 export interface SourceFlowContext {
   readonly returnTo: number;
@@ -21,8 +23,10 @@ interface OpenPoint {
 
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
+  readonly literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain;
   readonly includes: (node: Node) => boolean;
   readonly initializeSuper: (next: number, context: SourceFlowContext) => number;
+  readonly switchCoversDiscriminant: (node: Node) => boolean;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
   readonly edge: (from: number, to: number, kind?: SourceFlowEdgeKind) => void;
@@ -121,18 +125,20 @@ export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaratio
   next: number, context: SourceFlowContext): SourceFlowCleanupScope {
   if (!build.includes(declaration)) return { next, context };
   build.step(declaration);
-  const checked = build.source.semantics.forNode(declaration).operations.resourceManagement(declaration);
+  const selected = build.source.facts.protocols.resourceManagement(declaration);
+  if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+  const resource = selected.value.kind === "present" ? selected.value.value : undefined;
   const declarationKind = build.source.ast.variableDeclarationKind(declaration);
-  if (checked === undefined || checked.declaration !== declaration || checked.declarationKind !== declarationKind) {
+  if (resource === undefined || resource.declaration !== declaration || resource.kind !== declarationKind) {
     throw new SourceFlowFailure("Source flow requires exact checked resource acquisition and cleanup evidence.", declaration);
   }
-  const asynchronous = checked.declarationKind === "await using";
+  const asynchronous = resource.kind === "await using";
   const routes = new Map<number, number>();
   const route = (destination: number): number => {
     const existing = routes.get(destination);
     if (existing !== undefined) return existing;
     const completion = asynchronous
-      ? build.emit(declaration, { kind: "await", awaitKind: "resource-cleanup", resource: checked }, destination, context, true, "resume")
+      ? build.emit(declaration, { kind: "await", awaitKind: "resource-cleanup", resource }, destination, context, true, "resume")
       : destination;
     const disposal = build.emit(declaration, { kind: "dispose", declaration, asynchronous }, completion, context, true);
     const branch = build.point(declaration, { kind: "branch" });

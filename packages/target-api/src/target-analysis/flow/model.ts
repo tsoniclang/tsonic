@@ -1,5 +1,7 @@
-import type { Node, ResolvedSourceResourceManagementInfo } from "@tsonic/tsts";
-import type { SourceBindingWriteValue } from "../../source-navigation/types.js";
+import type { Node } from "@tsonic/tsts";
+import type { SourceRefusal } from "../../public/source/contracts.js";
+import type { SourceNodeWriteValue } from "../../source-model/navigation.js";
+import type { SourceResourceManagement } from "../source-protocols.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -15,14 +17,14 @@ export type SourceFlowOperation =
       "evaluate" | "iteration" | "catch" | "yield" | "return" | "throw" }
   | { readonly kind: "await"; readonly awaitKind: "authored"; readonly value: Node | undefined }
   | { readonly kind: "await"; readonly awaitKind: "resource-cleanup";
-      readonly resource: ResolvedSourceResourceManagementInfo }
+      readonly resource: SourceResourceManagement }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
   | { readonly kind: "dispose"; readonly declaration: Node; readonly asynchronous: boolean }
-  | { readonly kind: "write-location"; readonly location: Node; readonly value: SourceBindingWriteValue }
+  | { readonly kind: "write-location"; readonly location: Node; readonly value: SourceNodeWriteValue }
   | { readonly kind: "write"; readonly binding: Node; readonly reference: Node; readonly initialization: boolean;
-      readonly value: SourceBindingWriteValue | undefined };
+      readonly value: SourceNodeWriteValue | undefined };
 
 export interface SourceFlowPoint {
   readonly id: number;
@@ -62,7 +64,8 @@ export interface SourceFlowUnresolved {
 
 export type SourceControlFlowSelection<Region = SourceDeclarationFlowExecutionRegion> =
   | { readonly kind: "resolved"; readonly graph: SourceControlFlowGraph<Region> }
-  | SourceFlowUnresolved;
+  | SourceFlowUnresolved
+  | SourceRefusal;
 
 export interface SourceFlowLimits {
   readonly maximumPoints: number;

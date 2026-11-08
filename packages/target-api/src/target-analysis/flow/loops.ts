@@ -74,15 +74,20 @@ function sourceFlowLoopBody(build: SourceFlowConstruction, node: Node, next: num
     throw new SourceFlowFailure("Source flow requires a complete checked loop.", node);
   }
   const incrementor = selected?.Incrementor;
-  const continuation = incrementor === undefined ? anchor : build.expression(incrementor, anchor, context);
-  const body = build.statement(statement, continuation, loopContext(continuation));
-  if (condition === undefined) build.edge(anchor, body);
+  let body: number | undefined;
+  const bodyEntry = (): number => {
+    if (body !== undefined) return body;
+    const continuation = incrementor === undefined ? anchor : build.expression(incrementor, anchor, context);
+    body = build.statement(statement, continuation, loopContext(continuation));
+    return body;
+  };
+  if (condition === undefined) build.edge(anchor, bodyEntry());
   else {
     const branch = build.point(node, { kind: "branch" });
-    sourceFlowBooleanEdges(build, branch, condition, body, next);
+    sourceFlowBooleanEdges(build, branch, condition, bodyEntry, () => next);
     build.edge(anchor, build.expression(condition, branch, context));
   }
-  if (ast.is.IsDoStatement(node)) return body;
+  if (ast.is.IsDoStatement(node)) return bodyEntry();
   const initializer = acquired ? undefined : selected?.Initializer;
   return initializer === undefined ? anchor : ast.is.IsVariableDeclarationList(initializer)
     ? build.statement(initializer, anchor, context) : build.expression(initializer, anchor, context);

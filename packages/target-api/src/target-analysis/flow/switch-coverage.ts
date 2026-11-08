@@ -1,48 +1,52 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node } from "@tsonic/tsts";
+import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
+import { sourceLiteralUnitsEqual, type SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { AsCaseBlock, AsCaseOrDefaultClause, AsSwitchStatement } from "../../source-navigation/checked-casts.js";
-import type { SourceFinalTypeQueries, TargetSourceProgram } from "../../source-semantics/types.js";
+import type { TargetSourceProgram } from "../../source-semantics/types.js";
 
-/**
- * Answers whether a switch statement without a default clause selects a case for every value its discriminant can
- * hold: the checked discriminant type is a union of literal unit types (string, number, bigint or boolean literals)
- * and every unit equals the checked type of some case expression. Anything else, including a discriminant with a
- * non-literal member, is not proven covered, so the switch keeps its normal fallthrough exit.
- */
-export function createSourceSwitchCoverage(source: TargetSourceProgram): (switchStatement: Node) => boolean {
+export function createSourceSwitchCoverage(source: TargetSourceProgram): (switchStatement: Node) => SourceResult<boolean> {
   const { ast } = source;
-  return (switchStatement) => {
+  const { navigation, values, descriptors } = source.facts;
+  const retained = new WeakMap<Node, SourceResult<boolean>>();
+  const resolved = (value: boolean): SourceResult<boolean> => Object.freeze({ kind: "resolved", value });
+  const units = (value: SourceTypeEvidence): readonly SourceLiteralUnit[] | undefined => {
+    descriptors.assertEvidence(value);
+    const selected: SourceLiteralUnit[] = [];
+    for (const arm of value.sum?.arms ?? [value]) {
+      descriptors.assertEvidence(arm);
+      const unit = descriptors.scalarLiteral(arm);
+      if (unit.kind === "none" || unit.value.kind === "absence" || unit.value.kind === "symbol") return undefined;
+      if (!selected.some(previous => sourceLiteralUnitsEqual(previous, unit.value))) selected.push(unit.value);
+    }
+    return Object.freeze(selected);
+  };
+  const produce = (switchStatement: Node): SourceResult<boolean> => {
     const statement = AsSwitchStatement(ast, switchStatement);
     const block = statement?.CaseBlock;
     const clauses = block === undefined ? undefined : AsCaseBlock(ast, block)?.Clauses?.Nodes;
-    if (statement?.Expression === undefined || clauses === undefined) return false;
-    const types = source.semantics.forNode(switchStatement).types;
-    const discriminant = types.expressionType(statement.Expression);
-    if (discriminant === undefined) return false;
-    const members = types.isUnion(discriminant) ? types.unionOrIntersectionTypes(discriminant) : [discriminant];
-    const required = new Set<string>();
-    for (const member of members) {
-      const key = literalUnitKey(types, member);
-      if (key === undefined) return false;
-      required.add(key);
-    }
+    if (statement?.Expression === undefined || clauses === undefined) return resolved(false);
+    const discriminant = values.type(statement.Expression);
+    if (discriminant.kind === "refused") return discriminant;
+    const required = units(discriminant.value);
+    if (required === undefined || required.length === 0) return resolved(false);
+    let remaining = [...required];
     for (const clause of clauses) {
-      if (clause === undefined || ast.is.IsDefaultClause(clause)) return false;
+      if (clause === undefined || ast.is.IsDefaultClause(clause)) return resolved(false);
       const expression = AsCaseOrDefaultClause(ast, clause)?.Expression;
-      const caseType = expression === undefined ? undefined : types.expressionType(expression);
-      const key = caseType === undefined ? undefined : literalUnitKey(types, caseType);
-      if (key !== undefined) required.delete(key);
+      if (expression === undefined) return resolved(false);
+      const selected = values.type(expression);
+      if (selected.kind === "refused") return selected;
+      const cases = units(selected.value);
+      if (cases?.length === 1) remaining = remaining.filter(unit => !sourceLiteralUnitsEqual(unit, cases[0]!));
     }
-    return required.size === 0;
+    return resolved(remaining.length === 0);
   };
-}
-
-function literalUnitKey(types: SourceFinalTypeQueries, type: Type): string | undefined {
-  const text = types.stringLiteralValue(type);
-  if (text !== undefined) return `string:${text}`;
-  const numeric = types.numericLiteralValue(type);
-  if (typeof numeric === "bigint") return `bigint:${numeric}`;
-  // Strict equality, which a case uses, does not distinguish 0 and -0.
-  if (numeric !== undefined) return `number:${numeric === 0 ? 0 : numeric}`;
-  const truth = types.booleanLiteralValue(type);
-  return truth === undefined ? undefined : `boolean:${truth}`;
+  return switchStatement => {
+    navigation.callableRoles(switchStatement);
+    const previous = retained.get(switchStatement);
+    if (previous !== undefined) return previous;
+    const selected = produce(switchStatement);
+    retained.set(switchStatement, selected);
+    return selected;
+  };
 }

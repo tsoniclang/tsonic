@@ -44,8 +44,10 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
       throw new SourceFlowFailure("Source flow requires a complete checked if statement.", node);
     }
     const branch = build.point(node, { kind: "branch" });
-    sourceFlowBooleanEdges(build, branch, selected.Expression, build.statement(selected.ThenStatement, next, context),
-      selected.ElseStatement === undefined ? next : build.statement(selected.ElseStatement, next, context));
+    const thenStatement = selected.ThenStatement;
+    const elseStatement = selected.ElseStatement;
+    sourceFlowBooleanEdges(build, branch, selected.Expression, () => build.statement(thenStatement, next, context),
+      () => elseStatement === undefined ? next : build.statement(elseStatement, next, context));
     return build.expression(selected.Expression, branch, context);
   }
   if (ast.is.IsReturnStatement(node) || ast.is.IsThrowStatement(node)) {
@@ -148,7 +150,11 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
     if (ast.is.IsDefaultClause(clause)) defaultEntry = entry;
   }
   const defaultPoint = build.point(node, { kind: "merge" });
-  build.edge(defaultPoint, defaultEntry, "default");
+  const hasDefault = clauses.some(clause => clause !== undefined && build.includes(clause) && ast.is.IsDefaultClause(clause));
+  const completeCases = clauses.every(clause => clause !== undefined && build.includes(clause) &&
+    (ast.is.IsDefaultClause(clause) || ast.as.AsCaseOrDefaultClause(clause)?.Expression !== undefined &&
+      build.includes(ast.as.AsCaseOrDefaultClause(clause)!.Expression!)));
+  if (hasDefault || !completeCases || !build.switchCoversDiscriminant(node)) build.edge(defaultPoint, defaultEntry, "default");
   entry = defaultPoint;
   for (let index = clauses.length - 1; index >= 0; index -= 1) {
     const clause = clauses[index];

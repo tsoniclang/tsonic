@@ -1,7 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
-import { sourceCallableRoles } from "../../source-navigation/callable-boundaries.js";
 import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
@@ -10,15 +11,18 @@ import { sourceDeclarationFlowEntry, type SourceFlowInitializer } from "./entry.
 import { sourceFlowExpression } from "./expressions.js";
 import type { SourceControlFlowQueries, SourceControlFlowSelectedDomain, SourceControlFlowSelection,
   SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "./model.js";
-import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
+import { SourceFlowFailure, SourceFlowRefusal, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
+import { createSourceSwitchCoverage } from "./switch-coverage.js";
 
-export function createSourceControlFlowQueries(source: TargetSourceProgram): SourceControlFlowQueries {
+export function createSourceControlFlowQueries(source: TargetSourceProgram,
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain): SourceControlFlowQueries {
   const domains = new WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>();
+  const switchCoverage = createSourceSwitchCoverage(source);
   return Object.freeze({
     domain: (nodes: readonly Node[]) => selectControlFlowDomain(source, nodes, domains),
     declaration: (declaration: Node, options: SourceDeclarationControlFlowOptions) =>
-      selectDeclarationControlFlow(source, declaration, options, domains),
+      selectDeclarationControlFlow(source, declaration, options, domains, switchCoverage, literalDomain),
   });
 }
 
@@ -37,6 +41,9 @@ function selectControlFlowDomain(source: TargetSourceProgram, nodes: readonly No
   const files = new Set<Node>(source.sourceFiles);
   const children = new Map<Node, ReadonlySet<Node>>();
   for (const node of selected.nodes) {
+    source.facts.navigation.callableRoles(node);
+    const file = source.ast.getSourceFile(node);
+    if (file === undefined || !files.has(file)) return fail("Source flow selected nodes must belong to the identical Source file domain.", node);
     const parent = source.ast.parent(node);
     if (parent === undefined) {
       if (!files.has(node)) return fail("Source flow selected nodes must belong to the identical checked source program.", node);
@@ -61,14 +68,16 @@ interface PatternContinuation {
 }
 
 function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
-  options: SourceDeclarationControlFlowOptions, domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>):
+  options: SourceDeclarationControlFlowOptions, domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>,
+  switchCoverage: ReturnType<typeof createSourceSwitchCoverage>,
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain):
   SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
   try {
     const { ast } = source;
     const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
     const file = ast.getSourceFile(declaration);
-    if (file === undefined || !source.sourceFiles.includes(file) || !source.navigation.isProjectDeclaration(declaration) ||
-      !sourceCallableRoles(ast, declaration).execution && !propertyRoot &&
+    if (file === undefined || !source.sourceFiles.includes(file) || !source.facts.navigation.isProjectDeclaration(declaration) ||
+      !source.facts.navigation.callableRoles(declaration).execution && !propertyRoot &&
       !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
@@ -131,7 +140,12 @@ function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: 
       const execution = selectedEntry.rootExecutions.get(node);
       return execution === undefined ? visit() : owner.withExecution(execution, visit);
     };
-    const build: SourceFlowConstruction = { source, includes,
+    const build: SourceFlowConstruction = { source, includes, literalDomain,
+      switchCoversDiscriminant: node => {
+        const selected = switchCoverage(node);
+        if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+        return selected.value;
+      },
       initializeSuper: (next, context) => initialize(superInitializers, next, context),
       captures: createSourceFlowCaptureQuery(source, owner.step, included),
       point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
@@ -179,7 +193,21 @@ function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: 
         : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
       const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
       const parameters = selectedEntry.parameters;
-      const receiver = implicit || propertyRoot || ast.is.IsSourceFile(declaration) ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+      let receiver: Node | undefined;
+      if (!implicit && !propertyRoot && !ast.is.IsSourceFile(declaration) && parameters.length !== 0) {
+        const slot = source.facts.values.declaredSlot(declaration);
+        if (slot.kind === "refused") throw new SourceFlowRefusal(slot);
+        const selected = source.facts.descriptors.definition(slot.value.type);
+        if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+        const type = selected.value.type;
+        const signatures = type.kind === "callable" || type.kind === "shape" ? type.calls : [];
+        const original = signatures.filter(signature => signature.identity.declaration === declaration);
+        if (original.length !== 1) throw new SourceFlowFailure("Declaration flow requires its exact original body signature, not an overload signature.", declaration);
+        receiver = original[0]!.receiver?.declaration;
+        const declared = new Set(original[0]!.parameters.flatMap(parameter => parameter.declaration === undefined ? [] : [parameter.declaration]));
+        if (parameters.some(parameter => parameter !== undefined && parameter !== receiver && !declared.has(parameter)))
+          throw new SourceFlowFailure("Declaration flow parameters require their exact original signature parameter declarations.", declaration);
+      }
       for (let index = parameters.length - 1; index >= 0; index -= 1) {
         const parameter = parameters[index];
         if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true, undefined);
@@ -191,6 +219,7 @@ function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: 
     build.edge(root, entry);
     return Object.freeze({ kind: "resolved", graph: owner.finish(root, exit, exceptionExit) });
   } catch (error) {
+    if (error instanceof SourceFlowRefusal) return error.refusal;
     if (!(error instanceof SourceFlowFailure)) throw error;
     return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source,
       ...(error.resource === undefined ? {} : { resource: error.resource }) });
