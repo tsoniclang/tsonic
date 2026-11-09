@@ -4,8 +4,8 @@ import type { SourceInputSafetyQueries, SourceInputSafetyReceipt } from "@tsonic
 import type { SourcePresence } from "@tsonic/target-api/source";
 import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
 import { selectInlineSourceMember } from "./selected-source-member.js";
-import { selectedProviderCallMatches, unwrapParenthesizedExpression } from "../analysis/source-call.js";
-import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
+import { selectedProviderCallMatches, unwrapParenthesizedExpression } from "./provider-calls.js";
+import type { SelectedProviderSourceCall } from "./provider-calls.js";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { pointerFlowOperand } from "../pointers/backing/source-forms.js";

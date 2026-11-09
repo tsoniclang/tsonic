@@ -1,9 +1,9 @@
 import type { ExtensionEvidence, Node, SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import { type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "./provider-calls.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
-import { tsonicCompileTimeProviderNames, tsonicCompileTimeSignatureIds } from "./declarations.js";
-import { tsonicCompileTimeFactKey, type TsonicCompileTimeFact } from "../host-input/compile-time-facts.js";
+import { tsonicCompileTimeProviderNames, tsonicCompileTimeSignatureIds } from "../compile-time/declarations.js";
+import { tsonicCompileTimeFactKey, type TsonicCompileTimeFact } from "./compile-time-facts.js";
 
 const compileTimeEvidence = Object.freeze<readonly ExtensionEvidence[]>([{
   message: "Target-neutral compile-time intent derived from one exact selected source-core call.",

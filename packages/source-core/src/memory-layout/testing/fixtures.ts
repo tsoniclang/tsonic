@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram, CompilerExtension, Node, SourceSemanticsModule } from "@tsonic/tsts";
 import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
-import { createTsonicCoreSourceExtension } from "../../extension/source-extension.js";
+import { createTsonicCoreSourceExtension } from "../../host-input/source-extension.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
 import type { TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";

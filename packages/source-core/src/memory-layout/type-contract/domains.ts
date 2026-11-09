@@ -1,7 +1,7 @@
 import { fieldFactKey, pointerFactKey, rawPointerFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { Node, SourcePrimitiveFact, Symbol, Type } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact } from "../../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
+import { readSourceFact } from "../../host-input/provider-calls.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import { memoryProviderFieldType } from "./provider-fields.js";
 import { tsonicFixedArrayFactKey } from "../../host-input/fixed-array-facts.js";

@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
-import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import type { SelectedProviderSourceCall } from "./provider-calls.js";
+import { unwrapParenthesizedExpression } from "./provider-calls.js";
 
 export function selectedAttributeInvocation(
   selected: SelectedProviderSourceCall,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, createCompilerSessionFromFiles, createSourceSemanticsExtension, defaultValueFactKey, fieldFactKey, flowStateFactKey, formatDiagnostics, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, sourcePrimitiveFactKey, structFactKey } from "@tsonic/tsts";
 import type { AstReader, CheckedSourceProgram, CompilerSession, ExtensionDiagnostic, ExtensionFactKey, ExtensionFactSubject, Node, ProviderDeclarationModel, ProviderModuleResolution, ReadonlySourceFactResolver, SourcePrimitiveFact, SourceFile } from "@tsonic/tsts";
 import { tsonicCoreLangModule, tsonicCoreTypesModule } from "../identity.js";
-import { createTsonicCoreSourceExtension } from "./source-extension.js";
+import { createTsonicCoreSourceExtension } from "../host-input/source-extension.js";
 import { tsonicAttributeBuilderFactKey } from "../host-input/attribute-facts.js";
 import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
 import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";

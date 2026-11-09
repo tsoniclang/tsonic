@@ -1,17 +1,17 @@
 import { sourceSemanticsExtensionId } from "@tsonic/tsts";
 import type { CompilerExtension } from "@tsonic/tsts";
-import { analyzeTsonicCompileTimeOperations } from "../compile-time/analysis.js";
+import { analyzeTsonicCompileTimeOperations } from "./compile-time-analysis.js";
 
-import { analyzeTsonicAttributeBuilders } from "../attributes/analysis.js";
+import { analyzeTsonicAttributeBuilders } from "./attribute-analysis.js";
 import { tsonicCoreNativePointerProviderNames } from "../pointers/provider-declarations.js";
-import { tsonicNativePointerOperationFactKey } from "../host-input/native-pointer-facts.js";
-import { analyzeNativePointerOperations } from "../pointers/operations.js";
-import { analyzeTsonicFixedArrayTypes } from "../fixed-arrays/analysis.js";
-import { analyzeTsonicSourceMarkerEvidence } from "../analysis/marker-evidence.js";
+import { tsonicNativePointerOperationFactKey } from "./native-pointer-facts.js";
+import { analyzeNativePointerOperations } from "./native-pointer-operations.js";
+import { analyzeTsonicFixedArrayTypes } from "./fixed-array-analysis.js";
+import { analyzeTsonicSourceMarkerEvidence } from "./marker-evidence.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 
-import { forEachTsonicSourceFile } from "../analysis/context.js";
-import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
+import { forEachTsonicSourceFile } from "./source-context.js";
+import { createTsonicCoreVirtualModulesProvider } from "../extension/virtual-modules.js";
 
 import { analyzeTsonicMemoryOperations } from "../memory-layout/analysis.js";
 

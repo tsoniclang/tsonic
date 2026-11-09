@@ -1,5 +1,5 @@
 import type { ExtensionFactKey, Node } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
+import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
 import type { TsonicRawMemoryOperationFact } from "../host-input/raw-memory-facts.js";

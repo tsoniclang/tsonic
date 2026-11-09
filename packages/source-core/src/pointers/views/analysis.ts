@@ -1,6 +1,6 @@
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { selectedProviderCallMatches } from "../../analysis/source-call.js";
-import type { SelectedProviderSourceCall } from "../../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
+import { selectedProviderCallMatches } from "../../host-input/provider-calls.js";
+import type { SelectedProviderSourceCall } from "../../host-input/provider-calls.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../../identity.js";
 import { tsonicPointerViewSignatureIds } from "./declarations.js";
 import { tsonicPointerViewFactKey } from "../../host-input/pointer-view-facts.js";

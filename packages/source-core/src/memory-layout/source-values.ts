@@ -1,8 +1,8 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { sourceIntegerLiteralValue } from "@tsonic/target-api/source";
 import type { Node, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import { readSourceFact, type SelectedProviderSourceCall } from "../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../host-input/provider-calls.js";
 import { readSourcePrimitiveAnnotation } from "../analysis/source-primitive.js";
 import { dataLayoutIdentityKey } from "./registrations.js";
 import { tsonicDataLayoutFactKey } from "../host-input/memory-layout-facts.js";

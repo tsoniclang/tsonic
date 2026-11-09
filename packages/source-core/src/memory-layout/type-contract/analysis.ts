@@ -1,7 +1,7 @@
 import { fieldFactKey } from "@tsonic/tsts";
 import type { Node, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../../host-input/provider-calls.js";
 import type { MemorySourceCall, MemoryTypeContracts } from "../analysis-model.js";
 import { publishMemoryFact } from "../analysis-context.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";

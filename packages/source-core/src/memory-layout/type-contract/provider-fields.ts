@@ -1,7 +1,7 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { Node, ProviderTypeExpression } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact } from "../../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
+import { readSourceFact } from "../../host-input/provider-calls.js";
 
 export function memoryProviderFieldType(
   context: TsonicSourceFileAnalysisContext,

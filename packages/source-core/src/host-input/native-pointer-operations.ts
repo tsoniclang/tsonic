@@ -5,19 +5,19 @@ import type {
 import {
   sourceNativePointerSignatureIds,
   type SourceNativePointerProviderNames,
-} from "./provider-declarations.js";
+} from "../pointers/provider-declarations.js";
 import type {
   TsonicNativePointerOperationFact,
-} from "../host-input/native-pointer-facts.js";
+} from "./native-pointer-facts.js";
 import type {
   TsonicSourceFileAnalysisContext,
-} from "../analysis/context.js";
+} from "./source-context.js";
 import {
   type ProviderSourceCallSelector,
   type SelectedProviderSourceCall,
   forEachSelectedProviderSourceCall,
   selectedProviderCallMatches,
-} from "../analysis/source-call.js";
+} from "./provider-calls.js";
 
 export interface NativePointerOperationAnalysisContract {
   readonly providerId: string;

@@ -1,6 +1,6 @@
 import type { ExtensionFactKey, Node, SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import { forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
+import { forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "../host-input/provider-calls.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { analyzeRawMemoryCall } from "../pointers/raw-memory/analysis.js";
 import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";

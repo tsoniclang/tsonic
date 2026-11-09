@@ -1,7 +1,7 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { ExtensionFactKey, ExtensionFactSubject, Node, ProviderVirtualDeclarationFact, ResolvedSourceCallInfo, SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "./context.js";
-import { forEachTsonicSourceFile } from "./context.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { forEachTsonicSourceFile } from "./source-context.js";
 
 export interface SelectedProviderSourceCall {
   readonly call: Node;

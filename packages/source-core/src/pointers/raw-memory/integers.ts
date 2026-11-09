@@ -1,4 +1,4 @@
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
 import type { TsonicDataLayoutFact } from "../../host-input/memory-layout-facts.js";
 import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
 import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "../../memory-layout/source-values.js";

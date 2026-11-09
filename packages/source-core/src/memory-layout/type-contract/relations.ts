@@ -1,5 +1,5 @@
 import type { Symbol } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
 import type { MemoryRecordMember, MemoryRecordShape, MemoryTypeDomain } from "./model.js";
 
 function correspondingMemoryMember(

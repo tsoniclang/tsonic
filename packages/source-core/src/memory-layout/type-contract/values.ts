@@ -1,7 +1,7 @@
 import { fieldFactKey, pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, Symbol } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/source-call.js";
+import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../../host-input/provider-calls.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
 import type { MemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./model.js";

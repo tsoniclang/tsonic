@@ -1,10 +1,10 @@
 import { sourceMarkerFactKey } from "@tsonic/tsts";
 import type { ExtensionEvidence, Node, SourceAnalysisContext } from "@tsonic/tsts";
-import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
+import { tsonicFixedArrayFactKey } from "./fixed-array-facts.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
-import { forEachTsonicSourceFile } from "../analysis/context.js";
-import { readSourceFact, visitPostOrder } from "../analysis/source-call.js";
-import { selectTsonicFixedArray } from "../host-input/fixed-array-selection.js";
+import { forEachTsonicSourceFile } from "./source-context.js";
+import { readSourceFact, visitPostOrder } from "./provider-calls.js";
+import { selectTsonicFixedArray } from "./fixed-array-selection.js";
 
 const fixedArrayEvidence = Object.freeze<readonly ExtensionEvidence[]>([{
   message: "source-core fixed-array type",

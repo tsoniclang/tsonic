@@ -223,6 +223,13 @@ test("shared packages expose only audience-owned public entrypoints", async () =
       ["packages/source-core/src/public/extension.ts", [
         "tsonicSafetyBuilderFactKey",
         "TsonicUnsafeContextFact",
+        "analyzeNativePointerOperations",
+        "NativePointerOperationAnalysisContract",
+        "forEachSelectedProviderSourceCall",
+        "selectedProviderCallMatches",
+        "ProviderSourceCallSelector",
+        "SelectedProviderSourceCall",
+        "TsonicSourceFileAnalysisContext",
       ]],
       ["packages/source-core/src/public/facts.ts", [
         "analyzeSafetyBuilderCalls",

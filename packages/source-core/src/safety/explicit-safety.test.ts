@@ -22,7 +22,7 @@ import {
   tsonicCoreLangModule,
   tsonicCoreTypesModule,
 } from "../identity.js";
-import { createTsonicCoreSourceExtension } from "../extension/source-extension.js";
+import { createTsonicCoreSourceExtension } from "../host-input/source-extension.js";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "../extension/virtual-modules.js";
 

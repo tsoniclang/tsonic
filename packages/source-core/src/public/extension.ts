@@ -1,14 +1,3 @@
-export { analyzeNativePointerOperations } from "../pointers/operations.js";
-export type { NativePointerOperationAnalysisContract } from "../pointers/operations.js";
-export {
-  forEachSelectedProviderSourceCall,
-  selectedProviderCallMatches,
-} from "../analysis/source-call.js";
-export type {
-  ProviderSourceCallSelector,
-  SelectedProviderSourceCall,
-} from "../analysis/source-call.js";
-export type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 export {
   nativePointerOperationProviderDeclarations,
   nativePointerProviderDeclaration,
@@ -30,7 +19,7 @@ export type {
   SourceSemanticsProviderDiagnosticIdentity,
   SourceSemanticsVirtualModuleProviderOptions,
 } from "../extension/semantics-virtual-modules.js";
-export type { TsonicCoreSourceExtensionOptions } from "../extension/source-extension.js";
+export type { TsonicCoreSourceExtensionOptions } from "../host-input/source-extension.js";
 export { memoryOperationDeclarations, memoryTypeDeclarations, tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "../memory-layout/declarations.js";
 export { pointerViewDeclaration, tsonicPointerViewSignatureIds } from "../pointers/views/declarations.js";
 export type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";

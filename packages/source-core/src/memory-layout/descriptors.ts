@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
+import { unwrapParenthesizedExpression } from "../host-input/provider-calls.js";
 import { memoryDiagnostic } from "./analysis-context.js";
 import type { MemorySourceCall } from "./analysis-model.js";
 

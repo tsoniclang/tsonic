@@ -1,13 +1,13 @@
 import { attributeFactKey } from "@tsonic/tsts";
 import type { SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import { tsonicAttributeBuilderFactKey } from "../host-input/attribute-facts.js";
-import type { TsonicAttributeApplicationMemberKind, TsonicAttributeBuilderFact, TsonicAttributeBuilderStateFact } from "../host-input/attribute-facts.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { tsonicAttributeBuilderFactKey } from "./attribute-facts.js";
+import type { TsonicAttributeApplicationMemberKind, TsonicAttributeBuilderFact, TsonicAttributeBuilderStateFact } from "./attribute-facts.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
-import { tsonicAttributeBuilderMemberIds, tsonicAttributeBuilderSignatureIds } from "./provider-declarations.js";
-import { type ProviderSourceCallSelector, type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, readSourceFact, selectedProviderCallMatches } from "../analysis/source-call.js";
-import { selectInlineSourceMember } from "../host-input/selected-source-member.js";
-import { selectedAttributeInvocation } from "./invocation.js";
+import { tsonicAttributeBuilderMemberIds, tsonicAttributeBuilderSignatureIds } from "../attributes/provider-declarations.js";
+import { type ProviderSourceCallSelector, type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, readSourceFact, selectedProviderCallMatches } from "./provider-calls.js";
+import { selectInlineSourceMember } from "./selected-source-member.js";
+import { selectedAttributeInvocation } from "./attribute-invocation.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";

@@ -1,9 +1,9 @@
 import { defaultValueFactKey, fieldFactKey } from "@tsonic/tsts";
 import type { ExtensionFactKey, SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "./context.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { tsonicSourceMarkerSignatureIds } from "../providers/declarations.js";
-import { type ProviderSourceCallSelector, type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, readSourceFact, selectedProviderCallMatches } from "./source-call.js";
+import { type ProviderSourceCallSelector, type SelectedProviderSourceCall, forEachSelectedProviderSourceCall, readSourceFact, selectedProviderCallMatches } from "./provider-calls.js";
 
 const sourceMarkerRules = Object.freeze([
   sourceMarkerRule(
