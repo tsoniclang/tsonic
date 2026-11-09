@@ -14,6 +14,8 @@ test("AC8 checks the current Host storage stages and type-only dependency graph"
     exclude: [".analysis", ".temp", ".test", ".tests", ".git", "bin", "dist", "node_modules", "obj", "target"],
   })].map(([path, text]) => [`${prefix}/${path}`, text]));
   const edges = buildTypeScriptModuleGraph(sources);
+  assert.equal(sources.size > 0 && edges.some(edge => edge.source.startsWith(`${prefix}/target-analysis/source-storage/`)), true,
+    "the live structural owner and its actual type/value graph precede the stage assertions");
   const findings = evaluateKeelStorageStages(sources, edges);
   assert.equal(findings.length === 0, true,
     findings.slice(0, 8).map(row => `${row.file}#${row.subject}: ${row.reason}`).join("\n"));

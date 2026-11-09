@@ -13,7 +13,7 @@ const scopedOwners = new Set([
 export function checkerImportFindings(source, file) {
   const ast = source.ast;
   const path = inputPath(ast, file);
-  if (path.startsWith("packages/host/src/host-input/") || path.startsWith("packages/source-core/src/host-input/")) return [];
+  if (path.startsWith("packages/host/src/ingress/") && !path.endsWith("/contract.ts") && !path.endsWith("/contract.d.ts")) return [];
   const findings = [];
   const forbidden = name => checkerNames.has(name) || /^ResolvedSource.*Info$/u.test(name ?? "");
   const visit = node => {
@@ -35,55 +35,95 @@ export function checkerImportFindings(source, file) {
   return findings;
 }
 
-export function moduleLifetimeFindings(source, file) {
+export function moduleLifetimeFindings(source, file, { immutableData = false } = {}) {
   const ast = source.ast;
-  const checker = source.getSourceFileQueries(file).checker;
-  const caches = new Map();
+  if (ast.isDeclarationFile(file)) return [];
   const findings = [];
+  const checker = source.getSourceFileQueries(file).checker;
+  const active = new Set();
+  const transparent = node => {
+    if (ast.is.IsParenthesizedExpression(node)) return ast.as.AsParenthesizedExpression(node).Expression;
+    if (ast.is.IsAsExpression(node)) return ast.as.AsAsExpression(node).Expression;
+    if (ast.is.IsSatisfiesExpression(node)) return ast.as.AsSatisfiesExpression(node).Expression;
+    if (ast.is.IsTypeAssertion(node)) return ast.as.AsTypeAssertion(node).Expression;
+    if (ast.is.IsNonNullExpression(node)) return ast.as.AsNonNullExpression(node).Expression;
+    return undefined;
+  };
+  const unwrap = original => {
+    let node = original;
+    for (let child = node === undefined ? undefined : transparent(node); child !== undefined; child = transparent(node)) node = child;
+    return node;
+  };
+  const invoked = node => {
+    let current = node;
+    while (ast.parent(current) !== undefined && transparent(ast.parent(current)) === current) current = ast.parent(current);
+    const parent = ast.parent(current);
+    return parent !== undefined && ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent).Expression === current;
+  };
   const moduleOwned = node => {
     for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
-      if (scopedOwners.has(ast.kindName(parent))) return false;
+      if (scopedOwners.has(ast.kindName(parent)) && !invoked(parent)) return false;
       if (ast.is.IsPropertyDeclaration(parent) && !ast.hasModifierKind(parent, "static")) return false;
     }
     return true;
+  };
+  const immutable = original => {
+    const node = unwrap(original);
+    if (node === undefined) return false;
+    const kind = ast.kindName(node);
+    if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindNumericLiteral", "KindBigIntLiteral",
+      "KindTrueKeyword", "KindFalseKeyword", "KindNullKeyword", "KindArrowFunction", "KindFunctionExpression"].includes(kind)) return true;
+    if (!immutableData && ast.is.IsIdentifier(node)) return true;
+    if (immutableData && ast.is.IsIdentifier(node)) {
+      const parent = ast.parent(node);
+      const symbol = ast.is.IsShorthandPropertyAssignment(parent)
+        ? checker.getLexicallyResolvedSymbol(node) : checker.getSymbolAtLocation(node);
+      if (symbol === undefined || active.has(symbol)) return false;
+      const declaration = checker.getSymbolValueDeclaration(symbol);
+      if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration)) return true;
+      if (declaration === undefined || !ast.is.IsVariableDeclaration(declaration) ||
+        ast.variableDeclarationKind(declaration) !== "const") return false;
+      active.add(symbol);
+      const result = immutable(ast.as.AsVariableDeclaration(declaration).Initializer);
+      active.delete(symbol);
+      return result;
+    }
+    if (!immutableData && ast.is.IsArrayLiteralExpression(node)) return ast.elements(node).every(immutable);
+    if (!immutableData && ast.is.IsObjectLiteralExpression(node)) return ast.properties(node).every(property =>
+      ast.is.IsPropertyAssignment(property) && immutable(ast.as.AsPropertyAssignment(property).Initializer));
+    if (ast.is.IsPrefixUnaryExpression(node)) return immutable(ast.as.AsPrefixUnaryExpression(node).Operand);
+    if (!ast.is.IsCallExpression(node)) return false;
+    const selected = ast.as.AsCallExpression(node);
+    if (!ast.is.IsPropertyAccessExpression(selected.Expression)) return false;
+    const callee = ast.as.AsPropertyAccessExpression(selected.Expression);
+    if (ast.text(callee.Expression) !== "Object" || ast.text(ast.name(selected.Expression)) !== "freeze") return false;
+    const arguments_ = ast.arguments(node);
+    if (arguments_.length !== 1) return false;
+    const value = unwrap(arguments_[0]);
+    if (ast.is.IsArrayLiteralExpression(value)) return ast.elements(value).every(immutable);
+    if (!ast.is.IsObjectLiteralExpression(value)) return immutable(value);
+    return ast.properties(value).every(property => ast.is.IsPropertyAssignment(property)
+      ? immutable(ast.as.AsPropertyAssignment(property).Initializer)
+      : ast.is.IsShorthandPropertyAssignment(property) && immutable(ast.name(property)));
   };
   const visit = node => {
     const declaration = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)
       : ast.is.IsPropertyDeclaration(node) && ast.hasModifierKind(node, "static") ? ast.as.AsPropertyDeclaration(node) : undefined;
     if (declaration !== undefined && moduleOwned(node)) {
+      for (let parent = node; parent !== undefined; parent = ast.parent(parent)) {
+        if (ast.hasModifierKind(parent, "ambient")) return;
+      }
       const initializer = declaration.Initializer;
       const name = ast.name(node);
-      if (initializer !== undefined && ast.is.IsNewExpression(initializer) && name !== undefined) {
-        const constructor = ast.as.AsNewExpression(initializer).Expression;
-        if (ast.is.IsIdentifier(constructor)) {
-          const kind = ast.text(constructor);
-          const symbol = checker.getSymbolAtLocation(name);
-          if (symbol !== undefined && ["WeakMap", "WeakSet", "Map", "Set"].includes(kind)) {
-            caches.set(symbol, { node, kind });
-            if (kind.startsWith("Weak")) findings.push(finding(ast, file, node, "module-owned-mutable-cache"));
-          }
-        }
+      const mutableBinding = immutableData && (ast.is.IsVariableDeclaration(node)
+        ? ast.variableDeclarationKind(node) !== "const" : !ast.hasModifierKind(node, "readonly"));
+      if (mutableBinding || initializer === undefined || !immutable(initializer)) {
+        findings.push(finding(ast, file, name ?? node, "module-owned-mutable-cache"));
       }
     }
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  const mutations = node => {
-    if (ast.is.IsCallExpression(node)) {
-      const callee = ast.as.AsCallExpression(node).Expression;
-      if (ast.is.IsPropertyAccessExpression(callee)) {
-        const access = ast.as.AsPropertyAccessExpression(callee);
-        const subject = ast.is.IsIdentifier(access.Expression) ? access.Expression
-          : ast.is.IsPropertyAccessExpression(access.Expression) ? ast.name(access.Expression) : undefined;
-        if (subject !== undefined && ["set", "add", "delete", "clear"].includes(ast.text(ast.name(callee)))) {
-          const owner = caches.get(checker.getSymbolAtLocation(subject));
-          if (owner !== undefined && !owner.kind.startsWith("Weak")) findings.push(finding(ast, file, node, "module-owned-mutable-cache"));
-        }
-      }
-    }
-    ast.forEachChild(node, child => { if (child !== undefined) mutations(child); });
-  };
-  mutations(file);
   return findings;
 }
 
@@ -167,5 +207,6 @@ function inputPath(ast, file) {
 
 function finding(ast, file, node, rule) {
   const range = ast.authoredRange(node);
-  return Object.freeze({ file: inputPath(ast, file), line: ast.getSourceText(file).slice(0, range.start).split("\n").length, rule });
+  return Object.freeze({ file: inputPath(ast, file), start: range.start,
+    line: ast.getSourceText(file).slice(0, range.start).split("\n").length, rule });
 }

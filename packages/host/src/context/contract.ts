@@ -32,11 +32,11 @@ type HasKind<Value> = Value extends unknown
   ? "kind" extends keyof Value ? true : false : never;
 
 export type QuestionRetention<Answer> =
-  [Answer] extends [never] ? never :
+  readonly [Answer] extends readonly [never] ? never :
   unknown extends Answer ? never :
   object extends Answer ? never :
-  [Answer] extends [{ readonly kind: infer Kind }]
-    ? [Kind] extends [string]
+  readonly [Answer] extends readonly [{ readonly kind: infer Kind }]
+    ? readonly [Kind] extends readonly [string]
       ? string extends Kind ? never : "completed-outcome"
       : never
     : true extends HasKind<Answer> ? never : "immutable";

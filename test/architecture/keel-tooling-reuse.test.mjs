@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
 import { evaluateArchitecture, evaluateModuleLayerDependencies } from "./tooling/architecture-rules.mjs";
 import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis } from "./tooling/module-graph.mjs";
 import { analyzeKeelTypeScript } from "./tooling/keel-source-analysis.mjs";
+
+test("canonical graph collection has no semantic product implementation-output prerequisite", () => {
+  const graph = readFileSync(new URL("./tooling/module-graph.mjs", import.meta.url), "utf8");
+  const result = buildTypeScriptModuleAnalysis(new Map([["tooling/module-graph.mjs", graph]]));
+  assert.equal(result.modules.length, 1);
+  assert.equal(result.edges.every(edge => !edge.specifier.includes("/dist/") && !edge.specifier.includes("packages/target-api")), true);
+  assert.deepEqual(result.edges.map(edge => edge.specifier).sort(), ["./typescript-source.mjs", "node:path"]);
+});
 
 test("shared graph extraction preserves authored import/export/dynamic-import edges and module kinds", () => {
   const sourceFiles = new Map([
