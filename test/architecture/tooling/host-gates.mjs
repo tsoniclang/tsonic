@@ -184,6 +184,8 @@ export const inspectHostStructure = input => {
   const rawSymbols = new Set();
   /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Symbol>} */
   const productionSymbols = new Set();
+  /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Symbol>} */
+  const mutableSymbols = new Set();
   /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Symbol, import("../../../packages/tsts/dist/src/index.js").Node>} */
   const aliases = new Map();
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
@@ -207,6 +209,115 @@ export const inspectHostStructure = input => {
     }
     return selected;
   };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const typeShape = node => {
+    const file = ast.getSourceFile(node);
+    if (file === undefined) throw new Error("An architecture type requires its original source file.");
+    return source.getSourceFileQueries(file).typeShape;
+  };
+  /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Node, import("../../../packages/tsts/dist/src/index.js").Node | undefined>} */
+  const mappedDeclarations = new Map();
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const mappedDeclaration = node => {
+    if (mappedDeclarations.has(node)) return mappedDeclarations.get(node);
+    if (ast.is.IsMappedTypeNode(node)) return node;
+    if (!ast.is.IsTypeReferenceNode(node) && !ast.is.IsImportTypeNode(node)) return undefined;
+    const queries = checker(node);
+    const type = typeShape(node).getTypeFromTypeNode(node);
+    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
+    const candidates = [...queries.getSymbolDeclarations(queries.getTypeSymbol(type)),
+      ...queries.getSymbolDeclarations(symbol(name)).map(candidate => ast.typeNode(candidate))];
+    const declaration = candidates.find(candidate => candidate !== undefined && ast.is.IsMappedTypeNode(candidate));
+    mappedDeclarations.set(node, declaration);
+    return declaration;
+  };
+  /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Node, boolean>} */
+  const mappedInputs = new Map();
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node @returns {boolean} */
+  const mappedInput = node => {
+    const cached = mappedInputs.get(node);
+    if (cached !== undefined) return cached;
+    let child = node;
+    let parent = ast.parent(child);
+    while (parent !== undefined) {
+      if (ast.is.IsTypeReferenceNode(parent) && ast.typeArguments(parent).includes(child) && mappedDeclaration(parent) !== undefined) {
+        let operand = child;
+        while (ast.is.IsParenthesizedTypeNode(operand)) {
+          const inner = ast.as.AsParenthesizedTypeNode(operand)?.Type;
+          if (inner === undefined) break;
+          operand = inner;
+        }
+        const name = ast.is.IsTypeReferenceNode(operand) ? ast.as.AsTypeReferenceNode(operand)?.TypeName : undefined;
+        let entity = node;
+        while (ast.parent(entity) !== undefined && ast.is.IsQualifiedName(ast.parent(entity))) entity = ast.parent(entity) ?? entity;
+        const transformed = node === operand || entity === name ||
+          ast.parent(node) === operand && (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsIndexSignatureDeclaration(node));
+        mappedInputs.set(node, transformed);
+        return transformed;
+      }
+      child = parent;
+      parent = ast.parent(parent);
+    }
+    mappedInputs.set(node, false);
+    return false;
+  };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const mappedKeySource = node => {
+    const mapped = ast.as.AsMappedTypeNode(node);
+    let constraint = mapped?.TypeParameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(mapped.TypeParameter)?.Constraint;
+    /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Node>} */
+    const active = new Set();
+    while (constraint !== undefined && !active.has(constraint)) {
+      active.add(constraint);
+      if (ast.is.IsParenthesizedTypeNode(constraint)) {
+        constraint = ast.as.AsParenthesizedTypeNode(constraint)?.Type;
+        continue;
+      }
+      if (ast.is.IsTypeOperatorNode(constraint))
+        return ast.operatorKindName(constraint) === "KindKeyOfKeyword" ? ast.as.AsTypeOperatorNode(constraint)?.Type : undefined;
+      const name = ast.is.IsTypeReferenceNode(constraint) ? ast.as.AsTypeReferenceNode(constraint)?.TypeName : undefined;
+      const selected = symbol(name);
+      const declaration = selected === undefined ? undefined : aliases.get(selected);
+      constraint = declaration !== undefined && ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+    }
+    return undefined;
+  };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const mutableMapped = node => {
+    const shape = typeShape(node);
+    const queries = checker(node);
+    /** @param {import("../../../packages/tsts/dist/src/index.js").Type | undefined} type */
+    const parameter = type => queries.getSymbolDeclarations(queries.getTypeSymbol(type))
+      .some(declaration => declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration));
+    const input = ast.is.IsMappedTypeNode(node) ? mappedKeySource(node) : undefined;
+    if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)) ||
+      ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
+    /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Type>} */
+    const active = new Set();
+    /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Type, boolean>} */
+    const completed = new Map();
+    /** @param {import("../../../packages/tsts/dist/src/index.js").Type | undefined} type @returns {boolean} */
+    const visit = type => {
+      if (type === undefined || active.has(type) || parameter(type)) return false;
+      const cached = completed.get(type);
+      if (cached !== undefined) return cached;
+      if (shape.isStringLike(type) || shape.isNumberLike(type) || shape.isBooleanLike(type) ||
+        shape.isBigIntLike(type) || shape.isSymbolLike(type) || shape.isNullish(type)) return false;
+      active.add(type);
+      const mutable = shape.isUnion(type) || shape.isIntersection(type)
+        ? shape.getUnionOrIntersectionTypes(type).some(visit)
+        : shape.getPropertyInfos(type).some(property => {
+          const declarations = property.rootSymbols.flatMap(root => queries.getSymbolDeclarations(root));
+          const method = declarations.length > 0 && declarations.every(declaration => declaration !== undefined &&
+            (ast.is.IsMethodSignatureDeclaration(declaration) || ast.is.IsMethodDeclaration(declaration)));
+          return !method && (!property.readonly || visit(property.type));
+        }) || shape.getIndexInfos(type).some(index => !index.readonly || visit(index.valueType));
+      active.delete(type);
+      completed.set(type, mutable);
+      return mutable;
+    };
+    return visit(shape.getTypeFromTypeNode(node));
+  };
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} original @returns {boolean} */
   const readonlySequence = original => {
     let parent = ast.parent(original);
@@ -221,13 +332,7 @@ export const inspectHostStructure = input => {
     return false;
   };
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
-  const mutableData = node => {
-    if (ast.is.IsSetAccessorDeclaration(node)) return true;
-    if (ast.is.IsMappedTypeNode(node))
-      return ast.kindName(ast.as.AsMappedTypeNode(node)?.ReadonlyToken) === "KindMinusToken";
-    if (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsIndexSignatureDeclaration(node))
-      return !ast.hasModifierKind(node, "readonly");
-    if (ast.is.IsArrayTypeNode(node) || ast.is.IsTupleTypeNode(node)) return !readonlySequence(node);
+  const mutableCollection = node => {
     const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
       : ast.is.IsExpressionWithTypeArguments(node) ? ast.as.AsExpressionWithTypeArguments(node)?.Expression : undefined;
     const terminal = name !== undefined && ast.is.IsQualifiedName(name) ? ast.as.AsQualifiedName(name)?.Right
@@ -237,6 +342,24 @@ export const inspectHostStructure = input => {
     const declaration = symbol(name);
     if (declaration !== undefined && checker(node).getSymbolDeclarations(declaration).length > 0) return false;
     return text !== "Array" || !readonlySequence(node);
+  };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const mutableData = node => {
+    if (mutableCollection(node)) return true;
+    if (mappedInput(node)) return false;
+    if (ast.is.IsSetAccessorDeclaration(node)) return true;
+    const mapped = mappedDeclaration(node);
+    if (mapped !== undefined) {
+      const original = ast.as.AsMappedTypeNode(mapped);
+      const modifier = ast.kindName(original?.ReadonlyToken);
+      if (modifier === "KindMinusToken") return true;
+      if (mutableMapped(node)) return true;
+      if (ast.is.IsMappedTypeNode(node) && original?.ReadonlyToken === undefined) return mappedKeySource(node) === undefined;
+      return false;
+    }
+    if (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsIndexSignatureDeclaration(node))
+      return !ast.hasModifierKind(node, "readonly");
+    return (ast.is.IsArrayTypeNode(node) || ast.is.IsTupleTypeNode(node)) && !readonlySequence(node);
   };
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
@@ -274,17 +397,19 @@ export const inspectHostStructure = input => {
     };
     collect(node);
   }
-  for (let previous = -1; previous !== rawSymbols.size + productionSymbols.size;) {
-    previous = rawSymbols.size + productionSymbols.size;
+  for (let previous = -1; previous !== rawSymbols.size + productionSymbols.size + mutableSymbols.size;) {
+    previous = rawSymbols.size + productionSymbols.size + mutableSymbols.size;
     for (const [selected, node] of aliases) {
-      let raw = false, production = false;
+      let raw = false, production = false, mutable = false;
       /** @param {import("../../../packages/tsts/dist/src/index.js").Node | undefined} current */
       const visit = current => {
         if (current === undefined) return;
         const reference = symbol(current);
         if (ast.is.IsIdentifier(current) && reference !== undefined && rawSymbols.has(reference)) raw = true;
         if (ast.is.IsIdentifier(current) && reference !== undefined && productionSymbols.has(reference)) production = true;
-        if (productionMember(current) || mutableData(current)) production = true;
+        if (productionMember(current)) production = true;
+        if (mutableData(current) || ast.is.IsIdentifier(current) && reference !== undefined &&
+          mutableSymbols.has(reference) && !mappedInput(current)) mutable = true;
         ast.forEachChild(current, visit);
       };
       const type = ast.typeNode(node);
@@ -292,6 +417,7 @@ export const inspectHostStructure = input => {
       else ast.forEachChild(node, visit);
       if (raw) rawSymbols.add(selected);
       if (production) productionSymbols.add(selected);
+      if (mutable) mutableSymbols.add(selected);
     }
   }
 
@@ -335,7 +461,8 @@ export const inspectHostStructure = input => {
       if (ast.is.IsIdentifier(current) && typeReference &&
         reference !== undefined && rawSymbols.has(reference) && !rawAllowed)
         add("ingress-checker", file, current, "Raw checker capability, including an alias, is confined to Ingress implementation.");
-      if (publication && reference !== undefined && productionSymbols.has(reference) && typeReference)
+      if (publication && reference !== undefined && typeReference &&
+        (productionSymbols.has(reference) || mutableSymbols.has(reference) && !mappedInput(current)))
         add("read-only-publication", file, current, "Publication cannot reach production authority through an imported or aliased contract.");
       const name = ast.name(current);
       if (name !== undefined && (ast.is.IsPropertySignatureDeclaration(current) || ast.is.IsMethodSignatureDeclaration(current) ||
@@ -344,7 +471,10 @@ export const inspectHostStructure = input => {
         if (text !== undefined && retiredMembers.includes(text)) add("retired-api", file, current, "A retired handler or semantic accessor cannot be reintroduced.");
         if (publication && productionMember(current)) add("read-only-publication", file, current, "Publication exposes answers, never production or mutable program authority.");
       }
-      if (isContract && mutableData(current)) {
+      const mappedName = ast.is.IsTypeReferenceNode(current) ? ast.as.AsTypeReferenceNode(current)?.TypeName : undefined;
+      const mappedSymbol = mappedName === undefined ? undefined : symbol(mappedName);
+      const inheritedMutable = mappedSymbol !== undefined && mutableSymbols.has(mappedSymbol) && mappedDeclaration(current) !== undefined;
+      if (isContract && !inheritedMutable && mutableData(current)) {
         add("contract-closure", file, current, "Every reachable contract data member and collection must be immutable.");
         if (publication)
           add("read-only-publication", file, current, "Publication cannot expose mutable data through a readonly binding.");

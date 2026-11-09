@@ -381,6 +381,104 @@ test("mapped readonly removal and every setter use the same transitive mutable-d
   `]], []);
 });
 
+test("default mapped members are mutable unless the actual homomorphic input property is readonly", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  for (const declarations of [
+    'export type Writable = { [Key in "value"]: number };',
+    'export type Keys = "value"; export type Writable = { [Key in Keys]: number };',
+    'export type Mapped<Keys extends string> = { [Key in Keys]: number }; export type Writable = Mapped<"value">;',
+    'export type Copy<Value> = { [Key in keyof Value]: Value[Key] }; export type Writable = Copy<{ value: number }>;',
+    'export type Copy<Value> = { [Key in keyof Value]: Value[Key] }; export type Alias<Value> = Copy<Value>; export type Writable = Alias<{ readonly left: number; right: number }>;',
+    'export type Copy<Value> = { [Key in keyof Value]: Value[Key] }; export type Writable = Copy<{ [key: string]: number }>;',
+  ]) expect([[model, declarations],
+    [publication, 'import type { Writable } from "../model/contract.js"; export interface View { readonly data: Writable; }']],
+  ["contract-closure", "read-only-publication"]);
+  expect([[publication, 'export interface View { readonly data: { [Key in "value"]: number }; }']],
+    ["contract-closure", "read-only-publication"]);
+  expect([[model, 'export type Writable = { [Key in keyof { readonly left: number; right: number }]: number };'],
+    [publication, 'import type { Writable } from "../model/contract.js"; export interface View { readonly data: Writable; }']],
+  ["contract-closure", "contract-closure", "read-only-publication"]);
+});
+
+test("mapped readonly inheritance uses actual aliased and generic inputs without removing producer authority", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  const declarations = `
+    export type Copy<Value> = { [Key in keyof Value]: Value[Key] };
+    export type Keys<Value> = keyof Value;
+    export type ThroughKeys<Value> = { [Key in Keys<Value>]: Value[Key] };
+    export type Parenthesized<Value> = { [Key in (keyof Value)]: Value[Key] };
+    export type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    export type Partial<Value> = { [Key in keyof Value]?: Value[Key] };
+    export interface Input { readonly value: number; readonly label: string; }
+    export type InputAlias = Input;
+    export type Inherited = Copy<InputAlias>;
+    export type KeyAliasInherited = ThroughKeys<InputAlias>;
+    export type Concrete = { [Key in keyof InputAlias]: InputAlias[Key] };
+    export type ReadonlyInput = Readonly<{ value: number; label: string }>;
+    export type PartialReadonly = Partial<Readonly<{ value: number; label: string }>>;
+    export type Generic<Value> = Copy<Readonly<Value>>;
+    export type Applied = Generic<{ value: number }>;
+    export type ReadonlyTuple = Readonly<[number, string]>;
+    export type ReadonlyIndex = Readonly<{ [key: string]: number }>;
+    export type Query = Copy<{ read(): number }>;
+    export interface Shared { readonly value: number; }
+    export interface Recursive { readonly next?: Recursive; readonly first: Shared; readonly second: Shared; }
+    export type RecursiveCopy = Copy<Recursive>;
+    export type UnionCopy = Copy<InputAlias | { readonly other: boolean }>;
+    export type ParenthesizedCopy = Parenthesized<InputAlias>;
+  `;
+  expect([[model, declarations], [publication, `
+    import type { Inherited, KeyAliasInherited, Concrete, ReadonlyInput, PartialReadonly, Applied, ReadonlyTuple,
+      ReadonlyIndex, Query, RecursiveCopy, UnionCopy, ParenthesizedCopy } from "../model/contract.js";
+    export interface View {
+      readonly inherited: Inherited; readonly keyAlias: KeyAliasInherited; readonly concrete: Concrete; readonly plain: ReadonlyInput;
+      readonly partial: PartialReadonly; readonly applied: Applied; readonly tuple: ReadonlyTuple;
+      readonly index: ReadonlyIndex; readonly query: Query; readonly recursive: RecursiveCopy;
+      readonly union: UnionCopy; readonly parenthesized: ParenthesizedCopy;
+    }
+  `]], []);
+  expect([[model, declarations], [publication, `
+    import type { Copy, Readonly, Partial } from "../model/contract.js";
+    export interface View {
+      readonly inherited: Copy<({ readonly value: number })>;
+      readonly plain: Readonly<{ value: number }>;
+      readonly partial: Partial<Readonly<{ value: number }>>;
+    }
+  `]], []);
+  expect([[model, `
+    export type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    export interface Authority { seed(value: number): void; }
+  `], [publication, `
+    import type { Readonly, Authority } from "../model/contract.js";
+    export interface View { readonly authority: Readonly<Authority>; }
+  `]], ["read-only-publication"]);
+  expect([[model, declarations], [publication, `
+    import type { Readonly } from "../model/contract.js";
+    export interface View { readonly data: Readonly<Map<string, number>>; }
+  `]], ["contract-closure", "read-only-publication"]);
+  for (const value of ["{ readonly child: { value: number } }", "{ readonly values: number[] }"])
+    fixture(new Map([[model, declarations], [publication, `
+      import type { Readonly } from "../model/contract.js";
+      export interface View { readonly data: Readonly<${value}>; }
+    `]]), input => {
+      const rows = inspectHostStructure(input);
+      assert.deepEqual([...new Set(rows.map(row => row.gate))].sort(), ["contract-closure", "read-only-publication"],
+        "a shallow mapped readonly modifier cannot erase a nested writable member or sequence");
+      assert.equal(rows.every(row => row.file === publication), true);
+    });
+});
+
+test("ordinary generic unknown and object constraints are type bounds rather than opaque contract payloads", () => {
+  expect([[model, `
+    export interface UnknownBound<Value extends unknown> { readonly value: Value; }
+    export interface ObjectBound<Value extends object> { readonly value: Value; }
+    export type UnknownAlias<Value extends unknown> = { readonly value: Value };
+    export type ObjectAlias<Value extends object> = { readonly value: Value };
+  `]], []);
+  expect([[model, "export interface Opaque { readonly value: unknown; readonly object: object; }"]],
+    ["contract-closure", "contract-closure"]);
+});
+
 test("retired package entries and semantic accessors are rejected rather than aliased", () => {
   for (const name of ["@tsonic/target-api", "@tsonic/target-api/source", "@tsonic/source-core/facts", "@tsonic/js-source-profile"])
     expect([["packages/host/src/objects/value.ts", `import type { Facts } from "${name}";`]], ["retired-api"]);

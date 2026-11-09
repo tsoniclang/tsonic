@@ -233,6 +233,66 @@ test("real typed readonly Publication data rejects mutation while mutable aliase
     assert.equal(authority.kind, "failed");
     assert.match(authority.log, /contract-closure/u);
     assert.match(authority.log, /read-only-publication/u);
+    writeFileSync(resolve(input.root, model), `
+      export type Copy<Value> = { [Key in keyof Value]: Value[Key] };
+      export type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };
+      export type Partial<Value> = { [Key in keyof Value]?: Value[Key] };
+      export interface Input { readonly value: number; }
+      export type Alias = Input;
+      export type Generic<Value> = Copy<Readonly<Value>>;
+      export type UnknownBound<Value extends unknown> = { readonly value: Value };
+      export type ObjectBound<Value extends object> = { readonly value: Value };
+    `);
+    writeFileSync(resolve(input.root, publication), `
+      import type { Copy, Readonly, Partial, Alias, Generic, UnknownBound, ObjectBound } from "../model/contract.js";
+      export interface Published {
+        readonly copied: Copy<Alias>;
+        readonly locked: Readonly<{ value: number }>;
+        readonly partial: Partial<Readonly<{ value: number }>>;
+        readonly generic: Generic<{ value: number }>;
+        readonly unknownBound: UnknownBound<number>;
+        readonly objectBound: ObjectBound<{ readonly value: number }>;
+      }
+    `);
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function read(view: Published): number {
+        return view.copied.value + view.locked.value + (view.partial.value ?? 0) + view.generic.value +
+          view.unknownBound.value + view.objectBound.value.value;
+      }
+    `);
+    const inherited = check();
+    assert.equal(inherited.status, 0, inherited.log.slice(0, 4096));
+    const readonlyMapped = await compileHostModuleInIsolation(request);
+    assert.equal(readonlyMapped.kind, "passed", readonlyMapped.log.slice(0, 4096));
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function mutate(view: Published): void {
+        view.copied.value = 1; view.locked.value = 2; view.partial.value = 3; view.generic.value = 4;
+      }
+    `);
+    const inheritedMutation = check();
+    assert.equal(inheritedMutation.status, 1, inheritedMutation.log.slice(0, 4096));
+    assert.deepEqual([...inheritedMutation.log.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+      [2540, 2540, 2540, 2540], inheritedMutation.log.slice(0, 4096));
+    writeFileSync(resolve(input.root, model), `
+      export type Copy<Value> = { [Key in keyof Value]: Value[Key] };
+      export type Writable = { [Key in "value"]: number };
+    `);
+    writeFileSync(resolve(input.root, publication), `
+      import type { Copy, Writable } from "../model/contract.js";
+      export interface Published { readonly data: Writable; readonly copied: Copy<{ value: number }>; }
+    `);
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function mutate(view: Published): void { view.data.value = 1; view.copied.value = 2; }
+    `);
+    const defaultMutable = check();
+    assert.equal(defaultMutable.status, 0, defaultMutable.log.slice(0, 4096));
+    const defaultAuthority = await compileHostModuleInIsolation(request);
+    assert.equal(defaultAuthority.kind, "failed");
+    assert.match(defaultAuthority.log, /contract-closure/u);
+    assert.match(defaultAuthority.log, /read-only-publication/u);
   });
 });
 
