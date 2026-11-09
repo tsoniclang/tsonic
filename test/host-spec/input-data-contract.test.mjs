@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const port = resolve(repository, model, "contract.ts");
 const compiler = resolve(repository, "node_modules/.bin/tsgo");
 const strict = ["--ignoreConfig", "--strict", "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes",
   "--skipLibCheck", "false", "--noEmitOnError", "--module", "nodenext", "--target", "es2020", "--types", "node"];
+let compilerCalls = 0;
 
 const expected = Object.freeze([
   [
@@ -630,6 +632,10 @@ function compile(argumentsToAdd) {
   const result = spawnSync(compiler, [...strict, ...argumentsToAdd], {
     cwd: repository, encoding: "utf8", timeout: 45_000, maxBuffer: 1_048_576,
   });
+  compilerCalls += 1;
+  writeFileSync(resolve(repository, ".temp/input-data-compiler-" + process.pid + "-" + compilerCalls + ".log"),
+    JSON.stringify({arguments:argumentsToAdd,status:result.status,signal:result.signal}) + "\n"
+      + result.stdout + result.stderr, "utf8");
   assert.equal(result.error === undefined && result.signal === null, true, "strict pinned compiler terminated");
   assert.equal(result.stderr, "", "no compiler launcher or internal error");
   return result;
@@ -864,6 +870,7 @@ test("the whole actual Model owner including unchanged pure algebra isolates aga
     sourceFiles.map(file => basename(file)).sort(),Object.is,"complete actual Model production domain");
   const result = await compileHostModuleInIsolation({root:repository,module:"model",sourceFiles,
     dependencyContracts:[],outputDirectory:".temp/input-data-model-isolation"});
+  await writeFile(resolve(repository,".temp/input-data-isolation-" + process.pid + ".log"),result.log,"utf8");
   assert.equal(result.kind,"passed",result.log.slice(-16_384));
   assert.equal((result.log.match(/strict compiler exit=0/gu) ?? []).length,1,
     "the actual whole independent owner compiled, not a fake dependency check");
