@@ -12,15 +12,20 @@ function findings(text, file = "packages/target-api/src/source-semantics/example
 
 test("checker vocabulary belongs only to the actual Host input adapter, not merely a similarly named directory", () => {
   const text = 'import type { Type as Input, CheckedSourceProgram } from "@tsonic/tsts";';
-  for (const file of ["packages/host/src/host-input/reader.ts", "packages/source-core/src/host-input/reader.ts"]) assert.deepEqual(findings(text, file), []);
-  for (const file of ["packages/target-api/src/host-input/reader.ts", "packages/target-api/src/source-semantics/host-input/reader.ts", "packages/source-core/src/reader.ts", "src/host-input/reader.ts"]) {
+  assert.deepEqual(findings(text, "packages/host/src/ingress/reader.ts"), []);
+  for (const file of ["packages/host/src/host-input/reader.ts", "packages/source-core/src/host-input/reader.ts",
+    "packages/host/src/ingress/contract.ts", "packages/target-api/src/host-input/reader.ts",
+    "packages/target-api/src/source-semantics/host-input/reader.ts", "packages/source-core/src/reader.ts", "src/host-input/reader.ts"]) {
     assert.equal(findings(text, file).some(row => row.rule === "checker-type-or-query-import"), true, file);
   }
 });
 
-test("module-owned WeakMap/WeakSet and mutated Map/Set caches cannot hold per-program Source identities", () => {
+test("module-owned collections cannot hold per-program Source identities, including unmutated generic collections", () => {
   for (const text of ["const cache = new WeakMap();", "export const identities = new WeakSet();",
     "const cache = new WeakMap<object, number>();", "export const identities = new WeakSet<object>();",
+    "const cache = new Map<object, number>();", "const cache = new Set<object>();",
+    "const cache = Object.freeze(new Map<object, number>());", "const cache = { nested: new WeakSet<object>() };",
+    "const retained = (() => { const cache = new WeakMap<object, number>(); return value => cache.get(value); })();",
     "const cache = new Map(); export function retain(node) { cache.set(node, 1); }",
     "const cache = new Map<object, number>(); export function retain(node) { cache.set(node, 1); }",
     "const cache = new Set(); export function retain(node) { cache.add(node); }",
@@ -54,21 +59,41 @@ test("checker import types and reexports obey the same original module boundary 
 
 test("one per-view factory and immutable metadata do not become module ownership violations", () => {
   assert.deepEqual(findings(`
-    const labels = new Map([["kind", "value"]]);
+    const labels = Object.freeze({ kind: "value", nested: Object.freeze(["first", "second"]) });
     export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
     function unrelated() { const labels = new Map(); labels.set("local", 1); }
     class View { cache = new WeakMap(); retain(node) { this.cache.set(node, 1); } }
+    class InitializedView { cache = (() => { const cache = new WeakMap(); return cache; })(); }
     class PrivateView { #cache = new WeakSet<object>(); retain(node) { this.#cache.add(node); } }
-    class Metadata { static labels = new Map([["kind", "value"]]); }
+    class Metadata { static labels = Object.freeze(["kind", "value"]); }
     export function createClassView() {
       return class View { static cache = new WeakMap(); static retain(node) { this.cache.set(node, 1); } };
     }
   `), []);
 });
 
+test("the canonical lifetime AST rule preserves transparent immutable data and rejects malformed freeze ownership", () => {
+  assert.deepEqual(findings("const primitiveValues = [1, 2];"), []);
+  for (const expression of [
+    'Object.freeze(({ kind: "fact" }))',
+    'Object.freeze({ kind: "fact" } as const)',
+    'Object.freeze({ kind: "fact" } satisfies { readonly kind: string })',
+    'Object.freeze(<{ readonly kind: string }>{ kind: "fact" })',
+    'Object.freeze({ kind: "fact" }!)',
+    'Object.freeze(-1)', 'Object.freeze(true)', 'Object.freeze(null)',
+    'Object.freeze([1n, false, `fact`, () => 1, function read() { return 2; }])',
+  ]) assert.deepEqual(findings(`const facts = ${expression};`), []);
+  for (const expression of ["Object.freeze()", "Object.freeze({}, {})", "Object.freeze(new Map())",
+    "freeze({})", "Custom.freeze({})", "Object.other({})"])
+    assert.equal(findings(`const facts = ${expression};`).filter(row => row.rule === "module-owned-mutable-cache").length, 1);
+  assert.equal(findings("let current; const nested = { action() { return 1; } };").some(row => row.rule === "module-owned-mutable-cache"), true);
+});
+
 test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
   assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
     message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);
+  assert.deepEqual(findings(`function forward(refusal) { return { "code": refusal.code, "source": "tsonic",
+    "message": refusal.message, "sourceNode": refusal.site, 0: "native" }; }`, "src/analysis/program/source-facts.ts"), []);
   for (const text of [
     'const issue = { code: "TSONIC_LOCAL_TYPE_NEW", source: "tsonic", message: "new", sourceNode: node };',
     'function forward(refusal) { return { code: refusal.code, source: "tsonic", message: "changed", sourceNode: refusal.site }; }',
@@ -84,6 +109,11 @@ test("Native-owned failures and the exact resource infrastructure code stay inde
 });
 
 test("Native follows demand dispositions without comparing Host refusal codes", () => {
+  for (const expression of ['("TSONIC_SOURCE_FORM_UNSUPPORTED")', '"TSONIC_SOURCE_FORM_UNSUPPORTED" as const',
+    '<string>"TSONIC_SOURCE_FORM_UNSUPPORTED"', '"TSONIC_SOURCE_FORM_UNSUPPORTED" satisfies string',
+    '"TSONIC_SOURCE_FORM_UNSUPPORTED"!'])
+    assert.equal(findings(`const code = ${expression}; if (refusal.code === code) reject();`, "src/analysis/native-operands.ts")
+      .some(row => row.rule === "native-source-code-comparison"), true, expression);
   for (const text of [
     'if (source.disposition !== "false" || source.whenTrue.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
     'if (source.disposition !== "true" || source.whenFalse.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
