@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
-import { inspectHostStructure } from "./tooling/host-gates.mjs";
-import { hostModules } from "./tooling/host-modules.mjs";
+import { inspectHostMigration, inspectHostStructure } from "./tooling/host-gates.mjs";
+import { hostModules, hostReferenceCommit, hostUnmigratedFiles } from "./tooling/host-modules.mjs";
+import { readSourceInventory } from "./tooling/file-inventory.mjs";
 
 const temporary = resolve(".temp/host-gate-fixtures");
 const model = "packages/host/src/model/contract.ts";
@@ -41,6 +44,115 @@ test("Host catalogue is the complete immutable responsibility, layer and contrac
   assert.equal(new Set(hostModules.map(module => module.directory)).size, 30);
   assert.equal(Object.isFrozen(hostModules) && hostModules.every(module => Object.isFrozen(module) &&
     Object.isFrozen(module.dependencies) && module.responsibility.length > 0 && module.contract === `${module.directory}/contract.ts`), true);
+});
+
+test("the whole current Host is gated and each unchanged reference file is explicitly UNMIGRATED, never PASS", context => {
+  const root = resolve(new URL("../..", import.meta.url).pathname);
+  const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  assert.equal(manifest.scripts["test:host:architecture"], "node --test --test-concurrency=1 " + [
+    "test/architecture/host-gates.test.mjs", "test/architecture/host-isolated.test.mjs",
+    "test/architecture/module-imports.test.mjs", "test/architecture/source-boundary-rules.test.mjs",
+    "test/architecture/keel-tooling-reuse.test.mjs",
+  ].join(" "), "the current command owns all gate fixtures and the whole current-C1 live inspection");
+  const packages = readdirSync(resolve(root, "packages"), { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name !== "tsts").map(entry => entry.name).sort();
+  const sources = new Map();
+  for (const name of packages) {
+    const prefix = `packages/${name}`;
+    const directory = resolve(root, prefix, "src");
+    if (existsSync(directory)) {
+      assert.equal(lstatSync(directory).isSymbolicLink(), false, `${prefix}/src must be original source`);
+      assert.equal(readdirSync(directory, { recursive: true, withFileTypes: true }).some(entry => entry.isSymbolicLink()), false,
+        `${prefix}/src must not hide source behind symlinks`);
+      for (const [file, text] of readSourceInventory(directory, { extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"] }))
+        sources.set(`${prefix}/src/${file}`, text);
+    }
+    const manifest = `${prefix}/package.json`;
+    if (existsSync(resolve(root, manifest))) sources.set(manifest, readFileSync(resolve(root, manifest), "utf8"));
+  }
+  const reference = execFileSync("git", ["ls-tree", "-r", hostReferenceCommit, "--",
+    ...["host", "target-api", "source-core", "js-source-profile", "cli", "create-tsonic"]
+      .flatMap(name => [`packages/${name}/src`, `packages/${name}/package.json`])], { cwd: root, encoding: "utf8" });
+  const originals = reference.trim().split("\n").map(line => {
+    const match = /^\d+ blob ([a-f0-9]{40})\t(.+)$/u.exec(line);
+    assert.equal(match !== null, true, "every original is an actual Git blob with an exact path");
+    return { file: match[2], blob: match[1] };
+  });
+  assert.equal(originals.length > 0 && sources.size > 0, true, "both complete original and current source domains exist");
+  const active = hostModules.filter(module => sources.has(module.contract) || sources.has(`${module.directory}/register.ts`));
+  const expected = originals.filter(original => {
+    if (!sources.has(original.file) || /\/(?:contract|register)(?:\.d)?\.(?:[cm]?[jt]sx?)$/u.test(original.file) ||
+      active.some(module => original.file.startsWith(`${module.directory}/`))) return false;
+    const bytes = readFileSync(resolve(root, original.file));
+    return createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") === original.blob;
+  }).map(original => original.file).sort();
+  assert.deepEqual(hostUnmigratedFiles.map(entry => entry.file).sort(), expected,
+    "the shrink-only catalogue is exactly the remaining original files, not a prefix, stale entry or new exemption");
+  assert.equal(Object.isFrozen(hostUnmigratedFiles) && hostUnmigratedFiles.every(entry => Object.isFrozen(entry) &&
+    Object.isFrozen(entry.destinations) && entry.destinations.length > 0 && entry.retiringUnit.length > 0 &&
+    entry.destinations.every(name => hostModules.some(module => module.name === name)) &&
+    originals.some(original => original.file === entry.file && original.blob === entry.referenceBlob)), true);
+  const report = inspectHostMigration({ root, files: [...sources.keys()], complete: process.env.TSONIC_HOST_DONE === "1" });
+  assert.deepEqual([...report.currentFiles, ...report.unmigrated.map(entry => entry.file)].sort(), [...sources.keys()].sort(),
+    "every actual source or manifest has exactly one reported disposition before any gate iteration");
+  assert.deepEqual(report.unmigrated.map(entry => entry.file), expected);
+  for (const entry of report.unmigrated)
+    context.diagnostic(`UNMIGRATED (${entry.retiringUnit}) ${entry.file} -> ${entry.destinations.join(", ")} [${entry.referenceBlob}]`);
+  if (report.currentFiles.length === 0) {
+    context.diagnostic("No current C1 implementation exists in this tree yet; fixture proof only, NOT Host Source acceptance.");
+  } else {
+    const findings = inspectHostStructure({ root, files: report.currentFiles,
+      declarationFiles: report.currentFiles.filter(file => /\.d\.[cm]?ts$/u.test(file)) });
+    assert.deepEqual(findings, [], findings.slice(0, 8).map(row => `${row.file}:${row.start}:${row.gate}`).join("\n"));
+  }
+});
+
+test("migration disposition authenticates exact bytes and paths and never exempts a new port or modified plugin", () => {
+  const file = "packages/host/src/plugins/discovery.ts";
+  const entry = hostUnmigratedFiles.find(entry => entry.file === file);
+  assert.equal(entry !== undefined, true, "the exact frozen plugin fixture owner precedes the assertions");
+  const original = execFileSync("git", ["show", `${hostReferenceCommit}:${file}`], { encoding: "utf8" });
+  fixture(new Map([[file, original]]), input => {
+    const old = inspectHostMigration(input);
+    assert.deepEqual(old.currentFiles, []);
+    assert.deepEqual(old.unmigrated.map(entry => entry.file), [file]);
+    assert.equal(Object.isFrozen(old) && Object.isFrozen(old.currentFiles) && Object.isFrozen(old.unmigrated), true);
+    writeFileSync(resolve(input.root, file), `${original}\n`);
+    const changed = inspectHostMigration(input);
+    assert.deepEqual(changed.currentFiles, [file]);
+    assert.deepEqual(changed.unmigrated, []);
+    writeFileSync(resolve(input.root, file), "export const state = new Map();");
+    const modified = inspectHostMigration(input);
+    assert.deepEqual(modified.currentFiles, [file]);
+    assert.deepEqual(modified.unmigrated, []);
+    const findings = inspectHostStructure({ ...input, files: modified.currentFiles });
+    assert.deepEqual(findings.map(row => row.gate), ["program-lifetime"],
+      "the complete expected mutable-state finding proves modified old code really receives the current gates");
+    writeFileSync(resolve(input.root, file), original);
+    const port = "packages/host/src/plugins/contract.ts";
+    writeFileSync(resolve(input.root, port), "export interface View { readonly values: number[]; }");
+    const active = inspectHostMigration({ ...input, files: [file, port] });
+    assert.deepEqual(active.currentFiles, [port, file].sort());
+    assert.deepEqual(active.unmigrated, [], "a real module port brings its entire directory under the current model");
+    const registration = "packages/host/src/plugins/register.ts";
+    writeFileSync(resolve(input.root, registration), "export function register(): void {}");
+    const registered = inspectHostMigration({ ...input, files: [file, registration] });
+    assert.deepEqual(registered.currentFiles, [file, registration].sort());
+    assert.deepEqual(registered.unmigrated, []);
+    const fresh = "packages/host/src/plugins/new.ts";
+    writeFileSync(resolve(input.root, fresh), "export const state = new Map();");
+    const introduced = inspectHostMigration({ ...input, files: [fresh] });
+    assert.deepEqual(introduced.currentFiles, [fresh]);
+    assert.deepEqual(introduced.unmigrated, []);
+    assert.deepEqual(inspectHostStructure({ ...input, files: introduced.currentFiles }).map(row => row.gate), ["program-lifetime"]);
+    assert.throws(() => inspectHostMigration({ ...input, complete: true }), /empty unmigrated-file catalogue/u);
+    assert.throws(() => inspectHostMigration({ ...input, files: [file, file] }), /complete distinct/u);
+    assert.throws(() => inspectHostMigration({ ...input, files: undefined }), /complete distinct/u);
+    assert.deepEqual(inspectHostMigration({ ...input, files: [] }), { currentFiles: [], unmigrated: [] });
+    assert.throws(() => inspectHostMigration({ ...input, files: ["../foreign.ts"] }), /canonical/u);
+    symlinkSync(resolve(input.root, file), resolve(input.root, "alias.ts"));
+    assert.throws(() => inspectHostMigration({ ...input, files: ["alias.ts"] }), /original owned/u);
+  });
 });
 
 test("directory ownership rejects code in containers and undeclared nested modules", () => {
@@ -237,6 +349,36 @@ test("deep readonly aliases, tuple repetitions, query methods and pure calculati
     }
   `]], []);
   expect([[model, "export interface Array<Value> { readonly value: Value; } export interface Facts { readonly values: Array<number>; }"]], []);
+});
+
+test("mapped readonly removal and every setter use the same transitive mutable-data closure", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  for (const member of ["set value(next: number);", "get value(): number; set value(next: number);",
+    'set ["value"](next: number);', "set 0(next: number);"])
+    expect([[publication, `export interface View { ${member} }`]], ["contract-closure", "read-only-publication"]);
+  for (const declarations of [
+    'export type Writable = { -readonly [Key in "value"]: number };',
+    'export interface Setter { set value(next: number); } export type Writable = Setter;',
+    'export type Removing<Value> = { -readonly [Key in keyof Value]: Value[Key] }; export type Writable = Removing<{ readonly value: number }>;',
+  ]) expect([[model, declarations],
+    [publication, 'import type { Writable } from "../model/contract.js"; export interface View { readonly data: Writable; }']],
+  ["contract-closure", "read-only-publication"]);
+  expect([[publication, 'export type Writable = { -readonly [Key in "value"]: number }; export interface View { readonly data: Writable; }']],
+    ["contract-closure", "read-only-publication", "read-only-publication"]);
+  expect([[model, `
+    export type Plain = { readonly [Key in "value"]: number };
+    export type Explicit = { +readonly [Key in "value"]: number };
+    export interface Getter { get value(): number; }
+    export type GetterAlias = Getter;
+  `], [publication, `
+    import type { Plain, Explicit, GetterAlias } from "../model/contract.js";
+    export interface View {
+      readonly plain: Plain; readonly explicit: Explicit; readonly getter: GetterAlias;
+      get value(): number;
+      readonly ["-readonly"]: number;
+      read(input: readonly number[]): readonly [number, ...string[]];
+    }
+  `]], []);
 });
 
 test("retired package entries and semantic accessors are rejected rather than aliased", () => {

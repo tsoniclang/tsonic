@@ -1,8 +1,9 @@
 // @ts-check
 import { readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { isBuiltin } from "node:module";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { hostModules } from "./host-modules.mjs";
+import { hostModules, hostUnmigratedFiles } from "./host-modules.mjs";
 import { buildTypeScriptModuleAnalysis } from "./module-graph.mjs";
 import { publicModuleDependency } from "./public-declarations.mjs";
 import { checkerImportFindings, moduleLifetimeFindings } from "./source-boundaries.mjs";
@@ -37,6 +38,33 @@ function safeFile(root, file) {
   if (path !== resolve(root, file)) throw new Error("Host gates require original owned files, not aliased source paths.");
   return path;
 }
+
+/** @type {(input: import("./host-gates.mjs").HostMigrationInput) => import("./host-gates.mjs").HostMigrationReport} */
+export const inspectHostMigration = input => {
+  const root = realpathSync(input.root);
+  if (!Array.isArray(input.files) || new Set(input.files).size !== input.files.length)
+    throw new Error("Host migration inspection requires a complete distinct file vector.");
+  if (input.complete === true && hostUnmigratedFiles.length !== 0)
+    throw new Error("Host done requires an empty unmigrated-file catalogue.");
+  const reference = new Map(hostUnmigratedFiles.map(entry => [entry.file, entry]));
+  const active = hostModules.filter(module => input.files.includes(module.contract) ||
+    input.files.includes(`${module.directory}/register.ts`));
+  /** @type {string[]} */
+  const currentFiles = [];
+  /** @type {import("./host-gates.mjs").HostMigrationEntry[]} */
+  const unmigrated = [];
+  for (const file of input.files) {
+    const bytes = readFileSync(safeFile(root, file));
+    const entry = reference.get(file);
+    const port = /\/(?:contract|register)(?:\.d)?\.(?:[cm]?[jt]sx?)$/u.test(file);
+    const migrated = active.some(module => file.startsWith(`${module.directory}/`));
+    const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+    if (entry !== undefined && !port && !migrated && blob === entry.referenceBlob) unmigrated.push(entry);
+    else currentFiles.push(file);
+  }
+  return Object.freeze({ currentFiles: Object.freeze(currentFiles.sort()),
+    unmigrated: Object.freeze(unmigrated.sort((left, right) => left.file.localeCompare(right.file))) });
+};
 
 /** @type {(input: import("./host-gates.mjs").HostGateInput) => readonly import("./host-gates.mjs").HostGateFinding[]} */
 export const inspectHostStructure = input => {
@@ -194,6 +222,9 @@ export const inspectHostStructure = input => {
   };
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
   const mutableData = node => {
+    if (ast.is.IsSetAccessorDeclaration(node)) return true;
+    if (ast.is.IsMappedTypeNode(node))
+      return ast.kindName(ast.as.AsMappedTypeNode(node)?.ReadonlyToken) === "KindMinusToken";
     if (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsIndexSignatureDeclaration(node))
       return !ast.hasModifierKind(node, "readonly");
     if (ast.is.IsArrayTypeNode(node) || ast.is.IsTupleTypeNode(node)) return !readonlySequence(node);

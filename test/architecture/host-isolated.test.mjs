@@ -144,11 +144,15 @@ test("real typed readonly Publication data rejects mutation while mutable aliase
       export type Values = readonly number[];
       export type Tuple = readonly [head: number, ...tail: string[]];
       export interface Row { readonly values: Values; }
+      export type Plain = { readonly [Key in "value"]: number };
+      export type Explicit = { +readonly [Key in "value"]: number };
+      export interface Getter { get value(): number; }
     `],
     [publication, `
-      import type { Values, Tuple, Row } from "../model/contract.js";
+      import type { Values, Tuple, Row, Plain, Explicit, Getter } from "../model/contract.js";
       export interface Published {
         readonly values: Values; readonly tuple: Tuple; readonly nested: ReadonlyArray<Row>;
+        readonly plain: Plain; readonly explicit: Explicit; readonly getter: Getter;
         read(): Values;
         calculate(values: Values, operation: (value: number) => number): number;
       }
@@ -187,8 +191,14 @@ test("real typed readonly Publication data rejects mutation while mutable aliase
       }
     `);
     const immutable = check();
-    assert.deepEqual([...immutable.log.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])), [2339, 2540, 2542, 2339],
-      immutable.log.slice(0, 4096));
+    const expected = [
+      { code: 2339, purpose: "readonly Values has no push mutator" },
+      { code: 2540, purpose: "the readonly tuple's exact slot cannot be assigned" },
+      { code: 2542, purpose: "the readonly nested array index permits reading only" },
+      { code: 2551, purpose: "readonly Values has no splice mutator; the compiler suggests slice" },
+    ];
+    assert.deepEqual([...immutable.log.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])), expected.map(row => row.code),
+      `${expected.map(row => `${row.code}: ${row.purpose}`).join("; ")}\n${immutable.log.slice(0, 4096)}`);
     assert.equal(immutable.status, 1, immutable.log.slice(0, 4096));
     writeFileSync(resolve(input.root, model), "export type Values = number[]; export type Indirect = Values;");
     writeFileSync(resolve(input.root, publication), `
@@ -205,6 +215,24 @@ test("real typed readonly Publication data rejects mutation while mutable aliase
     assert.equal(rejected.kind, "failed");
     assert.match(rejected.log, /contract-closure/u);
     assert.match(rejected.log, /read-only-publication/u);
+    writeFileSync(resolve(input.root, model), `
+      export type Writable = { -readonly [Key in "value"]: number };
+      export interface Setter { set value(next: number); }
+    `);
+    writeFileSync(resolve(input.root, publication), `
+      import type { Writable, Setter } from "../model/contract.js";
+      export interface Published { readonly data: Writable; readonly setter: Setter; }
+    `);
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function mutate(view: Published): void { view.data.value = 1; view.setter.value = 2; }
+    `);
+    const mappedSetter = check();
+    assert.equal(mappedSetter.status, 0, mappedSetter.log.slice(0, 4096));
+    const authority = await compileHostModuleInIsolation(request);
+    assert.equal(authority.kind, "failed");
+    assert.match(authority.log, /contract-closure/u);
+    assert.match(authority.log, /read-only-publication/u);
   });
 });
 

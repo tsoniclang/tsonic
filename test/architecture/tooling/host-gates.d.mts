@@ -18,3 +18,23 @@ export interface HostGateInput {
 }
 
 export function inspectHostStructure(input: HostGateInput): readonly HostGateFinding[];
+
+export interface HostMigrationEntry {
+  readonly file: string;
+  readonly referenceBlob: string;
+  readonly destinations: readonly string[];
+  readonly retiringUnit: string;
+}
+
+export interface HostMigrationInput {
+  readonly root: string;
+  readonly files: readonly string[];
+  readonly complete?: boolean;
+}
+
+export interface HostMigrationReport {
+  readonly currentFiles: readonly string[];
+  readonly unmigrated: readonly HostMigrationEntry[];
+}
+
+export function inspectHostMigration(input: HostMigrationInput): HostMigrationReport;

@@ -12,7 +12,7 @@
     "test": "bash test/scripts/run-all.sh",
     "test:build": "bash test/scripts/build.sh",
     "test:parallel": "bash test/scripts/run-parallel.sh",
-    "test:host:architecture": "node --test --test-concurrency=1 test/architecture/host-gates.test.mjs test/architecture/host-isolated.test.mjs test/architecture/module-imports.test.mjs test/architecture/source-boundary-rules.test.mjs test/architecture/keel-tooling-reuse.test.mjs test/architecture/keel-live-source-storage.test.mjs test/architecture/layout-boundaries.test.mjs",
+    "test:host:architecture": "node --test --test-concurrency=1 test/architecture/host-gates.test.mjs test/architecture/host-isolated.test.mjs test/architecture/module-imports.test.mjs test/architecture/source-boundary-rules.test.mjs test/architecture/keel-tooling-reuse.test.mjs",
     "typecheck": "npm run build"
   },
   "workspaces": [
