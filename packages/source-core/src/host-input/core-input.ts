@@ -46,7 +46,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
       assertNode(component.root);
       if (component.path.length === 0) {
         selected.add(component.root);
-        const annotation = ast.typeAnnotation(component.root);
+        const annotation = ast.typeNode(component.root);
         if (annotation !== undefined) { assertNode(annotation); selected.add(annotation); }
       }
       if (terminal !== undefined) {
@@ -61,7 +61,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
           for (const declaration of checker.getSymbolDeclarations(symbol)) if (declaration !== undefined) {
             assertNode(declaration);
             selected.add(declaration);
-            const annotation = ast.typeAnnotation(declaration);
+            const annotation = ast.typeNode(declaration);
             if (annotation !== undefined) { assertNode(annotation); selected.add(annotation); }
           }
         }

@@ -101,7 +101,8 @@ export function createSourceStorageMemoryMetadata(input: {
       facts.navigation.callableRoles(original);
       if (!ast.is.IsVariableDeclaration(original)) return resolved(none);
       const selected = value(original, bindings);
-      if (selected.kind !== "resolved" || selected.value.kind === "none") return selected;
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.kind === "none") return resolved(none);
       const previous = declarations.get(original)?.get(bindings);
       if (previous !== undefined) return resolved(Object.freeze({ kind: "present", value: previous }));
       const issues: { readonly node: Node; readonly reason: string }[] = [];

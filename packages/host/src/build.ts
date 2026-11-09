@@ -151,14 +151,14 @@ function compileTargetBuild(
   paths: ReturnType<typeof resolveProjectPaths>,
   plan: TargetBuildPlan,
 ): TargetBuildResult {
+  const { targetPack, selectedCapabilities, selectedSurfaces } = plan;
   if (
-    plan.targetPack === undefined ||
-    plan.selectedCapabilities === undefined ||
-    plan.selectedSurfaces === undefined
+    targetPack === undefined ||
+    selectedCapabilities === undefined ||
+    selectedSurfaces === undefined
   ) {
     throw new Error(`Target '${plan.target.id}' build plan is incomplete without a diagnostic.`);
   }
-  const targetPack = plan.targetPack;
   const targetPaths = getTargetCompilationPaths(paths, plan.target);
   let session: TargetCompilationSession | undefined;
   let compileResult: TargetCompileResult | undefined;
@@ -169,15 +169,15 @@ function compileTargetBuild(
         project: input.project,
         projectDirectory: paths.projectDirectory,
         target: plan.target,
-        selectedCapabilities: plan.selectedCapabilities,
-        selectedSurfaces: plan.selectedSurfaces,
+        selectedCapabilities,
+        selectedSurfaces,
       });
       session = targetPack.createCompilationSession(Object.freeze({
         project: input.project,
         projectDirectory: paths.projectDirectory,
         target: plan.target,
         paths: targetPaths,
-        selectedSurfaceIds: Object.freeze(plan.selectedSurfaces.map((surface) => surface.id)),
+        selectedSurfaceIds: Object.freeze(selectedSurfaces.map((surface) => surface.id)),
         capabilities: capturedCapabilities,
       }));
       const sourceProfile = collectTargetSourceProfileContributions({
@@ -186,8 +186,8 @@ function compileTargetBuild(
         projectRoot: paths.projectRoot,
         target: plan.target,
         targetPackId: targetPack.id,
-        selectedCapabilities: plan.selectedCapabilities,
-        selectedSurfaces: plan.selectedSurfaces,
+        selectedCapabilities,
+        selectedSurfaces,
         targetContributions: session.sourceProfileContributions(),
       });
       if (sourceProfile.diagnostics.some(isErrorDiagnostic)) {
@@ -206,8 +206,8 @@ function compileTargetBuild(
           projectDirectory: paths.projectDirectory,
           target: plan.target,
           targetPack,
-          selectedCapabilities: plan.selectedCapabilities,
-          selectedSurfaces: plan.selectedSurfaces,
+          selectedCapabilities,
+          selectedSurfaces,
           targetContributions: session.sourceCompilerContributions(),
           sourceProfile,
           currentDirectory: paths.projectRoot,
@@ -221,15 +221,15 @@ function compileTargetBuild(
           const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
             checked.source.ast,
             sourceProjectFiles(checked.source),
-            plan.selectedCapabilities,
+            selectedCapabilities,
           );
           const runtime = collectTargetRuntimeContributions({
             project: input.project,
             projectDirectory: paths.projectDirectory,
             target: plan.target,
             targetPackId: targetPack.id,
-            selectedCapabilities: plan.selectedCapabilities,
-            selectedSurfaces: plan.selectedSurfaces,
+            selectedCapabilities,
+            selectedSurfaces,
             paths: targetPaths,
             targetContributions: session.runtimeContributions(),
           });

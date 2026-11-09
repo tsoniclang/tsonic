@@ -40,7 +40,7 @@ export function captureMemoryArraySource(call: MemorySourceCall,
   const application = observed.selection.application;
   const source: MemorySourceProvenance = Object.freeze({ kind: "result", application, component: Object.freeze({
     root: Object.freeze({ kind: "value", node: call.selected.call, type: observed.resultType }),
-    path: Object.freeze([{ kind: "type-argument", owner: observed.resultType, index: 0 }]),
+    path: Object.freeze([Object.freeze({ kind: "type-argument", owner: observed.resultType, index: 0 } as const)]),
     type: sourceType, application }) });
   return Object.freeze({ fixedArray: original.fact, source });
 }

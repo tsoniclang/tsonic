@@ -1,5 +1,5 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
-import { sourceIntegerLiteralValue } from "@tsonic/target-api/source";
+import { sourceIntegerLiteralValue } from "@tsonic/target-api/host";
 import type { Node, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
 import { readSourceFact, type SelectedProviderSourceCall } from "./provider-calls.js";

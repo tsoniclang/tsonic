@@ -77,7 +77,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   }
 
   const constructionReducers: SourceConstructionMemberReducers = Object.freeze({
-    read: (original, values) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
+    read: (original: Node, values: readonly SourceTypeEvidence[]) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
     domain: sourceLiteralDomainUnion });
   const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
     construction(occurrence) {
