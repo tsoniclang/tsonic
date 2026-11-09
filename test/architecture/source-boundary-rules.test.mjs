@@ -12,15 +12,20 @@ function findings(text, file = "packages/target-api/src/source-semantics/example
 
 test("checker vocabulary belongs only to the actual Host input adapter, not merely a similarly named directory", () => {
   const text = 'import type { Type as Input, CheckedSourceProgram } from "@tsonic/tsts";';
-  for (const file of ["packages/host/src/host-input/reader.ts", "packages/source-core/src/host-input/reader.ts"]) assert.deepEqual(findings(text, file), []);
-  for (const file of ["packages/target-api/src/host-input/reader.ts", "packages/target-api/src/source-semantics/host-input/reader.ts", "packages/source-core/src/reader.ts", "src/host-input/reader.ts"]) {
+  assert.deepEqual(findings(text, "packages/host/src/ingress/reader.ts"), []);
+  for (const file of ["packages/host/src/host-input/reader.ts", "packages/source-core/src/host-input/reader.ts",
+    "packages/host/src/ingress/contract.ts", "packages/target-api/src/host-input/reader.ts",
+    "packages/target-api/src/source-semantics/host-input/reader.ts", "packages/source-core/src/reader.ts", "src/host-input/reader.ts"]) {
     assert.equal(findings(text, file).some(row => row.rule === "checker-type-or-query-import"), true, file);
   }
 });
 
-test("module-owned WeakMap/WeakSet and mutated Map/Set caches cannot hold per-program Source identities", () => {
+test("module-owned collections cannot hold per-program Source identities, including unmutated generic collections", () => {
   for (const text of ["const cache = new WeakMap();", "export const identities = new WeakSet();",
     "const cache = new WeakMap<object, number>();", "export const identities = new WeakSet<object>();",
+    "const cache = new Map<object, number>();", "const cache = new Set<object>();",
+    "const cache = Object.freeze(new Map<object, number>());", "const cache = { nested: new WeakSet<object>() };",
+    "const retained = (() => { const cache = new WeakMap<object, number>(); return value => cache.get(value); })();",
     "const cache = new Map(); export function retain(node) { cache.set(node, 1); }",
     "const cache = new Map<object, number>(); export function retain(node) { cache.set(node, 1); }",
     "const cache = new Set(); export function retain(node) { cache.add(node); }",
@@ -54,12 +59,12 @@ test("checker import types and reexports obey the same original module boundary 
 
 test("one per-view factory and immutable metadata do not become module ownership violations", () => {
   assert.deepEqual(findings(`
-    const labels = new Map([["kind", "value"]]);
+    const labels = Object.freeze({ kind: "value", nested: Object.freeze(["first", "second"]) });
     export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
     function unrelated() { const labels = new Map(); labels.set("local", 1); }
     class View { cache = new WeakMap(); retain(node) { this.cache.set(node, 1); } }
     class PrivateView { #cache = new WeakSet<object>(); retain(node) { this.#cache.add(node); } }
-    class Metadata { static labels = new Map([["kind", "value"]]); }
+    class Metadata { static labels = Object.freeze(["kind", "value"]); }
     export function createClassView() {
       return class View { static cache = new WeakMap(); static retain(node) { this.cache.set(node, 1); } };
     }

@@ -1,9 +1,7 @@
 import { dirname, extname, posix } from "node:path";
-import { sourceTransparentExpressionOperand } from "../../../packages/target-api/dist/source-navigation/ast.js";
-import { getStaticModuleReference } from "../../../packages/target-api/dist/public/provider.js";
 import { readArchitectureTypeScript } from "./typescript-source.mjs";
 
-const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".cts"]);
+const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".cts", ".d.ts", ".d.mts", ".d.cts"]);
 
 export function buildTypeScriptModuleGraph(sourceFiles) {
   return buildTypeScriptModuleAnalysis(sourceFiles).edges;
@@ -152,9 +150,20 @@ function collectModuleSpecifiers(ast, sourceFile) {
   const visit = (node) => {
     const kind = ast.kindName(node);
     if (kind === "KindImportDeclaration" || kind === "KindExportDeclaration") {
-      const reference = getStaticModuleReference(ast, node);
-      if (reference !== undefined) {
-        specifiers.push({ specifier: ast.text(reference.moduleSpecifier), runtime: reference.hasRuntimeValue });
+      const declaration = kind === "KindImportDeclaration" ? ast.as.AsImportDeclaration(node) : ast.as.AsExportDeclaration(node);
+      if (declaration.ModuleSpecifier !== undefined) {
+        const clause = kind === "KindImportDeclaration" ? declaration.ImportClause : declaration.ExportClause;
+        const typeOnly = kind === "KindImportDeclaration" ? ast.isTypeOnlyImportDeclaration(node) : declaration.IsTypeOnly === true;
+        let runtime = !typeOnly;
+        if (runtime && clause !== undefined) {
+          const bindings = kind === "KindImportDeclaration" ? ast.as.AsImportClause(clause).NamedBindings : clause;
+          const defaultBinding = kind === "KindImportDeclaration" && ast.name(clause) !== undefined;
+          if (!defaultBinding && bindings !== undefined && (ast.is.IsNamedImports(bindings) || ast.is.IsNamedExports(bindings))) {
+            const elements = ast.elements(bindings);
+            runtime = elements.length === 0 || elements.some(element => !ast.isTypeOnlyImportOrExportDeclaration(element));
+          }
+        }
+        specifiers.push({ specifier: ast.text(declaration.ModuleSpecifier), runtime });
       }
     } else if (kind === "KindImportType") {
       const specifier = literalModuleSpecifier(ast, ast.as.AsImportTypeNode(node).Argument);
@@ -179,7 +188,11 @@ function literalModuleSpecifier(ast, node) {
   let literal = node;
   while (literal !== undefined) {
     const operand = ast.is.IsLiteralTypeNode(literal) ? ast.as.AsLiteralTypeNode(literal).Literal
-      : sourceTransparentExpressionOperand(ast, literal);
+      : ast.is.IsParenthesizedExpression(literal) ? ast.as.AsParenthesizedExpression(literal).Expression
+        : ast.is.IsAsExpression(literal) ? ast.as.AsAsExpression(literal).Expression
+          : ast.is.IsSatisfiesExpression(literal) ? ast.as.AsSatisfiesExpression(literal).Expression
+            : ast.is.IsNonNullExpression(literal) ? ast.as.AsNonNullExpression(literal).Expression
+              : ast.is.IsTypeAssertion(literal) ? ast.as.AsTypeAssertion(literal).Expression : undefined;
     if (operand === undefined) break;
     literal = operand;
   }
