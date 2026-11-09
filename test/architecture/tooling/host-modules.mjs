@@ -37,7 +37,7 @@ export const hostModules = Object.freeze(rows.map(([name, layer, responsibility,
     ? "packages/create-tsonic/src" : `packages/host/src/${name}`;
   const common = layer >= 2 && layer <= 4 ? ["model", "context"] : layer === 5 || layer === 6 ? ["model"] : [];
   return Object.freeze({ name, layer, responsibility, directory,
-    contract: `${directory}/contract.ts`, registration: layer >= 1 && layer <= 4 ? `${directory}/register.ts` : undefined,
+    contract: `${directory}/contract.ts`, registration: name === "model" || layer >= 1 && layer <= 4 ? `${directory}/register.ts` : undefined,
     dependencies: Object.freeze([...new Set([...common, ...dependencies])]) });
 }));
 
