@@ -9,7 +9,7 @@ import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./mem
 import { memoryDescriptorKeys } from "../memory-layout/descriptor-declarations.js";
 import { readMemoryDescriptor } from "./memory-descriptors.js";
 import { captureMemoryArraySource } from "./memory-source-capture.js";
-import { createMemorySourcePublication, tsonicMemorySourceFactKey } from "./memory-publications.js";
+import { tsonicMemorySourceFactKey } from "./memory-publications.js";
 
 export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -60,5 +60,5 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
   publishMemoryFact(call, tsonicFixedArrayFactKey, fixedArray);
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
   publishMemoryFact(call, tsonicMemorySourceFactKey,
-    createMemorySourcePublication(call.selected.call, { source: source.source, owner: undefined }));
+    call.publications.create(call.selected.call, { source: source.source, owner: undefined }));
 }

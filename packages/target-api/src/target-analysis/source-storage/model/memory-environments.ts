@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceTypeBinding, SourceTypeEvidence } from "../../../public/source/contracts.js";
+import type { SourceTypeBinding } from "../../../public/source/contracts.js";
 import type { SourceMemorySelection } from "../../../source-model/memory.js";
 import type { SourceStorageBindings, SourceStorageTypedSubject } from "../../../source-model/storage.js";
 import type { SourceMemoryContext } from "../../source-memory-context.js";
@@ -19,37 +19,51 @@ export function createSourceMemoryEnvironments(input: {
 }) {
   const { source, context, budget, transport, bindingStates } = input;
   const retained = new WeakMap<SourceStorageBindings, WeakMap<Node, readonly (readonly SourceTypeBinding[])[]>>();
+  const parameterInventories = new WeakMap<Node, readonly SourceTypeBinding[]>();
   const retainedRows = budget.createRows();
   const unresolved = (reason: string) => Object.freeze({ kind: "unresolved" as const, reason });
   const resolved = <Value>(value: Value): SourceMemorySelection<Value> => Object.freeze({ kind: "resolved", value });
-  function parameters(owner: Node): SourceMemorySelection<readonly { readonly declaration: Node; readonly value: SourceTypeEvidence }[]> {
-    if (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)) {
-      const original = sourceStorageValue(source.analysis.settle(source.analysis.declared(owner, Object.freeze([]))));
-      if (original.type.type.kind !== "declared" || original.type.type.declaration !== owner)
-        return unresolved("A memory class environment requires its genuine original instance template.");
+  function assertBindings(bindings: SourceStorageBindings): void {
+    if (!bindingStates.has(bindings)) throw new Error("A memory environment belongs to its same original storage query.");
+  }
+  function parameters(owner: Node): SourceMemorySelection<readonly SourceTypeBinding[]> {
+    source.facts.navigation.callableRoles(owner);
+    source.work(owner);
+    const previous = parameterInventories.get(owner);
+    if (previous !== undefined) return resolved(previous);
+    return budget.withRows(rows => {
       const selected: SourceTypeBinding[] = [];
-      for (const [index] of original.type.type.typeArguments.entries()) {
-        source.work(owner);
-        const child = sourceStorageValue(source.facts.descriptors.component(original.type,
-          { kind: "type-argument", declaration: owner, index }));
-        if (child.type.kind !== "parameter")
-          return unresolved("A memory class template requires its complete original binder vector.");
-        selected.push(Object.freeze({ declaration: child.type.declaration, value: child }));
+      if (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)) {
+        const original = sourceStorageValue(source.analysis.settle(source.analysis.declared(owner, Object.freeze([]))));
+        if (original.type.type.kind !== "declared" || original.type.type.declaration !== owner)
+          return unresolved("A memory class environment requires its genuine original instance template.");
+        for (const [index] of original.type.type.typeArguments.entries()) {
+          source.work(owner);
+          if (!rows.add(1)) return unresolved(budget.failure()!);
+          const child = sourceStorageValue(source.facts.descriptors.component(original.type,
+            { kind: "type-argument", declaration: owner, index }));
+          if (child.type.kind !== "parameter")
+            return unresolved("A memory class template requires its complete original binder vector.");
+          selected.push(Object.freeze({ declaration: child.type.declaration, value: child }));
+        }
+      } else {
+        const original = sourceStorageOriginalSignature(source, owner, source.facts.navigation.callableRoles(owner).body ? "body" : "signature");
+        if (original === undefined) return unresolved("A memory activation requires its exact original callable head.");
+        for (const declaration of original.signature.identity.typeParameters) {
+          source.work(declaration);
+          if (!rows.add(1)) return unresolved(budget.failure()!);
+          const parameter = source.facts.descriptors.typeParameter(declaration);
+          const original = sourceStorageValue(source.analysis.settle(source.analysis.declared(declaration, Object.freeze([]))));
+          if (original.type.type.kind !== "parameter" || original.type.type.declaration !== parameter.declaration)
+            throw new Error("A memory callable environment retains each original registered binder.");
+          selected.push(Object.freeze({ declaration, value: original.type }));
+        }
       }
-      return resolved(Object.freeze(selected));
-    }
-    const original = sourceStorageOriginalSignature(source, owner, source.facts.navigation.callableRoles(owner).body ? "body" : "signature");
-    if (original === undefined) return unresolved("A memory activation requires its exact original callable head.");
-    const selected: SourceTypeBinding[] = [];
-    for (const declaration of original.signature.identity.typeParameters) {
-      source.work(declaration);
-      const parameter = source.facts.descriptors.typeParameter(declaration);
-      const original = sourceStorageValue(source.analysis.settle(source.analysis.declared(declaration, Object.freeze([]))));
-      if (original.type.type.kind !== "parameter" || original.type.type.declaration !== parameter.declaration)
-        throw new Error("A memory callable environment retains each original registered binder.");
-      selected.push(Object.freeze({ declaration, value: original.type }));
-    }
-    return resolved(Object.freeze(selected));
+      if (!retainedRows.add(2 + selected.length)) return unresolved(budget.failure()!);
+      const result = Object.freeze(selected);
+      parameterInventories.set(owner, result);
+      return resolved(result);
+    });
   }
   function environments(original: Node, bindings: SourceStorageBindings):
     SourceMemorySelection<readonly (readonly SourceTypeBinding[])[]> {
@@ -115,21 +129,24 @@ export function createSourceMemoryEnvironments(input: {
   }
   function typed(subject: SourceStorageTypedSubject, bindings: SourceStorageBindings):
     SourceMemorySelection<readonly (SourceStorageTypedSubject & { readonly typeBindings: readonly SourceTypeBinding[] })[]> {
-    source.facts.descriptors.assertEvidence(subject.type);
-    if (source.ast.getSourceFile(subject.subject.node) !== subject.sourceFile)
-      throw new Error("A typed memory subject retains its exact original Source file.");
-    const selected = environments(subject.subject.node, bindings);
-    if (selected.kind !== "resolved") return selected;
-    const values: (SourceStorageTypedSubject & { readonly typeBindings: readonly SourceTypeBinding[] })[] = [];
-    for (const typeBindings of selected.value) {
-      source.work(subject.subject.node);
-      const type = context.substitute(subject.type, typeBindings);
-      if (type.kind !== "resolved") return type;
-      values.push(Object.freeze({ ...subject, type: type.value, typeBindings }));
-    }
-    return resolved(Object.freeze(values));
+    return budget.withRows(rows => {
+      source.facts.descriptors.assertEvidence(subject.type);
+      if (source.ast.getSourceFile(subject.subject.node) !== subject.sourceFile)
+        throw new Error("A typed memory subject retains its exact original Source file.");
+      const selected = environments(subject.subject.node, bindings);
+      if (selected.kind !== "resolved") return selected;
+      const values: (SourceStorageTypedSubject & { readonly typeBindings: readonly SourceTypeBinding[] })[] = [];
+      for (const typeBindings of selected.value) {
+        source.work(subject.subject.node);
+        if (!rows.add(1)) return unresolved(budget.failure()!);
+        const type = context.substitute(subject.type, typeBindings);
+        if (type.kind !== "resolved") return type;
+        values.push(Object.freeze({ ...subject, type: type.value, typeBindings }));
+      }
+      return resolved(Object.freeze(values));
+    });
   }
-  return Object.freeze({ environments, typed });
+  return Object.freeze({ assertBindings, environments, typed });
 }
 
 export type SourceMemoryEnvironments = ReturnType<typeof createSourceMemoryEnvironments>;

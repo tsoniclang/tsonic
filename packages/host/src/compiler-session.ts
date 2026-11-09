@@ -118,5 +118,5 @@ function adjudicateCheckedSource(readCheckedSource: () => CheckedSourceProgram, 
     return diagnostics.some(diagnostic => diagnostic.category === "error")
       ? rejectedTargetStage(diagnostics) : resolvedTargetStage(assembled.source, diagnostics);
   }, diagnostic => rejectedTargetStage(Object.freeze([...profile.diagnostics,
-    ...checked === undefined ? [] : collectTstsDiagnostics(checked, currentDirectory), diagnostic])));
+    ...(checked === undefined ? [] : collectTstsDiagnostics(checked, currentDirectory)), diagnostic])));
 }

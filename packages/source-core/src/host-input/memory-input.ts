@@ -42,7 +42,7 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
   const capturedRecordBindings = new WeakMap<Node, SourceInputMemorySelection<SourceInputMemoryRecordBinding>>();
   const sources = (occurrence: Node): MemoryTypePublicationSources | undefined => {
     assertNode(occurrence);
-    return readMemoryPublicationSources(sourceFacts, occurrence);
+    return readMemoryPublicationSources(checked, sourceFacts, occurrence);
   };
   const source = (original: MemorySourceProvenance): SourceInputMemorySource | undefined => {
     assertNode(original.application.invocation);

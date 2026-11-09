@@ -58,11 +58,11 @@ export function createSourcePointerBackingQueries(input: {
         boundaries.push(Object.freeze({ ...boundary, ...original }));
       }
     }
-    const result = Object.freeze({ kind: "resolved" as const, value: boundaries.length === 0
+    if (!retainedRows.add(4 + 2 * producers.length + boundaries.length)) return unresolved(budget.failure()!);
+    const result = Object.freeze({ kind: "resolved" as const, value: selected.kind === "complete"
       ? Object.freeze({ kind: "complete" as const, producers: Object.freeze(producers), includesAbsence: selected.includesAbsence === true })
       : Object.freeze({ kind: "open" as const, producers: Object.freeze(producers), boundaries: Object.freeze(boundaries),
           includesAbsence: selected.includesAbsence === true }) });
-    if (!retainedRows.add(2 + producers.length + boundaries.length)) return unresolved(budget.failure()!);
     let byBindings = retained.get(subject);
     if (byBindings === undefined) { byBindings = new WeakMap(); retained.set(subject, byBindings); }
     byBindings.set(bindings, result);

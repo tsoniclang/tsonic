@@ -92,6 +92,7 @@ export function createSourceStorageMemoryMetadata(input: {
   });
   const isCompileTimeExpression: SourceMemoryQueries["memoryMetadata"]["isCompileTimeExpression"] = occurrence => {
     facts.navigation.callableRoles(occurrence);
+    if (!budget.step()) return unresolved(budget.failure()!);
     const selected = metadata.context.original.compileTimeUse(occurrence);
     return resolved(selected.kind === "present");
   };

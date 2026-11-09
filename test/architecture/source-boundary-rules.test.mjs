@@ -20,14 +20,24 @@ test("checker vocabulary belongs only to the actual Host input adapter, not mere
 
 test("module-owned WeakMap/WeakSet and mutated Map/Set caches cannot hold per-program Source identities", () => {
   for (const text of ["const cache = new WeakMap();", "export const identities = new WeakSet();",
+    "const cache = new WeakMap<object, number>();", "export const identities = new WeakSet<object>();",
     "const cache = new Map(); export function retain(node) { cache.set(node, 1); }",
+    "const cache = new Map<object, number>(); export function retain(node) { cache.set(node, 1); }",
     "const cache = new Set(); export function retain(node) { cache.add(node); }",
+    "const cache = new Set<object>(); export function retain(node) { cache.add(node); }",
     "class Registry { static cache = new WeakMap(); }",
     "class Registry { static cache = new WeakSet(); }",
     "class Registry { static { const cache = new WeakMap(); } }",
     "class Registry { static cache = new Map(); static retain(node) { this.cache.set(node, 1); } }",
-    "class Registry { static cache = new Set(); } export function retain(node) { Registry.cache.add(node); }"]) {
-    assert.equal(findings(text).some(row => row.rule === "module-owned-mutable-cache"), true);
+    "class Registry { static cache = new Set(); } export function retain(node) { Registry.cache.add(node); }",
+    "class Registry { static cache = new WeakMap<object, number>(); }",
+    "class Registry { static cache = new WeakSet<object>(); }",
+    "class Registry { static cache = new Map<object, number>(); static retain(node) { this.cache.set(node, 1); } }",
+    "class Registry { static cache = new Set<object>(); } export function retain(node) { Registry.cache.add(node); }"]) {
+    for (const file of ["packages/target-api/src/source-semantics/example.ts", "packages/host/src/host-input/example.ts",
+      "packages/source-core/src/host-input/example.ts", "src/policy/example.ts"]) {
+      assert.equal(findings(text, file).some(row => row.rule === "module-owned-mutable-cache"), true, `${file}: ${text}`);
+    }
   }
 });
 
@@ -48,6 +58,7 @@ test("one per-view factory and immutable metadata do not become module ownership
     export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
     function unrelated() { const labels = new Map(); labels.set("local", 1); }
     class View { cache = new WeakMap(); retain(node) { this.cache.set(node, 1); } }
+    class PrivateView { #cache = new WeakSet<object>(); retain(node) { this.#cache.add(node); } }
     class Metadata { static labels = new Map([["kind", "value"]]); }
     export function createClassView() {
       return class View { static cache = new WeakMap(); static retain(node) { this.cache.set(node, 1); } };

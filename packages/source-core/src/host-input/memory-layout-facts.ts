@@ -51,6 +51,64 @@ export interface TsonicArrayMemoryLayoutFact extends MemoryLayoutBase {
 
 export type TsonicMemoryLayoutFact = TsonicValueMemoryLayoutFact | TsonicArrayMemoryLayoutFact;
 
+class CapturedMemoryLayout implements MemoryLayoutBase {
+  readonly #depth: number;
+  readonly call: Node;
+  readonly sourceType: Type;
+  declare readonly explicitTypeNode?: Node;
+  readonly dataLayoutExpression: Node;
+  readonly dataLayout: TsonicDataLayoutFact;
+  readonly byteSize: bigint;
+  readonly byteAlignment: bigint;
+  readonly stride: bigint;
+
+  protected constructor(value: MemoryLayoutBase, depth: number) {
+    this.#depth = depth;
+    this.call = value.call;
+    this.sourceType = value.sourceType;
+    if (value.explicitTypeNode !== undefined) this.explicitTypeNode = value.explicitTypeNode;
+    this.dataLayoutExpression = value.dataLayoutExpression;
+    this.dataLayout = value.dataLayout;
+    this.byteSize = value.byteSize;
+    this.byteAlignment = value.byteAlignment;
+    this.stride = value.stride;
+  }
+
+  static depth(value: TsonicMemoryLayoutFact): number | undefined {
+    return value !== null && typeof value === "object" && #depth in value ? value.#depth : undefined;
+  }
+}
+
+class CapturedValueMemoryLayout extends CapturedMemoryLayout implements TsonicValueMemoryLayoutFact {
+  readonly kind = "value";
+  readonly fields: readonly TsonicMemoryFieldLayoutFact[];
+
+  constructor(value: TsonicValueMemoryLayoutFact, depth: number) {
+    super(value, depth);
+    this.fields = value.fields;
+    Object.freeze(this);
+  }
+}
+
+class CapturedArrayMemoryLayout extends CapturedMemoryLayout implements TsonicArrayMemoryLayoutFact {
+  readonly kind = "array";
+  readonly fixedArray: TsonicFixedArrayFact;
+  readonly elementLayoutExpression: Node;
+  readonly elementLayout: TsonicMemoryLayoutFact;
+
+  constructor(value: TsonicArrayMemoryLayoutFact, depth: number) {
+    super(value, depth);
+    this.fixedArray = value.fixedArray;
+    this.elementLayoutExpression = value.elementLayoutExpression;
+    this.elementLayout = value.elementLayout;
+    Object.freeze(this);
+  }
+}
+
+function captureMemoryLayout(value: TsonicMemoryLayoutFact, depth: number): TsonicMemoryLayoutFact {
+  return value.kind === "value" ? new CapturedValueMemoryLayout(value, depth) : new CapturedArrayMemoryLayout(value, depth);
+}
+
 export function memoryLayoutDimensions(layout: TsonicMemoryLayoutFact): MemoryLayoutDimensions {
   const base = { byteSize: layout.byteSize, byteAlignment: layout.byteAlignment, stride: layout.stride,
     dataLayout: Object.freeze({ addressWidth: layout.dataLayout.addressWidth }) };
@@ -109,14 +167,13 @@ export function dataLayoutsEqual(left: TsonicDataLayoutFact, right: TsonicDataLa
 
 export const maximumMemoryLayoutDepth = 128;
 const maximumMemoryLayoutValues = 131072;
-const capturedLayoutDepths = new WeakMap<TsonicMemoryLayoutFact, number>();
 
 export function memoryLayoutCaptureLimitsError(children: readonly TsonicMemoryLayoutFact[], fieldCount = 0): string | undefined {
   if (children.length + fieldCount >= maximumMemoryLayoutValues) {
     failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "values", maximumMemoryLayoutValues);
   }
   for (const child of children) {
-    const depth = capturedLayoutDepths.get(child);
+    const depth = CapturedMemoryLayout.depth(child);
     if (depth === undefined) return "Memory child layout is not an immutable source-owned snapshot.";
     if (depth >= maximumMemoryLayoutDepth) failTargetCompilerResourceLimit("tsonic", "Memory layout capture", "depth", maximumMemoryLayoutDepth);
   }
@@ -146,7 +203,7 @@ function memoryLayoutSnapshot() {
   }
   function layout(value: TsonicMemoryLayoutFact): TsonicMemoryLayoutFact {
     visit();
-    const capturedDepth = capturedLayoutDepths.get(value);
+    const capturedDepth = CapturedMemoryLayout.depth(value);
     if (capturedDepth !== undefined) {
       if (active.size + capturedDepth > maximumMemoryLayoutDepth) {
         failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
@@ -155,7 +212,7 @@ function memoryLayoutSnapshot() {
     }
     const cached = layouts.get(value);
     if (cached !== undefined) {
-      if (active.size + capturedLayoutDepths.get(cached)! > maximumMemoryLayoutDepth) {
+      if (active.size + CapturedMemoryLayout.depth(cached)! > maximumMemoryLayoutDepth) {
         failTargetCompilerResourceLimit("tsonic", "Memory layout snapshot", "depth", maximumMemoryLayoutDepth);
       }
       return cached;
@@ -202,10 +259,10 @@ function memoryLayoutSnapshot() {
       const error = memoryLayoutDimensionsError(memoryLayoutDimensions(captured));
       if (error !== undefined) throw new Error(error);
       let depth = 1;
-      for (const child of children) depth = Math.max(depth, 1 + capturedLayoutDepths.get(child)!);
-      capturedLayoutDepths.set(captured, depth);
-      layouts.set(value, captured);
-      return captured;
+      for (const child of children) depth = Math.max(depth, 1 + CapturedMemoryLayout.depth(child)!);
+      const snapshot = captureMemoryLayout(captured, depth);
+      layouts.set(value, snapshot);
+      return snapshot;
     } finally {
       active.delete(value);
     }
@@ -220,9 +277,7 @@ export function snapshotMemoryField(value: TsonicMemoryFieldLayoutFact): TsonicM
 export function snapshotMemoryLayout(value: TsonicMemoryLayoutFact): TsonicMemoryLayoutFact {
   const result = memoryLayoutSnapshot().layout(value);
   if (result !== value) return result;
-  const root = Object.freeze({ ...result });
-  capturedLayoutDepths.set(root, capturedLayoutDepths.get(result)!);
-  return root;
+  return captureMemoryLayout(result, CapturedMemoryLayout.depth(result)!);
 }
 
 function memoryFieldSubjectsEqual(left: TsonicMemoryFieldLayoutFact, right: TsonicMemoryFieldLayoutFact): boolean {

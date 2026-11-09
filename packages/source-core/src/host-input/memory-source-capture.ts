@@ -4,14 +4,14 @@ import { readSourceFact } from "./provider-calls.js";
 import { selectTsonicFixedArray } from "./fixed-array-selection.js";
 import type { TsonicFixedArrayFact } from "./fixed-array-facts.js";
 import type { MemorySourceProvenance } from "./memory-provenance.js";
-import { createMemorySourcePublication, tsonicMemorySourceFactKey } from "./memory-publications.js";
+import { tsonicMemorySourceFactKey } from "./memory-publications.js";
 
 export function captureMemoryBindingSource(call: MemorySourceCall, index: number, ownerIndex?: number): void {
   const source = bindingSource(call, index);
   const owner = ownerIndex === undefined ? undefined : bindingSource(call, ownerIndex);
   if (source === undefined || ownerIndex !== undefined && owner === undefined) return;
   publishMemoryFact(call, tsonicMemorySourceFactKey,
-    createMemorySourcePublication(call.selected.call, { source, owner }));
+    call.publications.create(call.selected.call, { source, owner }));
 }
 
 function bindingSource(call: MemorySourceCall, index: number): MemorySourceProvenance | undefined {

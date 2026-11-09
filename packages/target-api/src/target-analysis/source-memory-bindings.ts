@@ -32,19 +32,21 @@ export function createSourceMemoryBindingQueries(input: {
   }
   const field: SourceMemoryQueries["memoryBindings"]["field"] = (occurrence, bindings) => {
     context.assertNode(occurrence);
-    const environments = environment(occurrence, bindings);
-    if (environments.kind !== "resolved") return environments;
+    environments.assertBindings(bindings);
+    if (!budget.step()) return unresolved(budget.failure()!);
     const selected = original.fieldBinding(occurrence);
     if (selected.kind === "unavailable") return unresolved(selected.reason);
     if (selected.kind === "none") return resolved(none);
+    const activation = environment(occurrence, bindings);
+    if (activation.kind !== "resolved") return activation;
     const previous = fields.get(occurrence)?.get(bindings);
     if (previous !== undefined) return resolved(Object.freeze({ kind: "present", value: previous }));
     const originalField = selected.value;
-    const owner = context.component(originalField.owner, environments.value);
+    const owner = context.component(originalField.owner, activation.value);
     if (owner.kind !== "resolved") return owner;
-    const pointee = context.component(originalField.pointee, environments.value);
+    const pointee = context.component(originalField.pointee, activation.value);
     if (pointee.kind !== "resolved") return pointee;
-    const selectedField = metadata.field(originalField.field, environments.value);
+    const selectedField = metadata.field(originalField.field, activation.value);
     if (selectedField.kind !== "resolved") return selectedField;
     const ownerDomain = equivalent(owner.value.value, selectedField.value.owner);
     if (ownerDomain.kind !== "resolved") return ownerDomain;
@@ -54,7 +56,7 @@ export function createSourceMemoryBindingQueries(input: {
       return unresolved("A memory field binding requires the same complete original Source owner and child layout domain.");
     const pointerValue = source.facts.values.type(originalField.pointerExpression);
     if (pointerValue.kind === "refused") return pointerValue;
-    const pointer = context.substitute(pointerValue.value, environments.value);
+    const pointer = context.substitute(pointerValue.value, activation.value);
     if (pointer.kind !== "resolved") return pointer;
     const pointerType = source.facts.protocols.pointerType(pointer.value);
     if (pointerType.kind === "refused") return pointerType;
@@ -65,13 +67,13 @@ export function createSourceMemoryBindingQueries(input: {
     if (!pointerDomain.value) return unresolved("A memory field binding requires its exact non-absent Source pointer and pointee domain.");
     const application = source.facts.applications.application(occurrence);
     if (application.kind === "refused") return application;
-    const result = context.substitute(application.value.result, environments.value);
+    const result = context.substitute(application.value.result, activation.value);
     if (result.kind !== "resolved") return result;
+    if (!retainedRows.add(4 + pointee.value.typeBindings.length)) return unresolved(budget.failure()!);
     const binding: SourceMemoryFieldBinding = Object.freeze({ occurrence, result: result.value, owner: owner.value.value,
       fieldExpression: originalField.fieldExpression, field: selectedField.value,
       pointer: Object.freeze({ occurrence: originalField.pointerExpression, value: pointer.value }), pointee: pointee.value.value,
       bindings, typeBindings: pointee.value.typeBindings });
-    if (!retainedRows.add(2 + binding.typeBindings.length)) return unresolved(budget.failure()!);
     let byBindings = fields.get(occurrence);
     if (byBindings === undefined) { byBindings = new WeakMap(); fields.set(occurrence, byBindings); }
     byBindings.set(bindings, binding);
@@ -79,17 +81,19 @@ export function createSourceMemoryBindingQueries(input: {
   };
   const record: SourceMemoryQueries["memoryBindings"]["record"] = (occurrence, bindings) => budget.withRows(rows => {
     context.assertNode(occurrence);
-    const environments = environment(occurrence, bindings);
-    if (environments.kind !== "resolved") return environments;
+    environments.assertBindings(bindings);
+    if (!budget.step()) return unresolved(budget.failure()!);
     const selected = original.recordBinding(occurrence);
     if (selected.kind === "unavailable") return unresolved(selected.reason);
     if (selected.kind === "none") return resolved(none);
+    const activation = environment(occurrence, bindings);
+    if (activation.kind !== "resolved") return activation;
     const previous = records.get(occurrence)?.get(bindings);
     if (previous !== undefined) return resolved(Object.freeze({ kind: "present", value: previous }));
     const originalRecord = selected.value;
-    const owner = context.component(originalRecord.source, environments.value);
+    const owner = context.component(originalRecord.source, activation.value);
     if (owner.kind !== "resolved") return owner;
-    const layout = metadata.layout(originalRecord.layout, environments.value);
+    const layout = metadata.layout(originalRecord.layout, activation.value);
     if (layout.kind !== "resolved") return layout;
     if (layout.value.kind !== "value")
       return unresolved("A memory record binding requires its exact closed Source record layout.");
@@ -108,6 +112,7 @@ export function createSourceMemoryBindingQueries(input: {
     if (inventory.value.kind !== "available" || inventory.value.indexes.length !== 0 ||
       inventory.value.members.length !== layout.value.fields.length)
       return unresolved("A memory record binding requires the complete canonical Source field inventory without open indexes.");
+    if (!rows.add(2 + 2 * layout.value.fields.length)) return unresolved(budget.failure()!);
     const declaredFields = new Map(layout.value.fields.map(field => [sourceLiteralKeyIdentity(field.member.key), field]));
     if (declaredFields.size !== layout.value.fields.length)
       return unresolved("A memory record layout cannot repeat one canonical Source field.");
@@ -145,12 +150,12 @@ export function createSourceMemoryBindingQueries(input: {
     }
     const application = source.facts.applications.application(occurrence);
     if (application.kind === "refused") return application;
-    const result = context.substitute(application.value.result, environments.value);
+    const result = context.substitute(application.value.result, activation.value);
     if (result.kind !== "resolved") return result;
+    if (!retainedRows.add(3 + owner.value.typeBindings.length + selectedFields.length)) return unresolved(budget.failure()!);
     const binding: SourceMemoryRecordBinding = Object.freeze({ occurrence, result: result.value,
       layoutExpression: originalRecord.layoutExpression, layout: layout.value, bindings,
       typeBindings: owner.value.typeBindings, fields: Object.freeze(selectedFields) });
-    if (!retainedRows.add(2 + binding.typeBindings.length + selectedFields.length)) return unresolved(budget.failure()!);
     let byBindings = records.get(occurrence);
     if (byBindings === undefined) { byBindings = new WeakMap(); records.set(occurrence, byBindings); }
     byBindings.set(bindings, binding);

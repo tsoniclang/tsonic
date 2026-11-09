@@ -17,6 +17,7 @@ import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./memory-
 import { tsonicMemoryFieldBindingFactKey } from "./memory-binding-facts.js";
 import { analyzeTsonicPointerView } from "./pointer-view-analysis.js";
 import { readMemoryLayoutConstant } from "./memory-readers.js";
+import { createMemoryPublicationOwner } from "./memory-publications.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -31,12 +32,13 @@ export function analyzeTsonicMemoryOperations(
   context: SourceAnalysisContext,
   registrations: ReadonlyMap<string, TsonicDataLayoutFact>,
 ): void {
+  const publications = createMemoryPublicationOwner(context.source);
   const calls = new Map<Node, MemorySourceCall>();
   forEachSelectedProviderSourceCall(context, (selected, sourceContext) => {
     if (declarationOnly(selected.call, sourceContext)) return;
     analyzeTsonicPointerView(selected, sourceContext);
     const rule = selectors.find((candidate) => selectedProviderCallMatches(selected, candidate.selector, sourceContext));
-    if (rule !== undefined) calls.set(selected.call, { selected, context: sourceContext, name: rule.name });
+    if (rule !== undefined) calls.set(selected.call, { selected, context: sourceContext, name: rule.name, publications });
   });
   const pending = new Set<Node>();
   const completed = new Set<Node>();

@@ -54,6 +54,8 @@ export function createSourceRawLocationQueries(input: {
   }
   const resolve: SourceMemoryQueries["rawLocation"]["resolve"] = (occurrence, bindings) => budget.withRows(rows => {
     context.assertNode(occurrence);
+    environments.assertBindings(bindings);
+    if (!budget.step()) return unresolved(budget.failure()!);
     const original = source.facts.protocols.pointerOperation(occurrence);
     if (original.kind === "refused") return original;
     if (original.value.kind === "none" || original.value.value.family !== "raw-memory" ||
