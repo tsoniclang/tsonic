@@ -310,8 +310,9 @@ test("all invalid contract boundaries reject with exact compiler codes and count
   assert.equal(cases.length, 125, "all original103 purposes plus exact22 additions");
   const names = cases.map(entry => `${entry.name}.mts`);
   assert.equal(new Set(names).size, cases.length, "each negative has one distinct source file");
-  await withSpecProject(cases.map(entry => ({ path: `${entry.name}.mts`, text: imports() + entry.text })), project => {
+  await withSpecProject(cases.map(entry => ({ path: `${entry.name}.mts`, text: imports() + entry.text })), async project => {
     const result = compile(["--noEmit", ...names.map(name => resolve(project.root, name))]);
+    await writeFile(resolve(repository, ".temp/context-contract-negatives.log"), result.stdout + result.stderr, "utf8");
     assert.equal(result.status, 1, "real strict compiler rejects invalid contract programs");
     assert.equal((result.stdout.match(/\berror TS\d+:/gu) ?? []).length, cases.length,
       "complete compiler diagnostic count includes every file and any global error");

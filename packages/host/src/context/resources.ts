@@ -218,7 +218,7 @@ export class Resources {
       if (limit === undefined) invariant("INVALID_RESOURCE_SCOPE");
       const attempted = total(value) + height.height;
       if (attempted > limit) {
-        resourceFailure(height.domain, requesting.owner.owner, height.dimension, limit, attempted, requesting.site);
+        resourceFailure(height.domain, height.owner.owner, height.dimension, limit, attempted, requesting.site);
       }
       this.#observe(value, height.domain, height.owner, height.dimension, value.depth + height.height);
     }

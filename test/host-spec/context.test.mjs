@@ -683,3 +683,26 @@ test("owner/name pairs and independent actual programs do not share memo or decl
   code(() => harness.context.query(sameName.question, 0), "FOREIGN_QUESTION");
   harness.context.close(); independent.context.close();
 });
+
+test("cached cross-domain heights retain the actual child resource owner under both admission policies", () => {
+  for (const admission of ["operation", "cohort"]) {
+    const harness = create([domain("parent"), domain("child", admission, { depth: 2n })]);
+    const childOwner = Object.freeze({ programIdentity: harness.context.programIdentity, owner: "child-owner" });
+    const childScope = harness.context.resourceScope("child", childOwner, none);
+    let calls = 0;
+    const child = register(harness, "child", (_, scope) => {
+      calls += 1;
+      return scope.withDepth("depth", () => scope.withDepth("depth", () => 1));
+    }, { scope: childScope });
+    const parent = register(harness, "parent", () => harness.context.query(child.question, 0));
+    const outer = register(harness, "outer", (_, scope) => scope.withDepth("depth", () =>
+      harness.context.query(parent.question, 0)), { scope: childScope });
+    seal(harness);
+    assert.equal(harness.context.query(parent.question, 0), 1);
+    const error = exhausted(() => harness.context.query(outer.question, 0), "depth", 2n, "child-owner");
+    assert.equal(error.diagnostic.evidence.find(entry => entry.name === "domain").value, "child");
+    assert.equal(calls, 1, "height checking neither replays the child nor relabels its resource owner");
+    assert.equal(harness.context.query(parent.question, 0), 1);
+    harness.context.close();
+  }
+});
