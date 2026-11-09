@@ -1,6 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceAdmissionFacts, SourceApplicationFacts, SourceDescriptorView, SourceEnumFacts, SourceIntegerFacts, SourceNavigationFacts, SourcePresence, SourcePropertyName, SourceRefusal, SourceResult, SourceValueFacts } from "../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "./navigation.js";
+import type { SourceMemoryQueries } from "./memory.js";
 import type { SourceJsApiFacts } from "./profile.js";
 import type { SourceMemberCorrespondenceQueries } from "./members.js";
 import type { SourceMemberUse } from "./member-use.js";
@@ -89,6 +90,7 @@ export interface SourceAnalysisFacts extends SourcePointerFacts, SourceMarkerFac
 }
 
 export interface SourceStorageQueries {
+  readonly memory: SourceMemoryQueries;
   readonly source: TargetSourceProgram;
   readonly sourceFiles: readonly SourceFile[];
   readonly nodes: readonly Node[];

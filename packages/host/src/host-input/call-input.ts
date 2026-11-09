@@ -178,6 +178,23 @@ export function createSourceCallInput(options: {
   }
 
   return Object.freeze({
+    originalApplication(value: ResolvedCallApplicationEvidence): SourceInputApplication {
+      assertNode(value.invocation);
+      const original = facts.queries(value.invocation).checker.getResolvedCallInfo(value.invocation);
+      if (original?.kind === "applicable" ? original.selection.application !== value
+        : original?.kind !== "conditional-candidates" || !original.candidates.some(candidate => candidate.application === value))
+        throw new Error("A Core application must be an identical original receipt from this Host input.");
+      return application(value);
+    },
+    originalComponent(value: ResolvedCheckedComponentEvidence): SourceInputComponent {
+      assertNode(value.root.node);
+      if (value.application !== undefined) {
+        const original = facts.queries(value.application.invocation).checker.getResolvedCallInfo(value.application.invocation);
+        if (original?.kind !== "applicable" || original.selection.application !== value.application)
+          throw new Error("A Core result component requires its identical observed original application.");
+      }
+      return checkedComponent(value);
+    },
     application(invocation: Node): SourceInputCallSelection {
       assertNode(invocation);
       const previous = selections.get(invocation);

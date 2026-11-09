@@ -33,6 +33,8 @@ export interface SourceApplicationProduction extends SourceCallableProduction {
 
 export function produceSourceApplication(context: SourceApplicationProduction, invocation: Node): SourceProductionResult<SourceProducedApplication> {
   const { builder, input, reader } = context;
+  const form = context.admission.form(invocation);
+  if (form.kind === "refused") return form;
   const selected = input.application(invocation);
   const refusal = (message: string) => sourceSemanticRefusal(invocation, message, "TSONIC_LOCAL_TYPE_GENERIC");
   if (selected.kind === "untyped") return refusal("This application has no original callable candidate to authenticate.");

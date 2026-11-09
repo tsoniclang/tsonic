@@ -11,12 +11,13 @@ import type { SourceObjectProductionQueries } from "../object-production.js";
 import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { createSourceValueGuardQueries } from "../guard-queries.js";
-import type { SourceApplication, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
+import type { SourceAdmissionFacts, SourceApplication, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
   SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader } from "../descriptor-contracts.js";
 
 export interface SourceTypeFlowSource {
+  readonly admission: SourceAdmissionFacts;
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
   readonly navigation: SourceNodeNavigationFacts;

@@ -5,7 +5,7 @@ import { forEachTsonicSourceFile } from "./context.js";
 
 export interface SelectedProviderSourceCall {
   readonly call: Node;
-  readonly selection: ResolvedSourceCallInfo;
+  readonly selection: Extract<ResolvedSourceCallInfo, { readonly kind: "applicable" }>;
   readonly declaration: ProviderVirtualDeclarationFact;
 }
 
@@ -66,10 +66,10 @@ export function forEachSelectedProviderSourceCall(
         return;
       }
       const selection = sourceContext.checker.getResolvedCallInfo(node);
-      if (selection?.outcome !== "applicable") {
+      if (selection?.kind !== "applicable") {
         return;
       }
-      const signatureDeclaration = sourceContext.checker.getSignatureDeclaration(selection.selectedSignature);
+      const signatureDeclaration = sourceContext.checker.getSignatureDeclaration(selection.selection.application.signature);
       const declaration = readSourceFact(
         sourceContext,
         signatureDeclaration,
@@ -88,7 +88,7 @@ function directImportedModuleSpecifier(
   context: Pick<TsonicSourceFileAnalysisContext, "ast" | "checker">,
 ): string | undefined {
   const callee = unwrapParenthesizedExpression(
-    selected.selection.sourceCallee.expression,
+    selected.selection.selection.callee.expression,
     context,
   );
   if (callee === undefined) {

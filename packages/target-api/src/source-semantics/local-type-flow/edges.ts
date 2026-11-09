@@ -141,6 +141,11 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
         return result;
       }
       if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
+        const form = context.source.admission.form(node);
+        if (form.kind === "refused") {
+          refusals.push(form);
+          return record(node, "derived-local");
+        }
         const result = record(node, "derived-local");
         const selection = input.application(node);
         calls.push({ node, selection, result });

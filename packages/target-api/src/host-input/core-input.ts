@@ -1,7 +1,7 @@
 import type { Node, SourcePointerMutability } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
-import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "../target/data-layout.js";
 import type { SourceInputComponent } from "./identities.js";
+import type { SourceInputLayoutIdentity, SourceInputMemoryQueries } from "./memory-input.js";
 import type { SourceInputMarkerQueries, SourceInputMarkers } from "./marker-input.js";
 import type { SourceInputSafetyQueries } from "./safety-input.js";
 import type { SourceAttributeBuilderFact } from "../source-model/attributes.js";
@@ -18,26 +18,6 @@ export type SourceInputPointerType =
   | { readonly kind: "native-pointer"; readonly declaration: Node }
   | { readonly kind: "function-pointer"; readonly declaration: Node; readonly parameters: readonly SourceInputComponent[];
       readonly result: SourceInputComponent; readonly abi: readonly string[] };
-
-export interface SourceInputLayoutIdentity {
-  readonly kind: "memory-layout";
-  readonly occurrence: Node;
-}
-
-export type SourceInputMemoryLayout = {
-  readonly occurrence: Node;
-  readonly dataLayout: TsonicDataLayoutDescriptor & { readonly providerDeclaration: TsonicDataLayoutIdentity };
-  readonly byteSize: bigint;
-  readonly byteAlignment: bigint;
-  readonly stride: bigint;
-} & (
-  | { readonly kind: "value"; readonly fields: readonly {
-      readonly occurrence: Node; readonly selector: Node; readonly declaration: Node;
-      readonly layout: SourceInputLayoutIdentity; readonly byteOffset: bigint; readonly byteAlignment: bigint;
-    }[] }
-  | { readonly kind: "array"; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" };
-      readonly element: SourceInputLayoutIdentity }
-);
 
 export type SourceInputRawLocation = { readonly kind: "resolved"; readonly layout: SourceInputLayoutIdentity }
   | { readonly kind: "rejected"; readonly reason: string };
@@ -72,12 +52,11 @@ export type SourceInputPointerOperation =
   | { readonly family: "keep-alive"; readonly operation: "keep-alive"; readonly value: Node };
 
 export interface SourceInputCoreQueries extends SourceInputMarkerQueries, SourceInputSafetyQueries {
+  readonly memory: SourceInputMemoryQueries;
   attributeBuilder(occurrence: Node): SourcePresence<SourceAttributeBuilderFact>;
   pointerType(subjects: SourceInputOriginalSubjects): SourceInputPointerType;
   typeMarkers(subjects: SourceInputOriginalSubjects): { readonly kind: "available"; readonly value: SourceInputMarkers }
     | { readonly kind: "unavailable" };
   operation(occurrence: Node): SourcePresence<SourceInputPointerOperation>;
   pointeeMatches(occurrence: Node, index: number, component: SourceInputComponent): "matched" | "mismatch" | "unavailable";
-  layout(identity: SourceInputLayoutIdentity, component: SourceInputComponent):
-    { readonly kind: "available"; readonly value: SourceInputMemoryLayout } | { readonly kind: "unavailable" };
 }

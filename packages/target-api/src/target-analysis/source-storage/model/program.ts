@@ -1,4 +1,4 @@
-import type { Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
+import type { FlowStateFact, Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
 import type { SourceDeclaredSlot, SourceCallableRole, SourcePresence, SourceRefusal, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../../source-model/production.js";
 import type { SourceMemberInventoryQueries } from "../../../source-semantics/member-inventory.js";
@@ -15,6 +15,7 @@ export interface SourceStorageAnalysisInputs {
   readonly aggregate: (original: Node, values: readonly SourceTypeEvidence[]) => SourceResult<SourceTypeEvidence>;
   readonly literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain;
   readonly syntaxDomain: (original: Node) => SourceProductionResult<SourceLiteralDomain>;
+  readonly flowState: (original: Node) => SourcePresence<FlowStateFact["state"]>;
   readonly flowConditions: (original: Node) => SourcePresence<ResolvedSourceFlowConditionInfo>;
   readonly enclosing: (original: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean) => Node | undefined;
 }

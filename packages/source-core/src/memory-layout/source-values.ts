@@ -1,15 +1,15 @@
 import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { sourceIntegerLiteralValue } from "@tsonic/target-api/source";
-import type { Node, ResolvedSourceCallInfo, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
+import type { Node, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
-import { readSourceFact } from "../analysis/source-call.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../analysis/source-call.js";
 import { readSourcePrimitiveAnnotation } from "../analysis/source-primitive.js";
 import { dataLayoutIdentityKey } from "./registrations.js";
 import { tsonicDataLayoutFactKey } from "./facts.js";
 import type { TsonicDataLayoutFact } from "./facts.js";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 
-export type SelectedMemoryValue = ResolvedSourceCallInfo["sourceArguments"][number];
+export type SelectedMemoryValue = SelectedProviderSourceCall["selection"]["selection"]["argumentValues"][number];
 
 export function immutableValueOrigin(
   expression: Node,
@@ -68,8 +68,8 @@ export function selectedValueAnnotation(value: SelectedMemoryValue, context: Tso
 function selectedCallReturnAnnotation(expression: Node, context: TsonicSourceFileAnalysisContext): Node | undefined {
   if (!context.ast.is.IsCallExpression(expression)) return undefined;
   const call = context.checker.getResolvedCallInfo(expression);
-  return call === undefined
-    ? undefined : context.ast.typeNode(context.checker.getSignatureDeclaration(call.selectedSignature));
+  return call?.kind !== "applicable"
+    ? undefined : context.ast.typeNode(context.checker.getSignatureDeclaration(call.selection.application.signature));
 }
 
 function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): {

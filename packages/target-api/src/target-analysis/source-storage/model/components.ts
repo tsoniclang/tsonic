@@ -15,7 +15,7 @@ function aggregate(source: SourceStorageProgram, original: Node, values: readonl
     : sourceStorageValue(source.analysis.aggregate(original, Object.freeze(selected)));
 }
 
-function presentArms(source: SourceStorageProgram, value: SourceTypeEvidence): readonly SourceTypeEvidence[] {
+export function sourceStoragePresentArms(source: SourceStorageProgram, value: SourceTypeEvidence): readonly SourceTypeEvidence[] {
   const pending = [value];
   const visited = new Set<SourceTypeEvidence>();
   const selected: SourceTypeEvidence[] = [];
@@ -49,7 +49,7 @@ export function sourceStorageIsScalarType(value: SourceTypeEvidence, source: Sou
 }
 
 export function sourcePresentStorageType(value: SourceTypeEvidence, source: SourceStorageProgram): SourceTypeEvidence | undefined {
-  return aggregate(source, value.component.root, presentArms(source, value));
+  return aggregate(source, value.component.root, sourceStoragePresentArms(source, value));
 }
 
 export function sourceStorageAccessDeclarations(source: SourceStorageProgram, access: Node,
@@ -79,7 +79,7 @@ export function sourceStorageDynamicMemberDeclarations(source: SourceStorageProg
   const type = sourceStorageSubjectType(source, receiver);
   if (type === undefined) return undefined;
   const declarations = new Set<Node>();
-  for (const arm of presentArms(source, type)) {
+  for (const arm of sourceStoragePresentArms(source, type)) {
     if (!step()) return undefined;
     const selected = sourceStorageValue(source.analysis.settle(source.analysis.objects.named(arm, key)));
     if (selected.kind !== "available") return undefined;
@@ -126,7 +126,7 @@ function indexedElement(source: SourceStorageProgram, value: SourceTypeEvidence)
 export function sourceStorageComponentType(value: SourceTypeEvidence, component: SourceStorageProjection,
   source: SourceStorageProgram): SourceTypeEvidence | undefined {
   const selected: SourceTypeEvidence[] = [];
-  for (const arm of presentArms(source, value)) {
+  for (const arm of sourceStoragePresentArms(source, value)) {
     let child: SourceTypeEvidence | undefined;
     if (sourceStorageIsMemberProjection(component)) {
       const member = sourceStorageValue(source.facts.objects.correspondingMember(arm, arm, component.declaration, "read"));
@@ -160,13 +160,13 @@ export function sourceStorageOriginalComponents(from: SourceTypeEvidence, to: So
       Object.freeze({ kind: selected.read === "method" ? "method-value" as const : "member" as const, declaration }));
   }
   if (component.kind === "array-element") return sourceStorageComponents(from, source);
-  return presentArms(source, from).every(arm => arm.type.kind === "tuple") ? [component] : [{ kind: "array-element" }];
+  return sourceStoragePresentArms(source, from).every(arm => arm.type.kind === "tuple") ? [component] : [{ kind: "array-element" }];
 }
 
 export function* sourceStorageComponents(value: SourceTypeEvidence, source: SourceStorageProgram): Iterable<SourceStorageProjection> {
   const indexes = new Set<number>();
   let indexed = false;
-  for (const arm of presentArms(source, value)) {
+  for (const arm of sourceStoragePresentArms(source, value)) {
     if (arm.type.kind === "tuple") {
       for (const [index, element] of arm.type.elements.entries()) if (element.kind !== "rest") indexes.add(index);
     } else if (indexedElement(source, arm) !== undefined) indexed = true;

@@ -1,6 +1,21 @@
 import type { Node, SourcePointerMutability } from "@tsonic/tsts";
 import type { SourcePresence, SourceResult, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "../target/data-layout.js";
+import type { SourceCorrespondenceMemberIdentity } from "./members.js";
+
+export interface SourceMemoryField {
+  readonly occurrence: Node;
+  readonly owner: SourceTypeEvidence;
+  readonly selector: Node;
+  readonly selection: Node;
+  readonly member: SourceCorrespondenceMemberIdentity;
+  readonly primary: SourcePresence<Node>;
+  readonly selectedDeclarations: readonly Node[];
+  readonly value: SourceTypeEvidence;
+  readonly layout: SourceMemoryLayout;
+  readonly byteOffset: bigint;
+  readonly byteAlignment: bigint;
+}
 
 export type SourceMemoryLayout = {
   readonly occurrence: Node;
@@ -10,11 +25,7 @@ export type SourceMemoryLayout = {
   readonly byteAlignment: bigint;
   readonly stride: bigint;
 } & (
-  | { readonly kind: "value"; readonly fields: readonly {
-      readonly occurrence: Node; readonly selector: Node; readonly declaration: Node;
-      readonly value: SourceTypeEvidence; readonly layout: SourceMemoryLayout;
-      readonly byteOffset: bigint; readonly byteAlignment: bigint;
-    }[] }
+  | { readonly kind: "value"; readonly fields: readonly SourceMemoryField[] }
   | { readonly kind: "array"; readonly extent: { readonly length: bigint; readonly runtimeBase: "number" | "bigint" };
       readonly element: SourceMemoryLayout }
 );

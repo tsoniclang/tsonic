@@ -1,14 +1,15 @@
 import { fieldFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
+import type { Node, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact } from "../../analysis/source-call.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/source-call.js";
 import type { MemorySourceCall, MemoryTypeContracts } from "../analysis-model.js";
 import { publishMemoryFact } from "../analysis-context.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { isMemoryFieldDeclaration } from "../selectors.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./model.js";
-import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypeMember, createMemoryTypeIdentity,
+import type { MemorySourceProvenance } from "./provenance.js";
+import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypePublicationSources, bindMemoryTypeMember, createMemoryTypeIdentity,
   memoryTypeMember, tsonicMemoryTypeFactKey } from "./facts.js";
 import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "./facts.js";
 import { createMemoryValueDomains } from "./values.js";
@@ -89,42 +90,50 @@ export function createMemoryTypeContracts(
     return result;
   }
 
-  function canonical(call: MemorySourceCall): ResolvedSourceCallInfo | undefined {
+  function canonical(call: MemorySourceCall): SelectedProviderSourceCall["selection"] | undefined {
     const selection = checker.getResolvedCallInfo(call.selected.call);
-    if (selection?.outcome !== "applicable" || checker.getSignatureDeclaration(selection.selectedSignature) !==
-        call.context.checker.getSignatureDeclaration(call.selected.selection.selectedSignature)) return undefined;
+    if (selection?.kind !== "applicable" || checker.getSignatureDeclaration(selection.selection.application.signature) !==
+        call.context.checker.getSignatureDeclaration(call.selected.selection.selection.application.signature)) return undefined;
     return selection;
   }
 
   function selected(call: MemorySourceCall, index: number, annotation?: Node, domain?: MemoryTypeDomain): MemoryTypeSelection | undefined {
     const selection = canonical(call);
-    const argument = selection?.sourceSelectedMethodTypeArguments?.[index];
-    if (argument === undefined || !domains.isClosed(argument.selectedType)) return undefined;
+    const argument = selection?.selection.application.signatureTypeArguments?.[index];
+    if (argument?.checkedArgument === undefined || !domains.isClosed(argument.checkedArgument)) return undefined;
     const node = argument.explicitTypeNode ?? annotation;
-    const actual = node === undefined ? domain ?? domains.selected(argument.selectedType) : domains.authored(node);
+    const actual = node === undefined ? domain ?? domains.selected(argument.checkedArgument) : domains.authored(node);
     if (actual === undefined || domain !== undefined && !domains.equivalent(actual, domain)) return undefined;
-    return intern(argument.selectedType, actual);
+    return intern(argument.checkedArgument, actual);
   }
 
   function pointerDomain(call: MemorySourceCall, nilDomain?: MemoryTypeDomain, index = 0): MemoryTypeDomain | undefined {
-    const operand = canonical(call)?.sourceArguments[index];
+    const operand = canonical(call)?.selection.argumentValues[index];
     if (operand === undefined) return undefined;
     if (typeShape.isNullish(operand.type)) return nilDomain;
     const domain = valueDomain(operand.expression);
     return domain === undefined ? undefined : domains.pointee(domain);
   }
 
-  function arrayResult(selection: ResolvedSourceCallInfo, queries: TsonicSourceFileAnalysisContext,
+  function arrayResult(selection: SelectedProviderSourceCall["selection"], queries: TsonicSourceFileAnalysisContext,
     count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined {
-    const arguments_ = queries.typeShape.getTypeArguments(selection.sourceResultType);
+    const arguments_ = queries.typeShape.getTypeArguments(selection.resultType);
     if (arguments_.length !== 1 || arguments_[0] === undefined) return undefined;
     const array = selectTsonicFixedArray(arguments_[0], queries,
       { getFact: (subject, key) => readSourceFact(queries, subject, key) },
-      { elementType: selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode,
-        extentType: selection.sourceSelectedMethodTypeArguments?.[1]?.explicitTypeNode,
-        extent: selection.sourceSelectedMethodTypeArguments?.[1]?.explicitTypeNode === undefined
+      { elementType: selection.selection.application.signatureTypeArguments?.[0]?.explicitTypeNode,
+        extentType: selection.selection.application.signatureTypeArguments?.[1]?.explicitTypeNode,
+        extent: selection.selection.application.signatureTypeArguments?.[1]?.explicitTypeNode === undefined
           ? { length: count.value, lengthRuntimeBase: count.runtimeBase } : undefined });
     return array?.kind === "selected" ? array.fact : undefined;
+  }
+
+  function bindingSource(call: MemorySourceCall, index: number): MemorySourceProvenance | undefined {
+    const application = call.selected.selection.selection.application;
+    const argument = application.signatureTypeArguments[index];
+    if (argument?.declaration === undefined || argument.checkedArgument === undefined) return undefined;
+    return Object.freeze({ kind: "binding", application, argument, declaration: argument.declaration,
+      sourceType: argument.checkedArgument });
   }
 
   return Object.freeze({
@@ -133,7 +142,7 @@ export function createMemoryTypeContracts(
       if (selection === undefined) return false;
       layouts.set(call.selected.call, selection);
       selections.set(call.selected.call, { selection,
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![0]!.checkedArgument! });
       return true;
     },
     array(call: MemorySourceCall, layout: TsonicMemoryLayoutFact,
@@ -172,12 +181,12 @@ export function createMemoryTypeContracts(
       fields.set(call.selected.call, parent);
       fieldMembers.set(call.selected.call, correspondence);
       selections.set(call.selected.call, { selection, member: correspondence,
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![1]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![1]!.checkedArgument! });
       return true;
     },
     queryField(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact) {
       const owner = layouts.get(layout.call);
-      const selector = call.selected.selection.sourceArguments[1]?.expression;
+      const selector = call.selected.selection.selection.argumentValues[1]?.expression;
       const parameter = selector === undefined ? undefined : ast.parameters(selector)[0];
       const selection = selected(call, 0, ast.typeNode(parameter));
       const member = selection === undefined ? undefined : memoryTypeMember(selection.identity, declaration);
@@ -187,7 +196,7 @@ export function createMemoryTypeContracts(
             return counterpart?.owner === owner.identity && counterpart.member === member;
           }).length !== 1) return false;
       selections.set(call.selected.call, { selection, member: Object.freeze({ owner: owner.identity, declaration, member }),
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![0]!.checkedArgument! });
       return true;
     },
     aggregate(call: MemorySourceCall, members: readonly Node[]) {
@@ -209,7 +218,7 @@ export function createMemoryTypeContracts(
       const selection = selected(call, 0, undefined, domain);
       if (selection?.identity !== child.identity) return false;
       selections.set(call.selected.call, { selection,
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![0]!.checkedArgument! });
       return true;
     },
     binding(call: MemorySourceCall, field: TsonicMemoryFieldLayoutFact) {
@@ -221,7 +230,7 @@ export function createMemoryTypeContracts(
       if (parent === undefined || child === undefined || owner?.identity !== parent.identity ||
           pointee?.identity !== child.identity) return false;
       selections.set(call.selected.call, { selection: pointee,
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![1]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![1]!.checkedArgument! });
       return true;
     },
     record(call: MemorySourceCall, layout: TsonicValueMemoryLayoutFact) {
@@ -252,7 +261,7 @@ export function createMemoryTypeContracts(
         remaining.delete(member);
       }
       selections.set(call.selected.call, { selection,
-        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
+        sourceType: call.selected.selection.selection.application.signatureTypeArguments![0]!.checkedArgument! });
       return true;
     },
     publish(call: MemorySourceCall) {
@@ -261,6 +270,21 @@ export function createMemoryTypeContracts(
       if (sourceType === undefined || selected === undefined) throw new Error("Missing validated memory type selection.");
       const identity = selected.selection.identity;
       bindMemoryTypeIdentity(identity, call.selected.call, sourceType, selected.fixedArray, selected.member);
+      let origin: MemorySourceProvenance | undefined;
+      if (selected.fixedArray !== undefined) {
+        const observed = call.selected.selection;
+        const arguments_ = call.context.typeShape.getTypeArguments(observed.resultType);
+        if (arguments_.length === 1 && arguments_[0] === sourceType) {
+          const application = observed.selection.application;
+          origin = Object.freeze({ kind: "result", application, component: Object.freeze({
+            root: Object.freeze({ kind: "value", node: call.selected.call, type: observed.resultType }),
+            path: Object.freeze([{ kind: "type-argument", owner: observed.resultType, index: 0 }]),
+            type: sourceType, application }) });
+        }
+      } else origin = bindingSource(call, call.name === "memoryfield" || call.name === "bindmemoryfield" ? 1 : 0);
+      const owner = call.name === "memoryfield" || call.name === "bindmemoryfield" ? bindingSource(call, 0) : undefined;
+      if (origin !== undefined && (call.name !== "memoryfield" && call.name !== "bindmemoryfield" || owner !== undefined))
+        bindMemoryTypePublicationSources(identity, call.selected.call, { source: origin, owner });
       publishMemoryFact(call, tsonicMemoryTypeFactKey, { call: call.selected.call, sourceType, identity });
     },
   });

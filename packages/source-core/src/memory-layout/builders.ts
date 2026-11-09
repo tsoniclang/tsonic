@@ -17,9 +17,9 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
   if (descriptor === undefined) return;
   const selector = descriptor.get("select")!;
   const fieldLayoutExpression = descriptor.get("fieldlayout")!;
-  const types = selected.selection.sourceSelectedMethodTypeArguments;
-  const sourceType = types?.[0]?.selectedType;
-  const fieldType = types?.[1]?.selectedType;
+  const types = selected.selection.selection.application.signatureTypeArguments;
+  const sourceType = types?.[0]?.checkedArgument;
+  const fieldType = types?.[1]?.checkedArgument;
   const member = selectInlineSourceMember(selector, context);
   const byteOffset = exactLayoutSize(descriptor.get("byteoffset")!, context);
   const byteAlignment = exactLayoutSize(descriptor.get("bytealignment")!, context);
@@ -55,18 +55,18 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
   if (descriptor === undefined) return;
   const fieldExpressions = readMemoryDescriptorFields(descriptor.get("fields")!, call);
   if (fieldExpressions === undefined) return;
-  const pointee = selected.selection.sourceSelectedMethodTypeArguments?.[0];
+  const pointee = selected.selection.selection.application.signatureTypeArguments?.[0];
   const dataLayoutExpression = descriptor.get("datalayout")!;
   const dataLayout = selectedDataLayout(dataLayoutExpression, context, analysis.registrations);
   const byteSize = exactLayoutSize(descriptor.get("bytesize")!, context);
   const byteAlignment = exactLayoutSize(descriptor.get("bytealignment")!, context);
   const stride = exactLayoutSize(descriptor.get("stride")!, context);
-  if (pointee === undefined || dataLayout === undefined ||
+  if (pointee?.checkedArgument === undefined || dataLayout === undefined ||
       byteSize === undefined || byteAlignment === undefined || stride === undefined) {
     memoryDiagnostic(call, "LAYOUT_NOT_PROVEN", "memorylayout requires an exact selected type, registered ABI token, and non-negative safe integer size, alignment and stride.");
     return;
   }
-  const array = selectTsonicFixedArray(pointee.selectedType, context,
+  const array = selectTsonicFixedArray(pointee.checkedArgument, context,
     { getFact: (subject, key) => readSourceFact(context, subject, key) }, { authoredTypeNode: pointee.explicitTypeNode });
   if (array !== undefined) {
     memoryDiagnostic(call, "ARRAY_ELEMENT_REQUIRED", "A fixed-array memory layout requires memoryarraylayout and its exact element child; a field-only descriptor is incomplete.");
@@ -88,7 +88,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
   }
   const fact = {
     kind: "value" as const,
-    call: selected.call, sourceType: pointee.selectedType,
+    call: selected.call, sourceType: pointee.checkedArgument,
     ...(pointee.explicitTypeNode === undefined ? {} : { explicitTypeNode: pointee.explicitTypeNode }),
     dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
     fields: fields.filter((field) => field !== undefined),
@@ -109,7 +109,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
 
 export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
-  const operand = selected.selection.sourceArguments[0];
+  const operand = selected.selection.selection.argumentValues[0];
   if (operand === undefined) {
     memoryDiagnostic(call, "QUERY_OPERAND_MISSING", "Layout query is missing its exact selected layout operand.");
     return;
@@ -117,12 +117,12 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
   const layout = analysis.layout(operand.expression, context);
   const base = {
     call: selected.call, layoutExpression: operand.expression,
-    layoutType: operand.type, resultType: selected.selection.sourceResultType,
+    layoutType: operand.type, resultType: selected.selection.resultType,
   };
   if (call.name === "fieldoffsetof") {
-    const member = selectInlineSourceMember(selected.selection.sourceArguments[1]?.expression, context);
+    const member = selectInlineSourceMember(selected.selection.selection.argumentValues[1]?.expression, context);
     const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
-    const selector = selected.selection.sourceArguments[1];
+    const selector = selected.selection.selection.argumentValues[1];
     if (declaration === undefined || selector === undefined || !isMemoryFieldSelector(selector.expression, context) ||
         !isMemoryFieldDeclaration(declaration, context) || layout === undefined || !analysis.types.queryField(call, declaration, layout)) {
       memoryDiagnostic(call, "QUERY_FIELD_NOT_PROVEN", "fieldoffsetof requires one exact non-optional physical field selection.");

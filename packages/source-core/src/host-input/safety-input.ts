@@ -63,13 +63,13 @@ export function createSourceCoreSafetyInput(input: {
       if (operand !== undefined) return declaration(operand);
       if (ast.is.IsCallExpression(expression)) {
         const selection = checker.getResolvedCallInfo(expression);
-        if (selection?.outcome !== "applicable" || selection.sourceArguments.length !== 1) return undefined;
-        const owner = checker.getSignatureDeclaration(selection.selectedSignature);
+        if (selection?.kind !== "applicable" || selection.selection.argumentValues.length !== 1) return undefined;
+        const owner = checker.getSignatureDeclaration(selection.selection.application.signature);
         const identity = owner === undefined ? undefined : sourceFacts.getFact(owner, providerVirtualDeclarationFactKey);
         if (identity?.providerId !== tsonicCoreVirtualModulesProviderId ||
           identity.providerVersion !== tsonicCoreProviderVersion || identity.memberId !== undefined ||
           !erasedMarkers.some(marker => marker.module === identity.providerModuleId && marker.exportName === identity.exportId)) return undefined;
-        const argument = selection.sourceArguments[0]?.expression;
+        const argument = selection.selection.argumentValues[0]?.expression;
         return argument === undefined ? undefined : declaration(argument);
       }
       if (ast.is.IsFunctionExpression(expression) || ast.is.IsArrowFunction(expression)) return expression;
@@ -100,7 +100,7 @@ export function createSourceCoreSafetyInput(input: {
         : { kind: "export-signature", providerId: provider.providerId, providerVersion: provider.providerVersion,
           providerModuleId: provider.providerModuleId, exportId, signatureId }, queries);
     if (matches(provider.names.unsafeContextExport, sourceSafetySignatureIds.unsafeContextExpression, false)) {
-      const expression = selection.sourceArguments[0]?.expression;
+      const expression = selection.selection.argumentValues[0]?.expression;
       if (expression === undefined) throw new Error("The selected unsafe expression signature requires its original argument.");
       assertNode(expression);
       return Object.freeze({ ...base, family: "unsafe-context", operation: "expression", expression });
@@ -109,19 +109,19 @@ export function createSourceCoreSafetyInput(input: {
       return Object.freeze({ ...base, family: "unsafe-context", operation: "remaining-block", firstDirectStatement: firstDirectStatement(call) });
     for (const form of ["type", "value"] as const) {
       if (!matches(provider.names.safetyExport, form === "type" ? sourceSafetySignatureIds.safetyTypeRoot : sourceSafetySignatureIds.safetyValueRoot, false)) continue;
-      const argument = selection.sourceArguments[0]?.expression;
-      const target = form === "type" ? selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode
+      const argument = selection.selection.argumentValues[0]?.expression;
+      const target = form === "type" ? selection.selection.application.signatureTypeArguments?.[0]?.explicitTypeNode
         : argument === undefined ? undefined : valueTarget(argument, queries);
       if (target !== undefined) assertNode(target);
       return Object.freeze({ ...base, family: "safety", operation: "root", form, target: target === undefined ? none : present(target) });
     }
-    const originalReceiver = selection.sourceReceiver?.expression;
+    const originalReceiver = selection.selection.application.receiver?.expression;
     const receiver = unwrapParenthesizedExpression(originalReceiver, queries);
     if (receiver !== undefined) assertNode(receiver);
     const predecessor = receiver === undefined ? none : present(receiver);
     for (const memberKind of ["method", "property", "indexer"] as const) {
       if (!matches(provider.names.safetyBuilderExport, sourceSafetySignatureIds[memberKind], true)) continue;
-      const selectedMember = selectInlineSourceMember(selection.sourceArguments[0]?.expression, queries,
+      const selectedMember = selectInlineSourceMember(selection.selection.argumentValues[0]?.expression, queries,
         memberKind === "indexer" ? "element" : "property");
       if (selectedMember.kind === "rejected") return Object.freeze({ ...base, family: "safety", operation: "select-member",
         predecessor, memberKind, selection: Object.freeze({ kind: "unavailable", reason: selectedMember.reason }) });
@@ -157,8 +157,8 @@ export function createSourceCoreSafetyInput(input: {
     if (file === undefined) throw new Error("Safety operations require their actual original source file.");
     const queries = checked.getSourceFileQueries(file);
     const selection = queries.checker.getResolvedCallInfo(occurrence);
-    if (selection?.outcome !== "applicable") { retained.set(occurrence, none); return none; }
-    const declaration = queries.checker.getSignatureDeclaration(selection.selectedSignature);
+    if (selection?.kind !== "applicable") { retained.set(occurrence, none); return none; }
+    const declaration = queries.checker.getSignatureDeclaration(selection.selection.application.signature);
     const provider = declaration === undefined ? undefined : sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
     if (provider === undefined) { retained.set(occurrence, none); return none; }
     const selected = { call: occurrence, selection, declaration: provider };

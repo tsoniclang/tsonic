@@ -6,20 +6,20 @@ import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } fro
 
 export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
-  const args = selected.selection.sourceArguments;
+  const args = selected.selection.selection.argumentValues;
   const [fieldOperand, pointer] = args;
-  const types = selected.selection.sourceSelectedMethodTypeArguments;
-  const sourceType = types?.[0]?.selectedType;
-  const pointeeType = types?.[1]?.selectedType;
+  const types = selected.selection.selection.application.signatureTypeArguments;
+  const sourceType = types?.[0]?.checkedArgument;
+  const pointeeType = types?.[1]?.checkedArgument;
   const field = fieldOperand === undefined ? undefined : analysis.field(fieldOperand.expression, context);
   if (args.length !== 2 || fieldOperand === undefined || pointer === undefined || field === undefined ||
       sourceType === undefined || pointeeType === undefined ||
-      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value")) {
+      selected.selection.selection.arguments.values.some(binding => binding.sourceForm !== "value")) {
     memoryDiagnostic(call, "FIELD_BINDING_NOT_PROVEN", "bindmemoryfield requires one finalized field and a non-nil pointer with that field's exact source memory domain.");
     return;
   }
   publishMemoryFact(call, tsonicMemoryFieldBindingFactKey, {
-    call: selected.call, resultType: selected.selection.sourceResultType, sourceType, pointeeType,
+    call: selected.call, resultType: selected.selection.resultType, sourceType, pointeeType,
     fieldExpression: fieldOperand.expression, field, pointerExpression: pointer.expression, pointerType: pointer.type,
   });
   if (analysis.types.binding(call, field)) analysis.types.publish(call);
@@ -27,12 +27,12 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
 
 export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
-  const [operand, ...arguments_] = selected.selection.sourceArguments;
-  const sourceType = selected.selection.sourceSelectedMethodTypeArguments?.[0]?.selectedType;
+  const [operand, ...arguments_] = selected.selection.selection.argumentValues;
+  const sourceType = selected.selection.selection.application.signatureTypeArguments?.[0]?.checkedArgument;
   const layout = operand === undefined ? undefined : analysis.layout(operand.expression, context);
   if (operand === undefined || sourceType === undefined || layout?.kind !== "value" ||
       arguments_.length !== layout.fields.length ||
-      selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value") ||
+      selected.selection.selection.arguments.values.some(binding => binding.sourceForm !== "value") ||
       !analysis.types.record(call, layout)) {
     memoryDiagnostic(call, "RECORD_BINDING_NOT_PROVEN", "bindmemoryrecord requires a closed data record layout and one explicit binding for every field.");
     return;
@@ -48,7 +48,7 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
     unmatched.delete(declared.call);
   }
   publishMemoryFact(call, tsonicMemoryRecordBindingFactKey, {
-    call: selected.call, resultType: selected.selection.sourceResultType, sourceType, layoutExpression: operand.expression, layout,
+    call: selected.call, resultType: selected.selection.resultType, sourceType, layoutExpression: operand.expression, layout,
     fields: fields.map(field => ({ expression: field.expression, binding: field.binding! })),
   });
   analysis.types.publish(call);

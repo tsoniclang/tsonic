@@ -426,11 +426,21 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
     "/src/src/index.ts": "function run() { return import('./value.js'); }",
     "/src/src/value.ts": "export const value = 1;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
-  const checked = sourceFlowOwnerFixture({ checked: input, apiFacts: undefined, profileFiles: [], safetyProviders: [] }).program;
+  const { program: checked, flow } = sourceFlowOwnerFixture({ checked: input, apiFacts: undefined, profileFiles: [], safetyProviders: [] });
+  const imports = flow.context.nodes.filter(node => checked.ast.is.IsCallExpression(node) &&
+    checked.ast.kindName(checked.ast.as.AsCallExpression(node)?.Expression) === "KindImportKeyword");
+  assert.equal(imports.length, 1, "the complete original import-call domain contains exactly the retained call");
+  const original = imports[0];
+  const refusal = checked.facts.admission.form(original);
+  assert.equal(refusal.kind === "refused" && refusal.source === "tsonic" &&
+    refusal.code === "TSONIC_SOURCE_FORM_UNSUPPORTED" && refusal.site === original &&
+    refusal.message === "Dynamic import expressions have no supported Source runtime application form.", true,
+  "the frozen prior-refused program retains its exact original import site and canonical M4 form outcome");
+  assert.equal(checked.facts.values.type(original) === refusal, true, "value demand forwards the same Source refusal");
+  assert.equal(checked.facts.applications.application(original) === refusal, true, "application demand forwards the same Source refusal");
   const selection = checked.facts.protocols.controlFlow.declaration(namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"), { domain: { kind: "source" } });
-  assert.equal(selection.kind, "unresolved");
+  assert.equal(selection === refusal, true, "inferred body completion and flow demand retain the identical Source refusal");
   assert.equal("graph" in selection, false);
-  assert.match(selection.reason, /KindImportKeyword/u);
   assert.equal(selection.resource === undefined, true, "unsupported syntax is not relabelled as resource exhaustion");
 });
 

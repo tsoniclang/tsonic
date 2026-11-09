@@ -6,6 +6,7 @@ export type * from "../source-model/profile.js";
 export type { SourceProfileDeclarationIdentity } from "../source-model/profile-identity.js";
 export type * from "../source-model/protocols.js";
 export type * from "../source-model/pointers.js";
+export type * from "../source-model/memory.js";
 export type * from "../source-model/markers.js";
 export type * from "../source-model/safety.js";
 export type * from "../source-model/attributes.js";

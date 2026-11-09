@@ -1,11 +1,10 @@
 import { functionPointerFactKey, pointerFactKey, pointerOperationFactKey, providerVirtualDeclarationFactKey,
   rawPointerFactKey, rawPointerOperationFactKey, sourceMarkerFactKey } from "@tsonic/tsts";
 import type { CheckedSourceProgram, ExtensionFactKey, ExtensionFactSubject, Node, Type } from "@tsonic/tsts";
-import type { SourceInputComponent, SourceInputCoreQueries, SourceInputLayoutIdentity, SourceInputMemoryLayout,
+import type { SourceInputComponent, SourceInputCoreQueries,
   SourceInputOriginalSubjects, SourceInputPointerOperation, SourceInputPointerType } from "@tsonic/target-api/host";
 import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
 import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
-import type { TsonicMemoryLayoutFact } from "../memory-layout/facts.js";
 import { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
@@ -13,8 +12,9 @@ import { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
 import { createSourceCoreMarkerInput, sourceCoreMarkerFacts } from "./marker-facts.js";
 import { createSourceCoreSafetyInput } from "./safety-input.js";
 import { createSourceCoreAttributeInput } from "./attribute-input.js";
+import { createSourceCoreMemoryInput, type SourceCoreOriginalCallInput } from "./memory-input.js";
 
-export interface SourceCoreInputOptions {
+export interface SourceCoreInputOptions extends SourceCoreOriginalCallInput {
   readonly checked: CheckedSourceProgram;
   readonly assertNode: (node: Node) => void;
   readonly observedComponent: (component: SourceInputComponent) => Type | undefined;
@@ -28,8 +28,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
   const markerInput = createSourceCoreMarkerInput({ sourceFacts, assertNode });
   const safetyInput = createSourceCoreSafetyInput(input);
   const attributeInput = createSourceCoreAttributeInput(input);
-  const layouts = new WeakMap<TsonicMemoryLayoutFact, SourceInputLayoutIdentity>();
-  const originalLayouts = new WeakMap<SourceInputLayoutIdentity, TsonicMemoryLayoutFact>();
+  const { memory, layoutIdentity } = createSourceCoreMemoryInput(input);
   const operations = new WeakMap<Node, ReturnType<SourceInputCoreQueries["operation"]>>();
   const none = Object.freeze({ kind: "none" } as const);
   const unavailable = Object.freeze({ kind: "unavailable" } as const);
@@ -82,15 +81,6 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
       result = actual;
     }
     return result;
-  };
-  const layoutIdentity = (layout: TsonicMemoryLayoutFact): SourceInputLayoutIdentity => {
-    assertNode(layout.call);
-    const previous = layouts.get(layout);
-    if (previous !== undefined) return previous;
-    const identity: SourceInputLayoutIdentity = Object.freeze({ kind: "memory-layout", occurrence: layout.call });
-    layouts.set(layout, identity);
-    originalLayouts.set(identity, layout);
-    return identity;
   };
   const pointerType: SourceInputCoreQueries["pointerType"] = original => {
     const selected = subjects(original);
@@ -209,30 +199,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
     if (file === undefined) throw new Error("Core operations require their original checked source file.");
     return checked.getSourceFileQueries(file).typeShape.isTypeIdenticalTo(terminal, expected) ? "matched" : "mismatch";
   };
-  const layout: SourceInputCoreQueries["layout"] = (identity, component) => {
-    const original = originalLayouts.get(identity);
-    if (original === undefined) throw new Error("A memory layout identity must belong to the same original Core input.");
-    assertNode(identity.occurrence);
-    const terminal = observedComponent(component);
-    if (terminal === undefined) return unavailable;
-    const file = ast.getSourceFile(original.call);
-    if (file === undefined) throw new Error("A memory layout requires its original checked source file.");
-    if (!checked.getSourceFileQueries(file).typeShape.isTypeIdenticalTo(terminal, original.sourceType))
-      throw new Error("A finalized memory layout must describe the exact original Source component.");
-    const base = { occurrence: original.call, byteSize: original.byteSize, byteAlignment: original.byteAlignment,
-      stride: original.stride, dataLayout: Object.freeze({ ...original.dataLayout,
-        providerDeclaration: Object.freeze({ ...original.dataLayout.providerDeclaration }) }) };
-    const value: SourceInputMemoryLayout = original.kind === "array"
-      ? Object.freeze({ ...base, kind: "array", extent: Object.freeze({ length: original.fixedArray.length,
-        runtimeBase: original.fixedArray.lengthRuntimeBase }), element: layoutIdentity(original.elementLayout) })
-      : Object.freeze({ ...base, kind: "value", fields: Object.freeze(original.fields.map(field => {
-        assertNode(field.call); assertNode(field.selector); assertNode(field.selectedDeclaration);
-        return Object.freeze({ occurrence: field.call, selector: field.selector, declaration: field.selectedDeclaration,
-          layout: layoutIdentity(field.fieldLayout), byteOffset: field.byteOffset, byteAlignment: field.byteAlignment });
-      })) });
-    return Object.freeze({ kind: "available", value });
-  };
-  return Object.freeze({ ...markerInput, ...safetyInput, ...attributeInput, pointerType, operation, pointeeMatches, layout, typeMarkers(original: SourceInputOriginalSubjects) {
+  return Object.freeze({ ...markerInput, ...safetyInput, ...attributeInput, memory, pointerType, operation, pointeeMatches, typeMarkers(original: SourceInputOriginalSubjects) {
     const selected = subjects(original);
     return selected.complete ? Object.freeze({ kind: "available" as const,
       value: sourceCoreMarkerFacts({ sourceFacts, assertNode }, selected.values) }) : unavailable;

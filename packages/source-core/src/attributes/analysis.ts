@@ -292,7 +292,7 @@ function getAttributeBuilderPredecessor(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): TsonicAttributeBuilderStateFact | undefined {
-  const receiver = selected.selection.sourceReceiver?.expression;
+  const receiver = selected.selection.selection.application.receiver?.expression;
   if (receiver === undefined) {
     return undefined;
   }
@@ -307,7 +307,7 @@ function selectedInlineMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
-  const result = selectInlineSourceMember(selected.selection.sourceArguments[0]?.expression, context);
+  const result = selectInlineSourceMember(selected.selection.selection.argumentValues[0]?.expression, context);
   if (result.kind === "selected") {
     return result;
   }
@@ -343,7 +343,7 @@ function authoredStringArgument(
   context: TsonicSourceFileAnalysisContext,
   index: number,
 ): string | undefined {
-  const argument = selected.selection.sourceArguments[index]?.expression;
+  const argument = selected.selection.selection.argumentValues[index]?.expression;
   if (
     argument === undefined ||
     (!context.ast.is.IsStringLiteral(argument) &&

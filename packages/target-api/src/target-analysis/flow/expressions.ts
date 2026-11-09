@@ -16,6 +16,8 @@ const literalKinds: ReadonlySet<string> = new Set(["KindNumericLiteral", "KindBi
 export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, next: number,
   context: SourceFlowContext): number {
   const { ast } = build.source;
+  const form = build.source.facts.admission.form(node);
+  if (form.kind === "refused") throw new SourceFlowRefusal(form);
   const kind = ast.kindName(node);
   if (literalKinds.has(kind)) return build.emit(node, { kind: "evaluate" }, next, context);
   if (ast.is.IsIdentifier(node)) {

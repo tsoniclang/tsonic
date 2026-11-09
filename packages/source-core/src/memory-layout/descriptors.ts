@@ -8,7 +8,7 @@ export function readMemoryDescriptor<Key extends string>(
   keys: readonly Key[],
 ): ReadonlyMap<Key, Node> | undefined {
   const { ast } = call.context;
-  const args = call.selected.selection.sourceArguments;
+  const args = call.selected.selection.selection.argumentValues;
   const descriptor = unwrapParenthesizedExpression(args[0]?.expression, call.context);
   const values = new Map<Key, Node>();
   if (args.length === 1 && descriptor !== undefined && ast.is.IsObjectLiteralExpression(descriptor)) {

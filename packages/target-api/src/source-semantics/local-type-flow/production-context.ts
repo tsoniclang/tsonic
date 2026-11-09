@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDescriptorInput } from "../../host-input/descriptor-input.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
-import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceAdmissionFacts, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceNodeNavigationFacts } from "../../source-model/navigation.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceDescriptorBuilder, SourceDescriptorReader } from "../descriptor-contracts.js";
@@ -23,6 +23,7 @@ export interface SourceSyntaxProduction extends SourceSemanticProduction {
 }
 
 export interface SourceCallableProduction extends SourceSemanticProduction {
+  readonly admission: SourceAdmissionFacts;
   readonly navigation: SourceNodeNavigationFacts;
   value(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   place(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;

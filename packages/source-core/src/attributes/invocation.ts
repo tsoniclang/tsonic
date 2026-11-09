@@ -7,9 +7,9 @@ export function selectedAttributeInvocation(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): Node | undefined {
-  const callback = unwrapParenthesizedExpression(selected.selection.sourceArguments[0]?.expression, context);
+  const callback = unwrapParenthesizedExpression(selected.selection.selection.argumentValues[0]?.expression, context);
   if (
-    selected.selection.sourceArguments.length !== 1 ||
+    selected.selection.selection.argumentValues.length !== 1 ||
     callback === undefined ||
     !context.ast.is.IsArrowFunction(callback) ||
     context.ast.parameters(callback).length !== 0 ||
@@ -26,5 +26,5 @@ export function selectedAttributeInvocation(
     return undefined;
   }
   const call = context.checker.getResolvedCallInfo(invocation);
-  return call?.outcome === "applicable" ? invocation : undefined;
+  return call?.kind === "applicable" ? invocation : undefined;
 }

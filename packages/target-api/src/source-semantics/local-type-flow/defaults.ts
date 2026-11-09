@@ -30,6 +30,7 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
   const staticReceivers = new Set<Node>();
   for (const node of source.navigation.nodesForFiles(source.sourceFiles)) {
     if (!ast.is.IsCallExpression(node) && !ast.is.IsNewExpression(node)) continue;
+    if (source.admission.form(node).kind === "refused") continue;
     const selection = input.application(node);
     const candidates = selection.kind === "applicable" ? [selection.selection] : selection.kind === "conditional-candidates" ? selection.candidates : [];
     if (candidates.length === 0 || !candidates.every(candidate => sourceApplicationStaticReceiver(source, candidate.application) !== undefined)) continue;

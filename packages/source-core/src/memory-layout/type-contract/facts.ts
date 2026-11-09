@@ -4,6 +4,7 @@ import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { exactRecord, opaqueSubject, recordsEqual } from "../snapshots.js";
 import { fixedArrayFactsEqual, snapshotFixedArrayFact } from "../../fixed-arrays/facts.js";
 import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
+import { assertMemorySource, memorySourceType, type MemoryTypePublicationSources } from "./provenance.js";
 
 const identityBrand = Symbol("memory type identity");
 interface MemoryArrayType {
@@ -15,6 +16,7 @@ const identities = new WeakMap<TsonicMemoryTypeIdentity, {
   readonly bindings: WeakMap<Node, { readonly type: Type; readonly array?: TsonicFixedArrayFact;
     readonly member?: MemoryTypeMemberSelection }>;
   readonly members: WeakMap<Node, SourceSymbol>;
+  readonly sources: WeakMap<Node, MemoryTypePublicationSources>;
   array?: MemoryArrayType;
 }>();
 
@@ -36,7 +38,7 @@ export interface TsonicMemoryTypeFact {
 
 export function createMemoryTypeIdentity(): TsonicMemoryTypeIdentity {
   const identity = Object.freeze({ [identityBrand]: true as const });
-  identities.set(identity, { bindings: new WeakMap(), members: new WeakMap() });
+  identities.set(identity, { bindings: new WeakMap(), members: new WeakMap(), sources: new WeakMap() });
   return identity;
 }
 
@@ -87,6 +89,29 @@ export function bindMemoryArrayTypeIdentity(
     throw new Error("Memory array identity cannot be rebound to another element or extent.");
   }
   record.array = Object.freeze({ element, length, lengthRuntimeBase });
+}
+
+export function bindMemoryTypePublicationSources(identity: TsonicMemoryTypeIdentity, call: Node,
+  sources: MemoryTypePublicationSources): void {
+  assertMemorySource(sources.source, call);
+  if (sources.owner !== undefined) assertMemorySource(sources.owner, call);
+  const record = identities.get(identity);
+  if (record === undefined || record.bindings.get(call)?.type !== memorySourceType(sources.source))
+    throw new Error("Memory publication must retain the exact observed component of its authenticated identity.");
+  const previous = record.sources.get(call);
+  if (previous !== undefined && (previous.source.application !== sources.source.application ||
+    previous.source.kind !== sources.source.kind || memorySourceType(previous.source) !== memorySourceType(sources.source) ||
+    previous.owner?.application !== sources.owner?.application ||
+    previous.owner !== undefined && sources.owner !== undefined &&
+      memorySourceType(previous.owner) !== memorySourceType(sources.owner)))
+    throw new Error("Memory source provenance cannot be rebound to another original application.");
+  record.sources.set(call, Object.freeze({ source: Object.freeze({ ...sources.source }),
+    owner: sources.owner === undefined ? undefined : Object.freeze({ ...sources.owner }) }));
+}
+
+export function memoryTypePublicationSources(fact: TsonicMemoryTypeFact): MemoryTypePublicationSources | undefined {
+  if (!authentic(fact)) return undefined;
+  return identities.get(fact.identity)?.sources.get(fact.call);
 }
 
 export function memoryArrayTypeMatches(

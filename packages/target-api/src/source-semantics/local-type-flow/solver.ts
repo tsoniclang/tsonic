@@ -222,7 +222,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     },
   });
   slots = createSourceTypeFlowDeclaredSlotReader(context, expected);
-  declarationProduction = { ...semantic(), context, navigation: source.navigation, value, place, callableHead,
+  declarationProduction = { ...semantic(), context, navigation: source.navigation, admission: source.admission, value, place, callableHead,
     parameter(component, declaration, _signature, index, bindings) {
       if (declaration === undefined) return place(component, bindings);
       const contextual = slots!.parameter(declaration, bindings);

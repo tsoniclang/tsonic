@@ -24,7 +24,7 @@ export function selectedAddressIntegerDomain(
   analysis: MemorySourceAnalysis,
 ): TsonicAddressIntegerDomain | undefined {
   const { selected, context, name } = call;
-  const argument = selected.selection.sourceSelectedMethodTypeArguments?.[0];
+  const argument = selected.selection.selection.application.signatureTypeArguments?.[0];
   if (argument === undefined) return undefined;
   const explicit = argument.explicitTypeNode === undefined ? undefined
     : addressDomain(readSourcePrimitiveAnnotation(context, argument.explicitTypeNode));
@@ -32,7 +32,7 @@ export function selectedAddressIntegerDomain(
   if (name === "rawptrtoaddressinteger") {
     return explicit?.addressWidth === dataLayout.addressWidth ? explicit : undefined;
   }
-  const operand = selected.selection.sourceArguments[0];
+  const operand = selected.selection.selection.argumentValues[0];
   if (operand === undefined) return undefined;
   const primitive = selectedPrimitive(operand, context, analysis);
   const domain = addressDomain(primitive);

@@ -1,4 +1,4 @@
-import type { ArgumentPassingMode, Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
+import type { ArgumentPassingMode, FlowStateFact, Node, ResolvedSourceFlowConditionInfo } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
 import type { SourceInputComponent, SourceInputSignature } from "./identities.js";
 import type { SourceInputCorrespondenceMember } from "./member-input.js";
@@ -71,5 +71,6 @@ export interface SourceInputProtocolQueries {
   resourceManagement(declaration: Node): SourcePresence<SourceInputResourceManagement>;
   callableCompletion(declaration: Node): SourcePresence<{ readonly declaration: Node; readonly canFallThrough: boolean }>;
   argumentPassing(occurrence: Node): SourcePresence<SourceInputArgumentPassing>;
+  flowState(occurrence: Node): SourcePresence<FlowStateFact["state"]>;
   flowConditions(reference: Node): SourcePresence<ResolvedSourceFlowConditionInfo>;
 }

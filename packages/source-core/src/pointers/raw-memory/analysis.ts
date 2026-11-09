@@ -8,9 +8,9 @@ import { selectedRawOffsetInteger } from "./integers.js";
 
 export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context, name } = call;
-  const args = selected.selection.sourceArguments;
+  const args = selected.selection.selection.argumentValues;
   const operand = args[0];
-  const base = { call: selected.call, resultType: selected.selection.sourceResultType };
+  const base = { call: selected.call, resultType: selected.selection.resultType };
   if (operand === undefined) {
     memoryDiagnostic(call, "OPERAND_MISSING", "The memory operation is missing its selected operand.");
     return;
@@ -20,9 +20,9 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
     return;
   }
   if (name === "torawptr" || name === "reinterpretrawptr") {
-    const pointee = selected.selection.sourceSelectedMethodTypeArguments?.[0];
+    const pointee = selected.selection.selection.application.signatureTypeArguments?.[0];
     const layout = args[1];
-    if (pointee === undefined || layout === undefined) {
+    if (pointee?.checkedArgument === undefined || layout === undefined) {
       memoryDiagnostic(call, "POINTEE_MISSING", "Raw conversion requires its exact resolved pointee and selected layout operand.");
       return;
     }
@@ -31,7 +31,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       memoryDiagnostic(call, "POINTEE_LAYOUT_NOT_PROVEN", "Raw conversion requires the same exact closed memory type and marker domain as its finalized layout.");
       return;
     }
-    const typed = { ...base, pointeeType: pointee.selectedType, layoutExpression: layout.expression, layoutType: layout.type };
+    const typed = { ...base, pointeeType: pointee.checkedArgument, layoutExpression: layout.expression, layoutType: layout.type };
     publishMemoryFact(call, tsonicRawMemoryOperationFactKey, name === "torawptr"
       ? { ...typed, operation: "to-raw", pointerExpression: operand.expression, pointerType: operand.type }
       : { ...typed, operation: "reinterpret", rawExpression: operand.expression, rawType: operand.type,

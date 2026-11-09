@@ -93,6 +93,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
       return produceSourceProjection({ ast, input: input.input, builder: owner.builder,
         reader: requiredReader(), objects: requiredObjects(), originalSource, source, projection, bindings });
     } });
+  const admission = createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe });
   const memberInventory = Object.freeze({ members: owner.builder.members, construction: owner.builder.construction,
     constructionHistory: owner.builder.constructionHistory });
 
@@ -147,7 +148,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const correspondence = createSourceMemberCorrespondenceQueries({ ast, view: owner.view,
     inventory: memberInventory, assertNode, domain: owner.builder.domain });
   solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, enclosing: navigationOwner.analysis.enclosing,
-    input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile,
+    input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile, admission,
     createDescriptorReader(hooks) {
       if (reader !== undefined) throw new Error("A Source solve must create exactly one descriptor reader for its view.");
       reader = createSourceTypeDescriptorReader({ input: input.input, builder: owner.builder, hooks, observe: owner.observe,
@@ -188,7 +189,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   if (completeObjectQueries === undefined) throw new Error("Final Source protocols require the original member value and destination owner.");
   const completeMemberUses = memberUses;
   if (completeMemberUses === undefined) throw new Error("Final Source storage requires the same original member selection owner.");
-  const facts = Object.freeze<SourceProgramFacts>({ admission: createSourceAdmissionFacts({ ast, assertNode, observe: owner.observe }),
+  const facts = Object.freeze<SourceProgramFacts>({ admission,
     descriptors: owner.view, values: solved.values, applications: solved.applications,
     enums: solved.enums, navigation, profile, objects, refusals: owner.refusals,
     get protocols() { return requiredProtocols(); },
@@ -208,7 +209,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
       return owner.observe(owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined));
     },
     literalDomain: owner.builder.domain, syntaxDomain: solved.syntaxDomain,
-    flowConditions: input.protocolInput.flowConditions, enclosing: navigationOwner.analysis.enclosing });
+    flowState: input.protocolInput.flowState, flowConditions: input.protocolInput.flowConditions, enclosing: navigationOwner.analysis.enclosing });
   protocols = createSourceAnalysisFacts({ ast, input: input.protocolInput, view: owner.view, assertNode,
     values: solved.values, navigation, memberPlace: completeMemberUses.place, attributes,
     inventory: memberInventory, storageAnalysis: options => createSourceStorageAnalysis(program, storageInputs, options),

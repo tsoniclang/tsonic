@@ -12,8 +12,10 @@ function fixture() {
       type NamespaceShape = typeof RuntimeValue;
       declare function tag(parts: TemplateStringsArray): string;
       const value = tag\`sample\`;
+      function load() { return import("./value.js"); }
       export = RuntimeValue;
     `,
+    "/src/value.ts": "export const value = 1;",
   }, compilerOptions: { strict: true, target: "es2022", module: "commonjs" } }).checkSource();
   const file = checked.getSourceFile("/src/index.ts");
   if (file === undefined) throw new Error("The exact original Source file is required.");
@@ -50,6 +52,9 @@ test("runtime form admission is demand-only and does not ban type-only namespace
     [current.find(current.ast.is.IsModuleDeclaration), "Namespace declarations have no supported Source runtime value form."],
     [current.find(current.ast.is.IsTaggedTemplateExpression), "Tagged template expressions have no supported Source runtime application form."],
     [current.find(current.ast.is.IsExportAssignment), "Export-equals assignments have no supported Source module value form."],
+    [current.find(node => current.ast.is.IsCallExpression(node) &&
+      current.ast.kindName(current.ast.as.AsCallExpression(node)?.Expression) === "KindImportKeyword"),
+    "Dynamic import expressions have no supported Source runtime application form."],
   ] as const;
   for (const [original, message] of cases) {
     const selected = current.facts.form(original);
@@ -57,7 +62,7 @@ test("runtime form admission is demand-only and does not ban type-only namespace
       selected.site === original && selected.message === message && current.refusals.has(selected), true);
     assert.equal(current.facts.form(original) === selected && Object.isFrozen(selected), true);
   }
-  assert.equal(current.refusals.size, 3);
+  assert.equal(current.refusals.size, 4);
 });
 
 test("runtime form ownership is authenticated before warm or cold memo lookup", () => {

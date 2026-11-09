@@ -13,6 +13,8 @@ export function produceSourceArgumentContext(context: SourceCallableProduction, 
   invocation: Node): SourceProductionResult<SourcePresence<SourceTypeEvidence>> {
   const { ast, input, builder, reader } = context;
   const none = { kind: "resolved", value: { kind: "none" } } as const;
+  const form = context.admission.form(invocation);
+  if (form.kind === "refused") return form;
   const selected = input.application(invocation);
   if (selected.kind === "untyped") return none;
   const candidates = selected.kind === "applicable" ? [selected.selection] : selected.candidates;

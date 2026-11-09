@@ -76,9 +76,9 @@ function analyzeSelectedOperation(
   contract: NativePointerOperationAnalysisContract,
   operation: TsonicNativePointerOperationFact["operation"],
 ): void {
-  const pointer = selected.selection.sourceArguments[0];
-  const pointee = selected.selection.sourceSelectedMethodTypeArguments?.[0];
-  if (pointer === undefined || pointee === undefined) {
+  const pointer = selected.selection.selection.argumentValues[0];
+  const pointee = selected.selection.selection.application.signatureTypeArguments?.[0];
+  if (pointer === undefined || pointee?.checkedArgument === undefined) {
     appendDiagnostic(
       selected,
       context,
@@ -92,18 +92,18 @@ function analyzeSelectedOperation(
   const base = {
     pointerExpression: pointer.expression,
     pointerType: pointer.type,
-    pointeeType: pointee.selectedType,
+    pointeeType: pointee.checkedArgument,
     ...(pointee.explicitTypeNode === undefined
       ? {}
       : { explicitPointeeTypeNode: pointee.explicitTypeNode }),
-    resultType: selected.selection.sourceResultType,
+    resultType: selected.selection.resultType,
   };
   const fact = (() => {
     switch (operation) {
       case "load":
         return { ...base, operation };
       case "store": {
-        const value = selected.selection.sourceArguments[1];
+        const value = selected.selection.selection.argumentValues[1];
         return value === undefined
           ? undefined
           : {
@@ -114,7 +114,7 @@ function analyzeSelectedOperation(
             };
       }
       case "offset": {
-        const offset = selected.selection.sourceArguments[1];
+        const offset = selected.selection.selection.argumentValues[1];
         return offset === undefined
           ? undefined
           : {

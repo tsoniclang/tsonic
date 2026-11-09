@@ -1,14 +1,14 @@
 import { fieldFactKey, pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallInfo, Symbol } from "@tsonic/tsts";
+import type { Node, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
-import { readSourceFact } from "../../analysis/source-call.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/source-call.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
 import type { MemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./model.js";
 import { tsonicPointerViewFactKey } from "../../pointers/views/facts.js";
 
 interface ValueFrame {
-  readonly call: ResolvedSourceCallInfo;
+  readonly call: SelectedProviderSourceCall["selection"];
   readonly parent: ValueFrame | undefined;
 }
 
@@ -37,10 +37,10 @@ export function createMemoryValueDomains(
         if (!ast.is.IsParameterDeclaration(node)) return undefined;
       }
       if (ast.is.IsParameterDeclaration(node) && frame !== undefined) {
-        const parameter = frame.call.sourceSelectedSignatureParameters.find(candidate => candidate.parameterDeclaration === node);
-        const bindings = parameter === undefined ? [] : frame.call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === parameter.parameterIndex);
+        const parameter = frame.call.selection.parameters.find(candidate => candidate.parameterDeclaration === node);
+        const bindings = parameter === undefined ? [] : frame.call.selection.arguments.values.filter(binding => binding.parameterIndex === parameter.parameterIndex);
         if (bindings.length === 1 && bindings[0]?.sourceForm === "value") {
-          const argument = frame.call.sourceArguments[bindings[0].sourceArgumentIndex];
+          const argument = frame.call.selection.argumentValues[bindings[0].sourceArgumentIndex];
           if (argument !== undefined && !typeShape.isNullish(argument.type)) return visit(argument.expression, frame.parent);
         }
       }
@@ -52,14 +52,14 @@ export function createMemoryValueDomains(
       return visit(initializer, frame);
     }
 
-    function returns(selected: ResolvedSourceCallInfo, frame: ValueFrame | undefined): MemoryTypeDomain | undefined {
-      const target = checker.getSignatureDeclaration(selected.selectedSignature);
+    function returns(selected: SelectedProviderSourceCall["selection"], frame: ValueFrame | undefined): MemoryTypeDomain | undefined {
+      const target = checker.getSignatureDeclaration(selected.selection.application.signature);
       if (target === undefined) return undefined;
       const annotation = ast.typeNode(target);
       if (annotation !== undefined) {
         const bindings = new Map<Symbol, MemoryTypeDomain>();
         const parameters = new Set<Symbol>();
-        for (const argument of selected.sourceSelectedMethodTypeArguments ?? []) {
+        for (const argument of selected.selection.application.signatureTypeArguments ?? []) {
           const symbol = checker.getTypeSymbol(argument.typeParameter);
           if (symbol === undefined) return undefined;
           parameters.add(symbol);
@@ -69,9 +69,9 @@ export function createMemoryValueDomains(
             bindings.set(symbol, domain);
           }
         }
-        for (const binding of selected.sourceArgumentBindings) {
-          const parameter = selected.sourceSelectedSignatureParameters[binding.sourceParameterIndex];
-          const argument = selected.sourceArguments[binding.sourceArgumentIndex];
+        for (const binding of selected.selection.arguments.values) {
+          const parameter = selected.selection.parameters[binding.parameterIndex];
+          const argument = selected.selection.argumentValues[binding.sourceArgumentIndex];
           if (parameter?.authoredTypeNode === undefined || argument === undefined || binding.sourceForm !== "value") continue;
           const pointer = readSourceFact(context, parameter.authoredTypeNode, pointerFactKey);
           const typeNode = pointer?.pointee ?? parameter.authoredTypeNode;
@@ -102,8 +102,8 @@ export function createMemoryValueDomains(
           ast.forEachChild(statement, child => { if (child !== undefined) pending.push(child); });
         }
       }
-      const resultTypes = typeShape.isUnion(selected.sourceResultType)
-        ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
+      const resultTypes = typeShape.isUnion(selected.resultType)
+        ? typeShape.getUnionOrIntersectionTypes(selected.resultType) : [selected.resultType];
       for (const type of resultTypes) if (type !== undefined && typeShape.isNullish(type)) values.push(domains.selected(type));
       return unite(values);
     }
@@ -126,7 +126,7 @@ export function createMemoryValueDomains(
         }
         if (ast.is.IsCallExpression(node)) {
           const selected = checker.getResolvedCallInfo(node);
-          if (selected?.outcome !== "applicable") return undefined;
+          if (selected?.kind !== "applicable") return undefined;
           const view = readSourceFact(context, node, tsonicPointerViewFactKey);
           if (view !== undefined && view.call === node) {
             const callbackType = checker.getTypeAtLocation(view.readExpression);
@@ -136,8 +136,8 @@ export function createMemoryValueDomains(
             const pointee = annotation === undefined ? domains.selected(view.pointeeType) : domains.authored(annotation);
             if (pointee === undefined) return undefined;
             const pointer = domains.pointer(pointee);
-            const resultTypes = typeShape.isUnion(selected.sourceResultType)
-              ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
+            const resultTypes = typeShape.isUnion(selected.resultType)
+              ? typeShape.getUnionOrIntersectionTypes(selected.resultType) : [selected.resultType];
             return unite([pointer, ...resultTypes.filter(type => type !== undefined && typeShape.isNullish(type))
               .map(type => type === undefined ? undefined : domains.selected(type))]);
           }
@@ -156,8 +156,8 @@ export function createMemoryValueDomains(
           }
           const memory = selectedValue(node);
           if (memory !== undefined) {
-            const types = typeShape.isUnion(selected.sourceResultType)
-              ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
+            const types = typeShape.isUnion(selected.resultType)
+              ? typeShape.getUnionOrIntersectionTypes(selected.resultType) : [selected.resultType];
             return unite([memory, ...types.filter(type => type !== undefined && typeShape.isNullish(type))
               .map(type => type === undefined ? undefined : domains.selected(type))]);
           }

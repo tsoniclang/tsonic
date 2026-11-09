@@ -6,6 +6,7 @@ export type * from "../host-input/protocol-input.js";
 export type * from "../host-input/marker-input.js";
 export type * from "../host-input/navigation-input.js";
 export type * from "../host-input/core-input.js";
+export type * from "../host-input/memory-input.js";
 export type * from "../host-input/safety-input.js";
 export type { SourcePropertyNameFacts } from "../host-input/property-name-input.js";
 export type { SourceJsApiFactsInput, SourceJsApiFactsFactory } from "../source-model/profile.js";

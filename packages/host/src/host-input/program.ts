@@ -42,7 +42,8 @@ export function createHostSourceProgramInput(options: {
       return Object.freeze({ length: selected.fact.length, runtimeBase: selected.fact.lengthRuntimeBase });
     } });
   const core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent,
-    syntax: raw.input.syntax, safetyProviders: options.safetyProviders });
+    syntax: raw.input.syntax, safetyProviders: options.safetyProviders,
+    originalApplication: raw.calls.originalApplication, originalComponent: raw.calls.originalComponent });
   const navigation = createSourceNodeNavigationInput({ checked, sourceFiles, inventory, assertNode,
     identities: raw.identities, originalSignature: raw.facts.originalSignature });
   const none = Object.freeze({ kind: "none" } as const);

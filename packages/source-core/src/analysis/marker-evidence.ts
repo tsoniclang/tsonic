@@ -100,7 +100,7 @@ function validateSourceMarker<TFact>(
     return;
   }
   const hasExplicitTypeEvidence =
-    selected.selection.sourceSelectedMethodTypeArguments?.some(
+    selected.selection.selection.application.signatureTypeArguments?.some(
       (argument) => argument.explicitTypeNode !== undefined,
     ) === true;
   const extensionCode = hasExplicitTypeEvidence && rule.missingContextCode !== undefined

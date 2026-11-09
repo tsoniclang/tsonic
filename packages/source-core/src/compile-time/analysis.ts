@@ -102,20 +102,20 @@ function selectedCompileTimeFact(
   kind: TsonicCompileTimeFact["kind"],
 ): TsonicCompileTimeFact | undefined {
   if (kind === "type") {
-    const argument = selected.selection.sourceSelectedMethodTypeArguments?.[0];
-    return argument === undefined
+    const argument = selected.selection.selection.application.signatureTypeArguments?.[0];
+    return argument?.checkedArgument === undefined
       ? undefined
       : Object.freeze({
           kind,
-          selectedType: argument.selectedType,
+          selectedType: argument.checkedArgument,
           typeParameter: argument.typeParameter,
           ...(argument.explicitTypeNode === undefined
             ? {}
             : { explicitTypeNode: argument.explicitTypeNode }),
-          resultType: selected.selection.sourceResultType,
+          resultType: selected.selection.resultType,
         });
   }
-  const argument = selected.selection.sourceArguments[0];
+  const argument = selected.selection.selection.argumentValues[0];
   if (argument === undefined) {
     return undefined;
   }
@@ -125,21 +125,21 @@ function selectedCompileTimeFact(
         kind,
         expression: argument.expression,
         sourceType: argument.type,
-        resultType: selected.selection.sourceResultType,
+        resultType: selected.selection.resultType,
       });
     case "condition":
       return Object.freeze({
         kind,
         condition: argument.expression,
         sourceType: argument.type,
-        resultType: selected.selection.sourceResultType,
+        resultType: selected.selection.resultType,
       });
     case "iteration":
       return Object.freeze({
         kind,
         iterable: argument.expression,
         sourceType: argument.type,
-        resultType: selected.selection.sourceResultType,
+        resultType: selected.selection.resultType,
       });
   }
 }

@@ -28,6 +28,7 @@ export function sourceDescriptorInputFixture(files) {
       return selected === undefined ? undefined : { length: selected.fact.length, runtimeBase: selected.fact.lengthRuntimeBase };
     } });
   core = createSourceCoreInput({ checked, assertNode, observedComponent: raw.identities.checkedComponent,
-    syntax: raw.input.syntax, safetyProviders: [] });
+    syntax: raw.input.syntax, safetyProviders: [], originalApplication: raw.calls.originalApplication,
+    originalComponent: raw.calls.originalComponent });
   return { session, checked, ast, inventory, assertNode, ...raw };
 }

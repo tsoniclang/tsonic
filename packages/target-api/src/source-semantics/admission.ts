@@ -14,7 +14,10 @@ export function createSourceAdmissionFacts(input: {
     const previous = completed.get(original);
     if (previous !== undefined) return previous;
     const { ast } = input;
-    const message = ast.is.IsModuleDeclaration(original) ? "Namespace declarations have no supported Source runtime value form."
+    const callee = ast.is.IsCallExpression(original) ? ast.as.AsCallExpression(original)?.Expression : undefined;
+    const message = callee !== undefined && ast.kindName(callee) === "KindImportKeyword"
+      ? "Dynamic import expressions have no supported Source runtime application form."
+      : ast.is.IsModuleDeclaration(original) ? "Namespace declarations have no supported Source runtime value form."
       : ast.is.IsTaggedTemplateExpression(original) ? "Tagged template expressions have no supported Source runtime application form."
       : ast.is.IsExportAssignment(original) && ast.as.AsExportAssignment(original)?.IsExportEquals
         ? "Export-equals assignments have no supported Source module value form." : undefined;

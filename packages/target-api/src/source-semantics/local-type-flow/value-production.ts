@@ -42,6 +42,8 @@ export function sourceTypeFlowNumericCreation(context: Pick<SourceTypeFlowAnalys
 export function produceSourceValue(production: SourceValueProduction, occurrence: Node,
   bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
   const { ast, input, builder, reader, context } = production;
+  const form = context.source.admission.form(occurrence);
+  if (form.kind === "refused") return form;
   const component = builder.componentIdentity(occurrence, []);
   const scalar = (type: SourceTypeEvidence["type"], category: "number" | "bigint" | "boolean" | "string" | "absence",
     domain = sourceLiteralValueDomain(context.literal(occurrence), category, "present")): SourceProductionResult<SourceTypeEvidence> => {
@@ -105,6 +107,8 @@ export function produceSourceValue(production: SourceValueProduction, occurrence
   if (ast.is.IsPropertyAccessExpression(occurrence) || ast.is.IsElementAccessExpression(occurrence)) {
     const parent = ast.parent(occurrence);
     if (parent !== undefined && (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) && Node_Expression(ast, parent) === occurrence) {
+      const parentForm = context.source.admission.form(parent);
+      if (parentForm.kind === "refused") return parentForm;
       const selected = input.application(parent);
       const candidates = selected.kind === "applicable" ? [selected.selection] : selected.kind === "conditional-candidates" ? selected.candidates : [];
       if (candidates.length > 0 && candidates.every(candidate => sourceApplicationStaticReceiver(context.source, candidate.application) !== undefined)) {

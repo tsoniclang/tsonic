@@ -1,4 +1,4 @@
-import { argumentPassingFactKey } from "@tsonic/tsts";
+import { argumentPassingFactKey, flowStateFactKey } from "@tsonic/tsts";
 import type { CheckedSourceProgram, Node, ResolvedSourceIterationInfo, Signature } from "@tsonic/tsts";
 import type { SourceInputAtomicIteration, SourceInputComponent, SourceInputGenerator, SourceInputIteration,
   SourceInputIterationMechanism, SourceInputIteratorWitness, SourceInputProtocolQueries, SourceInputSignature,
@@ -184,6 +184,11 @@ export function createSourceProtocolInput(input: {
       if (selected.role === "declaration") return present(Object.freeze({ role: selected.role, mode: selected.mode }));
       assertNode(selected.storageExpression);
       return present(Object.freeze({ role: selected.role, mode: selected.mode, storageExpression: selected.storageExpression }));
+    },
+    flowState(occurrence) {
+      assertNode(occurrence);
+      const selected = checked.sourceFacts.getFact(occurrence, flowStateFactKey);
+      return selected === undefined ? none : present(selected.state);
     },
     flowConditions(reference) {
       const selected = queriesFor(reference).checker.getResolvedFlowConditionInfo(reference);
