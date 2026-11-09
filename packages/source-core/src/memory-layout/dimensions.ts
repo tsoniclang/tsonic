@@ -1,3 +1,5 @@
+import type { Node } from "@tsonic/tsts";
+
 export interface MemoryFieldDimensions {
   readonly byteOffset: bigint;
   readonly byteAlignment: bigint;
@@ -16,19 +18,21 @@ interface MemoryValueDimensions {
   readonly stride: bigint;
 }
 
-export function memoryLayoutDimensionsError(layout: MemoryValueDimensions & {
+export type MemoryLayoutDimensions = MemoryValueDimensions & {
   readonly dataLayout: { readonly addressWidth: 32 | 64 };
 } & ({
   readonly kind: "value";
   readonly fields: readonly (MemoryFieldDimensions & {
-    readonly selectedDeclaration: object;
+    readonly selectedDeclaration: Node;
     readonly fieldLayout: { readonly byteSize: bigint };
   })[];
 } | {
   readonly kind: "array";
   readonly fixedArray: { readonly length: bigint };
   readonly elementLayout: MemoryValueDimensions;
-})): string | undefined {
+});
+
+export function memoryLayoutDimensionsError(layout: MemoryLayoutDimensions): string | undefined {
   if (!isSize(layout.byteSize) || !isSize(layout.stride)) {
     return "Memory layout size and stride must be non-negative integers.";
   }
@@ -55,7 +59,7 @@ export function memoryLayoutDimensionsError(layout: MemoryValueDimensions & {
     }
     return undefined;
   }
-  const declarations = new Set<object>();
+  const declarations = new Set<Node>();
   for (const field of layout.fields) {
     const fieldError = memoryFieldDimensionsError(field);
     if (fieldError !== undefined) return fieldError;

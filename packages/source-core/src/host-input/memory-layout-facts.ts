@@ -5,6 +5,7 @@ import { failTargetCompilerResourceLimit } from "@tsonic/target-api/artifacts";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "../memory-layout/snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
+import type { MemoryLayoutDimensions } from "../memory-layout/dimensions.js";
 import { snapshotFixedArrayFact, fixedArrayFactsEqual } from "./fixed-array-facts.js";
 import type { TsonicFixedArrayFact } from "./fixed-array-facts.js";
 
@@ -49,6 +50,19 @@ export interface TsonicArrayMemoryLayoutFact extends MemoryLayoutBase {
 }
 
 export type TsonicMemoryLayoutFact = TsonicValueMemoryLayoutFact | TsonicArrayMemoryLayoutFact;
+
+export function memoryLayoutDimensions(layout: TsonicMemoryLayoutFact): MemoryLayoutDimensions {
+  const base = { byteSize: layout.byteSize, byteAlignment: layout.byteAlignment, stride: layout.stride,
+    dataLayout: Object.freeze({ addressWidth: layout.dataLayout.addressWidth }) };
+  return layout.kind === "value"
+    ? Object.freeze({ ...base, kind: "value", fields: Object.freeze(layout.fields.map(field => Object.freeze({
+        byteOffset: field.byteOffset, byteAlignment: field.byteAlignment, selectedDeclaration: field.selectedDeclaration,
+        fieldLayout: Object.freeze({ byteSize: field.fieldLayout.byteSize }),
+      }))) })
+    : Object.freeze({ ...base, kind: "array", fixedArray: Object.freeze({ length: layout.fixedArray.length }),
+        elementLayout: Object.freeze({ byteSize: layout.elementLayout.byteSize,
+          byteAlignment: layout.elementLayout.byteAlignment, stride: layout.elementLayout.stride }) });
+}
 
 export interface TsonicMemoryLayoutQueryFact {
   readonly operation: "size" | "alignment" | "stride" | "field-offset";
@@ -126,7 +140,7 @@ function memoryLayoutSnapshot() {
     for (const subject of [result.call, result.sourceType, result.selector, result.selectedDeclaration,
       result.fieldType, result.fieldLayoutExpression]) opaqueSubject(subject);
     if (result.selectedSymbol !== undefined) opaqueSubject(result.selectedSymbol);
-    const error = memoryFieldDimensionsError(result);
+    const error = memoryFieldDimensionsError({ byteOffset: result.byteOffset, byteAlignment: result.byteAlignment });
     if (error !== undefined) throw new Error(error);
     return Object.freeze({ ...result, fieldLayout: layout(result.fieldLayout) });
   }
@@ -185,7 +199,7 @@ function memoryLayoutSnapshot() {
       if (children.some(child => !dataLayoutsEqual(child.dataLayout, dataLayout))) {
         throw new Error("Memory child layout has a different ABI identity or descriptor from its aggregate.");
       }
-      const error = memoryLayoutDimensionsError(captured);
+      const error = memoryLayoutDimensionsError(memoryLayoutDimensions(captured));
       if (error !== undefined) throw new Error(error);
       let depth = 1;
       for (const child of children) depth = Math.max(depth, 1 + capturedLayoutDepths.get(child)!);

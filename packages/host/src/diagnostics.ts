@@ -1,5 +1,5 @@
 import { formatDiagnostics } from "@tsonic/tsts";
-import { targetDiagnosticFromExtension } from "@tsonic/target-api/artifacts";
+import { targetDiagnosticFromExtension, TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import type { CheckedSourceProgram, Diagnostic, SourceFile } from "@tsonic/tsts";
 import { createSourceDiagnosticSpanReader } from "@tsonic/target-api/source";
 import type {
@@ -8,6 +8,17 @@ import type {
 } from "@tsonic/target-api/artifacts";
 import { isAbsolute, relative } from "node:path";
 import { isPathWithinOrEqual } from "./path-relation.js";
+
+export function targetCompilationBoundary<Value>(targetId: string, compile: () => Value,
+  rejected: (diagnostic: TargetDiagnostic) => Value): Value {
+  try {
+    return compile();
+  } catch (error) {
+    return rejected(error instanceof TargetCompilerResourceLimitFailure ? error.diagnostic
+      : Object.freeze({ code: "TARGET_COMPILATION", category: "error", source: targetId,
+          message: error instanceof Error ? error.message : String(error) }));
+  }
+}
 
 export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDirectory: string,
   discharged: ReadonlySet<Diagnostic> = new Set()): readonly TargetDiagnostic[] {

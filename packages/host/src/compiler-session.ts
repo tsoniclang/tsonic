@@ -19,7 +19,7 @@ import { rejectedTargetStage, resolvedTargetStage, type TargetStageResult } from
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { CollectedTargetSourceProfile } from "./target/source-profile.js";
 import { createHostSourceProgram } from "./host-input/program.js";
-import { collectTstsDiagnostics } from "./diagnostics.js";
+import { collectTstsDiagnostics, targetCompilationBoundary } from "./diagnostics.js";
 import {
   createTargetSourceCompilerComposition,
   getTargetRequiredProviderModules,
@@ -65,7 +65,7 @@ export function checkTargetSource(
   return Object.freeze({
     source,
     sourcePackages: options.sourcePackages,
-    adjudicated: adjudicateCheckedSource(source, options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders),
+    adjudicated: adjudicateCheckedSource(() => source, options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders),
   });
 }
 
@@ -83,7 +83,7 @@ export function checkTargetSourceFiles(options: CheckTargetSourceFilesOptions): 
     ...(options.compilerOptions === undefined ? {} : { compilerOptions: { ...options.compilerOptions } }),
     extensionHostOptions: composition.extensionHostOptions,
   });
-  return adjudicateCheckedSource(compiler.checkSource(), options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders);
+  return adjudicateCheckedSource(() => compiler.checkSource(), options.currentDirectory, options.sourceProfile, options.targetPack.id, composition.safetyProviders);
 }
 
 function sourceCompilerComposition(options: Omit<CheckTargetSourceOptions, "programOptions" | "sourcePackages">) {
@@ -105,19 +105,18 @@ function sourceCompilerComposition(options: Omit<CheckTargetSourceOptions, "prog
   });
 }
 
-function adjudicateCheckedSource(checked: CheckedSourceProgram, currentDirectory: string,
+function adjudicateCheckedSource(readCheckedSource: () => CheckedSourceProgram, currentDirectory: string,
   profile: CollectedTargetSourceProfile, targetId: string,
   safetyProviders: readonly TargetSourceSafetyProvider[]): TargetStageResult<TargetSourceProgram> {
-  void checked.diagnostics;
-  try {
+  let checked: CheckedSourceProgram | undefined;
+  return targetCompilationBoundary(targetId, () => {
+    checked = readCheckedSource();
+    void checked.diagnostics;
     const assembled = createHostSourceProgram({ checked, apiFacts: profile.apiFacts, profileFiles: profile.files, safetyProviders });
     const diagnostics = Object.freeze([...profile.diagnostics,
       ...collectTstsDiagnostics(checked, currentDirectory, assembled.dischargedDiagnostics)]);
     return diagnostics.some(diagnostic => diagnostic.category === "error")
       ? rejectedTargetStage(diagnostics) : resolvedTargetStage(assembled.source, diagnostics);
-  } catch (error) {
-    return rejectedTargetStage(Object.freeze([...profile.diagnostics, ...collectTstsDiagnostics(checked, currentDirectory),
-      Object.freeze({ code: "TARGET_COMPILATION", category: "error" as const, source: targetId,
-        message: error instanceof Error ? error.message : String(error) })]));
-  }
+  }, diagnostic => rejectedTargetStage(Object.freeze([...profile.diagnostics,
+    ...checked === undefined ? [] : collectTstsDiagnostics(checked, currentDirectory), diagnostic])));
 }

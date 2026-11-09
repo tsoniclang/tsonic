@@ -3,12 +3,13 @@ import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.j
 import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
 import type { MemorySourceCall } from "./memory-analysis-model.js";
 import { memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "./memory-layout-facts.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, memoryLayoutDimensions, tsonicMemoryLayoutFactKey } from "./memory-layout-facts.js";
 import type { TsonicArrayMemoryLayoutFact } from "./memory-layout-facts.js";
 import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./memory-source-values.js";
 import { memoryDescriptorKeys } from "../memory-layout/descriptor-declarations.js";
 import { readMemoryDescriptor } from "./memory-descriptors.js";
 import { captureMemoryArraySource } from "./memory-source-capture.js";
+import { createMemorySourcePublication, tsonicMemorySourceFactKey } from "./memory-publications.js";
 
 export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -31,11 +32,12 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
     memoryDiagnostic(call, "ARRAY_ELEMENT_NOT_PROVEN", "memoryarraylayout requires a finalized element layout, not an unproduced descriptor.");
     return;
   }
-  const fixedArray = captureMemoryArraySource(call, count);
-  if (fixedArray === undefined) {
+  const source = captureMemoryArraySource(call, count);
+  if (source === undefined) {
     memoryDiagnostic(call, "ARRAY_TYPE_NOT_PROVEN", "Memory array element and extent must match the exact selected fixed-array type and source marker domains.");
     return;
   }
+  const { fixedArray } = source;
   if (!dataLayoutsEqual(dataLayout, elementLayout.dataLayout)) {
     memoryDiagnostic(call, "ARRAY_ELEMENT_ABI_MISMATCH", "Memory array and element layout must use the same exact ABI identity and descriptor.");
     return;
@@ -45,16 +47,18 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
     dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
     fixedArray, elementLayoutExpression, elementLayout,
   };
-  const error = memoryLayoutDimensionsError(fact);
-  if (error !== undefined) {
-    memoryDiagnostic(call, "ARRAY_DIMENSIONS_INVALID", error);
-    return;
-  }
   const captureError = memoryLayoutCaptureLimitsError([elementLayout]);
   if (captureError !== undefined) {
     memoryDiagnostic(call, "LAYOUT_CAPTURE_LIMIT", captureError);
     return;
   }
+  const error = memoryLayoutDimensionsError(memoryLayoutDimensions(fact));
+  if (error !== undefined) {
+    memoryDiagnostic(call, "ARRAY_DIMENSIONS_INVALID", error);
+    return;
+  }
   publishMemoryFact(call, tsonicFixedArrayFactKey, fixedArray);
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
+  publishMemoryFact(call, tsonicMemorySourceFactKey,
+    createMemorySourcePublication(call.selected.call, { source: source.source, owner: undefined }));
 }

@@ -96,39 +96,42 @@ export function createSourceStorageMemoryMetadata(input: {
     return resolved(selected.kind === "present");
   };
   const declaration: SourceMemoryQueries["memoryMetadata"]["declaration"] = (original, bindings) => {
-    facts.navigation.callableRoles(original);
-    if (!ast.is.IsVariableDeclaration(original)) return resolved(none);
-    const selected = value(original, bindings);
-    if (selected.kind !== "resolved" || selected.value.kind === "none") return selected;
-    const previous = declarations.get(original)?.get(bindings);
-    if (previous !== undefined) return resolved(Object.freeze({ kind: "present", value: previous }));
-    const issues: { readonly node: Node; readonly reason: string }[] = [];
-    for (const use of facts.navigation.declarationUses(original)) {
-      if (!budget.step()) return unresolved(budget.failure()!);
-      if (use.kind === "type-only" || use.kind === "source-linkage") continue;
-      let current: Node | undefined = use.reference;
-      let accepted = false;
-      while (current !== undefined) {
-        if (!budget.step()) return unresolved(budget.failure()!);
-        const compileTime = isCompileTimeExpression(current);
-        if (compileTime.kind !== "resolved") return compileTime;
-        if (compileTime.value) { accepted = true; break; }
-        if (ast.is.IsVariableDeclaration(current)) {
-          const alias = value(current, bindings);
-          if (alias.kind !== "resolved") return alias;
-          if (alias.value.kind === "present") { accepted = true; break; }
+    return budget.withRows(rows => {
+      facts.navigation.callableRoles(original);
+      if (!ast.is.IsVariableDeclaration(original)) return resolved(none);
+      const selected = value(original, bindings);
+      if (selected.kind !== "resolved" || selected.value.kind === "none") return selected;
+      const previous = declarations.get(original)?.get(bindings);
+      if (previous !== undefined) return resolved(Object.freeze({ kind: "present", value: previous }));
+      const issues: { readonly node: Node; readonly reason: string }[] = [];
+      for (const use of facts.navigation.declarationUses(original)) {
+        if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+        if (use.kind === "type-only" || use.kind === "source-linkage") continue;
+        let current: Node | undefined = use.reference;
+        let accepted = false;
+        while (current !== undefined) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          const compileTime = isCompileTimeExpression(current);
+          if (compileTime.kind !== "resolved") return compileTime;
+          if (compileTime.value) { accepted = true; break; }
+          if (ast.is.IsVariableDeclaration(current)) {
+            const alias = value(current, bindings);
+            if (alias.kind !== "resolved") return alias;
+            if (alias.value.kind === "present") { accepted = true; break; }
+          }
+          if (ast.is.IsCallExpression(current) || facts.navigation.callableRoles(current).signature || ast.is.IsSourceFile(current)) break;
+          current = ast.parent(current);
         }
-        if (ast.is.IsCallExpression(current) || facts.navigation.callableRoles(current).signature || ast.is.IsSourceFile(current)) break;
-        current = ast.parent(current);
+        if (!accepted) issues.push(Object.freeze({ node: use.reference,
+          reason: "A finalized memory-layout descriptor is used as a runtime value rather than selected compile-time metadata." }));
       }
-      if (!accepted) issues.push(Object.freeze({ node: use.reference,
-        reason: "A finalized memory-layout descriptor is used as a runtime value rather than selected compile-time metadata." }));
-    }
-    const result: SourceMemoryMetadataDeclaration = Object.freeze({ value: selected.value.value, issues: Object.freeze(issues) });
-    let byBindings = declarations.get(original);
-    if (byBindings === undefined) { byBindings = new WeakMap(); declarations.set(original, byBindings); }
-    byBindings.set(bindings, result);
-    return resolved(Object.freeze({ kind: "present", value: result }));
+      if (!retainedRows.add(3 + issues.length)) return unresolved(budget.failure()!);
+      const result: SourceMemoryMetadataDeclaration = Object.freeze({ value: selected.value.value, issues: Object.freeze(issues) });
+      let byBindings = declarations.get(original);
+      if (byBindings === undefined) { byBindings = new WeakMap(); declarations.set(original, byBindings); }
+      byBindings.set(bindings, result);
+      return resolved(Object.freeze({ kind: "present", value: result }));
+    });
   };
   return Object.freeze({ value, declaration, isCompileTimeExpression });
 }

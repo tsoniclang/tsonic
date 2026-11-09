@@ -6,6 +6,7 @@ import type { SourceApplicationFacts, SourceDescriptorView, SourceSignatureIdent
 import type { SourceMemorySelection } from "../source-model/memory.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { TargetSourceProgram } from "../source-model/program.js";
+import { composeSourceTypeBindings } from "../source-semantics/descriptor-details.js";
 
 export function createSourceMemoryContext(input: {
   readonly source: TargetSourceProgram;
@@ -50,13 +51,7 @@ export function createSourceMemoryContext(input: {
     SourceMemorySelection<readonly SourceTypeBinding[]> {
     bindingKey(outer);
     bindingKey(inner);
-    const selected = new Map(outer.map(binding => [binding.declaration, binding]));
-    for (const binding of inner) {
-      const value = substitute(binding.value, outer);
-      if (value.kind !== "resolved") return value;
-      selected.set(binding.declaration, Object.freeze({ declaration: binding.declaration, value: value.value }));
-    }
-    return Object.freeze({ kind: "resolved", value: Object.freeze([...selected.values()]) });
+    return composeSourceTypeBindings(outer, inner, view.substitute);
   }
   function original(original: SourceInputMemorySource, bindings: readonly SourceTypeBinding[]):
     SourceMemorySelection<{ readonly value: SourceTypeEvidence; readonly typeBindings: readonly SourceTypeBinding[] }> {

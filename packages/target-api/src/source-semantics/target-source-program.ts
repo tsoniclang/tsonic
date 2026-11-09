@@ -31,7 +31,6 @@ import { createSourceStorageAnalysis } from "../target-analysis/source-storage/a
 import type { SourceStorageAnalysisInputs } from "../target-analysis/source-storage/model/program.js";
 import type { SourceConstructionMemberReducers } from "./member-inventory.js";
 import { createSourceMemoryContext } from "../target-analysis/source-memory-context.js";
-import { createSourceMemoryMetadataProduction } from "../target-analysis/source-memory-metadata.js";
 import { createSourceSafetyFacts } from "../target-analysis/source-safety-production.js";
 import { createSourceAttributeFacts } from "../target-analysis/source-attribute-production.js";
 
@@ -211,9 +210,8 @@ export function composeSourceProgram(input: SourceProgramInput) {
     assertComponent: input.input.assertComponent, signature,
     componentIdentity: requiredReader().componentIdentity,
     equivalent: (left, right) => sourceMemoryDomainsEquivalent({ builder: owner.builder, objects: completeObjects }, left, right) });
-  const memoryMetadata = createSourceMemoryMetadataProduction(memoryContext);
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
-    memory: Object.freeze({ context: memoryContext, metadata: memoryMetadata }),
+    memory: Object.freeze({ context: memoryContext }),
     objects: completeObjects, settle, callableHead: solved.callableHead, declared: completeObjectQueries.declared,
     aggregate(original, values) {
       assertNode(original);

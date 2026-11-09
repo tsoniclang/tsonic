@@ -6,10 +6,9 @@ import type { SourceMemberCorrespondenceProduction } from "../../../source-seman
 import type { TargetSourceProgram } from "../../../source-model/program.js";
 import type { SourceLiteralDomain } from "../../../source-model/literals/domain.js";
 import type { SourceMemoryContext } from "../../source-memory-context.js";
-import type { SourceMemoryMetadataProduction } from "../../source-memory-metadata.js";
 
 export interface SourceStorageAnalysisInputs {
-  readonly memory: { readonly context: SourceMemoryContext; readonly metadata: SourceMemoryMetadataProduction };
+  readonly memory: { readonly context: SourceMemoryContext };
   readonly inventory: SourceMemberInventoryQueries;
   readonly objects: SourceMemberCorrespondenceProduction;
   readonly settle: <Value>(value: SourceProductionResult<Value>) => SourceResult<Value>;

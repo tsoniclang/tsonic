@@ -22,7 +22,7 @@ import { sourceProjectFiles } from "./host-input/navigation/navigation.js";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import { checkTargetSource } from "./compiler-session.js";
-import { finalizeTargetDiagnostics } from "./diagnostics.js";
+import { finalizeTargetDiagnostics, targetCompilationBoundary } from "./diagnostics.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 import {
@@ -164,109 +164,110 @@ function compileTargetBuild(
   let compileResult: TargetCompileResult | undefined;
   let diagnostics: readonly TargetDiagnostic[] = [];
   try {
-    const capturedCapabilities = captureTargetCapabilityContributions({
-      project: input.project,
-      projectDirectory: paths.projectDirectory,
-      target: plan.target,
-      selectedCapabilities: plan.selectedCapabilities,
-      selectedSurfaces: plan.selectedSurfaces,
-    });
-    session = targetPack.createCompilationSession(Object.freeze({
-      project: input.project,
-      projectDirectory: paths.projectDirectory,
-      target: plan.target,
-      paths: targetPaths,
-      selectedSurfaceIds: Object.freeze(plan.selectedSurfaces.map((surface) => surface.id)),
-      capabilities: capturedCapabilities,
-    }));
-    const sourceProfile = collectTargetSourceProfileContributions({
-      project: input.project,
-      projectDirectory: paths.projectDirectory,
-      projectRoot: paths.projectRoot,
-      target: plan.target,
-      targetPackId: targetPack.id,
-      selectedCapabilities: plan.selectedCapabilities,
-      selectedSurfaces: plan.selectedSurfaces,
-      targetContributions: session.sourceProfileContributions(),
-    });
-    if (sourceProfile.diagnostics.some(isErrorDiagnostic)) {
-      diagnostics = Object.freeze([...diagnostics, ...sourceProfile.diagnostics]);
-      compileResult = rejectedTargetStage(diagnostics);
-    } else {
-      const created = createProgramOptionsForProject({
-        ...input,
-        sourceProfileFiles: sourceProfile.files,
-        sourceDeclarationPolicy: sourceProfile.declarationPolicy,
-      });
-      const checked = checkTargetSource({
-        programOptions: created.programOptions,
-        sourcePackages: created.sourcePackages,
+    targetCompilationBoundary(targetPack.id, () => {
+      const capturedCapabilities = captureTargetCapabilityContributions({
         project: input.project,
         projectDirectory: paths.projectDirectory,
         target: plan.target,
-        targetPack,
         selectedCapabilities: plan.selectedCapabilities,
         selectedSurfaces: plan.selectedSurfaces,
-        targetContributions: session.sourceCompilerContributions(),
-        sourceProfile,
-        currentDirectory: paths.projectRoot,
       });
-      const sourceProgram = checked.adjudicated;
-      const sourceDiagnostics = sourceProgram.diagnostics;
-      diagnostics = Object.freeze([...diagnostics, ...sourceDiagnostics]);
-      if (sourceProgram.kind === "rejected") {
+      session = targetPack.createCompilationSession(Object.freeze({
+        project: input.project,
+        projectDirectory: paths.projectDirectory,
+        target: plan.target,
+        paths: targetPaths,
+        selectedSurfaceIds: Object.freeze(plan.selectedSurfaces.map((surface) => surface.id)),
+        capabilities: capturedCapabilities,
+      }));
+      const sourceProfile = collectTargetSourceProfileContributions({
+        project: input.project,
+        projectDirectory: paths.projectDirectory,
+        projectRoot: paths.projectRoot,
+        target: plan.target,
+        targetPackId: targetPack.id,
+        selectedCapabilities: plan.selectedCapabilities,
+        selectedSurfaces: plan.selectedSurfaces,
+        targetContributions: session.sourceProfileContributions(),
+      });
+      if (sourceProfile.diagnostics.some(isErrorDiagnostic)) {
+        diagnostics = Object.freeze([...diagnostics, ...sourceProfile.diagnostics]);
         compileResult = rejectedTargetStage(diagnostics);
       } else {
-        const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
-          checked.source.ast,
-          sourceProjectFiles(checked.source),
-          plan.selectedCapabilities,
-        );
-        const runtime = collectTargetRuntimeContributions({
+        const created = createProgramOptionsForProject({
+          ...input,
+          sourceProfileFiles: sourceProfile.files,
+          sourceDeclarationPolicy: sourceProfile.declarationPolicy,
+        });
+        const checked = checkTargetSource({
+          programOptions: created.programOptions,
+          sourcePackages: created.sourcePackages,
           project: input.project,
           projectDirectory: paths.projectDirectory,
           target: plan.target,
-          targetPackId: targetPack.id,
+          targetPack,
           selectedCapabilities: plan.selectedCapabilities,
           selectedSurfaces: plan.selectedSurfaces,
-          paths: targetPaths,
-          targetContributions: session.runtimeContributions(),
+          targetContributions: session.sourceCompilerContributions(),
+          sourceProfile,
+          currentDirectory: paths.projectRoot,
         });
-        diagnostics = Object.freeze([...diagnostics, ...runtime.diagnostics]);
-        if (runtime.diagnostics.some(isErrorDiagnostic)) {
+        const sourceProgram = checked.adjudicated;
+        const sourceDiagnostics = sourceProgram.diagnostics;
+        diagnostics = Object.freeze([...diagnostics, ...sourceDiagnostics]);
+        if (sourceProgram.kind === "rejected") {
           compileResult = rejectedTargetStage(diagnostics);
         } else {
-          const targetResult = session.compile({
-            source: sourceProgram.value,
-            sourcePackages: checked.sourcePackages,
-            project: input.project,
-            target: plan.target,
-            runtimeReferences: runtime.references,
-            runtimeActivatedCapabilityIds: Object.freeze(runtimeActivatedCapabilities.map(capability => capability.id)),
-            paths: targetPaths,
-          });
-          const targetDiagnostics = finalizeTargetDiagnostics(
-            checked.source,
-            targetResult.diagnostics,
-            paths.projectRoot,
+          const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
+            checked.source.ast,
+            sourceProjectFiles(checked.source),
+            plan.selectedCapabilities,
           );
-          diagnostics = Object.freeze([...diagnostics, ...targetDiagnostics]);
-          compileResult = targetResult.kind === "rejected" ||
-              targetDiagnostics.some(isErrorDiagnostic)
-            ? rejectedTargetStage(diagnostics)
-            : resolvedTargetStage({
-                artifacts: Object.freeze([
-                  ...runtime.artifacts,
-                  ...targetResult.value.artifacts,
-                ]),
-              }, diagnostics);
+          const runtime = collectTargetRuntimeContributions({
+            project: input.project,
+            projectDirectory: paths.projectDirectory,
+            target: plan.target,
+            targetPackId: targetPack.id,
+            selectedCapabilities: plan.selectedCapabilities,
+            selectedSurfaces: plan.selectedSurfaces,
+            paths: targetPaths,
+            targetContributions: session.runtimeContributions(),
+          });
+          diagnostics = Object.freeze([...diagnostics, ...runtime.diagnostics]);
+          if (runtime.diagnostics.some(isErrorDiagnostic)) {
+            compileResult = rejectedTargetStage(diagnostics);
+          } else {
+            const targetResult = session.compile({
+              source: sourceProgram.value,
+              sourcePackages: checked.sourcePackages,
+              project: input.project,
+              target: plan.target,
+              runtimeReferences: runtime.references,
+              runtimeActivatedCapabilityIds: Object.freeze(runtimeActivatedCapabilities.map(capability => capability.id)),
+              paths: targetPaths,
+            });
+            const targetDiagnostics = finalizeTargetDiagnostics(
+              checked.source,
+              targetResult.diagnostics,
+              paths.projectRoot,
+            );
+            diagnostics = Object.freeze([...diagnostics, ...targetDiagnostics]);
+            compileResult = targetResult.kind === "rejected" ||
+                targetDiagnostics.some(isErrorDiagnostic)
+              ? rejectedTargetStage(diagnostics)
+              : resolvedTargetStage({
+                  artifacts: Object.freeze([
+                    ...runtime.artifacts,
+                    ...targetResult.value.artifacts,
+                  ]),
+                }, diagnostics);
+          }
         }
       }
-    }
-  } catch (error) {
-    const diagnostic = targetDiagnostic(targetPack.id, "TARGET_COMPILATION", errorMessage(error));
-    diagnostics = Object.freeze([...diagnostics, diagnostic]);
-    compileResult = rejectedTargetStage(diagnostics);
+    }, diagnostic => {
+      diagnostics = Object.freeze([...diagnostics, diagnostic]);
+      compileResult = rejectedTargetStage(diagnostics);
+    });
   } finally {
     if (session !== undefined) {
       try {

@@ -20,25 +20,37 @@ export function createSourceRawLocationQueries(input: {
   const resolved = <Value>(value: Value): SourceMemorySelection<Value> => Object.freeze({ kind: "resolved", value });
   const unresolved = (reason: string) => Object.freeze({ kind: "unresolved" as const, reason });
   function pointerDomain(value: SourceTypeEvidence, pointee: SourceTypeEvidence): SourceMemorySelection<boolean> {
-    view.assertEvidence(value);
-    view.assertEvidence(pointee);
-    if (!budget.step()) return unresolved(budget.failure()!);
-    if (value.sum !== undefined) {
-      for (const arm of value.sum.arms) {
-        const selected = pointerDomain(arm, pointee);
+    return budget.withRows(rows => {
+      view.assertEvidence(value);
+      view.assertEvidence(pointee);
+      if (!rows.add(1)) return unresolved(budget.failure()!);
+      const pending = [value];
+      while (pending.length !== 0) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        const current = pending.pop()!;
+        view.assertEvidence(current);
+        if (current.sum !== undefined) {
+          if (current.sum.arms.length === 0) return resolved(false);
+          if (!rows.add(current.sum.arms.length)) return unresolved(budget.failure()!);
+          for (const arm of current.sum.arms) pending.push(arm);
+          continue;
+        }
+        if (current.type.kind === "intrinsic" && current.type.intrinsic === "absence") continue;
+        if (current.type.kind === "optional") {
+          const child = view.component(current, { kind: "optional-value" });
+          if (child.kind === "refused") return child;
+          if (!rows.add(1)) return unresolved(budget.failure()!);
+          pending.push(child.value);
+          continue;
+        }
+        const pointer = source.facts.protocols.pointerType(current);
+        if (pointer.kind === "refused") return pointer;
+        if (pointer.value.kind === "none" || pointer.value.value.kind !== "typed-location") return resolved(false);
+        const selected = context.equivalent(pointer.value.value.pointee, pointee);
         if (selected.kind !== "resolved" || !selected.value) return selected;
       }
-      return resolved(value.sum.arms.length !== 0);
-    }
-    if (value.type.kind === "intrinsic" && value.type.intrinsic === "absence") return resolved(true);
-    if (value.type.kind === "optional") {
-      const child = view.component(value, { kind: "optional-value" });
-      return child.kind === "refused" ? child : pointerDomain(child.value, pointee);
-    }
-    const pointer = source.facts.protocols.pointerType(value);
-    if (pointer.kind === "refused") return pointer;
-    if (pointer.value.kind === "none" || pointer.value.value.kind !== "typed-location") return resolved(false);
-    return context.equivalent(pointer.value.value.pointee, pointee);
+      return resolved(true);
+    });
   }
   const resolve: SourceMemoryQueries["rawLocation"]["resolve"] = (occurrence, bindings) => budget.withRows(rows => {
     context.assertNode(occurrence);

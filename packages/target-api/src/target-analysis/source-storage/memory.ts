@@ -3,6 +3,7 @@ import type { SourceStorageBindings } from "../../source-model/storage.js";
 import type { SourceStorageQueries } from "../../source-model/program.js";
 import { createSourceClosedArrayStorageQueries } from "../source-array-storage.js";
 import { createSourceMemoryBindingQueries } from "../source-memory-bindings.js";
+import { createSourceMemoryMetadataProduction } from "../source-memory-metadata.js";
 import { createSourcePointerBackingQueries } from "../source-pointer-backing.js";
 import { createSourceRawLocationQueries } from "../source-raw-location.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
@@ -19,7 +20,8 @@ export function createSourceMemoryQueries(input: {
   readonly transport: ReturnType<typeof createSourceStorageTransport>;
   readonly bindingStates: WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>;
 }): SourceMemoryQueries {
-  const { context, metadata } = input.source.analysis.memory;
+  const { context } = input.source.analysis.memory;
+  const metadata = createSourceMemoryMetadataProduction(context, input.budget);
   const environments = createSourceMemoryEnvironments({ ...input, context });
   const pointerBacking = createSourcePointerBackingQueries({ ...input, environments });
   const memoryMetadata = createSourceStorageMemoryMetadata({ ...input, environments, metadata });

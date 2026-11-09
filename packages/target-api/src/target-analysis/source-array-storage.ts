@@ -5,6 +5,7 @@ import type { SourceStorageQueries } from "../source-model/program.js";
 import type { SourceStorageBindings } from "../source-model/storage.js";
 import { sourceTransparentExpressionOperand } from "../source-navigation/ast.js";
 import type { SourceStorageBudget } from "./source-storage/model/resource-budget.js";
+import { SourceStorageFailure } from "./source-storage/model/program.js";
 
 export function createSourceClosedArrayStorageQueries(input: {
   readonly storage: SourceStorageQueries;
@@ -14,11 +15,15 @@ export function createSourceClosedArrayStorageQueries(input: {
   const { source } = storage;
   const { ast, facts } = source;
   const retained = new WeakMap<Node, WeakMap<SourceStorageBindings, SourceClosedArrayStorage>>();
+  const retainedRows = budget.createRows();
+  function step(): void {
+    if (!budget.step()) throw new SourceStorageFailure(budget.failure()!);
+  }
   const resolved = (value: SourceClosedArrayStorage) => Object.freeze({ kind: "resolved" as const, value });
   const unproven = (reason: string) => resolved(Object.freeze({ kind: "unproven" as const, reason }));
   function owner(node: Node): Node | undefined {
     for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
-      if (!budget.step()) return undefined;
+      step();
       if (facts.navigation.callableRoles(parent).signature || ast.is.IsClassDeclaration(parent) || ast.is.IsClassExpression(parent)) return parent;
     }
     return undefined;
@@ -27,7 +32,7 @@ export function createSourceClosedArrayStorageQueries(input: {
     for (;;) {
       const parent = ast.parent(node);
       if (parent === undefined || sourceTransparentExpressionOperand(ast, parent) !== node) return { value: node, parent };
-      if (!budget.step()) return { value: node, parent: undefined };
+      step();
       node = parent;
     }
   }
@@ -128,6 +133,8 @@ export function createSourceClosedArrayStorageQueries(input: {
       }
     }
     if (literals.size === 0 || declarations.size === 0) return unproven("Native array storage has no initialized local allocation.");
+    if (!retainedRows.add(3 + declarations.size + references.size + literals.size + elements.size))
+      return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
     const result: SourceClosedArrayStorage = Object.freeze({ kind: "closed", declarations: Object.freeze([...declarations]),
       references: Object.freeze([...references]), literals: Object.freeze([...literals]), elements: Object.freeze([...elements.values()]) });
     let byBindings = retained.get(occurrence);

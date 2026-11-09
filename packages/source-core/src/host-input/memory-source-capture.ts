@@ -1,4 +1,3 @@
-import type { Node } from "@tsonic/tsts";
 import type { MemorySourceCall } from "./memory-analysis-model.js";
 import { publishMemoryFact } from "./memory-analysis-context.js";
 import { readSourceFact } from "./provider-calls.js";
@@ -24,7 +23,8 @@ function bindingSource(call: MemorySourceCall, index: number): MemorySourceProve
 }
 
 export function captureMemoryArraySource(call: MemorySourceCall,
-  count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined {
+  count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }):
+  { readonly fixedArray: TsonicFixedArrayFact; readonly source: MemorySourceProvenance } | undefined {
   const observed = call.selected.selection;
   const { typeShape } = call.context;
   const arguments_ = typeShape.getTypeArguments(observed.resultType);
@@ -42,7 +42,5 @@ export function captureMemoryArraySource(call: MemorySourceCall,
     root: Object.freeze({ kind: "value", node: call.selected.call, type: observed.resultType }),
     path: Object.freeze([{ kind: "type-argument", owner: observed.resultType, index: 0 }]),
     type: sourceType, application }) });
-  publishMemoryFact(call, tsonicMemorySourceFactKey,
-    createMemorySourcePublication(call.selected.call, { source, owner: undefined }));
-  return original.fact;
+  return Object.freeze({ fixedArray: original.fact, source });
 }

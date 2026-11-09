@@ -28,6 +28,11 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
   let memoryDepth = 0;
   const resolved = (value: SourceEvidenceRelation): SourceProductionResult<SourceEvidenceRelation> => ({ kind: "resolved", value });
 
+  function memoryPair(): void {
+    if (++memoryPairs > sourceTypeExpansionBudget.types)
+      failTargetCompilerResourceLimit("tsonic", "Source memory domain correspondence", "pairs", sourceTypeExpansionBudget.types, source.component.root);
+  }
+
   function combine(values: Iterable<SourceProductionResult<SourceEvidenceRelation>>, every: boolean): SourceProductionResult<SourceEvidenceRelation> {
     let deferred = false;
     const dependencies = new Set<Extract<SourceProductionResult<never>, { kind: "pending" }>["dependencies"][number]>();
@@ -53,8 +58,7 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
     builder.assertEvidence(left);
     builder.assertEvidence(right);
     if (purpose === "memory") {
-      if (++memoryPairs > sourceTypeExpansionBudget.types)
-        failTargetCompilerResourceLimit("tsonic", "Source memory domain correspondence", "pairs", sourceTypeExpansionBudget.types, source.component.root);
+      memoryPair();
       if (memoryDepth >= sourceTypeExpansionBudget.depth)
         failTargetCompilerResourceLimit("tsonic", "Source memory domain correspondence", "depth", sourceTypeExpansionBudget.depth, source.component.root);
       memoryDepth++;
@@ -99,7 +103,8 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
     if (rightDomain.kind === "finite" && (leftDomain.kind !== "finite" ||
       !leftDomain.values.every(value => sourceLiteralDomainIncludes(rightDomain, value)))) return resolved("no");
     if (left.category.kind === "known" && right.category.kind === "known" && left.category.category !== right.category.category) return resolved("no");
-    if (left === right) return resolved("yes");
+    if (left === right && (purpose === "fit" || actual.kind === "primitive" || actual.kind === "intrinsic" || actual.kind === "string"))
+      return resolved("yes");
     let rightValues = active.get(left);
     if (rightValues?.has(right)) {
       if (purpose === "memory") cycles++;
@@ -112,6 +117,11 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
         if ((actual.extent === undefined) !== (required.extent === undefined) || actual.extent !== undefined &&
           (actual.extent.length !== required.extent?.length || actual.extent.runtimeBase !== required.extent.runtimeBase) ||
           actual.typeArguments.length !== required.typeArguments.length) return resolved("no");
+        if (purpose === "memory") return combine((function* () {
+          for (const [index] of actual.typeArguments.entries()) yield child(left,
+            { kind: "type-argument", declaration: actual.declaration, index }, right,
+            { kind: "type-argument", declaration: required.declaration, index });
+        })(), true);
         return combine(actual.typeArguments.map((_, index) => child(left,
           { kind: "type-argument", declaration: actual.declaration, index }, right,
           { kind: "type-argument", declaration: required.declaration, index })), true);
@@ -143,14 +153,81 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
       if (actual.kind === "string" || required.kind === "string") return resolved(actual.kind === required.kind ? "yes" : "no");
       if (actual.kind === "array" && required.kind === "array") return actual.readonly && !required.readonly ? resolved("no")
         : child(left, { kind: "array-element" }, right, { kind: "array-element" });
-      if (actual.kind === "tuple" && required.kind === "array") return actual.readonly && !required.readonly ? resolved("no")
-        : combine(actual.elements.map((_, index) => child(left, { kind: "tuple-element", index }, right, { kind: "array-element" })), true);
+      if (actual.kind === "tuple" && required.kind === "array") {
+        if (actual.readonly && !required.readonly) return resolved("no");
+        return purpose === "memory" ? combine((function* () {
+          for (const [index] of actual.elements.entries()) yield child(left, { kind: "tuple-element", index }, right, { kind: "array-element" });
+        })(), true) : combine(actual.elements.map((_, index) => child(left, { kind: "tuple-element", index }, right, { kind: "array-element" })), true);
+      }
       if (actual.kind === "tuple" && required.kind === "tuple") {
         if (actual.readonly && !required.readonly || actual.elements.length !== required.elements.length) return resolved("no");
+        if (purpose === "memory") return combine((function* () {
+          for (const [index, element] of actual.elements.entries()) yield element.kind === required.elements[index]!.kind
+            ? child(left, { kind: "tuple-element", index }, right, { kind: "tuple-element", index }) : resolved("no");
+        })(), true);
         return combine(actual.elements.map((element, index) => element.kind === required.elements[index]!.kind
           ? child(left, { kind: "tuple-element", index }, right, { kind: "tuple-element", index }) : resolved("no")), true);
       }
       if ((actual.kind === "shape" || actual.kind === "callable") && (required.kind === "shape" || required.kind === "callable")) {
+        if (purpose === "memory") return combine((function* () {
+          if (required.kind === "shape") {
+            const pairs = objects.correspondence(left, right, "correspondence", (destination, source) =>
+              sourceKeyDomainContains(builder, destination, source));
+            if (pairs.kind !== "resolved") { yield pairs; return; }
+            if (pairs.value.kind === "unavailable") {
+              yield resolved(pairs.value.reason === "unresolved-shape" ? "deferred" : "no");
+              return;
+            }
+            for (const pair of pairs.value.members) {
+              if (pair.kind === "absent" || pair.source.optional !== pair.destination.optional ||
+                pair.source.readonly !== pair.destination.readonly || pair.source.read !== pair.destination.read) {
+                yield resolved("no"); return;
+              }
+              if (pair.destination.readType !== undefined) {
+                yield pair.source.readType === undefined ? resolved("no") : relate(pair.source.readType, pair.destination.readType);
+              }
+              if (pair.destination.writeType !== undefined && !pair.destination.readonly) {
+                yield pair.source.writeType === undefined ? resolved("no") : relate(pair.destination.writeType, pair.source.writeType);
+              }
+            }
+            for (const pair of pairs.value.indexes) yield combine((function* () {
+              for (const candidate of pair.sources) {
+                memoryPair();
+                if (candidate.source.readonly !== pair.destination.readonly) continue;
+                yield combine((function* () {
+                  yield resolved(candidate.coverage);
+                  if (pair.destination.readType !== undefined) yield candidate.source.readType === undefined ? resolved("no")
+                    : relate(candidate.source.readType, pair.destination.readType);
+                  if (pair.destination.writeType !== undefined && !pair.destination.readonly)
+                    yield candidate.source.writeType === undefined ? resolved("no")
+                      : relate(pair.destination.writeType, candidate.source.writeType);
+                })(), true);
+              }
+            })(), false);
+          }
+          for (const kind of ["calls", "constructs"] as const) for (const requiredSignature of required[kind]) {
+            yield combine((function* () {
+              for (const actualSignature of actual[kind]) {
+                memoryPair();
+                if (actualSignature.parameters.length !== requiredSignature.parameters.length ||
+                  actualSignature.identity.typeParameters.length !== requiredSignature.identity.typeParameters.length ||
+                  (actualSignature.receiver === undefined) !== (requiredSignature.receiver === undefined)) continue;
+                yield combine((function* () {
+                  if (requiredSignature.receiver !== undefined) yield child(right,
+                    { kind: "receiver", signature: requiredSignature.identity }, left,
+                    { kind: "receiver", signature: actualSignature.identity });
+                  for (const [index, parameter] of actualSignature.parameters.entries()) {
+                    yield parameter.kind !== requiredSignature.parameters[index]!.kind ? resolved("no")
+                      : child(right, { kind: "parameter", signature: requiredSignature.identity, index }, left,
+                        { kind: "parameter", signature: actualSignature.identity, index });
+                  }
+                  yield child(left, { kind: "result", signature: actualSignature.identity }, right,
+                    { kind: "result", signature: requiredSignature.identity });
+                })(), true);
+              }
+            })(), false);
+          }
+        })(), true);
         const relations: SourceProductionResult<SourceEvidenceRelation>[] = [];
         if (required.kind === "shape") {
           const pairs = objects.correspondence(left, right, "correspondence", (destination, source) =>
@@ -159,11 +236,9 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
           if (pairs.value.kind === "unavailable") return resolved(pairs.value.reason === "unresolved-shape" ? "deferred" : "no");
           for (const pair of pairs.value.members) {
             if (pair.kind === "absent") {
-              if (purpose === "memory" || !pair.destination.optional) return resolved("no");
+              if (!pair.destination.optional) return resolved("no");
               continue;
             }
-            if (purpose === "memory" && (pair.source.optional !== pair.destination.optional ||
-              pair.source.readonly !== pair.destination.readonly)) return resolved("no");
             if (pair.source.optional && !pair.destination.optional) return resolved("no");
             if (pair.destination.readType !== undefined) {
               if (pair.source.readType === undefined) return resolved("no");
@@ -177,7 +252,6 @@ function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" 
           for (const pair of pairs.value.indexes) {
             const alternatives: SourceProductionResult<SourceEvidenceRelation>[] = [];
             for (const candidate of pair.sources) {
-              if (purpose === "memory" && candidate.source.readonly !== pair.destination.readonly) continue;
               const selected: SourceProductionResult<SourceEvidenceRelation>[] = [resolved(candidate.coverage)];
               if (pair.destination.readType !== undefined) selected.push(candidate.source.readType === undefined ? resolved("no")
                 : relate(candidate.source.readType, pair.destination.readType));

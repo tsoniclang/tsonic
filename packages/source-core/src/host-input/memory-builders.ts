@@ -2,7 +2,7 @@ import { selectInlineSourceMember } from "./selected-source-member.js";
 import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.js";
 import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
 import type { MemorySourceCall } from "./memory-analysis-model.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./memory-layout-facts.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, memoryLayoutDimensions, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./memory-layout-facts.js";
 import { exactLayoutSize, selectedDataLayout } from "./memory-source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
 import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./memory-selectors.js";
@@ -89,14 +89,14 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
     fields: fields.filter((field) => field !== undefined),
   };
-  const error = memoryLayoutDimensionsError(fact);
-  if (error !== undefined) {
-    memoryDiagnostic(call, "LAYOUT_DIMENSIONS_INVALID", error);
-    return;
-  }
   const captureError = memoryLayoutCaptureLimitsError(fact.fields.map(field => field.fieldLayout), fact.fields.length);
   if (captureError !== undefined) {
     memoryDiagnostic(call, "LAYOUT_CAPTURE_LIMIT", captureError);
+    return;
+  }
+  const error = memoryLayoutDimensionsError(memoryLayoutDimensions(fact));
+  if (error !== undefined) {
+    memoryDiagnostic(call, "LAYOUT_DIMENSIONS_INVALID", error);
     return;
   }
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
