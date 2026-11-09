@@ -1,338 +1,341 @@
-import type { LibraryDeclaration, LibraryRole } from '../model/contract.js';
+import type { LibraryDeclaration, LibraryExportIdentity, LibraryRole, LibraryType, Presence } from '../model/contract.js';
 import { coreTypesIdentity } from './identities.js';
 
-const noValue = Object.freeze({ kind: "none" } as const);
+const noValue = Object.freeze<Presence<never>>({ kind: "none" });
 
-const emptyItems = Object.freeze([] as const);
+const emptyItems = Object.freeze<readonly never[]>([]);
 
-export const corePrimitiveDeclarations: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const corePrimitiveDeclarations: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "bool",
   name: "bool",
   exportName: "bool",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "bool" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "bool" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "char",
   name: "char",
   exportName: "char",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "char" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "char" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "int8",
   name: "int8",
   exportName: "int8",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "int8" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "int8" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "uint8",
   name: "uint8",
   exportName: "uint8",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "uint8" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "uint8" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "int16",
   name: "int16",
   exportName: "int16",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "int16" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "int16" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "uint16",
   name: "uint16",
   exportName: "uint16",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "uint16" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "uint16" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "int32",
   name: "int32",
   exportName: "int32",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "int32" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "int32" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "uint32",
   name: "uint32",
   exportName: "uint32",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "uint32" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "uint32" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "int64",
   name: "int64",
   exportName: "int64",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "int64" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "int64" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "uint64",
   name: "uint64",
   exportName: "uint64",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "uint64" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "uint64" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "int128",
   name: "int128",
   exportName: "int128",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "int128" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "int128" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "uint128",
   name: "uint128",
   exportName: "uint128",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "uint128" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "uint128" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "nativeInt",
   name: "nativeInt",
   exportName: "nativeInt",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "native-int" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "native-int" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "nativeUint",
   name: "nativeUint",
   exportName: "nativeUint",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "native-uint" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({
+    kind: "present",
+    value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "native-uint" }),
+  }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "float16",
   name: "float16",
   exportName: "float16",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "float16" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "float16" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "float32",
   name: "float32",
   exportName: "float32",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "float32" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "float32" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "float64",
   name: "float64",
   exportName: "float64",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "float64" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "float64" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "decimal",
   name: "decimal",
   exportName: "decimal",
   exportKind: "named",
   kind: "type",
   typeFamily: noValue,
-  type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "source-primitive", name: "decimal" } as const) } as const),
+  type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "source-primitive", name: "decimal" }) }),
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
   signatures: emptyItems,
   documentation: noValue,
-} as const),
+}),
 ]);
 
-export const corePrimitiveRoles: readonly LibraryRole[] = Object.freeze([
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "bool", memberId: noValue, signatureId: noValue } as const),
+export const corePrimitiveRoles: readonly [LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole] = Object.freeze<readonly [LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole, LibraryRole]>([
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "bool", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "char", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "char", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "int8", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "int8", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "uint8", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "uint8", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "int16", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "int16", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "uint16", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "uint16", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "int32", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "int32", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "uint32", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "uint32", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "int64", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "int64", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "uint64", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "uint64", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "int128", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "int128", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "uint128", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "uint128", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "nativeInt", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "nativeInt", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "nativeUint", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "nativeUint", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "float16", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "float16", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "float32", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "float32", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "float64", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "float64", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
-  Object.freeze({
-  identity: Object.freeze({ module: coreTypesIdentity, exportId: "decimal", memberId: noValue, signatureId: noValue } as const),
+}),
+  Object.freeze<LibraryRole>({
+  identity: Object.freeze<LibraryExportIdentity>({ module: coreTypesIdentity, exportId: "decimal", memberId: noValue, signatureId: noValue }),
   role: "source-primitive",
-} as const),
+}),
 ]);
 
 export const corePrimitiveText: string = `type bool = import("@tsonic/core/types.js").bool;

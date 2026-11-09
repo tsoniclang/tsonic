@@ -1,187 +1,201 @@
-import type { LibraryDeclaration } from '../model/contract.js';
+import type { LibraryDeclaration, LibraryMember, LibraryParameter, LibrarySignature, LibraryType, LibraryTypeParameter, Presence } from '../model/contract.js';
 
-const noValue = Object.freeze({ kind: "none" } as const);
+const noValue = Object.freeze<Presence<never>>({ kind: "none" });
 
-const emptyItems = Object.freeze([] as const);
+const emptyItems = Object.freeze<readonly never[]>([]);
 
-const sharedRecord = Object.freeze({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord = Object.freeze<LibraryTypeParameter>({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems = Object.freeze([sharedRecord] as const);
+const sharedItems = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord]);
 
-const tType = Object.freeze({ kind: "type-parameter", name: "T" } as const);
+const tType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "T" });
 
-const sharedRecord1 = Object.freeze({ name: "value", type: tType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const);
+const sharedRecord1 = Object.freeze<LibraryParameter>({ name: "value", type: tType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue });
 
-const sharedItems1 = Object.freeze([sharedRecord1] as const);
+const sharedItems1 = Object.freeze<readonly LibraryParameter[]>([sharedRecord1]);
 
-const dataLayoutType = Object.freeze({
+const dataLayoutType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "DataLayout",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: emptyItems,
-} as const);
+});
 
-const presentValue = Object.freeze({ kind: "present", value: dataLayoutType } as const);
+const presentValue = Object.freeze<Presence<LibraryType>>({ kind: "present", value: dataLayoutType });
 
-const nativeuintType = Object.freeze({ kind: "source-primitive", name: "native-uint" } as const);
+const nativeuintType = Object.freeze<LibraryType>({ kind: "source-primitive", name: "native-uint" });
 
-const presentValue1 = Object.freeze({ kind: "present", value: nativeuintType } as const);
+const presentValue1 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: nativeuintType });
 
-const sharedItems2 = Object.freeze([tType] as const);
+const sharedItems2 = Object.freeze<readonly LibraryType[]>([tType]);
 
-const memoryFieldLayoutType = Object.freeze({
+const memoryFieldLayoutType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "MemoryFieldLayout",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const numberData = Object.freeze({ kind: "number" } as const);
+const numberData = Object.freeze<LibraryType>({ kind: "number" });
 
-const bigintData = Object.freeze({ kind: "bigint" } as const);
+const bigintData = Object.freeze<LibraryType>({ kind: "bigint" });
 
-const sharedItems3 = Object.freeze([numberData, bigintData] as const);
+const sharedItems3 = Object.freeze<readonly LibraryType[]>([numberData, bigintData]);
 
-const unionData = Object.freeze({ kind: "union", types: sharedItems3 } as const);
+const unionData = Object.freeze<LibraryType>({ kind: "union", types: sharedItems3 });
 
-const sharedItems4 = Object.freeze([unionData] as const);
+const sharedItems4 = Object.freeze<readonly LibraryType[]>([unionData]);
 
-const sharedRecord2 = Object.freeze({ name: "TLength", constraints: sharedItems4, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord2 = Object.freeze<LibraryTypeParameter>({ name: "TLength", constraints: sharedItems4, defaultType: noValue, variance: "invariant" });
 
-const sharedItems5 = Object.freeze([sharedRecord, sharedRecord2] as const);
+const sharedItems5 = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord, sharedRecord2]);
 
-const memoryLayoutType = Object.freeze({
+const memoryLayoutType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "MemoryLayout",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const presentValue2 = Object.freeze({ kind: "present", value: memoryLayoutType } as const);
+const presentValue2 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: memoryLayoutType });
 
-const tLengthType = Object.freeze({ kind: "type-parameter", name: "TLength" } as const);
+const tLengthType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "TLength" });
 
-const sharedRecord3 = Object.freeze({ name: "TField", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord3 = Object.freeze<LibraryTypeParameter>({ name: "TField", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems6 = Object.freeze([sharedRecord, sharedRecord3] as const);
+const sharedItems6 = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord, sharedRecord3]);
 
-const tFieldType = Object.freeze({ kind: "type-parameter", name: "TField" } as const);
+const tFieldType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "TField" });
 
-const sharedItems7 = Object.freeze([tFieldType] as const);
+const sharedItems7 = Object.freeze<readonly LibraryType[]>([tFieldType]);
 
-const pointerType = Object.freeze({
+const pointerType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "Pointer",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const undefinedData = Object.freeze({ kind: "undefined" } as const);
+const undefinedData = Object.freeze<LibraryType>({ kind: "undefined" });
 
-const sharedItems8 = Object.freeze([pointerType, undefinedData] as const);
+const sharedItems8 = Object.freeze<readonly LibraryType[]>([pointerType, undefinedData]);
 
-const unionData1 = Object.freeze({ kind: "union", types: sharedItems8 } as const);
+const unionData1 = Object.freeze<LibraryType>({ kind: "union", types: sharedItems8 });
 
-const sharedRecord4 = Object.freeze({ name: "layout", type: memoryLayoutType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const);
+const sharedRecord4 = Object.freeze<LibraryParameter>({
+  name: "layout",
+  type: memoryLayoutType,
+  passingMode: "by-value",
+  optional: false,
+  rest: false,
+  defaultType: noValue,
+});
 
-const rawPointerType = Object.freeze({
+const rawPointerType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "RawPointer",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: emptyItems,
-} as const);
+});
 
-const sharedItems9 = Object.freeze([rawPointerType, undefinedData] as const);
+const sharedItems9 = Object.freeze<readonly LibraryType[]>([rawPointerType, undefinedData]);
 
-const unionData2 = Object.freeze({ kind: "union", types: sharedItems9 } as const);
+const unionData2 = Object.freeze<LibraryType>({ kind: "union", types: sharedItems9 });
 
-const presentValue3 = Object.freeze({ kind: "present", value: unionData2 } as const);
+const presentValue3 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: unionData2 });
 
-const sharedRecord5 = Object.freeze({ name: "pointer", type: unionData2, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const);
+const sharedRecord5 = Object.freeze<LibraryParameter>({
+  name: "pointer",
+  type: unionData2,
+  passingMode: "by-value",
+  optional: false,
+  rest: false,
+  defaultType: noValue,
+});
 
-const presentValue4 = Object.freeze({ kind: "present", value: unionData1 } as const);
+const presentValue4 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: unionData1 });
 
-const sharedRecord6 = Object.freeze({
+const sharedRecord6 = Object.freeze<LibraryParameter>({
   name: "dataLayout",
   type: dataLayoutType,
   passingMode: "by-value",
   optional: false,
   rest: false,
   defaultType: noValue,
-} as const);
+});
 
-const tAddressType = Object.freeze({ kind: "type-parameter", name: "TAddress" } as const);
+const tAddressType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "TAddress" });
 
-const sharedRecord7 = Object.freeze({ name: "TAddress", constraints: sharedItems4, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord7 = Object.freeze<LibraryTypeParameter>({ name: "TAddress", constraints: sharedItems4, defaultType: noValue, variance: "invariant" });
 
-const sharedItems10 = Object.freeze([sharedRecord7] as const);
+const sharedItems10 = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord7]);
 
-const sharedItems11 = Object.freeze([tType, tLengthType] as const);
+const sharedItems11 = Object.freeze<readonly LibraryType[]>([tType, tLengthType]);
 
-const memoryFieldBindingType = Object.freeze({
+const memoryFieldBindingType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "MemoryFieldBinding",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const presentValue5 = Object.freeze({ kind: "present", value: tType } as const);
+const presentValue5 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: tType });
 
-const sharedItems12 = Object.freeze([sharedRecord4] as const);
+const sharedItems12 = Object.freeze<readonly LibraryParameter[]>([sharedRecord4]);
 
-const voidData = Object.freeze({ kind: "void" } as const);
+const voidData = Object.freeze<LibraryType>({ kind: "void" });
 
-const presentValue6 = Object.freeze({ kind: "present", value: voidData } as const);
+const presentValue6 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: voidData });
 
-const fType = Object.freeze({ kind: "type-parameter", name: "F" } as const);
+const fType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "F" });
 
-const sharedItems13 = Object.freeze([fType] as const);
+const sharedItems13 = Object.freeze<readonly LibraryType[]>([fType]);
 
-const pointerType1 = Object.freeze({
+const pointerType1 = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "Pointer",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems13,
-} as const);
+});
 
-const sharedRecord8 = Object.freeze({ name: "F", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord8 = Object.freeze<LibraryTypeParameter>({ name: "F", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems14 = Object.freeze([sharedRecord8, sharedRecord] as const);
+const sharedItems14 = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord8, sharedRecord]);
 
-const nativePointerType = Object.freeze({
+const nativePointerType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/types.js",
   exportName: "NativePointer",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const sharedRecord9 = Object.freeze({
+const sharedRecord9 = Object.freeze<LibraryParameter>({
   name: "pointer",
   type: nativePointerType,
   passingMode: "by-value",
   optional: false,
   rest: false,
   defaultType: noValue,
-} as const);
+});
 
-export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const coreMemoryTypes: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "DataLayout",
   name: "DataLayout",
   exportName: "DataLayout",
@@ -191,23 +205,23 @@ export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
   type: noValue,
   typeParameters: emptyItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "DataLayout.brand",
       name: "__tsonicDataLayout",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "literal", value: "DataLayout" } as const) } as const),
+      type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "literal", value: "DataLayout" }) }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "MemoryLayout",
   name: "MemoryLayout",
   exportName: "MemoryLayout",
@@ -217,32 +231,32 @@ export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "MemoryLayout.brand",
       name: "__tsonicMemoryLayout",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "MemoryLayout.brand",
           parameters: sharedItems1,
           returnType: tType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "MemoryFieldLayout",
   name: "MemoryFieldLayout",
   exportName: "MemoryFieldLayout",
@@ -252,32 +266,32 @@ export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "MemoryFieldLayout.brand",
       name: "__tsonicMemoryFieldLayout",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "MemoryFieldLayout.brand",
           parameters: sharedItems1,
           returnType: tType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "MemoryFieldBinding",
   name: "MemoryFieldBinding",
   exportName: "MemoryFieldBinding",
@@ -287,32 +301,32 @@ export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "MemoryFieldBinding.brand",
       name: "__tsonicMemoryFieldBinding",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "MemoryFieldBinding.brand",
           parameters: sharedItems1,
           returnType: tType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "NativePointer",
   name: "NativePointer",
   exportName: "NativePointer",
@@ -322,35 +336,35 @@ export const coreMemoryTypes: readonly LibraryDeclaration[] = Object.freeze([
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "NativePointer.__tsonicNativePointer",
       name: "__tsonicNativePointer",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "NativePointer.__tsonicNativePointer",
           parameters: sharedItems1,
           returnType: tType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
+}),
 ]);
 
-export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const coreMemoryOperations: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicMemoryLayoutDescriptor",
   name: "__TsonicMemoryLayoutDescriptor",
   exportName: "__TsonicMemoryLayoutDescriptor",
@@ -360,8 +374,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryLayoutDescriptor.datalayout",
       name: "datalayout",
       kind: "property",
@@ -371,8 +385,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryLayoutDescriptor.bytesize",
       name: "bytesize",
       kind: "property",
@@ -382,8 +396,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryLayoutDescriptor.bytealignment",
       name: "bytealignment",
       kind: "property",
@@ -393,8 +407,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryLayoutDescriptor.stride",
       name: "stride",
       kind: "property",
@@ -404,23 +418,26 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryLayoutDescriptor.fields",
       name: "fields",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "array", elementType: memoryFieldLayoutType } as const) } as const),
+      type: Object.freeze<Presence<LibraryType>>({
+        kind: "present",
+        value: Object.freeze<LibraryType>({ kind: "array", elementType: memoryFieldLayoutType }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicMemoryArrayLayoutDescriptor",
   name: "__TsonicMemoryArrayLayoutDescriptor",
   exportName: "__TsonicMemoryArrayLayoutDescriptor",
@@ -430,8 +447,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   type: noValue,
   typeParameters: sharedItems5,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.datalayout",
       name: "datalayout",
       kind: "property",
@@ -441,8 +458,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.bytesize",
       name: "bytesize",
       kind: "property",
@@ -452,8 +469,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.bytealignment",
       name: "bytealignment",
       kind: "property",
@@ -463,8 +480,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.stride",
       name: "stride",
       kind: "property",
@@ -474,8 +491,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.elementlayout",
       name: "elementlayout",
       kind: "property",
@@ -485,23 +502,23 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue2,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryArrayLayoutDescriptor.length",
       name: "length",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({ kind: "present", value: tLengthType } as const),
+      type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: tLengthType }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicMemoryFieldDescriptor",
   name: "__TsonicMemoryFieldDescriptor",
   exportName: "__TsonicMemoryFieldDescriptor",
@@ -511,28 +528,28 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   type: noValue,
   typeParameters: sharedItems6,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryFieldDescriptor.select",
       name: "select",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "memoryfield.selector",
           parameters: sharedItems1,
           returnType: tFieldType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryFieldDescriptor.byteoffset",
       name: "byteoffset",
       kind: "property",
@@ -542,8 +559,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryFieldDescriptor.bytealignment",
       name: "bytealignment",
       kind: "property",
@@ -553,33 +570,33 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       type: presentValue1,
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicMemoryFieldDescriptor.fieldlayout",
       name: "fieldlayout",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "provider-ref",
           moduleSpecifier: "@tsonic/core/types.js",
           exportName: "MemoryLayout",
           localName: noValue,
           namespaceImport: noValue,
           typeArguments: sharedItems7,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "torawptr",
   name: "torawptr",
   exportName: "torawptr",
@@ -590,30 +607,30 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "torawptr<T>(pointer,layout)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "pointer",
           type: unionData1,
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
+        }),
         sharedRecord4,
-      ] as const),
+      ]),
       returnType: presentValue3,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "reinterpretrawptr",
   name: "reinterpretrawptr",
   exportName: "reinterpretrawptr",
@@ -624,20 +641,20 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "reinterpretrawptr<T>(pointer,layout)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([sharedRecord5, sharedRecord4] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([sharedRecord5, sharedRecord4]),
       returnType: presentValue4,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "offsetrawptr",
   name: "offsetrawptr",
   exportName: "offsetrawptr",
@@ -648,33 +665,33 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "offsetrawptr<TOffset>(pointer,byteOffset,dataLayout)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
+      parameters: Object.freeze<readonly LibraryParameter[]>([
         sharedRecord5,
-        Object.freeze({
+        Object.freeze<LibraryParameter>({
           name: "byteOffset",
-          type: Object.freeze({ kind: "type-parameter", name: "TOffset" } as const),
+          type: Object.freeze<LibraryType>({ kind: "type-parameter", name: "TOffset" }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
+        }),
         sharedRecord6,
-      ] as const),
+      ]),
       returnType: presentValue3,
-      typeParameters: Object.freeze([
-        Object.freeze({ name: "TOffset", constraints: sharedItems4, defaultType: noValue, variance: "invariant" } as const),
-      ] as const),
+      typeParameters: Object.freeze<readonly LibraryTypeParameter[]>([
+        Object.freeze<LibraryTypeParameter>({ name: "TOffset", constraints: sharedItems4, defaultType: noValue, variance: "invariant" }),
+      ]),
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "rawptrtoaddressinteger",
   name: "rawptrtoaddressinteger",
   exportName: "rawptrtoaddressinteger",
@@ -685,20 +702,20 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "rawptrtoaddressinteger<TAddress>(pointer,dataLayout)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([sharedRecord5, sharedRecord6] as const),
-      returnType: Object.freeze({ kind: "present", value: tAddressType } as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([sharedRecord5, sharedRecord6]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: tAddressType }),
       typeParameters: sharedItems10,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "addressintegertorawptr",
   name: "addressintegertorawptr",
   exportName: "addressintegertorawptr",
@@ -709,30 +726,30 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "addressintegertorawptr<TAddress>(address,dataLayout)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "address",
           type: tAddressType,
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
+        }),
         sharedRecord6,
-      ] as const),
+      ]),
       returnType: presentValue3,
       typeParameters: sharedItems10,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "memorylayout",
   name: "memorylayout",
   exportName: "memorylayout",
@@ -743,36 +760,36 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "memorylayout<T>(descriptor)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "descriptor",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "provider-ref",
             moduleSpecifier: "@tsonic/core/lang.js",
             exportName: "__TsonicMemoryLayoutDescriptor",
             localName: noValue,
             namespaceImport: noValue,
             typeArguments: sharedItems2,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       returnType: presentValue2,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "memoryarraylayout",
   name: "memoryarraylayout",
   exportName: "memoryarraylayout",
@@ -783,55 +800,55 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "memoryarraylayout<T,TLength>(descriptor)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "descriptor",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "provider-ref",
             moduleSpecifier: "@tsonic/core/lang.js",
             exportName: "__TsonicMemoryArrayLayoutDescriptor",
             localName: noValue,
             namespaceImport: noValue,
             typeArguments: sharedItems11,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "provider-ref",
           moduleSpecifier: "@tsonic/core/types.js",
           exportName: "MemoryLayout",
           localName: noValue,
           namespaceImport: noValue,
-          typeArguments: Object.freeze([
-            Object.freeze({
+          typeArguments: Object.freeze<readonly LibraryType[]>([
+            Object.freeze<LibraryType>({
               kind: "provider-ref",
               moduleSpecifier: "@tsonic/core/types.js",
               exportName: "FixedArray",
               localName: noValue,
               namespaceImport: noValue,
               typeArguments: sharedItems11,
-            } as const),
-          ] as const),
-        } as const),
-      } as const),
+            }),
+          ]),
+        }),
+      }),
       typeParameters: sharedItems5,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "memoryfield",
   name: "memoryfield",
   exportName: "memoryfield",
@@ -842,36 +859,36 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "memoryfield<T,TField>(descriptor)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "descriptor",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "provider-ref",
             moduleSpecifier: "@tsonic/core/lang.js",
             exportName: "__TsonicMemoryFieldDescriptor",
             localName: noValue,
             namespaceImport: noValue,
-            typeArguments: Object.freeze([tType, tFieldType] as const),
-          } as const),
+            typeArguments: Object.freeze<readonly LibraryType[]>([tType, tFieldType]),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: memoryFieldLayoutType } as const),
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: memoryFieldLayoutType }),
       typeParameters: sharedItems6,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "bindmemoryfield",
   name: "bindmemoryfield",
   exportName: "bindmemoryfield",
@@ -882,44 +899,44 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "bindmemoryfield<T,TField>(field,pointer)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "field",
           type: memoryFieldLayoutType,
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-        Object.freeze({
+        }),
+        Object.freeze<LibraryParameter>({
           name: "pointer",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "provider-ref",
             moduleSpecifier: "@tsonic/core/types.js",
             exportName: "Pointer",
             localName: noValue,
             namespaceImport: noValue,
             typeArguments: sharedItems7,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: memoryFieldBindingType } as const),
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: memoryFieldBindingType }),
       typeParameters: sharedItems6,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "bindmemoryrecord",
   name: "bindmemoryrecord",
   exportName: "bindmemoryrecord",
@@ -930,30 +947,30 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "bindmemoryrecord<T>(layout,...fields)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
+      parameters: Object.freeze<readonly LibraryParameter[]>([
         sharedRecord4,
-        Object.freeze({
+        Object.freeze<LibraryParameter>({
           name: "fields",
-          type: Object.freeze({ kind: "array", elementType: memoryFieldBindingType } as const),
+          type: Object.freeze<LibraryType>({ kind: "array", elementType: memoryFieldBindingType }),
           passingMode: "by-value",
           optional: false,
           rest: true,
           defaultType: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       returnType: presentValue5,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "sizeof",
   name: "sizeof",
   exportName: "sizeof",
@@ -964,8 +981,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "sizeof<T>(layout)",
       name: noValue,
       accessibility: "public",
@@ -973,11 +990,11 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       returnType: presentValue1,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "alignof",
   name: "alignof",
   exportName: "alignof",
@@ -988,8 +1005,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "alignof<T>(layout)",
       name: noValue,
       accessibility: "public",
@@ -997,11 +1014,11 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       returnType: presentValue1,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "strideof",
   name: "strideof",
   exportName: "strideof",
@@ -1012,8 +1029,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "strideof<T>(layout)",
       name: noValue,
       accessibility: "public",
@@ -1021,11 +1038,11 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       returnType: presentValue1,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "fieldoffsetof",
   name: "fieldoffsetof",
   exportName: "fieldoffsetof",
@@ -1036,36 +1053,36 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "fieldoffsetof<T,TField>(layout,select)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
+      parameters: Object.freeze<readonly LibraryParameter[]>([
         sharedRecord4,
-        Object.freeze({
+        Object.freeze<LibraryParameter>({
           name: "select",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "function",
             id: "fieldoffsetof.selector",
             parameters: sharedItems1,
             returnType: tFieldType,
             typeParameters: emptyItems,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       returnType: presentValue1,
       typeParameters: sharedItems6,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "keepalive",
   name: "keepalive",
   exportName: "keepalive",
@@ -1076,8 +1093,8 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "keepalive<T>(value)",
       name: noValue,
       accessibility: "public",
@@ -1085,11 +1102,11 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
       returnType: presentValue6,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "viewptr",
   name: "viewptr",
   exportName: "viewptr",
@@ -1100,103 +1117,103 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "viewptr<F,T>(pointer,read,write)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "pointer",
           type: pointerType1,
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-        Object.freeze({
+        }),
+        Object.freeze<LibraryParameter>({
           name: "read",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "function",
             id: "viewptr.required.read",
             parameters: emptyItems,
             returnType: tType,
             typeParameters: emptyItems,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-        Object.freeze({
+        }),
+        Object.freeze<LibraryParameter>({
           name: "write",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "function",
             id: "viewptr.required.write",
             parameters: sharedItems1,
             returnType: voidData,
             typeParameters: emptyItems,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: pointerType } as const),
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: pointerType }),
       typeParameters: sharedItems14,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibrarySignature>({
       id: "viewptr<F,T>(pointer?,read,write)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "pointer",
-          type: Object.freeze({ kind: "union", types: Object.freeze([pointerType1, undefinedData] as const) } as const),
+          type: Object.freeze<LibraryType>({ kind: "union", types: Object.freeze<readonly LibraryType[]>([pointerType1, undefinedData]) }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-        Object.freeze({
+        }),
+        Object.freeze<LibraryParameter>({
           name: "read",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "function",
             id: "viewptr.optional.read",
             parameters: emptyItems,
             returnType: tType,
             typeParameters: emptyItems,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-        Object.freeze({
+        }),
+        Object.freeze<LibraryParameter>({
           name: "write",
-          type: Object.freeze({
+          type: Object.freeze<LibraryType>({
             kind: "function",
             id: "viewptr.optional.write",
             parameters: sharedItems1,
             returnType: voidData,
             typeParameters: emptyItems,
-          } as const),
+          }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       returnType: presentValue4,
       typeParameters: sharedItems14,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "loadnativeptr",
   name: "loadnativeptr",
   exportName: "loadnativeptr",
@@ -1207,20 +1224,20 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "loadnativeptr<T>(pointer)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([sharedRecord9] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([sharedRecord9]),
       returnType: presentValue5,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "storenativeptr",
   name: "storenativeptr",
   exportName: "storenativeptr",
@@ -1231,20 +1248,20 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "storenativeptr<T>(pointer,value)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([sharedRecord9, sharedRecord1] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([sharedRecord9, sharedRecord1]),
       returnType: presentValue6,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "offsetnativeptr",
   name: "offsetnativeptr",
   exportName: "offsetnativeptr",
@@ -1255,27 +1272,27 @@ export const coreMemoryOperations: readonly LibraryDeclaration[] = Object.freeze
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "offsetnativeptr<T>(pointer,elementOffset)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
+      parameters: Object.freeze<readonly LibraryParameter[]>([
         sharedRecord9,
-        Object.freeze({
+        Object.freeze<LibraryParameter>({
           name: "elementOffset",
-          type: Object.freeze({ kind: "source-primitive", name: "native-int" } as const),
+          type: Object.freeze<LibraryType>({ kind: "source-primitive", name: "native-int" }),
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: nativePointerType } as const),
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: nativePointerType }),
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
+}),
 ]);

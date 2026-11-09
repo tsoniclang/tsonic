@@ -1,57 +1,64 @@
-import type { LibraryDeclaration } from '../model/contract.js';
+import type { LibraryDeclaration, LibraryMember, LibraryParameter, LibrarySignature, LibraryType, LibraryTypeParameter, Presence } from '../model/contract.js';
 
-const noValue = Object.freeze({ kind: "none" } as const);
+const noValue = Object.freeze<Presence<never>>({ kind: "none" });
 
-const emptyItems = Object.freeze([] as const);
+const emptyItems = Object.freeze<readonly never[]>([]);
 
-const voidData = Object.freeze({ kind: "void" } as const);
+const voidData = Object.freeze<LibraryType>({ kind: "void" });
 
-const presentValue = Object.freeze({ kind: "present", value: voidData } as const);
+const presentValue = Object.freeze<Presence<LibraryType>>({ kind: "present", value: voidData });
 
-const tType = Object.freeze({ kind: "type-parameter", name: "T" } as const);
+const tType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "T" });
 
-const tOwnerType = Object.freeze({ kind: "type-parameter", name: "TOwner" } as const);
+const tOwnerType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "TOwner" });
 
-const sharedRecord = Object.freeze({ name: "target", type: tOwnerType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const);
+const sharedRecord = Object.freeze<LibraryParameter>({
+  name: "target",
+  type: tOwnerType,
+  passingMode: "by-value",
+  optional: false,
+  rest: false,
+  defaultType: noValue,
+});
 
-const sharedItems = Object.freeze([sharedRecord] as const);
+const sharedItems = Object.freeze<readonly LibraryParameter[]>([sharedRecord]);
 
-const sharedItems1 = Object.freeze([tOwnerType] as const);
+const sharedItems1 = Object.freeze<readonly LibraryType[]>([tOwnerType]);
 
-const __TsonicSafetyBuilderType = Object.freeze({
+const __TsonicSafetyBuilderType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/lang.js",
   exportName: "__TsonicSafetyBuilder",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems1,
-} as const);
+});
 
-const presentValue1 = Object.freeze({ kind: "present", value: __TsonicSafetyBuilderType } as const);
+const presentValue1 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: __TsonicSafetyBuilderType });
 
-const sharedRecord1 = Object.freeze({ name: "TOwner", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord1 = Object.freeze<LibraryTypeParameter>({ name: "TOwner", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems2 = Object.freeze([sharedRecord1] as const);
+const sharedItems2 = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord1]);
 
-const presentValue2 = Object.freeze({ kind: "present", value: "requiresunsafe" } as const);
+const presentValue2 = Object.freeze<Presence<string>>({ kind: "present", value: "requiresunsafe" });
 
-const presentValue3 = Object.freeze({ kind: "present", value: "safe" } as const);
+const presentValue3 = Object.freeze<Presence<string>>({ kind: "present", value: "safe" });
 
-const unknownData = Object.freeze({ kind: "unknown" } as const);
+const unknownData = Object.freeze<LibraryType>({ kind: "unknown" });
 
-const __TsonicSafetyMemberBuilderType = Object.freeze({
+const __TsonicSafetyMemberBuilderType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/lang.js",
   exportName: "__TsonicSafetyMemberBuilder",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems1,
-} as const);
+});
 
-const presentValue4 = Object.freeze({ kind: "present", value: __TsonicSafetyMemberBuilderType } as const);
+const presentValue4 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: __TsonicSafetyMemberBuilderType });
 
-export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const coreSafetyDeclarations: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "unsafecontext",
   name: "unsafecontext",
   exportName: "unsafecontext",
@@ -62,8 +69,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "unsafecontext()",
       name: noValue,
       accessibility: "public",
@@ -71,22 +78,31 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       returnType: presentValue,
       typeParameters: emptyItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibrarySignature>({
       id: "unsafecontext<T>(expression)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({ name: "expression", type: tType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: tType } as const),
-      typeParameters: Object.freeze([Object.freeze({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const)] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
+          name: "expression",
+          type: tType,
+          passingMode: "by-value",
+          optional: false,
+          rest: false,
+          defaultType: noValue,
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: tType }),
+      typeParameters: Object.freeze<readonly LibraryTypeParameter[]>([
+        Object.freeze<LibraryTypeParameter>({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" }),
+      ]),
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "safety",
   name: "safety",
   exportName: "safety",
@@ -97,8 +113,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "safety(target)",
       name: noValue,
       accessibility: "public",
@@ -106,8 +122,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       returnType: presentValue1,
       typeParameters: sharedItems2,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibrarySignature>({
       id: "safety<T>()",
       name: noValue,
       accessibility: "public",
@@ -115,11 +131,11 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       returnType: presentValue1,
       typeParameters: sharedItems2,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicSafetyBuilder",
   name: "__TsonicSafetyBuilder",
   exportName: "__TsonicSafetyBuilder",
@@ -129,8 +145,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
   type: noValue,
   typeParameters: sharedItems2,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.requiresunsafe",
       name: "requiresunsafe",
       kind: "method",
@@ -138,8 +154,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyBuilder.requiresunsafe",
           name: presentValue2,
           accessibility: "public",
@@ -147,11 +163,11 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
           returnType: presentValue,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.safe",
       name: "safe",
       kind: "method",
@@ -159,8 +175,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyBuilder.safe",
           name: presentValue3,
           accessibility: "public",
@@ -168,11 +184,11 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
           returnType: presentValue,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.method",
       name: "method",
       kind: "method",
@@ -180,35 +196,35 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyBuilder.method",
-          name: Object.freeze({ kind: "present", value: "method" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "method" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "selector",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicSafetyBuilder.method.selector",
                 parameters: sharedItems,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue4,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.property",
       name: "property",
       kind: "method",
@@ -216,35 +232,35 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyBuilder.property",
-          name: Object.freeze({ kind: "present", value: "property" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "property" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "selector",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicSafetyBuilder.property.selector",
                 parameters: sharedItems,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue4,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.indexer",
       name: "indexer",
       kind: "method",
@@ -252,59 +268,59 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyBuilder.indexer",
-          name: Object.freeze({ kind: "present", value: "indexer" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "indexer" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "selector",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicSafetyBuilder.indexer.selector",
                 parameters: sharedItems,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue4,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyBuilder.constructor",
       name: "constructor",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "__TsonicSafetyBuilder.constructor",
           parameters: emptyItems,
           returnType: __TsonicSafetyMemberBuilderType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicSafetyMemberBuilder",
   name: "__TsonicSafetyMemberBuilder",
   exportName: "__TsonicSafetyMemberBuilder",
@@ -314,8 +330,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
   type: noValue,
   typeParameters: sharedItems2,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyMemberBuilder.requiresunsafe",
       name: "requiresunsafe",
       kind: "method",
@@ -323,8 +339,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyMemberBuilder.requiresunsafe",
           name: presentValue2,
           accessibility: "public",
@@ -332,11 +348,11 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
           returnType: presentValue,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyMemberBuilder.safe",
       name: "safe",
       kind: "method",
@@ -344,8 +360,8 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyMemberBuilder.safe",
           name: presentValue3,
           accessibility: "public",
@@ -353,11 +369,11 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
           returnType: presentValue,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyMemberBuilder.getter",
       name: "getter",
       kind: "method",
@@ -365,20 +381,20 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyMemberBuilder.getter",
-          name: Object.freeze({ kind: "present", value: "getter" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "getter" }),
           accessibility: "public",
           parameters: emptyItems,
           returnType: presentValue4,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicSafetyMemberBuilder.setter",
       name: "setter",
       kind: "method",
@@ -386,21 +402,21 @@ export const coreSafetyDeclarations: readonly LibraryDeclaration[] = Object.free
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicSafetyMemberBuilder.setter",
-          name: Object.freeze({ kind: "present", value: "setter" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "setter" }),
           accessibility: "public",
           parameters: emptyItems,
           returnType: presentValue4,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
+}),
 ]);

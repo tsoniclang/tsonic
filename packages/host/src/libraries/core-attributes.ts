@@ -1,44 +1,51 @@
-import type { LibraryDeclaration } from '../model/contract.js';
+import type { LibraryDeclaration, LibraryMember, LibraryParameter, LibrarySignature, LibraryType, LibraryTypeParameter, Presence } from '../model/contract.js';
 
-const noValue = Object.freeze({ kind: "none" } as const);
+const noValue = Object.freeze<Presence<never>>({ kind: "none" });
 
-const emptyItems = Object.freeze([] as const);
+const emptyItems = Object.freeze<readonly never[]>([]);
 
-const sharedRecord = Object.freeze({ name: "TOwner", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord = Object.freeze<LibraryTypeParameter>({ name: "TOwner", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems = Object.freeze([sharedRecord] as const);
+const sharedItems = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord]);
 
-const presentValue = Object.freeze({ kind: "present", value: "add" } as const);
+const presentValue = Object.freeze<Presence<string>>({ kind: "present", value: "add" });
 
-const unknownData = Object.freeze({ kind: "unknown" } as const);
+const unknownData = Object.freeze<LibraryType>({ kind: "unknown" });
 
-const voidData = Object.freeze({ kind: "void" } as const);
+const voidData = Object.freeze<LibraryType>({ kind: "void" });
 
-const presentValue1 = Object.freeze({ kind: "present", value: voidData } as const);
+const presentValue1 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: voidData });
 
-const tOwnerType = Object.freeze({ kind: "type-parameter", name: "TOwner" } as const);
+const tOwnerType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "TOwner" });
 
-const sharedRecord1 = Object.freeze({ name: "target", type: tOwnerType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const);
+const sharedRecord1 = Object.freeze<LibraryParameter>({
+  name: "target",
+  type: tOwnerType,
+  passingMode: "by-value",
+  optional: false,
+  rest: false,
+  defaultType: noValue,
+});
 
-const sharedItems1 = Object.freeze([sharedRecord1] as const);
+const sharedItems1 = Object.freeze<readonly LibraryParameter[]>([sharedRecord1]);
 
-const sharedItems2 = Object.freeze([tOwnerType] as const);
+const sharedItems2 = Object.freeze<readonly LibraryType[]>([tOwnerType]);
 
-const __TsonicAttributeMemberBuilderType = Object.freeze({
+const __TsonicAttributeMemberBuilderType = Object.freeze<LibraryType>({
   kind: "provider-ref",
   moduleSpecifier: "@tsonic/core/lang.js",
   exportName: "__TsonicAttributeMemberBuilder",
   localName: noValue,
   namespaceImport: noValue,
   typeArguments: sharedItems2,
-} as const);
+});
 
-const presentValue2 = Object.freeze({ kind: "present", value: __TsonicAttributeMemberBuilderType } as const);
+const presentValue2 = Object.freeze<Presence<LibraryType>>({ kind: "present", value: __TsonicAttributeMemberBuilderType });
 
-const stringData = Object.freeze({ kind: "string" } as const);
+const stringData = Object.freeze<LibraryType>({ kind: "string" });
 
-export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const coreAttributeDeclarations: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "attribute",
   name: "attribute",
   exportName: "attribute",
@@ -49,30 +56,32 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "attribute<T>()",
       name: noValue,
       accessibility: "public",
       parameters: emptyItems,
-      returnType: Object.freeze({
+      returnType: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "provider-ref",
           moduleSpecifier: "@tsonic/core/lang.js",
           exportName: "__TsonicAttributeBuilder",
           localName: noValue,
           namespaceImport: noValue,
-          typeArguments: Object.freeze([Object.freeze({ kind: "type-parameter", name: "T" } as const)] as const),
-        } as const),
-      } as const),
-      typeParameters: Object.freeze([Object.freeze({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const)] as const),
+          typeArguments: Object.freeze<readonly LibraryType[]>([Object.freeze<LibraryType>({ kind: "type-parameter", name: "T" })]),
+        }),
+      }),
+      typeParameters: Object.freeze<readonly LibraryTypeParameter[]>([
+        Object.freeze<LibraryTypeParameter>({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" }),
+      ]),
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicAttributeBuilder",
   name: "__TsonicAttributeBuilder",
   exportName: "__TsonicAttributeBuilder",
@@ -82,8 +91,8 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeBuilder.add",
       name: "add",
       kind: "method",
@@ -91,35 +100,35 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeBuilder.add",
           name: presentValue,
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "invocation",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicAttributeBuilder.add.invocation",
                 parameters: emptyItems,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue1,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeBuilder.property",
       name: "property",
       kind: "method",
@@ -127,35 +136,35 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeBuilder.property",
-          name: Object.freeze({ kind: "present", value: "property" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "property" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "selector",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicAttributeBuilder.property.selector",
                 parameters: sharedItems1,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue2,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeBuilder.method",
       name: "method",
       kind: "method",
@@ -163,59 +172,59 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeBuilder.method",
-          name: Object.freeze({ kind: "present", value: "method" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "method" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "selector",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicAttributeBuilder.method.selector",
                 parameters: sharedItems1,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue2,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeBuilder.constructor",
       name: "constructor",
       kind: "property",
       static: false,
       readonly: false,
       optional: false,
-      type: Object.freeze({
+      type: Object.freeze<Presence<LibraryType>>({
         kind: "present",
-        value: Object.freeze({
+        value: Object.freeze<LibraryType>({
           kind: "function",
           id: "__TsonicAttributeBuilder.constructor()",
           parameters: emptyItems,
           returnType: __TsonicAttributeMemberBuilderType,
           typeParameters: emptyItems,
-        } as const),
-      } as const),
+        }),
+      }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "__TsonicAttributeMemberBuilder",
   name: "__TsonicAttributeMemberBuilder",
   exportName: "__TsonicAttributeMemberBuilder",
@@ -225,8 +234,8 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
   type: noValue,
   typeParameters: sharedItems,
   heritage: emptyItems,
-  members: Object.freeze([
-    Object.freeze({
+  members: Object.freeze<readonly LibraryMember[]>([
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeMemberBuilder.add",
       name: "add",
       kind: "method",
@@ -234,35 +243,35 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeMemberBuilder.add",
           name: presentValue,
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "invocation",
-              type: Object.freeze({
+              type: Object.freeze<LibraryType>({
                 kind: "function",
                 id: "__TsonicAttributeMemberBuilder.add.invocation",
                 parameters: emptyItems,
                 returnType: unknownData,
                 typeParameters: emptyItems,
-              } as const),
+              }),
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue1,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeMemberBuilder.parameter",
       name: "parameter",
       kind: "method",
@@ -270,29 +279,29 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeMemberBuilder.parameter",
-          name: Object.freeze({ kind: "present", value: "parameter" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "parameter" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "name",
               type: stringData,
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue2,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeMemberBuilder.target",
       name: "target",
       kind: "method",
@@ -300,41 +309,41 @@ export const coreAttributeDeclarations: readonly LibraryDeclaration[] = Object.f
       readonly: false,
       optional: false,
       type: noValue,
-      signatures: Object.freeze([
-        Object.freeze({
+      signatures: Object.freeze<readonly LibrarySignature[]>([
+        Object.freeze<LibrarySignature>({
           id: "__TsonicAttributeMemberBuilder.target",
-          name: Object.freeze({ kind: "present", value: "target" } as const),
+          name: Object.freeze<Presence<string>>({ kind: "present", value: "target" }),
           accessibility: "public",
-          parameters: Object.freeze([
-            Object.freeze({
+          parameters: Object.freeze<readonly LibraryParameter[]>([
+            Object.freeze<LibraryParameter>({
               name: "specifier",
               type: stringData,
               passingMode: "by-value",
               optional: false,
               rest: false,
               defaultType: noValue,
-            } as const),
-          ] as const),
+            }),
+          ]),
           returnType: presentValue2,
           typeParameters: emptyItems,
           documentation: noValue,
-        } as const),
-      ] as const),
+        }),
+      ]),
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibraryMember>({
       id: "__TsonicAttributeMemberBuilder.constructor",
       name: "constructor",
       kind: "property",
       static: false,
       readonly: true,
       optional: false,
-      type: Object.freeze({ kind: "present", value: Object.freeze({ kind: "never" } as const) } as const),
+      type: Object.freeze<Presence<LibraryType>>({ kind: "present", value: Object.freeze<LibraryType>({ kind: "never" }) }),
       signatures: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   signatures: emptyItems,
   documentation: noValue,
-} as const),
+}),
 ]);

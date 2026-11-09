@@ -1,21 +1,21 @@
-import type { LibraryDeclaration } from '../model/contract.js';
+import type { LibraryDeclaration, LibraryParameter, LibrarySignature, LibraryType, LibraryTypeParameter, Presence } from '../model/contract.js';
 
-const noValue = Object.freeze({ kind: "none" } as const);
+const noValue = Object.freeze<Presence<never>>({ kind: "none" });
 
-const emptyItems = Object.freeze([] as const);
+const emptyItems = Object.freeze<readonly never[]>([]);
 
-const tType = Object.freeze({ kind: "type-parameter", name: "T" } as const);
+const tType = Object.freeze<LibraryType>({ kind: "type-parameter", name: "T" });
 
-const presentValue = Object.freeze({ kind: "present", value: tType } as const);
+const presentValue = Object.freeze<Presence<LibraryType>>({ kind: "present", value: tType });
 
-const sharedRecord = Object.freeze({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" } as const);
+const sharedRecord = Object.freeze<LibraryTypeParameter>({ name: "T", constraints: emptyItems, defaultType: noValue, variance: "invariant" });
 
-const sharedItems = Object.freeze([sharedRecord] as const);
+const sharedItems = Object.freeze<readonly LibraryTypeParameter[]>([sharedRecord]);
 
-const booleanData = Object.freeze({ kind: "boolean" } as const);
+const booleanData = Object.freeze<LibraryType>({ kind: "boolean" });
 
-export const coreCompileTimeDeclarations: readonly LibraryDeclaration[] = Object.freeze([
-  Object.freeze({
+export const coreCompileTimeDeclarations: readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration] = Object.freeze<readonly [LibraryDeclaration, LibraryDeclaration, LibraryDeclaration]>([
+  Object.freeze<LibraryDeclaration>({
   id: "comptime",
   name: "comptime",
   exportName: "comptime",
@@ -26,19 +26,26 @@ export const coreCompileTimeDeclarations: readonly LibraryDeclaration[] = Object
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "comptime<T>(value)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({ name: "value", type: tType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const),
-      ] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
+          name: "value",
+          type: tType,
+          passingMode: "by-value",
+          optional: false,
+          rest: false,
+          defaultType: noValue,
+        }),
+      ]),
       returnType: presentValue,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-    Object.freeze({
+    }),
+    Object.freeze<LibrarySignature>({
       id: "comptime<T>()",
       name: noValue,
       accessibility: "public",
@@ -46,11 +53,11 @@ export const coreCompileTimeDeclarations: readonly LibraryDeclaration[] = Object
       returnType: presentValue,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "comptimeif",
   name: "comptimeif",
   exportName: "comptimeif",
@@ -61,29 +68,29 @@ export const coreCompileTimeDeclarations: readonly LibraryDeclaration[] = Object
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "comptimeif(condition)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
           name: "condition",
           type: booleanData,
           passingMode: "by-value",
           optional: false,
           rest: false,
           defaultType: noValue,
-        } as const),
-      ] as const),
-      returnType: Object.freeze({ kind: "present", value: booleanData } as const),
+        }),
+      ]),
+      returnType: Object.freeze<Presence<LibraryType>>({ kind: "present", value: booleanData }),
       typeParameters: emptyItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
-  Object.freeze({
+}),
+  Object.freeze<LibraryDeclaration>({
   id: "unroll",
   name: "unroll",
   exportName: "unroll",
@@ -94,19 +101,26 @@ export const coreCompileTimeDeclarations: readonly LibraryDeclaration[] = Object
   typeParameters: emptyItems,
   heritage: emptyItems,
   members: emptyItems,
-  signatures: Object.freeze([
-    Object.freeze({
+  signatures: Object.freeze<readonly LibrarySignature[]>([
+    Object.freeze<LibrarySignature>({
       id: "unroll<T>(iterable)",
       name: noValue,
       accessibility: "public",
-      parameters: Object.freeze([
-        Object.freeze({ name: "iterable", type: tType, passingMode: "by-value", optional: false, rest: false, defaultType: noValue } as const),
-      ] as const),
+      parameters: Object.freeze<readonly LibraryParameter[]>([
+        Object.freeze<LibraryParameter>({
+          name: "iterable",
+          type: tType,
+          passingMode: "by-value",
+          optional: false,
+          rest: false,
+          defaultType: noValue,
+        }),
+      ]),
       returnType: presentValue,
       typeParameters: sharedItems,
       documentation: noValue,
-    } as const),
-  ] as const),
+    }),
+  ]),
   documentation: noValue,
-} as const),
+}),
 ]);
