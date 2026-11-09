@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import test from "node:test";
-import { sourceLibraries } from "../../packages/host/src/libraries/register.ts";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import test, { before } from "node:test";
 import { orderedDomain } from "./runner/assertions.mjs";
 import { withSpecProject } from "./runner/project.mjs";
 import { inspectHostStructure } from "../architecture/tooling/host-gates.mjs";
@@ -36,6 +35,24 @@ const expectedCalls = ["__TsonicAttributeBuilder", "__TsonicAttributeMemberBuild
   "bindmemoryrecord", "sizeof", "alignof", "strideof", "fieldoffsetof", "keepalive", "viewptr", "comptime", "comptimeif",
   "unroll", "loadnativeptr", "storenativeptr", "offsetnativeptr", "unsafecontext", "safety", "__TsonicSafetyBuilder",
   "__TsonicSafetyMemberBuilder", ...markerPairs.slice(4).map(([name]) => name)];
+let sourceLibraries;
+
+before(async () => {
+  const inputs = sourceInputs();
+  const parent = resolve(repository, ".temp/libraries-runtime");
+  mkdirSync(parent, { recursive: true });
+  const runtime = mkdtempSync(resolve(parent, "current-"));
+  const result = spawnSync(resolve(repository, "node_modules/.bin/tsgo"), ["--ignoreConfig", "--strict",
+    "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--skipLibCheck", "false", "--noUnusedLocals",
+    "--noUnusedParameters", "--noImplicitReturns", "--noFallthroughCasesInSwitch", "--noEmitOnError",
+    "--module", "nodenext", "--target", "es2020", "--types", "node", "--rootDir", "packages/host/src", "--outDir", runtime,
+    ...inputs.libraries, ...inputs.model], { cwd: repository, encoding: "utf8", timeout: 60000, maxBuffer: 131072 });
+  assert.equal(result.error === undefined, true, "current complete Libraries compiler starts");
+  assert.equal(result.signal, null); assert.equal(result.stderr, "");
+  assert.equal(result.status, 0, result.stdout.slice(0, 8192));
+  writeFileSync(resolve(repository, ".temp/libraries-current-runtime.txt"), runtime);
+  ({ sourceLibraries } = await import(pathToFileURL(resolve(runtime, "libraries/register.js")).href));
+});
 
 function domain(actual, expected, label) {
   orderedDomain(actual, expected, Object.is, label);
@@ -266,12 +283,15 @@ test("all four canonical module identities, original imports, complete export do
   }
 });
 
-test("every Core recipe preserves each member, signature, ordered binder, formal, result, constraint and default", () => {
+function verifyCore(actual) {
   const expected = expectedCatalogue();
   domain([...expected.keys()].sort(), [...expectedTypes, ...expectedCalls].sort(), "complete independently authored Core expectations");
-  const actual = sourceLibraries.core.modules.flatMap(module => module.exports);
   domain(actual.map(value => value.id), [...expectedTypes, ...expectedCalls], "complete actual domain before comparison");
   for (const value of actual) assert.deepEqual(declarationShape(value), expected.get(value.id), value.id);
+}
+
+test("every Core recipe preserves each member, signature, ordered binder, formal, result, constraint and default", () => {
+  verifyCore(sourceLibraries.core.modules.flatMap(module => module.exports));
 });
 
 test("all catalogue records and vectors are frozen own data without executable or mutable retained backing", () => {
@@ -449,14 +469,15 @@ test("actual immutable-data gates reject mutable arrays, maps, callbacks and ali
   assert.throws(() => allFrozen(mutable), { code: "ERR_ASSERTION" });
   assert.throws(() => allFrozen(Object.freeze({ callback() {} })), { code: "ERR_ASSERTION" });
   assert.throws(() => allFrozen(Object.freeze({ backing: new Map() })), { code: "ERR_ASSERTION" });
-  const expected = expectedCatalogue();
-  const project = item => declarationShape(item);
-  const split = sourceLibraries.js.modules[0].exports[0].members.find(item => item.id === "split");
-  assert.equal(split.signatures.length, 2, "full expected split overload domain exists before mutation");
-  assert.throws(() => assert.deepEqual(declarationShape({ ...sourceLibraries.js.modules[0].exports[0],
-    members: [...sourceLibraries.js.modules[0].exports[0].members, split] }), declarationShape(sourceLibraries.js.modules[0].exports[0])), { code: "ERR_ASSERTION" });
-  assert.throws(() => assert.deepEqual(project({ ...sourceLibraries.core.modules[1].exports.find(item => item.id === "comptime"),
-    signatures: [] }), expected.get("comptime")), { code: "ERR_ASSERTION" });
+  const complete = sourceLibraries.core.modules.flatMap(module => module.exports);
+  verifyCore(complete);
+  const comptime = complete.find(item => item.id === "comptime");
+  assert.equal(comptime.signatures.length, 2, "full independent comptime overload domain before mutations");
+  for (const malformed of [[], [...complete, complete[0]], complete.map(item => item === comptime
+    ? { ...item, signatures: [item.signatures[0]] } : item), complete.map(item => item === comptime
+    ? { ...item, signatures: [] } : item)]) {
+    assert.throws(() => verifyCore(malformed), { code: "ERR_ASSERTION" }, "the SAME complete catalogue contract rejects empty/duplicate/truncated data");
+  }
 });
 
 test("the real export binds strictly and fresh complete declarations reject every readonly and forbidden-recipe mutation", async () => {

@@ -124,6 +124,8 @@ test("immutable vector and string composition resolves the same local and import
     ["string-plus", 'const original = "first";', 'selected + `:tail`', true],
     ["template-plus", 'const original = "first";', '`head:${selected}` + `:tail`', true],
     ["numeric-spelling", 'const original = Object.freeze(["first", "second"]);', 'selected[0x1]', true],
+    ["shared-vector", 'const level0 = Object.freeze(["leaf"]);' + Array.from({ length: 15 }, (_, index) =>
+      `const level${index + 1} = Object.freeze([...level${index}, ...level${index}]);`).join("\n") + 'const original = level15;', 'selected[32767]', true],
     ["raw-vector-spread", 'const original = ["first"];', 'Object.freeze([...selected])', false],
     ["mutable-original", 'let original = Object.freeze(["first"]);', 'Object.freeze([...selected])', false],
     ["mutable-element", 'const original = Object.freeze([{}]);', 'Object.freeze([...selected])', false],
@@ -156,7 +158,7 @@ test("immutable vector and string composition resolves the same local and import
     ["array-string", 'const original = Object.freeze(["first"]);', '`${selected}`', false],
     ["foreign-original", 'import { original } from "not-supplied";', '`${selected}`', false],
   ];
-  assert.equal(cases.length, 40, "complete independently expected structural composition domain");
+  assert.equal(cases.length, 41, "complete independently expected structural composition domain");
   for (const mode of ["local", "imported"]) {
     for (const [name, original, expression, expected] of cases) {
       const imported = original.includes("const original") || original.includes("let original") || original.includes("function original")
