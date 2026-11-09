@@ -67,49 +67,56 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
 
   run(input: Input, resources: Resources, ticket: QueryResources, keys: Keys,
     chain: readonly QueryChainEntry[], setSite: (scope: ResourceScope) => void): Answer {
-    this.#calls += 1n;
-    const authenticate = this.#authenticate;
-    if (authenticate === undefined) invariant("CONTEXT_CLOSED", this.owner, this.name);
-    const identity = resources.authenticate(ticket, () => {
-      const projected = authenticate(input);
-      if (projected === null || typeof projected !== "object"
-        || !["scope", "parts"].every(field => {
-          const descriptor = Object.getOwnPropertyDescriptor(projected, field);
-          return descriptor !== undefined && Object.prototype.hasOwnProperty.call(descriptor, "value");
-        })) {
-        invariant("INVALID_QUESTION_KEY", this.owner, this.name);
-      }
-      resources.validate(projected.scope, ticket);
-      setSite(projected.scope);
-      return { scope: projected.scope, key: keys.encode(projected.parts, projected.scope) };
-    });
-    const key = identity.key;
-    if (this.#active.has(key)) invariant("QUESTION_CYCLE", this.owner, this.name, chain);
-    const cached = this.#memo.get(key);
-    if (cached !== undefined) {
-      resources.checkHeights(identity.scope, cached.publication.heights);
-      resources.read(ticket, cached.publication);
-      this.#hits += 1n;
-      return cached.answer;
-    }
-    const provider = this.#provider;
-    if (provider === undefined) invariant("MISSING_PROVIDER", this.owner, this.name);
-    this.#active.add(key);
+    let successful = false;
     try {
-      const answer = provider(input, identity.scope);
-      resources.assertOpen();
-      if (this.#complete(answer)) {
-        const publication = resources.publish(ticket, () => { this.#memo.delete(key); });
-        try { resources.read(ticket, publication); }
-        catch (error) { publication?.retire(); throw error; }
-        if (publication !== undefined) {
-          this.#memo.set(key, { answer, publication });
-          this.#completed += 1n;
+      this.#calls += 1n;
+      const authenticate = this.#authenticate;
+      if (authenticate === undefined) invariant("CONTEXT_CLOSED", this.owner, this.name);
+      const identity = resources.authenticate(ticket, () => {
+        const projected = authenticate(input);
+        if (projected === null || typeof projected !== "object"
+          || !["scope", "parts"].every(field => {
+            const descriptor = Object.getOwnPropertyDescriptor(projected, field);
+            return descriptor !== undefined && Object.prototype.hasOwnProperty.call(descriptor, "value");
+          })) {
+          invariant("INVALID_QUESTION_KEY", this.owner, this.name);
         }
+        resources.validate(projected.scope, ticket);
+        setSite(projected.scope);
+        return { scope: projected.scope, key: keys.encode(projected.parts, projected.scope) };
+      });
+      const key = identity.key;
+      if (this.#active.has(key)) invariant("QUESTION_CYCLE", this.owner, this.name, chain);
+      const cached = this.#memo.get(key);
+      if (cached !== undefined) {
+        resources.checkHeights(identity.scope, cached.publication.heights);
+        resources.read(ticket, cached.publication);
+        this.#hits += 1n;
+        successful = true;
+        return cached.answer;
       }
-      return answer;
+      const provider = this.#provider;
+      if (provider === undefined) invariant("MISSING_PROVIDER", this.owner, this.name);
+      this.#active.add(key);
+      try {
+        const answer = provider(input, identity.scope);
+        resources.assertOpen();
+        if (this.#complete(answer)) {
+          const publication = resources.publish(ticket, () => { this.#memo.delete(key); });
+          if (publication !== undefined) {
+            try { resources.read(ticket, publication); }
+            catch (error) { publication.retire(); throw error; }
+            this.#memo.set(key, { answer, publication });
+            this.#completed += 1n;
+            successful = true;
+          }
+        }
+        return answer;
+      } finally {
+        this.#active.delete(key);
+      }
     } finally {
-      this.#active.delete(key);
+      if (!successful) resources.read(ticket, undefined);
     }
   }
 

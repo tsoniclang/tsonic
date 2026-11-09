@@ -1082,3 +1082,107 @@ test("a callable carrying the genuine Error prototype still has no private resou
   assert.equal(factory.resourceLimitDiagnostic(callable).kind, "none");
   harness.context.close();
 });
+
+test("unfinished and caught failing children prevent ancestor memoization without retiring completed siblings", () => {
+  const outcomes = Object.freeze(["pending", "unresolved", "partial", "ordinaryError", "QUESTION_CYCLE"]);
+  orderedDomain(outcomes, ["pending", "unresolved", "partial", "ordinaryError", "QUESTION_CYCLE"], Object.is,
+    "complete independently expected unfinished/error child domain");
+  for (const outcome of outcomes) {
+    const harness = create([domain("work", "cohort")]);
+    const siblingOwner = Object.freeze({ programIdentity: harness.context.programIdentity, owner: "completed-sibling" });
+    const siblingScope = harness.context.resourceScope("work", siblingOwner, none);
+    const siblingAnswer = Object.freeze({ kind: "resolved", value: "sibling" });
+    const resolved = Object.freeze({ kind: "resolved", value: 1 });
+    const unfinished = Object.freeze({ kind: outcome });
+    const original = Error("original caught child failure");
+    let complete = false; let siblingLease;
+    let childProviders = 0; let siblingProviders = 0; let parentProviders = 0; let grandparentProviders = 0;
+    let parentAnswer; let grandparentAnswer;
+    const child = register(harness, "child", (_, scope) => {
+      childProviders += 1; scope.reserve("rows", 1n, "retained");
+      if (complete) return resolved;
+      if (outcome === "ordinaryError") throw original;
+      if (outcome === "QUESTION_CYCLE") return harness.context.query(child.question, 0);
+      return unfinished;
+    }, { retention: "completed-outcome" });
+    const sibling = register(harness, "sibling", (_, scope) => {
+      siblingProviders += 1; siblingLease = scope.reserve("rows", 1n, "retained"); return siblingAnswer;
+    }, { retention: "completed-outcome", scope: siblingScope });
+    const parent = register(harness, "parent", (_, scope) => {
+      parentProviders += 1; scope.reserve("rows", 1n, "retained");
+      assert.equal(harness.context.query(sibling.question, 0), siblingAnswer);
+      let value;
+      if (!complete && outcome === "ordinaryError") {
+        assert.throws(() => harness.context.query(child.question, 0), error => error === original);
+        value = outcome;
+      } else if (!complete && outcome === "QUESTION_CYCLE") {
+        const error = code(() => harness.context.query(child.question, 0), "QUESTION_CYCLE", "mechanical");
+        orderedDomain(error.chain.slice(-2).map(entry => entry.question), ["child", "child"], Object.is,
+          "actual nested child cycle, not a manufactured invariant");
+        value = outcome;
+      } else {
+        const answer = harness.context.query(child.question, 0);
+        assert.equal(answer, complete ? resolved : unfinished, "original child answer identity");
+        value = answer.kind;
+      }
+      parentAnswer = Object.freeze({ kind: "resolved", value, generation: parentProviders });
+      return parentAnswer;
+    }, { retention: "completed-outcome" });
+    const grandparent = register(harness, "grandparent", (_, scope) => {
+      grandparentProviders += 1; scope.reserve("rows", 1n, "retained");
+      const answer = harness.context.query(parent.question, 0);
+      assert.equal(answer, parentAnswer, "the parent returns its original object even when not memoizable");
+      grandparentAnswer = Object.freeze({ kind: "resolved", value: answer, generation: grandparentProviders });
+      return grandparentAnswer;
+    }, { retention: "completed-outcome" });
+    seal(harness);
+    const state = expected => {
+      const actual = harness.context.queryUsage.questions;
+      orderedDomain(actual.map(row => row.name), ["child", "sibling", "parent", "grandparent"], Object.is,
+        "complete child/sibling/ancestor question domain before statistics");
+      assert.deepEqual(actual.map(row => [row.calls, row.completed, row.hits, row.active]),
+        expected.map(row => [...row, 0n]), `${outcome}: exact calls/completed/hits and inactive exits`);
+    };
+    const retained = owner => {
+      const actual = harness.context.queryUsage.resources.filter(row => row.owner === owner);
+      orderedDomain(actual.map(row => row.dimension).sort(), ["keys", "rows"], Object.is,
+        "complete independently owned observed resource domain");
+      const rows = actual.find(row => row.dimension === "rows");
+      assert.equal(rows.temporary, 0n);
+      return rows.retained;
+    };
+    const step = outcome === "QUESTION_CYCLE" ? 2n : 1n;
+    assert.equal(harness.context.query(sibling.question, 0), siblingAnswer);
+    state([[0n, 0n, 0n], [1n, 1n, 0n], [0n, 0n, 0n], [0n, 0n, 0n]]);
+    assert.equal(retained(siblingOwner), 1n);
+    const first = harness.context.query(grandparent.question, 0);
+    assert.equal(first, grandparentAnswer); assert.equal(first.value, parentAnswer);
+    state([[step, 0n, 0n], [2n, 1n, 1n], [1n, 0n, 0n], [1n, 0n, 0n]]);
+    assert.equal(retained(harness.owner), 0n); assert.equal(retained(siblingOwner), 1n);
+    const second = harness.context.query(grandparent.question, 0);
+    assert.equal(second, grandparentAnswer); assert.notEqual(second, first);
+    assert.equal(second.value, parentAnswer); assert.notEqual(second.value, first.value);
+    state([[2n * step, 0n, 0n], [3n, 1n, 2n], [2n, 0n, 0n], [2n, 0n, 0n]]);
+    assert.equal(retained(harness.owner), 0n); assert.equal(retained(siblingOwner), 1n);
+    assert.equal(harness.context.query(parent.question, 0), parentAnswer);
+    state([[3n * step, 0n, 0n], [4n, 1n, 3n], [3n, 0n, 0n], [2n, 0n, 0n]]);
+    assert.equal(retained(harness.owner), 0n); assert.equal(retained(siblingOwner), 1n);
+    assert.deepEqual([childProviders, siblingProviders, parentProviders, grandparentProviders], [3, 1, 3, 2],
+      "cycle reentry counts a call but never another provider invocation");
+    complete = true;
+    const stable = harness.context.query(grandparent.question, 0);
+    assert.equal(stable, grandparentAnswer); assert.equal(stable.value, parentAnswer);
+    assert.equal(stable.value.value, "resolved");
+    state([[3n * step + 1n, 1n, 0n], [5n, 1n, 4n], [4n, 1n, 0n], [3n, 1n, 0n]]);
+    assert.equal(retained(harness.owner), 3n); assert.equal(retained(siblingOwner), 1n);
+    assert.equal(harness.context.query(grandparent.question, 0), stable);
+    state([[3n * step + 1n, 1n, 0n], [5n, 1n, 4n], [4n, 1n, 0n], [4n, 1n, 1n]]);
+    assert.equal(harness.context.query(parent.question, 0), stable.value);
+    state([[3n * step + 1n, 1n, 0n], [5n, 1n, 4n], [5n, 1n, 1n], [4n, 1n, 1n]]);
+    assert.equal(harness.context.query(sibling.question, 0), siblingAnswer);
+    state([[3n * step + 1n, 1n, 0n], [6n, 1n, 5n], [5n, 1n, 1n], [4n, 1n, 1n]]);
+    assert.equal(retained(harness.owner), 3n); assert.equal(retained(siblingOwner), 1n);
+    assert.deepEqual([childProviders, siblingProviders, parentProviders, grandparentProviders], [4, 1, 4, 3]);
+    harness.context.close(); siblingLease.release();
+  }
+});
