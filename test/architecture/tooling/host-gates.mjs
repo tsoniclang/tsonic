@@ -34,6 +34,7 @@ function safeFile(root, file) {
   const path = realpathSync(resolve(root, file));
   const child = relative(root, path);
   if (child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error("Host gate input escapes its root.");
+  if (path !== resolve(root, file)) throw new Error("Host gates require original owned files, not aliased source paths.");
   return path;
 }
 
@@ -229,7 +230,7 @@ export const inspectHostStructure = input => {
       };
       const type = ast.typeNode(node);
       if (type !== undefined) visit(type);
-      else for (const member of ast.members(node)) visit(member);
+      else ast.forEachChild(node, visit);
       if (raw) rawSymbols.add(selected);
       if (production) productionSymbols.add(selected);
     }
@@ -269,10 +270,12 @@ export const inspectHostStructure = input => {
         "KindModuleDeclaration", "KindImportEqualsDeclaration", "KindExportAssignment"].includes(kind))
         add("strict-source", file, current, "Host implementation requires strict narrowing, not assertions or runtime-shape shortcuts.");
       const reference = ast.is.IsIdentifier(current) ? symbol(current) : undefined;
-      if (ast.is.IsIdentifier(current) && (ast.is.IsTypeReferenceNode(ast.parent(current)) || ast.is.IsQualifiedName(ast.parent(current))) &&
+      if (ast.is.IsIdentifier(current) && (ast.is.IsTypeReferenceNode(ast.parent(current)) || ast.is.IsQualifiedName(ast.parent(current)) ||
+        ast.is.IsExpressionWithTypeArguments(ast.parent(current))) &&
         reference !== undefined && rawSymbols.has(reference) && !rawAllowed)
         add("ingress-checker", file, current, "Raw checker capability, including an alias, is confined to Ingress implementation.");
-      if (publication && reference !== undefined && productionSymbols.has(reference) && ast.is.IsTypeReferenceNode(ast.parent(current)))
+      if (publication && reference !== undefined && productionSymbols.has(reference) &&
+        (ast.is.IsTypeReferenceNode(ast.parent(current)) || ast.is.IsExpressionWithTypeArguments(ast.parent(current))))
         add("read-only-publication", file, current, "Publication cannot reach production authority through an imported or aliased contract.");
       const name = ast.name(current);
       if (name !== undefined && (ast.is.IsPropertySignatureDeclaration(current) || ast.is.IsMethodSignatureDeclaration(current) ||
@@ -281,7 +284,6 @@ export const inspectHostStructure = input => {
         if (text !== undefined && retiredMembers.includes(text)) add("retired-api", file, current, "A retired handler or semantic accessor cannot be reintroduced.");
         if (publication && productionMember(current)) add("read-only-publication", file, current, "Publication exposes answers, never production or mutable program authority.");
         if (isContract && ast.is.IsPropertySignatureDeclaration(current)) {
-          const type = ast.typeNode(current);
           if (!ast.hasModifierKind(current, "readonly"))
             add("contract-closure", file, current, "Contract data properties must be explicitly immutable.");
         }
@@ -315,7 +317,19 @@ export const inspectHostStructure = input => {
         if (returned !== undefined && ast.is.IsCallExpression(returned)) {
           const callee = ast.as.AsCallExpression(returned)?.Expression;
           const reference = symbol(callee);
-          if (reference !== undefined && imports.has(reference)) add("one-current-name", file, current, "A forwarding function is not a new implementation owner.");
+          const parameters = ast.parameters(current);
+          const arguments_ = ast.arguments(returned);
+          const forwarding = parameters.length === arguments_.length && parameters.every((parameter, index) => {
+            if (parameter === undefined || !ast.is.IsParameterDeclaration(parameter) ||
+              ast.as.AsParameterDeclaration(parameter)?.Initializer !== undefined) return false;
+            const name = ast.name(parameter);
+            const argument = arguments_[index];
+            const value = argument !== undefined && ast.is.IsSpreadElement(argument) ? ast.as.AsSpreadElement(argument)?.Expression : argument;
+            return name !== undefined && ast.is.IsIdentifier(name) && value !== undefined && ast.is.IsIdentifier(value) &&
+              symbol(name) === symbol(value);
+          });
+          if (reference !== undefined && imports.has(reference) && forwarding)
+            add("one-current-name", file, current, "A forwarding function is not a new implementation owner.");
         }
       }
       if (ast.is.IsPropertyAccessExpression(current) && retiredMembers.includes(ast.text(ast.name(current))))
@@ -325,5 +339,5 @@ export const inspectHostStructure = input => {
     visit(node);
   }
   return Object.freeze(findings.sort((left, right) => left.file.localeCompare(right.file) ||
-    left.start - right.start || left.gate.localeCompare(right.gate) || left.message.localeCompare(right.message)));
+    left.start - right.start || left.gate.localeCompare(right.gate)));
 };

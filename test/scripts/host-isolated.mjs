@@ -25,6 +25,7 @@ export const compileHostModuleInIsolation = async input => {
     const absolute = realpathSync(resolve(root, file));
     const child = relative(root, absolute);
     if (child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) throw new Error("Isolation input escapes its declared root.");
+    if (absolute !== resolve(root, file)) throw new Error("Isolation requires original owned files, not aliased source paths.");
     return absolute;
   };
   /** @param {string} directory @param {string} [prefix] @returns {string[]} */
@@ -60,6 +61,8 @@ export const compileHostModuleInIsolation = async input => {
   const logs = [];
   /** @param {string} log */
   const failed = log => Object.freeze({ kind: "failed", log });
+  /** @param {readonly import("../architecture/tooling/host-gates.mjs").HostGateFinding[]} findings */
+  const format = findings => findings.map(finding => `${finding.gate}:${finding.file}:${finding.start}: ${finding.message}`).join("\n");
   /** @param {string} source @param {string} destination */
   const copy = (source, destination) => {
     mkdirSync(dirname(destination), { recursive: true });
@@ -70,8 +73,11 @@ export const compileHostModuleInIsolation = async input => {
     mkdirSync(directory, { recursive: true });
     const config = resolve(directory, "tsconfig.json");
     writeFileSync(config, JSON.stringify({ compilerOptions: {
-      strict: true, noEmitOnError: true, skipLibCheck: false, declaration: true, emitDeclarationOnly: true,
-      target: "es2022", module: "nodenext", moduleResolution: "nodenext", types: [], rootDir: directory, outDir,
+      strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true,
+      noUnusedLocals: true, noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true,
+      forceConsistentCasingInFileNames: true, esModuleInterop: true,
+      noEmitOnError: true, skipLibCheck: false, declaration: true, emitDeclarationOnly: true,
+      target: "es2020", module: "nodenext", moduleResolution: "nodenext", types: [], rootDir: directory, outDir,
     }, files: files.map(file => resolve(directory, file)) }));
     writeFileSync(resolve(directory, "package.json"), JSON.stringify({ type: "module", private: true }));
     const result = spawnSync(process.execPath, [compiler, "--project", config], {
@@ -84,7 +90,7 @@ export const compileHostModuleInIsolation = async input => {
   };
   try {
     const initial = inspectHostStructure({ root, files: [...sources, ...input.dependencyContracts], declarationFiles: input.dependencyContracts });
-    if (initial.length !== 0) return failed(initial.map(finding => `${finding.gate}:${finding.file}:${finding.start}: ${finding.message}`).join("\n"));
+    if (initial.length !== 0) return failed(format(initial));
     const contracts = resolve(stage, "contracts"), emitted = resolve(stage, "checked-contracts");
     for (const file of input.dependencyContracts) copy(path(file), resolve(contracts, file));
     if (input.dependencyContracts.length > 0 && !compile(contracts, input.dependencyContracts, emitted)) return failed(logs.join("\n"));
@@ -94,7 +100,7 @@ export const compileHostModuleInIsolation = async input => {
       if (declarations.length !== expected.length || declarations.sort().some((file, index) => file !== expected[index]))
         return failed("Fresh dependency declaration emission escaped its declared contract closure.");
       const closure = inspectHostStructure({ root: emitted, files: declarations, declarationFiles: declarations });
-      if (closure.length !== 0) return failed(closure.map(finding => `${finding.gate}: ${finding.file}: ${finding.message}`).join("\n"));
+      if (closure.length !== 0) return failed(format(closure));
     }
     const isolated = resolve(stage, "isolated"), declarations = resolve(stage, "declarations");
     for (const file of sources) copy(path(file), resolve(isolated, file));
@@ -110,7 +116,7 @@ export const compileHostModuleInIsolation = async input => {
     const generated = enumerate(declarations);
     const selected = inspectHostStructure({ root: declarations, files: generated,
       declarationFiles: [module.contract.replace(/\.ts$/u, ".d.ts")] });
-    if (selected.length !== 0) return failed(selected.map(finding => `${finding.gate}: ${finding.file}: ${finding.message}`).join("\n"));
+    if (selected.length !== 0) return failed(format(selected));
     return Object.freeze({ kind: "passed", log: logs.join("\n") });
   } finally {
     rmSync(stage, { recursive: true });

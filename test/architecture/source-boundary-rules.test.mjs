@@ -63,6 +63,7 @@ test("one per-view factory and immutable metadata do not become module ownership
     export function createView() { const cache = new WeakMap(); return { retain(node) { cache.set(node, 1); } }; }
     function unrelated() { const labels = new Map(); labels.set("local", 1); }
     class View { cache = new WeakMap(); retain(node) { this.cache.set(node, 1); } }
+    class InitializedView { cache = (() => { const cache = new WeakMap(); return cache; })(); }
     class PrivateView { #cache = new WeakSet<object>(); retain(node) { this.#cache.add(node); } }
     class Metadata { static labels = Object.freeze(["kind", "value"]); }
     export function createClassView() {

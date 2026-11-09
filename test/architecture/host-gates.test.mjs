@@ -114,6 +114,9 @@ test("raw checker aliases and transitive Publication authority cannot hide behin
   expect([["packages/host/src/context/contract.ts", "export interface Authority { seed(): void; }"],
     ["packages/host/src/publication/contract.ts", 'import type { Authority } from "../context/contract.js"; export interface ReadOnly { readonly nested: Authority; }']],
   ["read-only-publication"]);
+  expect([["packages/host/src/context/contract.ts", "export interface Authority { seed(): void; } export interface Inherited extends Authority {}"],
+    ["packages/host/src/publication/contract.ts", 'import type { Inherited } from "../context/contract.js"; export interface ReadOnly extends Inherited {}']],
+  ["read-only-publication"]);
   expect([[model, "export interface Opaque { readonly identity: unique symbol; }"]], []);
   expect([[model, 'import type { Solver } from "../type-flow/contract.js"; export interface Callback { readonly request: (provider: Solver) => number; }'],
     ["packages/host/src/type-flow/contract.ts", "export interface Solver { solve(): number; }"]], ["layers"]);
@@ -135,6 +138,14 @@ test("one current name rejects renamed imports, exports, wildcard and forwarding
     ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], ["one-current-name"]);
   expect([["packages/host/src/model/value.ts", 'import { bound } from "./facts.js"; export function second(value: number) { return bound(value); }'],
     ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], ["one-current-name"]);
+  expect([["packages/host/src/model/value.ts", 'import { bound } from "./facts.js"; export function transformed(value: number) { return bound(value + 1); }'],
+    ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], []);
+  expect([["packages/host/src/model/value.ts", 'import { bound } from "./facts.js"; export function configured(value = 1) { return bound(value); }'],
+    ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], []);
+  expect([["packages/host/src/model/value.ts", 'import { collect } from "./facts.js"; export const second = (...values: number[]) => collect(...values);'],
+    ["packages/host/src/model/facts.ts", "export function collect(...values: number[]): number { return values.length; }"]], ["one-current-name"]);
+  expect([["packages/host/src/model/value.ts", 'import { bound } from "./facts.js"; export function transformed(first: number, second: number) { return bound(first + second); }'],
+    ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], []);
   expect([[model, facts]], []);
 });
 
@@ -210,5 +221,7 @@ test("tool failures, traversal, foreign symlinks and duplicate inputs never beco
     assert.throws(() => inspectHostStructure({ ...input, files: ["missing.ts"] }), /ENOENT/u);
     symlinkSync(resolve("package.json"), resolve(input.root, "foreign.ts"));
     assert.throws(() => inspectHostStructure({ ...input, files: ["foreign.ts"] }), /escapes/u);
+    symlinkSync(resolve(input.root, model), resolve(input.root, "alias.ts"));
+    assert.throws(() => inspectHostStructure({ ...input, files: ["alias.ts"] }), /original owned/u);
   });
 });

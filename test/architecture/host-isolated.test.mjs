@@ -179,6 +179,8 @@ test("source inventory, paths, contract closure and admitted execution are authe
     mkdirSync(resolve(input.root, ".temp"));
     symlinkSync(repository, resolve(input.root, ".temp/foreign"));
     await assert.rejects(compileHostModuleInIsolation({ ...input, outputDirectory: ".temp/foreign" }), /escapes/u);
+    symlinkSync(resolve(input.root, model), resolve(input.root, "packages/host/src/model/alias.ts"));
+    await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: [model, "packages/host/src/model/alias.ts"] }), /original owned/u);
   });
 });
 
