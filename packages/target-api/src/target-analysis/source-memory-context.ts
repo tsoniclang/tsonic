@@ -4,6 +4,7 @@ import type { SourceInputComponent, SourceInputSignature } from "../host-input/i
 import type { SourceApplicationFacts, SourceDescriptorView, SourceSignatureIdentity, SourceTypeBinding,
   SourceTypeComponent, SourceTypeEvidence } from "../public/source/contracts.js";
 import type { SourceMemorySelection } from "../source-model/memory.js";
+import type { SourceProductionResult } from "../source-model/production.js";
 import type { TargetSourceProgram } from "../source-model/program.js";
 
 export function createSourceMemoryContext(input: {
@@ -13,7 +14,7 @@ export function createSourceMemoryContext(input: {
   readonly assertComponent: (component: SourceInputComponent) => void;
   readonly signature: (signature: SourceInputSignature) => SourceSignatureIdentity;
   readonly componentIdentity: (component: SourceInputComponent) => SourceTypeComponent;
-  readonly equivalent: (left: SourceTypeEvidence, right: SourceTypeEvidence) => boolean;
+  readonly equivalent: (left: SourceTypeEvidence, right: SourceTypeEvidence) => SourceProductionResult<"yes" | "no" | "deferred">;
 }) {
   const { source, assertNode } = input;
   const view: SourceDescriptorView = source.facts.descriptors;
@@ -92,8 +93,17 @@ export function createSourceMemoryContext(input: {
     return applied.kind !== "resolved" ? applied : Object.freeze({ kind: "resolved",
       value: Object.freeze({ value: applied.value, typeBindings: complete.value }) });
   }
+  function equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceMemorySelection<boolean> {
+    view.assertEvidence(left);
+    view.assertEvidence(right);
+    const selected = input.equivalent(left, right);
+    if (selected.kind === "refused") return selected;
+    if (selected.kind === "pending" || selected.value === "deferred")
+      return Object.freeze({ kind: "unresolved", reason: "The applied Source memory domains retain an unresolved canonical relation." });
+    return Object.freeze({ kind: "resolved", value: selected.value === "yes" });
+  }
   return Object.freeze({ source, original: input.original, view, assertNode, bindingKey,
-    substitute, environment, component: original, equivalent: input.equivalent });
+    substitute, environment, component: original, equivalent });
 }
 
 export type SourceMemoryContext = ReturnType<typeof createSourceMemoryContext>;

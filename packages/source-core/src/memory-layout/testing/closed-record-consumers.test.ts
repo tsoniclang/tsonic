@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
-import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../bindings/selection.js";
+import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../../host-input/memory-binding-selection.js";
 import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
 import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
 import { tsonicMemoryTypeFactKey } from "../../host-input/memory-type-facts.js";

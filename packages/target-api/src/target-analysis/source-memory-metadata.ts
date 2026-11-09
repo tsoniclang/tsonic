@@ -58,7 +58,9 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
         if (child.kind !== "resolved") return child;
         const element = view.component(value, { kind: "type-argument", declaration: value.type.declaration, index: 0 });
         if (element.kind === "refused") return element;
-        if (!equivalent(element.value, child.value.source))
+        const domain = equivalent(element.value, child.value.source);
+        if (domain.kind !== "resolved") return domain;
+        if (!domain.value)
           return unresolved("A memory array requires its exact Source element and finalized child layout.");
         result = Object.freeze({ ...base, kind: "array", extent: value.type.extent, element: child.value });
       } else {
@@ -66,7 +68,9 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
         for (const identity of originalLayout.fields) {
           const child = field(identity, bindings);
           if (child.kind !== "resolved") return child;
-          if (!equivalent(value, child.value.owner))
+          const domain = equivalent(value, child.value.owner);
+          if (domain.kind !== "resolved") return domain;
+          if (!domain.value)
             return unresolved("Every aggregate memory field must retain the same canonical Source owner.");
           selectedFields.push(child.value);
         }
@@ -114,12 +118,16 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
       if (members.size !== 1)
         return unresolved("A memory selector requires one canonical Source member retaining every original selection.");
       const member = members.values().next().value!;
-      if (member.read !== "property" || member.optional || member.readType === undefined ||
-        !equivalent(member.readType, value.value.value))
+      if (member.read !== "property" || member.optional || member.readType === undefined)
         return unresolved("A memory field requires its exact present physical Source field component.");
+      const memberDomain = equivalent(member.readType, value.value.value);
+      if (memberDomain.kind !== "resolved") return memberDomain;
+      if (!memberDomain.value) return unresolved("A memory field requires its exact present physical Source field component.");
       const child = layout(originalField.layout, bindings);
       if (child.kind !== "resolved") return child;
-      if (!equivalent(value.value.value, child.value.source))
+      const childDomain = equivalent(value.value.value, child.value.source);
+      if (childDomain.kind !== "resolved") return childDomain;
+      if (!childDomain.value)
         return unresolved("A memory field requires its exact Source child and finalized layout.");
       const { receiver, readType, writeType, ...identityMember } = member;
       const appliedKey = [owner.value.value, value.value.value, child.value].map(identityKey).join(",");

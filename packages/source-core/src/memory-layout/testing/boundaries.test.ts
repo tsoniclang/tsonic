@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "../../host-input/memory-readers.js";
-import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
+import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memorySession } from "./fixtures.js";
+import { memoryTestPrelude, memoryTestRegistration } from "./programs.js";
 
 test("arbitrary-object binding is not an exported raw-address constructor", () => {
   const checked = memorySession('import { bindRawPointer } from "@tsonic/core/lang.js"; bindRawPointer({});');

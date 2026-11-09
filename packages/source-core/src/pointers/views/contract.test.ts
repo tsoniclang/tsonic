@@ -4,7 +4,8 @@ import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { formatDiagnostics, pointerOperationFactKey } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTsonicPointerReturnQueries, selectTsonicPointerView, selectTsonicRawLocationOperation, tsonicPointerViewFactKey } from "../../public/facts.js";
-import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession, memoryTestPrelude } from "../../memory-layout/testing/fixtures.js";
+import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, memorySession } from "../../memory-layout/testing/fixtures.js";
+import { memoryTestPrelude } from "../../memory-layout/testing/programs.js";
 
 test("viewptr retains exact read-free operands, generic pointees and both nil dispositions", () => {
   const checked = cleanMemorySession(`

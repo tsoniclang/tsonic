@@ -3,7 +3,8 @@ import { formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../public/facts.js";
 import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
-import { assertMemoryDiagnostics, memoryCall, memorySession, memoryTestRegistration } from "./fixtures.js";
+import { assertMemoryDiagnostics, memoryCall, memorySession } from "./fixtures.js";
+import { memoryTestRegistration } from "./programs.js";
 
 export const arrayTestPrelude = `
 import { abi } from "test:abi";

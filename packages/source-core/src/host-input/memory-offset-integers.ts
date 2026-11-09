@@ -1,8 +1,8 @@
-import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
-import type { TsonicDataLayoutFact } from "../../host-input/memory-layout-facts.js";
-import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
-import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "../../memory-layout/source-values.js";
-import type { SelectedMemoryValue } from "../../memory-layout/source-values.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import type { TsonicDataLayoutFact } from "./memory-layout-facts.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "./memory-source-values.js";
+import type { SelectedMemoryValue } from "./memory-source-values.js";
 
 export interface RawOffsetInteger {
   readonly runtimeBase: "number" | "bigint";

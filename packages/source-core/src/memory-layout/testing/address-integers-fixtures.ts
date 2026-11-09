@@ -4,7 +4,8 @@ import { formatDiagnostics } from "@tsonic/tsts";
 
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 
-import { assertMemoryDiagnostics, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
+import { assertMemoryDiagnostics, memorySession } from "./fixtures.js";
+import { memoryTestPrelude, memoryTestRegistration } from "./programs.js";
 
 function addressSession(source: string, width: 32 | 64, byteOrder: "little" | "big" = "little"): CheckedSourceProgram {
   return memorySession(memoryTestPrelude + source, { registrations: [{

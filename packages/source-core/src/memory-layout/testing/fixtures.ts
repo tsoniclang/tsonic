@@ -1,46 +1,18 @@
 import assert from "node:assert/strict";
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics } from "@tsonic/tsts";
-import type { CheckedSourceProgram, CompilerExtension, Node, SourceSemanticsModule } from "@tsonic/tsts";
-import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
+import type { CheckedSourceProgram, CompilerExtension, Node } from "@tsonic/tsts";
 import { createTsonicCoreSourceExtension } from "../../host-input/source-extension.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
 import type { TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
-
-export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freeze({
-  providerDeclaration: Object.freeze({
-    providerId: "test.memory-abi", providerVersion: "1", providerModuleId: "test:abi",
-    moduleSpecifier: "test:abi", exportId: "abi.token",
-  }),
-  descriptor: Object.freeze({ fingerprint: "test-abi-v1-le64", byteOrder: "little", addressWidth: 64 }),
-});
-
-export const memoryTestPrelude = `
-import { abi } from "test:abi";
-import type { Pointer, RawPointer, MemoryLayout, int32, uint32, uint64, nativeUint } from "@tsonic/core/types.js";
-import { memorylayout, memoryfield, sizeof, alignof, strideof, fieldoffsetof,
-  torawptr, reinterpretrawptr, offsetrawptr, rawptrtoaddressinteger,
-  addressintegertorawptr, keepalive, loadptr, storeptr } from "@tsonic/core/lang.js";
-declare const raw: RawPointer | undefined;
-declare const ordinary: Pointer<uint32> | undefined;
-const uint32Layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
-`;
+import { createMemoryTestDeclarationProvider, memoryTestPrelude, memoryTestRegistration } from "./programs.js";
 
 export function memorySession(sourceText: string, options: {
   readonly registrations?: readonly TsonicDataLayoutRegistration[];
   readonly extensions?: readonly CompilerExtension[];
   readonly extraFiles?: Readonly<Record<string, string>>;
 } = {}): CheckedSourceProgram {
-  const module: SourceSemanticsModule = { moduleSpecifier: "test:abi", exports: [] };
-  const provider = createSourceSemanticsVirtualModuleProvider({
-    id: "test.memory-abi", version: "1", displayName: "Memory test ABI", virtualDirectory: "test-memory-abi",
-    modules: [module], evidenceMessage: "Exact test ABI declaration",
-    importsForModule: () => [{ moduleSpecifier: "@tsonic/core/types.js", namedImports: [{ exportedName: "DataLayout", kind: "type" }], typeOnly: true }],
-    exportsForModule: () => [{
-      id: "abi.token", name: "abi", kind: "value",
-      type: { kind: "provider-ref", moduleSpecifier: "@tsonic/core/types.js", exportName: "DataLayout" },
-    }],
-  });
+  const provider = createMemoryTestDeclarationProvider();
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src", files: { "/src/index.ts": sourceText, ...options.extraFiles },
     compilerOptions: { module: "esnext", moduleResolution: "bundler", strict: true, target: "es2022" },

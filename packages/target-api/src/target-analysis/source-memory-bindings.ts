@@ -46,7 +46,11 @@ export function createSourceMemoryBindingQueries(input: {
     if (pointee.kind !== "resolved") return pointee;
     const selectedField = metadata.field(originalField.field, environments.value);
     if (selectedField.kind !== "resolved") return selectedField;
-    if (!equivalent(owner.value.value, selectedField.value.owner) || !equivalent(pointee.value.value, selectedField.value.value))
+    const ownerDomain = equivalent(owner.value.value, selectedField.value.owner);
+    if (ownerDomain.kind !== "resolved") return ownerDomain;
+    const fieldDomain = equivalent(pointee.value.value, selectedField.value.value);
+    if (fieldDomain.kind !== "resolved") return fieldDomain;
+    if (!ownerDomain.value || !fieldDomain.value)
       return unresolved("A memory field binding requires the same complete original Source owner and child layout domain.");
     const pointerValue = source.facts.values.type(originalField.pointerExpression);
     if (pointerValue.kind === "refused") return pointerValue;
@@ -54,9 +58,11 @@ export function createSourceMemoryBindingQueries(input: {
     if (pointer.kind !== "resolved") return pointer;
     const pointerType = source.facts.protocols.pointerType(pointer.value);
     if (pointerType.kind === "refused") return pointerType;
-    if (pointerType.value.kind === "none" || pointerType.value.value.kind !== "typed-location" ||
-      !equivalent(pointerType.value.value.pointee, pointee.value.value))
+    if (pointerType.value.kind === "none" || pointerType.value.value.kind !== "typed-location")
       return unresolved("A memory field binding requires its exact non-absent Source pointer and pointee domain.");
+    const pointerDomain = equivalent(pointerType.value.value.pointee, pointee.value.value);
+    if (pointerDomain.kind !== "resolved") return pointerDomain;
+    if (!pointerDomain.value) return unresolved("A memory field binding requires its exact non-absent Source pointer and pointee domain.");
     const application = source.facts.applications.application(occurrence);
     if (application.kind === "refused") return application;
     const result = context.substitute(application.value.result, environments.value);
@@ -85,8 +91,11 @@ export function createSourceMemoryBindingQueries(input: {
     if (owner.kind !== "resolved") return owner;
     const layout = metadata.layout(originalRecord.layout, environments.value);
     if (layout.kind !== "resolved") return layout;
-    if (layout.value.kind !== "value" || !equivalent(owner.value.value, layout.value.source))
+    if (layout.value.kind !== "value")
       return unresolved("A memory record binding requires its exact closed Source record layout.");
+    const ownerDomain = equivalent(owner.value.value, layout.value.source);
+    if (ownerDomain.kind !== "resolved") return ownerDomain;
+    if (!ownerDomain.value) return unresolved("A memory record binding requires its exact closed Source record layout.");
     if (source.facts.descriptors.freeParameters(owner.value.value).length !== 0)
       return unresolved("A memory record binding requires its complete instantiated Source binder environment.");
     const definition = source.facts.descriptors.definition(owner.value.value);
@@ -109,9 +118,11 @@ export function createSourceMemoryBindingQueries(input: {
         return unresolved("A memory record binding retains every present closed physical Source field.");
       const key = sourceLiteralKeyIdentity(pair.source.key);
       const field = declaredFields.get(key);
-      if (field === undefined || !equivalent(pair.source.readType, field.value) ||
-        !field.selectedDeclarations.every(declaration => pair.source.declarations.includes(declaration)))
+      if (field === undefined || !field.selectedDeclarations.every(declaration => pair.source.declarations.includes(declaration)))
         return unresolved("A memory record binding retains all original declarations of each canonical physical field.");
+      const fieldDomain = equivalent(pair.source.readType, field.value);
+      if (fieldDomain.kind !== "resolved") return fieldDomain;
+      if (!fieldDomain.value) return unresolved("A memory record binding retains the exact applied Source domain of every physical field.");
       declaredFields.delete(key);
     }
     const remaining = new Map(layout.value.fields.map(field => [field.occurrence, field]));
@@ -124,8 +135,11 @@ export function createSourceMemoryBindingQueries(input: {
       if (child.kind !== "resolved") return child;
       if (child.value.kind === "none") return unresolved("A memory record retains every original field binding.");
       const expected = remaining.get(child.value.value.field.occurrence);
-      if (expected === undefined || child.value.value.field !== expected || !equivalent(child.value.value.owner, owner.value.value))
+      if (expected === undefined || child.value.value.field !== expected)
         return unresolved("Memory record fields cannot be missing, repeated or selected from another original owner.");
+      const fieldOwnerDomain = equivalent(child.value.value.owner, owner.value.value);
+      if (fieldOwnerDomain.kind !== "resolved") return fieldOwnerDomain;
+      if (!fieldOwnerDomain.value) return unresolved("Memory record fields retain their same original applied Source owner.");
       remaining.delete(expected.occurrence);
       selectedFields.push(Object.freeze({ expression: entry.expression, binding: child.value.value }));
     }

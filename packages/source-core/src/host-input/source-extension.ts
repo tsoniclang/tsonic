@@ -13,7 +13,7 @@ import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtens
 import { forEachTsonicSourceFile } from "./source-context.js";
 import { createTsonicCoreVirtualModulesProvider } from "../extension/virtual-modules.js";
 
-import { analyzeTsonicMemoryOperations } from "../memory-layout/analysis.js";
+import { analyzeTsonicMemoryOperations } from "./memory-analysis.js";
 
 import type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
 import { captureDataLayoutRegistrations } from "../memory-layout/registrations.js";

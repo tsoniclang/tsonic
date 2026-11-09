@@ -1,10 +1,11 @@
-import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
-import type { MemorySourceCall } from "../../memory-layout/analysis-model.js";
-import { memoryDiagnostic, publishMemoryFact } from "../../memory-layout/analysis-context.js";
-import { selectedDataLayout } from "../../memory-layout/source-values.js";
-import { selectedAddressIntegerDomain } from "./address-integers.js";
-import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
-import { selectedRawOffsetInteger } from "./integers.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.js";
+import { selectedDataLayout } from "./memory-source-values.js";
+import { selectedAddressIntegerDomain } from "./memory-address-integers.js";
+import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
+import { selectedRawOffsetInteger } from "./memory-offset-integers.js";
+import { captureMemoryBindingSource } from "./memory-source-capture.js";
 
 export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context, name } = call;
@@ -36,7 +37,7 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       ? { ...typed, operation: "to-raw", pointerExpression: operand.expression, pointerType: operand.type }
       : { ...typed, operation: "reinterpret", rawExpression: operand.expression, rawType: operand.type,
           ...(pointee.explicitTypeNode === undefined ? {} : { explicitPointeeTypeNode: pointee.explicitTypeNode }) });
-    if (analysis.types.raw(call, descriptor)) analysis.types.publish(call);
+    captureMemoryBindingSource(call, 0);
     return;
   }
   const dataLayoutOperand = args[name === "offsetrawptr" ? 2 : 1];

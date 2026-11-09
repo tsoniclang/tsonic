@@ -5,7 +5,8 @@ import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../h
 import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
 import type { TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { captureDataLayoutRegistrations } from "../registrations.js";
-import { memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
+import { valueMemoryLayout } from "./fixtures.js";
+import { memoryTestRegistration } from "./programs.js";
 
 function layoutFixture(): TsonicValueMemoryLayoutFact {
   const fieldType = {} as Type;

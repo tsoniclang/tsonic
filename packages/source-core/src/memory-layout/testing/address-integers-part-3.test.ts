@@ -4,7 +4,8 @@ import { test } from "node:test";
 
 import { readTsonicRawMemoryOperation } from "../../host-input/memory-readers.js";
 
-import { memoryCall, memoryCalls, memorySession, memoryTestPrelude } from "./fixtures.js";
+import { memoryCall, memoryCalls, memorySession } from "./fixtures.js";
+import { memoryTestPrelude } from "./programs.js";
 
 import { addressSession, assertClean } from "./address-integers-fixtures.js";
 

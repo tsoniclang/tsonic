@@ -1,10 +1,10 @@
 import type { SourcePrimitiveFact } from "@tsonic/tsts";
-import { readSourcePrimitiveAnnotation } from "../../analysis/source-primitive.js";
-import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
-import type { MemorySourceCall } from "../../memory-layout/analysis-model.js";
-import type { TsonicDataLayoutFact } from "../../host-input/memory-layout-facts.js";
-import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "../../memory-layout/source-values.js";
-import type { TsonicAddressIntegerDomain } from "../../host-input/raw-memory-facts.js";
+import { readSourcePrimitiveAnnotation } from "./primitive-annotation.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import type { TsonicDataLayoutFact } from "./memory-layout-facts.js";
+import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "./memory-source-values.js";
+import type { TsonicAddressIntegerDomain } from "./raw-memory-facts.js";
 
 function addressDomain(primitive: SourcePrimitiveFact | undefined): TsonicAddressIntegerDomain | undefined {
   if (primitive?.kind === "uint32" && primitive.width === 32 &&

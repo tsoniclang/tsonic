@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createSourceSemanticsVirtualModuleProvider } from "../../public/extension.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, readTsonicMemoryType, resolveTsonicMemoryLayoutObservation, tsonicFixedArrayFactKey } from "../../public/facts.js";
-import { memoryCall, memoryCalls, memoryDescriptorProperty, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
+import { memoryCall, memoryCalls, memoryDescriptorProperty, valueMemoryLayout } from "./fixtures.js";
+import { memoryTestRegistration } from "./programs.js";
 import { arrayLayoutAt, arrayMemoryLayout, arrayProfileRegistration, arraySession, arrayTestProfiles, assertArrayObservation, cleanArraySession } from "./fixed-array-fixtures.js";
 
 for (const profile of arrayTestProfiles) {

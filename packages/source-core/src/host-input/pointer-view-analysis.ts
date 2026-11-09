@@ -1,9 +1,9 @@
-import type { TsonicSourceFileAnalysisContext } from "../../host-input/source-context.js";
-import { selectedProviderCallMatches } from "../../host-input/provider-calls.js";
-import type { SelectedProviderSourceCall } from "../../host-input/provider-calls.js";
-import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../../identity.js";
-import { tsonicPointerViewSignatureIds } from "./declarations.js";
-import { tsonicPointerViewFactKey } from "../../host-input/pointer-view-facts.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { selectedProviderCallMatches } from "./provider-calls.js";
+import type { SelectedProviderSourceCall } from "./provider-calls.js";
+import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../identity.js";
+import { tsonicPointerViewSignatureIds } from "../pointers/views/declarations.js";
+import { tsonicPointerViewFactKey } from "./pointer-view-facts.js";
 
 export function analyzeTsonicPointerView(selected: SelectedProviderSourceCall, context: TsonicSourceFileAnalysisContext): void {
   const overload = (["required", "optional"] as const).find(kind => selectedProviderCallMatches(selected, {

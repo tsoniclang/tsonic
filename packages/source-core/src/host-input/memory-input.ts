@@ -10,9 +10,9 @@ import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "./memory-lay
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./memory-layout-facts.js";
 import { isFinalizedMemoryLayoutFacts, readTsonicDataLayout, readTsonicMemoryFieldLayout,
   readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./memory-readers.js";
-import { memoryTypePublicationSources, readTsonicMemoryType } from "./memory-type-facts.js";
+import { readMemoryPublicationSources } from "./memory-publications.js";
 import type { MemorySourceProvenance, MemoryTypePublicationSources } from "./memory-provenance.js";
-import { selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../memory-layout/bindings/selection.js";
+import { selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "./memory-binding-selection.js";
 import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./memory-binding-facts.js";
 
 export interface SourceCoreOriginalCallInput {
@@ -42,8 +42,7 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
   const capturedRecordBindings = new WeakMap<Node, SourceInputMemorySelection<SourceInputMemoryRecordBinding>>();
   const sources = (occurrence: Node): MemoryTypePublicationSources | undefined => {
     assertNode(occurrence);
-    const original = readTsonicMemoryType(sourceFacts, occurrence);
-    return original === undefined ? undefined : memoryTypePublicationSources(original);
+    return readMemoryPublicationSources(sourceFacts, occurrence);
   };
   const source = (original: MemorySourceProvenance): SourceInputMemorySource | undefined => {
     assertNode(original.application.invocation);

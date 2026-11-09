@@ -1,6 +1,6 @@
 import { fieldFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
 
 export function isMemoryFieldDeclaration(
   declaration: Node,

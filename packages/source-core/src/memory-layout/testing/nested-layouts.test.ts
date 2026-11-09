@@ -7,7 +7,8 @@ import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemor
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
-import { cleanMemorySession, memoryCall, memoryDescriptorProperty, memorySession, memoryTestPrelude, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
+import { cleanMemorySession, memoryCall, memoryDescriptorProperty, memorySession, valueMemoryLayout } from "./fixtures.js";
+import { memoryTestPrelude, memoryTestRegistration } from "./programs.js";
 
 function scalar(): TsonicValueMemoryLayoutFact {
   return {

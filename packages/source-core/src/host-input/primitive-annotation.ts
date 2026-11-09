@@ -1,7 +1,7 @@
 import { sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { Node, SourcePrimitiveFact } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
-import { readSourceFact } from "../host-input/provider-calls.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { readSourceFact } from "./provider-calls.js";
 
 export function readSourcePrimitiveAnnotation(
   context: TsonicSourceFileAnalysisContext,

@@ -1,8 +1,9 @@
-import type { MemorySourceAnalysis } from "../analysis-context.js";
-import type { MemorySourceCall } from "../analysis-model.js";
-import { memoryDiagnostic, publishMemoryFact } from "../analysis-context.js";
-import { tsonicMemoryFieldLayoutFactKey } from "../../host-input/memory-layout-facts.js";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../host-input/memory-binding-facts.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.js";
+import { tsonicMemoryFieldLayoutFactKey } from "./memory-layout-facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./memory-binding-facts.js";
+import { captureMemoryBindingSource } from "./memory-source-capture.js";
 
 export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -22,7 +23,7 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
     call: selected.call, resultType: selected.selection.resultType, sourceType, pointeeType,
     fieldExpression: fieldOperand.expression, field, pointerExpression: pointer.expression, pointerType: pointer.type,
   });
-  if (analysis.types.binding(call, field)) analysis.types.publish(call);
+  captureMemoryBindingSource(call, 1, 0);
 }
 
 export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
@@ -32,8 +33,7 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
   const layout = operand === undefined ? undefined : analysis.layout(operand.expression, context);
   if (operand === undefined || sourceType === undefined || layout?.kind !== "value" ||
       arguments_.length !== layout.fields.length ||
-      selected.selection.selection.arguments.values.some(binding => binding.sourceForm !== "value") ||
-      !analysis.types.record(call, layout)) {
+      selected.selection.selection.arguments.values.some(binding => binding.sourceForm !== "value")) {
     memoryDiagnostic(call, "RECORD_BINDING_NOT_PROVEN", "bindmemoryrecord requires a closed data record layout and one explicit binding for every field.");
     return;
   }
@@ -51,5 +51,5 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
     call: selected.call, resultType: selected.selection.resultType, sourceType, layoutExpression: operand.expression, layout,
     fields: fields.map(field => ({ expression: field.expression, binding: field.binding! })),
   });
-  analysis.types.publish(call);
+  captureMemoryBindingSource(call, 0);
 }

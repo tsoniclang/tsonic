@@ -1,32 +1,12 @@
 import type { AstReader, ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { isFinalizedMemoryLayout, isFinalizedMemoryLayoutFacts, readTsonicMemoryFieldLayout, readTsonicMemoryLayout } from "../../host-input/memory-readers.js";
-import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "../../host-input/memory-layout-facts.js";
-import { readTsonicMemoryType } from "../../host-input/memory-type-facts.js";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../host-input/memory-binding-facts.js";
-import type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "../../host-input/memory-binding-facts.js";
+import { isFinalizedMemoryLayoutFacts, readTsonicMemoryFieldLayout, readTsonicMemoryLayout } from "./memory-readers.js";
+import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "./memory-layout-facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./memory-binding-facts.js";
+import type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "./memory-binding-facts.js";
 
 export type TsonicMemoryBindingSelection<T> =
   | { readonly kind: "resolved"; readonly operation: T }
   | { readonly kind: "rejected"; readonly reason: string };
-
-export function selectTsonicMemoryFieldBinding(
-  ast: AstReader, facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject,
-): TsonicMemoryBindingSelection<TsonicMemoryFieldBindingFact> | undefined {
-  const selected = selectTsonicMemoryFieldBindingFacts(ast, facts, subject);
-  if (selected?.kind !== "resolved") return selected;
-  return fieldBindingDomain(facts, selected.operation) ? selected : Object.freeze({ kind: "rejected",
-    reason: "Memory field binding requires its exact field, pointer and finalized child memory type/layout." });
-}
-
-function fieldBindingDomain(facts: ReadonlySourceFactResolver, operation: TsonicMemoryFieldBindingFact): boolean {
-  const selectedType = readTsonicMemoryType(facts, operation.call);
-  const fieldType = readTsonicMemoryType(facts, operation.field.call);
-  const childType = readTsonicMemoryType(facts, operation.field.fieldLayout.call);
-  return isFinalizedMemoryLayout(facts, operation.field.fieldLayout) && selectedType !== undefined &&
-    fieldType !== undefined && childType !== undefined && selectedType.sourceType === operation.pointeeType &&
-    fieldType.sourceType === operation.field.fieldType && childType.sourceType === operation.field.fieldLayout.sourceType &&
-    selectedType.identity === fieldType.identity && fieldType.identity === childType.identity;
-}
 
 export function selectTsonicMemoryFieldBindingFacts(
   ast: AstReader, facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject,
@@ -44,22 +24,6 @@ export function selectTsonicMemoryFieldBindingFacts(
     return Object.freeze({ kind: "rejected", reason: "Memory field binding requires its exact field, pointer and finalized child memory type/layout." });
   }
   return Object.freeze({ kind: "resolved", operation });
-}
-
-export function selectTsonicMemoryRecordBinding(
-  ast: AstReader, facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject,
-): TsonicMemoryBindingSelection<TsonicMemoryRecordBindingFact> | undefined {
-  const selected = selectTsonicMemoryRecordBindingFacts(ast, facts, subject);
-  if (selected?.kind !== "resolved") return selected;
-  const { operation } = selected;
-  const selectedType = readTsonicMemoryType(facts, operation.call);
-  const layoutType = readTsonicMemoryType(facts, operation.layout.call);
-  if (!isFinalizedMemoryLayout(facts, operation.layout) || selectedType === undefined || layoutType === undefined ||
-      selectedType.sourceType !== operation.sourceType || layoutType.sourceType !== operation.layout.sourceType ||
-      selectedType.identity !== layoutType.identity || operation.fields.some(entry => !fieldBindingDomain(facts, entry.binding)))
-    return Object.freeze({ kind: "rejected",
-      reason: "Memory record binding requires its exact operands, complete field bindings and finalized record layout/type." });
-  return selected;
 }
 
 export function selectTsonicMemoryRecordBindingFacts(

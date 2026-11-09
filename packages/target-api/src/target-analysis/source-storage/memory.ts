@@ -4,6 +4,7 @@ import type { SourceStorageQueries } from "../../source-model/program.js";
 import { createSourceClosedArrayStorageQueries } from "../source-array-storage.js";
 import { createSourceMemoryBindingQueries } from "../source-memory-bindings.js";
 import { createSourcePointerBackingQueries } from "../source-pointer-backing.js";
+import { createSourceRawLocationQueries } from "../source-raw-location.js";
 import type { SourceStorageScope } from "./graph/scoped-model.js";
 import { createSourceMemoryEnvironments } from "./model/memory-environments.js";
 import { createSourceStorageMemoryMetadata } from "./model/memory-metadata.js";
@@ -24,7 +25,9 @@ export function createSourceMemoryQueries(input: {
   const memoryMetadata = createSourceStorageMemoryMetadata({ ...input, environments, metadata });
   const memoryBindings = createSourceMemoryBindingQueries({ ...input, environments, context, metadata });
   const closedArrayStorage = createSourceClosedArrayStorageQueries(input);
+  const rawLocation = createSourceRawLocationQueries({ context, environments, metadata: memoryMetadata, budget: input.budget });
   return Object.freeze({
+    rawLocation: Object.freeze({ resolve: sourceStorageOutcome(rawLocation.resolve) }),
     pointerBacking: Object.freeze({ value: sourceStorageOutcome(pointerBacking.value), returned: sourceStorageOutcome(pointerBacking.returned) }),
     memoryMetadata: Object.freeze({ value: sourceStorageOutcome(memoryMetadata.value), declaration: sourceStorageOutcome(memoryMetadata.declaration),
       isCompileTimeExpression: sourceStorageOutcome(memoryMetadata.isCompileTimeExpression) }),

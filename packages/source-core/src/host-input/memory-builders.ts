@@ -1,15 +1,16 @@
-import { selectInlineSourceMember } from "../host-input/selected-source-member.js";
-import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
-import type { MemorySourceAnalysis } from "./analysis-context.js";
-import type { MemorySourceCall } from "./analysis-model.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../host-input/memory-layout-facts.js";
-import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
-import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
-import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";
-import { selectTsonicFixedArray } from "../host-input/fixed-array-selection.js";
-import { readSourceFact } from "../host-input/provider-calls.js";
-import { memoryDescriptorKeys } from "./descriptor-declarations.js";
-import { readMemoryDescriptor, readMemoryDescriptorFields } from "./descriptors.js";
+import { selectInlineSourceMember } from "./selected-source-member.js";
+import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./memory-layout-facts.js";
+import { exactLayoutSize, selectedDataLayout } from "./memory-source-values.js";
+import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
+import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./memory-selectors.js";
+import { selectTsonicFixedArray } from "./fixed-array-selection.js";
+import { readSourceFact } from "./provider-calls.js";
+import { memoryDescriptorKeys } from "../memory-layout/descriptor-declarations.js";
+import { readMemoryDescriptor, readMemoryDescriptorFields } from "./memory-descriptors.js";
+import { captureMemoryBindingSource } from "./memory-source-capture.js";
 
 export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -31,7 +32,7 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
     memoryDiagnostic(call, "FIELD_NOT_PROVEN", "memoryfield requires one selected non-optional physical field and exact non-negative integer layout constants.");
     return;
   }
-  if (fieldLayout === undefined || !analysis.types.field(call, declaration, selector, fieldLayout)) {
+  if (fieldLayout === undefined) {
     memoryDiagnostic(call, "FIELD_LAYOUT_NOT_PROVEN", "memoryfield requires the exact selected child layout for its field type.");
     return;
   }
@@ -46,7 +47,7 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
     ...(property?.selectedSymbol === undefined ? {} : { selectedSymbol: property.selectedSymbol }),
     fieldType, byteOffset, byteAlignment, fieldLayoutExpression, fieldLayout,
   });
-  analysis.types.publish(call);
+  captureMemoryBindingSource(call, 1, 0);
 }
 
 export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
@@ -72,13 +73,8 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     memoryDiagnostic(call, "ARRAY_ELEMENT_REQUIRED", "A fixed-array memory layout requires memoryarraylayout and its exact element child; a field-only descriptor is incomplete.");
     return;
   }
-  if (!analysis.types.layout(call)) {
-    memoryDiagnostic(call, "TYPE_NOT_PROVEN", "Memory layout requires an exact closed source memory type and selected marker domain.");
-    return;
-  }
   const fields = fieldExpressions.map(expression => analysis.field(expression, context));
-  if (fields.some((field) => field === undefined) ||
-      !analysis.types.aggregate(call, fields.filter(field => field !== undefined).map(field => field.call))) {
+  if (fields.some((field) => field === undefined)) {
     memoryDiagnostic(call, "LAYOUT_FIELD_NOT_PROVEN", "Every layout field must retain an exact field fact for the same selected source type.");
     return;
   }
@@ -104,7 +100,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     return;
   }
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
-  analysis.types.publish(call);
+  captureMemoryBindingSource(call, 0);
 }
 
 export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
@@ -124,12 +120,12 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
     const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
     const selector = selected.selection.selection.argumentValues[1];
     if (declaration === undefined || selector === undefined || !isMemoryFieldSelector(selector.expression, context) ||
-        !isMemoryFieldDeclaration(declaration, context) || layout === undefined || !analysis.types.queryField(call, declaration, layout)) {
+        !isMemoryFieldDeclaration(declaration, context) || layout === undefined) {
       memoryDiagnostic(call, "QUERY_FIELD_NOT_PROVEN", "fieldoffsetof requires one exact non-optional physical field selection.");
       return;
     }
     publishMemoryFact(call, tsonicMemoryLayoutQueryFactKey, { ...base, operation: "field-offset", selectedFieldDeclaration: declaration });
-    analysis.types.publish(call);
+    captureMemoryBindingSource(call, 0);
     return;
   }
   const operation = call.name === "sizeof" ? "size" : call.name === "alignof" ? "alignment" : "stride";

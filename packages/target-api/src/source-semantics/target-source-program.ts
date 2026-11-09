@@ -12,6 +12,7 @@ import { produceSourceScalarLiteralDomain } from "./local-type-flow/literal-doma
 import { sourceLiteralDomainUnion } from "../source-model/literals/domain.js";
 import { produceSourceProjection } from "./local-type-flow/projections.js";
 import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js";
+import { sourceMemoryDomainsEquivalent } from "./local-type-flow/evidence-relations.js";
 import { sourceKeyDomainContains } from "./local-type-flow/key-domains.js";
 import { analyzeSourceTypeFlow } from "./local-type-flow/solver.js";
 import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
@@ -208,7 +209,8 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const attributes = createSourceAttributeFacts({ input: input.core, assertNode });
   const memoryContext = createSourceMemoryContext({ source: program, original: input.core.memory, assertNode,
     assertComponent: input.input.assertComponent, signature,
-    componentIdentity: requiredReader().componentIdentity, equivalent: owner.equivalent });
+    componentIdentity: requiredReader().componentIdentity,
+    equivalent: (left, right) => sourceMemoryDomainsEquivalent({ builder: owner.builder, objects: completeObjects }, left, right) });
   const memoryMetadata = createSourceMemoryMetadataProduction(memoryContext);
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
     memory: Object.freeze({ context: memoryContext, metadata: memoryMetadata }),

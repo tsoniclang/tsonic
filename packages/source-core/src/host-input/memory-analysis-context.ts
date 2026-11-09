@@ -1,18 +1,17 @@
 import type { ExtensionFactKey, Node } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
-import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
-import type { TsonicRawMemoryOperationFact } from "../host-input/raw-memory-facts.js";
-import type { MemorySourceCall, MemoryTypeContracts } from "./analysis-model.js";
-import type { TsonicMemoryFieldBindingFact } from "../host-input/memory-binding-facts.js";
-import type { resolveTsonicMemoryLayoutObservation } from "../host-input/memory-readers.js";
+import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./memory-layout-facts.js";
+import type { TsonicRawMemoryOperationFact } from "./raw-memory-facts.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import type { TsonicMemoryFieldBindingFact } from "./memory-binding-facts.js";
+import type { readMemoryLayoutConstant } from "./memory-readers.js";
 
 export interface MemorySourceAnalysis {
-  readonly types: MemoryTypeContracts;
   readonly registrations: ReadonlyMap<string, TsonicDataLayoutFact>;
   readonly field: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryFieldLayoutFact | undefined;
   readonly layout: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryLayoutFact | undefined;
-  readonly layoutQuery: (expression: Node, context: TsonicSourceFileAnalysisContext) => ReturnType<typeof resolveTsonicMemoryLayoutObservation>;
+  readonly layoutQuery: (expression: Node, context: TsonicSourceFileAnalysisContext) => ReturnType<typeof readMemoryLayoutConstant>;
   readonly binding: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryFieldBindingFact | undefined;
   readonly rawOperation: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicRawMemoryOperationFact | undefined;
 }

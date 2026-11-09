@@ -1,13 +1,14 @@
-import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
-import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
-import type { MemorySourceAnalysis } from "./analysis-context.js";
-import type { MemorySourceCall } from "./analysis-model.js";
-import { memoryLayoutDimensionsError } from "./dimensions.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "../host-input/memory-layout-facts.js";
-import type { TsonicArrayMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
-import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./source-values.js";
-import { memoryDescriptorKeys } from "./descriptor-declarations.js";
-import { readMemoryDescriptor } from "./descriptors.js";
+import { tsonicFixedArrayFactKey } from "./fixed-array-facts.js";
+import { memoryDiagnostic, publishMemoryFact } from "./memory-analysis-context.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import { memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "./memory-layout-facts.js";
+import type { TsonicArrayMemoryLayoutFact } from "./memory-layout-facts.js";
+import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./memory-source-values.js";
+import { memoryDescriptorKeys } from "../memory-layout/descriptor-declarations.js";
+import { readMemoryDescriptor } from "./memory-descriptors.js";
+import { captureMemoryArraySource } from "./memory-source-capture.js";
 
 export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -30,7 +31,7 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
     memoryDiagnostic(call, "ARRAY_ELEMENT_NOT_PROVEN", "memoryarraylayout requires a finalized element layout, not an unproduced descriptor.");
     return;
   }
-  const fixedArray = analysis.types.array(call, elementLayout, count);
+  const fixedArray = captureMemoryArraySource(call, count);
   if (fixedArray === undefined) {
     memoryDiagnostic(call, "ARRAY_TYPE_NOT_PROVEN", "Memory array element and extent must match the exact selected fixed-array type and source marker domains.");
     return;
@@ -56,5 +57,4 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
   }
   publishMemoryFact(call, tsonicFixedArrayFactKey, fixedArray);
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
-  analysis.types.publish(call);
 }

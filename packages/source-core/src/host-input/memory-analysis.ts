@@ -1,23 +1,22 @@
 import type { ExtensionFactKey, Node, SourceAnalysisContext } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../host-input/source-context.js";
-import { forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "../host-input/provider-calls.js";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "./provider-calls.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
-import { analyzeRawMemoryCall } from "../pointers/raw-memory/analysis.js";
-import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";
-import { memoryDiagnostic } from "./analysis-context.js";
-import type { MemorySourceAnalysis } from "./analysis-context.js";
-import type { MemorySourceCall } from "./analysis-model.js";
-import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
-import { analyzeMemoryArrayLayout } from "./array-builder.js";
-import { tsonicMemorySignatureIds } from "./declarations.js";
-import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../host-input/memory-layout-facts.js";
-import type { TsonicDataLayoutFact } from "../host-input/memory-layout-facts.js";
-import { immutableValueOrigin } from "./source-values.js";
-import { createMemoryTypeContracts } from "./type-contract/analysis.js";
-import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./bindings/analysis.js";
-import { tsonicMemoryFieldBindingFactKey } from "../host-input/memory-binding-facts.js";
-import { analyzeTsonicPointerView } from "../pointers/views/analysis.js";
-import { resolveTsonicMemoryLayoutObservation } from "../host-input/memory-readers.js";
+import { analyzeRawMemoryCall } from "./raw-memory-analysis.js";
+import { tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
+import { memoryDiagnostic } from "./memory-analysis-context.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+import type { MemorySourceCall } from "./memory-analysis-model.js";
+import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./memory-builders.js";
+import { analyzeMemoryArrayLayout } from "./memory-array-builder.js";
+import { tsonicMemorySignatureIds } from "../memory-layout/declarations.js";
+import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./memory-layout-facts.js";
+import type { TsonicDataLayoutFact } from "./memory-layout-facts.js";
+import { immutableValueOrigin } from "./memory-source-values.js";
+import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./memory-binding-analysis.js";
+import { tsonicMemoryFieldBindingFactKey } from "./memory-binding-facts.js";
+import { analyzeTsonicPointerView } from "./pointer-view-analysis.js";
+import { readMemoryLayoutConstant } from "./memory-readers.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -44,13 +43,12 @@ export function analyzeTsonicMemoryOperations(
   const owner = calls.values().next().value;
   if (owner === undefined) return;
   const analysis: MemorySourceAnalysis = {
-    types: createMemoryTypeContracts(context, owner.context, expression => { analysis.rawOperation(expression, owner.context); }),
     registrations,
     field: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldLayoutFactKey),
     layout: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryLayoutFactKey),
     layoutQuery: (expression, sourceContext) => {
       const origin = demandOrigin(expression, sourceContext);
-      return origin === undefined ? undefined : resolveTsonicMemoryLayoutObservation(
+      return origin === undefined ? undefined : readMemoryLayoutConstant(
         { getFact: (subject, key) => context.facts.get(subject, key) }, origin);
     },
     binding: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldBindingFactKey),

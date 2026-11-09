@@ -1,8 +1,7 @@
-import type { ExtensionFactSubject, ReadonlySourceFactResolver, Symbol } from "@tsonic/tsts";
+import type { ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
 import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./memory-layout-facts.js";
 import type { TsonicMemoryLayoutFact } from "./memory-layout-facts.js";
-import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readMemoryTypeMember, readTsonicMemoryType } from "./memory-type-facts.js";
 import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "./fixed-array-facts.js";
 
 type MemoryFactReader = Pick<ReadonlySourceFactResolver, "getFact">;
@@ -42,41 +41,13 @@ export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maxi
   return count(root);
 }
 
-export function isFinalizedMemoryLayout(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
-  return finalizedMemoryLayoutFacts(facts, root, layout => {
-    const type = readTsonicMemoryType(facts, layout.call);
-    if (type === undefined || type.sourceType !== layout.sourceType ||
-        !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
-    if (layout.kind === "array") {
-      const childType = readTsonicMemoryType(facts, layout.elementLayout.call);
-      return childType !== undefined && memoryArrayTypeMatches(type.identity, childType.identity, layout.call, layout.fixedArray);
-    }
-    const members = new Set<Symbol>();
-    for (const field of layout.fields) {
-      const fieldType = readTsonicMemoryType(facts, field.call);
-      const childType = readTsonicMemoryType(facts, field.fieldLayout.call);
-      const member = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
-      if (member?.owner !== type.identity || members.has(member.member) ||
-          fieldType === undefined || childType === undefined || fieldType.sourceType !== field.fieldType ||
-          fieldType.identity !== childType.identity) return false;
-      members.add(member.member);
-    }
-    return true;
-  });
-}
-
 export function isFinalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
-  return finalizedMemoryLayoutFacts(facts, root, () => true);
-}
-
-function finalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryLayoutFact,
-  domain: (layout: TsonicMemoryLayoutFact) => boolean): boolean {
   const pending = [root];
   const visited = new Set<TsonicMemoryLayoutFact["call"]>();
   while (pending.length !== 0) {
     const layout = pending.pop()!;
     const selected = readTsonicMemoryLayout(facts, layout.call);
-    if (selected === undefined || !memoryLayoutsEqual(layout, selected) || !domain(layout)) return false;
+    if (selected === undefined || !memoryLayoutsEqual(layout, selected)) return false;
     if (visited.has(layout.call)) continue;
     visited.add(layout.call);
     const abi = readTsonicDataLayout(facts, layout.dataLayoutExpression);
@@ -102,21 +73,16 @@ function finalizedMemoryLayoutFacts(facts: MemoryFactReader, root: TsonicMemoryL
   return true;
 }
 
-export function resolveTsonicMemoryLayoutObservation(facts: MemoryFactReader, subject: ExtensionFactSubject) {
+export function readMemoryLayoutConstant(facts: MemoryFactReader, subject: ExtensionFactSubject) {
   const query = readTsonicMemoryLayoutQuery(facts, subject);
   if (query === undefined) return undefined;
   const layout = readTsonicMemoryLayout(facts, query.layoutExpression);
-  if (query.call !== subject || layout === undefined || !isFinalizedMemoryLayout(facts, layout)) return Object.freeze({
+  if (query.call !== subject || layout === undefined || !isFinalizedMemoryLayoutFacts(facts, layout)) return Object.freeze({
     kind: "rejected" as const, reason: "Layout observation has no exact finalized descriptor for its selected call.",
   });
   const values = { size: layout.byteSize, alignment: layout.byteAlignment, stride: layout.stride };
-  const member = query.selectedFieldDeclaration === undefined ? undefined
-    : readMemoryTypeMember(facts, query.call, query.selectedFieldDeclaration);
   const fields = query.operation === "field-offset"
-    ? layout.kind === "value" && member !== undefined ? layout.fields.filter(field => {
-        const counterpart = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
-        return counterpart !== undefined && counterpart.owner === member.owner && counterpart.member === member.member;
-      }) : []
+    ? layout.kind === "value" ? layout.fields.filter(field => field.selectedDeclaration === query.selectedFieldDeclaration) : []
     : undefined;
   if (fields !== undefined && fields.length !== 1) return Object.freeze({
     kind: "rejected" as const, reason: "Layout field observation does not select exactly one declared field.",
