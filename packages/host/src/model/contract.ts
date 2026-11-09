@@ -46,6 +46,8 @@ export interface ResourceLimit {
 export interface ResourceDomain {
   readonly name: string;
   readonly limits: readonly ResourceLimit[];
+  readonly admission: "operation" | "cohort";
+  readonly keyDimension: string;
 }
 
 export interface ResourceUsage {
@@ -56,4 +58,31 @@ export interface ResourceUsage {
   readonly temporary: bigint;
   readonly retained: bigint;
   readonly peak: bigint;
+}
+
+export interface CompilerResourceLimitFailure extends Error {
+  readonly kind: "compiler-resource-limit";
+  readonly dimension: string;
+  readonly limit: bigint;
+  readonly diagnostic: Diagnostic;
+}
+
+export type ContextInvariantCode =
+  | "INVALID_CONTEXT_INPUT" | "CONTEXT_CLOSED"
+  | "DUPLICATE_QUESTION" | "MISSING_PROVIDER" | "DUPLICATE_PROVIDER"
+  | "REGISTRATION_SEALED" | "REGISTRATION_UNSEALED" | "FOREIGN_QUESTION"
+  | "INVALID_QUESTION_KEY" | "INVALID_RESOURCE_SCOPE" | "QUESTION_CYCLE"
+  | "AUTHENTICATION_REENTRANCY";
+
+export interface QueryChainEntry {
+  readonly owner: string;
+  readonly question: string;
+  readonly site: Presence<SourceSite>;
+}
+
+export interface ContextInvariantFailure extends Error {
+  readonly code: ContextInvariantCode;
+  readonly owner: string;
+  readonly question: string;
+  readonly chain: readonly QueryChainEntry[];
 }

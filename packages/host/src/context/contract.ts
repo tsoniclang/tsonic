@@ -1,4 +1,5 @@
 import type {
+  Diagnostic,
   Identity,
   Presence,
   ProgramIdentity,
@@ -43,6 +44,7 @@ export type QuestionRetention<Answer> =
 export interface QuestionDefinition<Input, Answer> {
   readonly owner: string;
   readonly name: string;
+  readonly domain: string;
   readonly retention: QuestionRetention<Answer>;
   readonly authenticate: (input: Input) => QuestionIdentity;
 }
@@ -95,4 +97,9 @@ export interface Context {
   resourceScope(domain: string, owner: Identity,
     site: Presence<SourceSite>): ResourceScope;
   close(): void;
+}
+
+export interface ContextFactory {
+  readonly create: (options: ContextOptions) => Context;
+  readonly resourceLimitDiagnostic: (error: Error) => Presence<Diagnostic>;
 }

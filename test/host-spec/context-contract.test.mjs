@@ -51,7 +51,7 @@ const categories: readonly Model.Diagnostic['category'][] = ['error', 'warning',
 const diagnostic: Model.Diagnostic = {category: 'error', code: 'TYPE_CASE', source: 'host',
   owner: 'type-case', message: 'type-only data', site: present, related: [site], evidence};
 const limit: Model.ResourceLimit = {dimension: 'work', limit: 131072n};
-const domain: Model.ResourceDomain = {name: 'type-case', limits: [limit]};
+const domain: Model.ResourceDomain = {name: 'type-case', limits: [limit], admission:'operation',keyDimension:'work'};
 const options: Port.ContextOptions = {resourceDomains: [domain]};
 const usage: Model.ResourceUsage = {domain: 'type-case', owner: identity, dimension: 'work',
   charged: 1n, temporary: 0n, retained: 1n, peak: 1n};
@@ -59,11 +59,11 @@ const parts: readonly [Model.Identity, string, number, bigint, boolean, null, re
   = [original, 'component', 2, 3n, true, null, [identity, ['nested']]];
 const questionIdentity: Port.QuestionIdentity = {scope, parts};
 const stringDefinition: Port.QuestionDefinition<string, string> = {
-  owner: 'type-case', name: 'string', retention: 'immutable',
+  owner: 'type-case', name: 'string', domain:'type-case', retention: 'immutable',
   authenticate: input => ({scope, parts: [input, identity]}),
 };
 const bigintDefinition: Port.QuestionDefinition<bigint, bigint> = {
-  owner: 'type-case', name: 'bigint', retention: 'immutable',
+  owner: 'type-case', name: 'bigint', domain:'type-case', retention: 'immutable',
   authenticate: input => ({scope, parts: [input]}),
 };
 const stringRegistration: Port.Registration<string, string> = context.register(stringDefinition);
@@ -89,7 +89,7 @@ type ClosedOutcome = {readonly kind:'resolved'; readonly value:string}
 const closedRetention: Port.QuestionRetention<ClosedOutcome> = 'completed-outcome';
 const outcomes: readonly Answer[] = [{kind: 'none'}, {kind: 'present', value: 'value'},
   {kind: 'pending', dependencies: [identity]}];
-const outcomeRegistration = context.register<string, Answer>({owner: 'type-case', name: 'outcome',
+const outcomeRegistration = context.register<string, Answer>({owner: 'type-case', name: 'outcome', domain:'type-case',
   retention, authenticate: input => ({scope, parts: [input]})});
 declare const suppliedAnswer: Answer;
 outcomeRegistration.provide(() => suppliedAnswer);
@@ -115,6 +115,26 @@ context.close();
 void diagnostic; void categories; void options; void questionIdentity; void presenceRetention;
 void primitiveRetention; void recordRetention; void closedRetention; void outcomes; void text; void integer;
 void depthResult; void contextUsage; void sameProgram; void maybeUsage; void maybeResource;
+declare const factory: Port.ContextFactory;
+const actualContext: Port.Context = factory.create(options);
+declare const resourceError: Model.CompilerResourceLimitFailure;
+const error: Error = resourceError;
+const recognized: Model.Presence<Model.Diagnostic> = factory.resourceLimitDiagnostic(error);
+const resourceKind: 'compiler-resource-limit' = resourceError.kind;
+const resourceDimension: string = resourceError.dimension;
+const resourceLimit: bigint = resourceError.limit;
+const resourceDiagnostic: Model.Diagnostic = resourceError.diagnostic;
+declare const invariant: Model.ContextInvariantFailure;
+const invariantCode: Model.ContextInvariantCode = invariant.code;
+const chain: readonly Model.QueryChainEntry[] = invariant.chain;
+const entry: Model.QueryChainEntry = {owner:'type-case',question:'test',site:none};
+const allCodes: readonly Model.ContextInvariantCode[] = ['INVALID_CONTEXT_INPUT','CONTEXT_CLOSED',
+ 'DUPLICATE_QUESTION','MISSING_PROVIDER','DUPLICATE_PROVIDER','REGISTRATION_SEALED',
+ 'REGISTRATION_UNSEALED','FOREIGN_QUESTION','INVALID_QUESTION_KEY','INVALID_RESOURCE_SCOPE',
+ 'QUESTION_CYCLE','AUTHENTICATION_REENTRANCY'];
+const cohortDomain: Model.ResourceDomain = {...domain,admission:'cohort'};
+void actualContext; void recognized; void resourceKind; void resourceDimension; void resourceLimit;
+void resourceDiagnostic; void invariantCode; void chain; void entry; void allCodes; void cohortDomain;
 `;
 }
 
@@ -187,13 +207,13 @@ test("all invalid contract boundaries reject with exact compiler codes and count
     { name: "invalid-key-part", code: 2322, text: "const invalid: Port.QuestionKeyPart = undefined;" },
     { name: "sparse-key-parts", code: 2322, text: "const invalid: readonly Port.QuestionKeyPart[] = [,];" },
     { name: "wrong-authentication", code: 2739,
-      text: "const invalid: Port.QuestionDefinition<string,string> = {owner:'test', name:'test', retention:'immutable', authenticate: () => identity};" },
+      text: "const invalid: Port.QuestionDefinition<string,string> = {owner:'test', name:'test', domain:'work', retention:'immutable', authenticate: () => identity};" },
     { name: "wrong-retention-definition", code: 2322,
-      text: "const invalid: Port.QuestionDefinition<string,Model.Presence<string>> = {owner:'test',name:'test',retention:'immutable',authenticate:()=>({scope,parts:[]})};" },
+      text: "const invalid: Port.QuestionDefinition<string,Model.Presence<string>> = {owner:'test',name:'test',domain:'work',retention:'immutable',authenticate:()=>({scope,parts:[]})};" },
     { name: "reservation-retention", code: 2345, text: "scope.reserve('rows', 1n, 'forever');" },
     { name: "resource-number", code: 2345, text: "scope.charge('work', 1);" },
     { name: "malformed-limit", code: 2322, text: "const invalid: Model.ResourceLimit = {dimension:'work',limit:1};" },
-    { name: "missing-limit", code: 2741, text: "const invalid: Model.ResourceDomain = {name:'work',limits:[{dimension:'work'}]};" },
+    { name: "missing-limit", code: 2741, text: "const invalid: Model.ResourceDomain = {name:'work',admission:'operation',keyDimension:'work',limits:[{dimension:'work'}]};" },
     { name: "malformed-site", code: 2322,
       text: "const invalid: Model.SourceSite = {original,document:'input.ts',start:1n,length:1};" },
     { name: "malformed-diagnostic", code: 2741,
@@ -259,6 +279,35 @@ test("all invalid contract boundaries reject with exact compiler codes and count
       text: `declare const record: ${type}; record.${vector}.push();` });
   }
   assert.equal(cases.length, 103, "complete expected negative boundary domain");
+  const added = [
+    { name: "missing-question-domain", code: 2741,
+      text: "const invalid: Port.QuestionDefinition<string,string> = {owner:'test',name:'test',retention:'immutable',authenticate:()=>({scope,parts:[]})};" },
+    { name: "invalid-admission", code: 2322,
+      text: "const invalid: Model.ResourceDomain = {name:'work',limits:[],keyDimension:'keys',admission:'global'};" },
+    { name: "invalid-key-dimension", code: 2322,
+      text: "const invalid: Model.ResourceDomain = {name:'work',limits:[],keyDimension:1,admission:'operation'};" },
+    { name: "guard-error-only", code: 2345,
+      text: "declare const factory: Port.ContextFactory; factory.resourceLimitDiagnostic('not Error');" },
+    { name: "closed-invariant-codes", code: 2322,
+      text: "const invalid: Model.ContextInvariantCode = 'SOME_ERROR';" },
+  ];
+  const additions = [
+    ["Model.ResourceDomain", ["admission", "keyDimension"]],
+    ["Port.QuestionDefinition<string,string>", ["domain"]],
+    ["Port.ContextFactory", ["create", "resourceLimitDiagnostic"]],
+    ["Model.CompilerResourceLimitFailure", ["kind", "dimension", "limit", "diagnostic"]],
+    ["Model.ContextInvariantFailure", ["code", "owner", "question", "chain"]],
+    ["Model.QueryChainEntry", ["owner", "question", "site"]],
+  ];
+  for (const [type, fields] of additions) {
+    for (const field of fields) added.push({ name: `readonly-added-${type.replaceAll(/[^a-z0-9]/giu, "-")}-${field}`,
+      code: 2540, text: `declare const record: ${type}; record.${field} = record.${field};` });
+  }
+  added.push({ name:"readonly-chain-vector",code:2339,
+    text:"declare const record: Model.ContextInvariantFailure; record.chain.push();" });
+  assert.equal(added.length, 22, "complete additional factory/policy/failure negative domain");
+  cases.push(...added);
+  assert.equal(cases.length, 125, "all original103 purposes plus exact22 additions");
   const names = cases.map(entry => `${entry.name}.mts`);
   assert.equal(new Set(names).size, cases.length, "each negative has one distinct source file");
   await withSpecProject(cases.map(entry => ({ path: `${entry.name}.mts`, text: imports() + entry.text })), project => {
