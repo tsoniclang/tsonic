@@ -16,6 +16,64 @@ import { testRepositoryRoots, tsonicRoot } from "../../scripts/workspace-layout.
 
 const paths = { tsonicRoot, statusRoot: resolve(tsonicRoot, ".temp/shard-contract-results") };
 
+test("Host specs have canonical single ownership and only the Host build prerequisite", () => {
+  const definition = createParallelSuiteDefinition(testRepositoryRoots);
+  const suites = definition.nodeSuites.filter(suite => suite.scope === "tsonic" && suite.group === "host-spec");
+  assert.equal(suites.length, 1, "one canonical Host spec suite");
+  const [suite] = suites;
+  assert.equal(suite.directory, resolve(tsonicRoot, "test/host-spec"));
+  assert.equal(suite.suffix, ".test.mjs");
+  assert.deepEqual(suite.preRunIds, ["tsonic.build"]);
+  const hostDefinition = { ...definition,
+    nodeSuites: definition.nodeSuites.filter(entry => entry.scope === "tsonic"),
+    dotnetSuites: [], testRoots: definition.testRoots.filter(entry => entry.scope === "tsonic"),
+    groupWorkerLimits: {},
+  };
+  const { shards, inventory } = createParallelShardPlan(hostDefinition, testRepositoryRoots, paths);
+  const runnerPath = resolve(tsonicRoot, "test/host-spec/runner.test.mjs");
+  const owned = shards.filter(shard => shard.file === runnerPath);
+  assert.equal(owned.length, 1, "runner is actually discovered exactly once");
+  assert.equal(owned[0].scope, "tsonic");
+  assert.equal(owned[0].group, "host-spec");
+  assert.equal(owned[0].cwd, tsonicRoot);
+  assert.equal(owned[0].args.includes("--test-concurrency=1"), true);
+  assert.deepEqual(requiredParallelPreRuns(definition, owned).map(run => run.id), ["tsonic.build"]);
+  const rows = inventory.files.filter(file => file.scope === "tsonic" && file.path === "test/host-spec/runner.test.mjs");
+  assert.equal(rows.length, 1, "canonical exhaustive inventory retains the runner");
+  assert.deepEqual(rows[0].preRunIds, ["tsonic.build"]);
+});
+
+test("Host spec discovery still rejects a real unowned test file", () => {
+  mkdirSync(paths.statusRoot, { recursive: true });
+  const root = mkdtempSync(resolve(paths.statusRoot, "host-spec-unowned-"));
+  const owned = resolve(root, "test/host-spec");
+  mkdirSync(owned, { recursive: true });
+  writeFileSync(resolve(owned, "owned.test.mjs"), "import test from 'node:test'; test('owned', () => {});\n");
+  const script = `import {createParallelSuiteDefinition} from ${JSON.stringify(resolve(tsonicRoot, "test/scripts/suite-definition.mjs"))};
+import {createParallelShardPlan} from ${JSON.stringify(resolve(tsonicRoot, "test/scripts/parallel-shards.mjs"))};
+const repos = {...${JSON.stringify(testRepositoryRoots)}, tsonic: ${JSON.stringify(root)}};
+const actual = createParallelSuiteDefinition(repos);
+createParallelShardPlan({...actual, nodeSuites: actual.nodeSuites.filter(suite => suite.group === 'host-spec'),
+  dotnetSuites: [], groupWorkerLimits: {},
+  testRoots: [{scope: 'tsonic', directory: ${JSON.stringify(resolve(root, "test"))}}]},
+  repos, ${JSON.stringify(paths)});`;
+  const positive = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+  });
+  assert.equal(positive.error === undefined, true, "actual owned-only control completes");
+  assert.equal(positive.signal, null);
+  assert.equal(positive.status, 0, "the same strict validator accepts the complete owned domain");
+  writeFileSync(resolve(root, "test/unowned.test.mjs"), "import test from 'node:test'; test('unowned', () => {});\n");
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8", timeout: 30_000, maxBuffer: 65_536,
+  });
+  assert.equal(result.error === undefined, true, "actual coverage validator completes");
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 2, "exhaustive discovery refuses an unowned file");
+  assert.equal(result.stderr.trim(), "FAIL: parallel test task coverage validation failed.\n"
+    + "  - tsonic test file has no owning suite root: test/unowned.test.mjs");
+});
+
 test("every Host and Rust Node shard has an explicit single-file memory-scoped concurrency", () => {
   for (const definition of [createParallelSuiteDefinition(testRepositoryRoots), createRustParallelSuiteDefinition(testRepositoryRoots)]) {
     const { shards } = createParallelShardPlan(definition, testRepositoryRoots, paths);

@@ -140,6 +140,7 @@ export function createParallelSuiteDefinition(repos) {
       hostSuite("host-cli-build-runtime", "test/cli-build/runtime"),
       hostSuite("host-cli-build-toolchain", "test/cli-build/toolchain"),
       hostSuite("host-test-infrastructure", "test/infrastructure/runner"),
+      hostSuite("host-spec", "test/host-spec", { preRunIds: ["tsonic.build"] }),
       hostSuite("host-test-infrastructure", "test/fixtures/node-oracle"),
       hostSuite("host-ledger-inventory", "test/infrastructure/historical-inventory"),
       targetSuite("host-architecture", "test/architecture"),
