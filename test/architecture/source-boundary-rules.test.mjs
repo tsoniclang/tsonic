@@ -111,6 +111,69 @@ test("immutable data resolves original imported declarations without accepting m
     "export const other = 1;").some(row => row.rule === "module-owned-mutable-cache"), true);
 });
 
+test("immutable vector and string composition resolves the same local and imported originals structurally", () => {
+  const owner = "packages/host/src/libraries/register.ts";
+  const dependency = "packages/host/src/libraries/identities.ts";
+  const cases = [
+    ["spread", 'const original = Object.freeze(["first", Object.freeze({ kind: "second" })]);', 'Object.freeze(["prefix", ...selected])', true],
+    ["nested-spread", 'const first = Object.freeze(["first"]); const original = Object.freeze([...first, "second"]);', 'Object.freeze([...selected])', true],
+    ["literal-index", 'const original = Object.freeze(["first", "second"]);', 'selected[1]', true],
+    ["spread-index", 'const first = Object.freeze(["first"]); const original = Object.freeze([...first, "second"]);', 'selected[1]', true],
+    ["empty-spread", 'const original = Object.freeze([]);', 'Object.freeze([...selected, "last"])', true],
+    ["template", 'const original = "first";', '`head:${selected}:tail`', true],
+    ["string-plus", 'const original = "first";', 'selected + `:tail`', true],
+    ["template-plus", 'const original = "first";', '`head:${selected}` + `:tail`', true],
+    ["numeric-spelling", 'const original = Object.freeze(["first", "second"]);', 'selected[0x1]', true],
+    ["raw-vector-spread", 'const original = ["first"];', 'Object.freeze([...selected])', false],
+    ["mutable-original", 'let original = Object.freeze(["first"]);', 'Object.freeze([...selected])', false],
+    ["mutable-element", 'const original = Object.freeze([{}]);', 'Object.freeze([...selected])', false],
+    ["mutable-alias", 'let backing = Object.freeze(["first"]); const original = backing;', 'Object.freeze([...selected])', false],
+    ["spread-outside-freeze", 'const original = Object.freeze(["first"]);', '[...selected]', false],
+    ["object-spread", 'const original = Object.freeze(["first"]);', 'Object.freeze({ ...selected })', false],
+    ["nonvector-spread", 'const original = Object.freeze({ value: "first" });', 'Object.freeze([...selected])', false],
+    ["nonliteral-index", 'const original = Object.freeze(["first"]);', 'selected[Number("0")]', false],
+    ["computed-index", 'const original = Object.freeze(["first"]);', 'selected[0 + 0]', false],
+    ["named-index", 'const index = 0; const original = Object.freeze(["first"]);', 'selected[index]', false],
+    ["negative-index", 'const original = Object.freeze(["first"]);', 'selected[-1]', false],
+    ["fractional-index", 'const original = Object.freeze(["first"]);', 'selected[0.5]', false],
+    ["out-of-range", 'const original = Object.freeze(["first"]);', 'selected[1]', false],
+    ["empty-index", 'const original = Object.freeze([]);', 'selected[0]', false],
+    ["raw-vector-index", 'const original = ["first"];', 'selected[0]', false],
+    ["unknown-length", 'declare const original: readonly string[];', 'selected[0]', false],
+    ["missing-original", 'const other = "first";', 'selected[0]', false],
+    ["alias-cycle", 'const original = cycle; const cycle = original;', 'Object.freeze([...selected])', false],
+    ["accessor", 'const original = Object.freeze({ get value() { return "first"; } });', 'Object.freeze([selected])', false],
+    ["callback", 'function original() { return "first"; }', '`${selected()}`', false],
+    ["slice", 'const original = Object.freeze(["first"]);', 'Object.freeze(selected.slice())', false],
+    ["filter", 'const original = Object.freeze(["first"]);', 'Object.freeze(selected.filter(() => true))', false],
+    ["nonfreeze-call", 'const original = "first";', 'String(selected)', false],
+    ["numeric-template", 'const original = 1;', '`${selected}`', false],
+    ["numeric-plus", 'const original = 1;', 'selected + "tail"', false],
+    ["string-plus-number", 'const original = "first";', 'selected + 1', false],
+    ["unary-string", 'const original = -"first";', '`${selected}`', false],
+    ["other-operator", 'const original = "first";', 'selected - "tail"', false],
+    ["mutable-string", 'let original = "first";', '`${selected}`', false],
+    ["array-string", 'const original = Object.freeze(["first"]);', '`${selected}`', false],
+    ["foreign-original", 'import { original } from "not-supplied";', '`${selected}`', false],
+  ];
+  assert.equal(cases.length, 40, "complete independently expected structural composition domain");
+  for (const mode of ["local", "imported"]) {
+    for (const [name, original, expression, expected] of cases) {
+      const imported = original.includes("const original") || original.includes("let original") || original.includes("function original")
+        ? original.replace(/(?=(?:declare )?(?:const|let|function) original\b)/u, "export ") : `${original}\nexport { original };`;
+      const text = mode === "local" ? `${original}\nconst selected = original;\nconst answer = ${expression};`
+        : `import { original as selected } from './identities.js';\nconst answer = ${expression};`;
+      const source = readArchitectureTypeScript(new Map([[owner, text], ...(mode === "imported" ? [[dependency, imported]] : [])]));
+      const file = source.sourceFiles.find(file => source.ast.getFileName(file).endsWith(owner));
+      assert.equal(file !== undefined, true, `${mode}/${name}: original consumer exists`);
+      const rows = moduleLifetimeFindings(source, file, { immutableData: true });
+      const answer = text.indexOf("answer =");
+      assert.equal(rows.some(row => row.start === answer), !expected, `${mode}/${name}: exact answer classification`);
+      if (expected) assert.deepEqual(rows, [], `${mode}/${name}: complete positive findings`);
+    }
+  }
+});
+
 test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
   assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
     message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);
