@@ -36,9 +36,17 @@ export function createSourceSolvedProtocolFacts(context: SourceProtocolProductio
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
   const present = <Value>(value: Value): SourceProductionResult<SourcePresence<Value>> => ({ kind: "resolved", value: { kind: "present", value } });
   const dependency = (node: Node) => builder.componentIdentity(node, []);
-  const iterations = createSourceProductionCache<Node, SourcePresence<SourceIteration>>({ dependency, produce: iteration });
-  const generators = createSourceProductionCache<Node, SourcePresence<SourceGenerator>>({ dependency, produce: generator });
-  const yields = createSourceProductionCache<Node, SourcePresence<SourceYield>>({ dependency, produce: yielded });
+  function authenticate(node: Node, bindings: readonly SourceTypeBinding[]): void {
+    context.input.assertNode(node);
+    for (const binding of bindings) {
+      context.input.assertNode(binding.declaration);
+      builder.typeParameter(binding.declaration);
+      builder.assertEvidence(binding.value);
+    }
+  }
+  const iterations = createSourceProductionCache<Node, SourcePresence<SourceIteration>>({ authenticate, dependency, produce: iteration });
+  const generators = createSourceProductionCache<Node, SourcePresence<SourceGenerator>>({ authenticate, dependency, produce: generator });
+  const yields = createSourceProductionCache<Node, SourcePresence<SourceYield>>({ authenticate, dependency, produce: yielded });
 
   function absent(node: Node): SourceTypeEvidence {
     return builder.evidence({ type: builder.intrinsic("void"), component: dependency(node), category: { kind: "known", category: "absence" },

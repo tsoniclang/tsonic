@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer } from "../../source-navigation/ast.js";
+import { createSourceTypeFlowVariableIndex } from "./variable-index.js";
 import type {
   SourceTypeFlowAnalysisContext,
   SourceTypeFlowGraph,
@@ -19,73 +20,20 @@ interface SignatureVariable {
   origin?: SignatureOrigin;
 }
 
-interface SignatureVariablePath {
-  readonly members: Map<string, SignatureVariablePath>;
-  readonly binders: Map<Node, SignatureVariablePath>;
-  readonly tuples: Map<number, SignatureVariablePath>;
-  element?: SignatureVariablePath;
-  optionalValue?: SignatureVariablePath;
-  value?: SignatureVariable;
-}
-
-function variablePath(): SignatureVariablePath {
-  return { members: new Map(), binders: new Map(), tuples: new Map() };
-}
-
 export function collectSourceTypeFlowSignatures(
   context: SourceTypeFlowAnalysisContext,
   graph: SourceTypeFlowGraph,
   isInference: (variable: SourceTypeFlowVariable) => boolean,
 ): readonly SourceTypeFlowSignature[] {
-  const variables = new Map<Node, SignatureVariablePath>();
   const entries: SignatureVariable[] = [];
   const seeds: { readonly variable: SignatureVariable; readonly origin: SignatureOrigin }[] = [];
   const { ast } = context.source;
 
-  const entry = (variable: SourceTypeFlowVariable): SignatureVariable => {
-    let path = variables.get(variable.node);
-    if (path === undefined) {
-      path = variablePath();
-      variables.set(variable.node, path);
-    }
-    for (const part of variable.path) {
-      if (part.kind === "element") {
-        path.element ??= variablePath();
-        path = path.element;
-      } else if (part.kind === "optional-value") {
-        path.optionalValue ??= variablePath();
-        path = path.optionalValue;
-      } else {
-        if (part.kind === "member") {
-          let child = path.members.get(part.name);
-          if (child === undefined) {
-            child = variablePath();
-            path.members.set(part.name, child);
-          }
-          path = child;
-        } else if (part.kind === "tuple") {
-          let child = path.tuples.get(part.index);
-          if (child === undefined) {
-            child = variablePath();
-            path.tuples.set(part.index, child);
-          }
-          path = child;
-        } else {
-          let child = path.binders.get(part.declaration);
-          if (child === undefined) {
-            child = variablePath();
-            path.binders.set(part.declaration, child);
-          }
-          path = child;
-        }
-      }
-    }
-    if (path.value === undefined) {
-      path.value = { variable, dependencies: new Set() };
-      entries.push(path.value);
-    }
-    return path.value;
-  };
+  const entry = createSourceTypeFlowVariableIndex<SignatureVariable>(variable => {
+    const selected: SignatureVariable = { variable, dependencies: new Set() };
+    entries.push(selected);
+    return selected;
+  });
 
   const seed = (node: Node, variable: SourceTypeFlowVariable): void => {
     if (!isInference(variable)) return;

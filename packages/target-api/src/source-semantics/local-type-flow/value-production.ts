@@ -4,7 +4,7 @@ import { sourceOpenLiteralDomain, sourcePresentLiteralDomain } from "../../sourc
 import { sourceLiteralValueDomain } from "../../source-model/literals/value-domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { Node_Expression, sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
-import { sourceTypeFlowNumericLiteralKind } from "./defaults.js";
+import { sourceTypeFlowNumericLiteralKind } from "./numeric-creation.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceSemanticProduction } from "./production-context.js";
 import { produceSourceEvidenceDetails } from "./member-production.js";

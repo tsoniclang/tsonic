@@ -3,6 +3,7 @@ import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, SpreadA
 import { sourceTypeFlowTypeSyntax } from "./value-syntax.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
 import { sourceTypeFlowBinaryOperators, sourceTypeFlowUnaryOperators } from "./operators.js";
+import { createSourceTypeFlowVariableIndex } from "./variable-index.js";
 import type { SourceRefusal } from "../../public/source/contracts.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowCall, SourceTypeFlowDerived, SourceTypeFlowGraph,
   SourceTypeFlowLink, SourceTypeFlowNode, SourceTypeFlowOperator, SourceTypeFlowPathPart,
@@ -19,20 +20,16 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
   const derived: SourceTypeFlowDerived[] = [];
   const calls: SourceTypeFlowCall[] = [];
   const refusals: SourceRefusal[] = [];
-  const variables = new WeakMap<Node, Map<string, SourceTypeFlowVariable>>();
+  const variables = createSourceTypeFlowVariableIndex<SourceTypeFlowVariable>(variable => Object.freeze({
+    node: variable.node, path: Object.freeze(variable.path.map(part => Object.freeze({ ...part }))),
+  }));
   const pending = new Set<Node>();
   const values = new Set(context.values);
 
   function variable(node: Node, path: readonly SourceTypeFlowPathPart[] = []): SourceTypeFlowVariable {
-    const key = path.map(part => part.kind === "member" ? `${part.kind}:${part.name}` : part.kind === "tuple" ? `${part.kind}:${part.index}`
-      : part.kind === "binder" ? `${part.kind}:${context.order(part.declaration).preorder}` : part.kind).join("/");
-    let entries = variables.get(node);
-    if (entries === undefined) { entries = new Map(); variables.set(node, entries); }
-    const previous = entries.get(key);
-    if (previous !== undefined) return previous;
-    const result = Object.freeze({ node, path: Object.freeze([...path]) });
-    entries.set(key, result);
-    return result;
+    input.assertNode(node);
+    for (const part of path) if (part.kind === "binder") input.assertNode(part.declaration);
+    return variables({ node, path });
   }
 
   function region(node: Node): Node {

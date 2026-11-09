@@ -1,8 +1,9 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
+import { createSourceTypeFlowVariableIndex } from "./variable-index.js";
 import type { SourceRefusal } from "../../public/source/contracts.js";
 import type {
-  SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowPathPart,
+  SourceTypeFlowGraph, SourceTypeFlowNode,
   SourceTypeFlowTerm, SourceTypeFlowVariable,
 } from "./types.js";
 
@@ -36,46 +37,14 @@ interface TermSlot {
   readonly refusals: SourceRefusal[];
 }
 
-interface PathIndex {
-  readonly parts: Map<string, PathIndex>;
-  readonly binders: WeakMap<Node, PathIndex>;
-  slot?: TermSlot;
-}
-
 export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowGraph): SourceTypeFlowTerms {
-  const indexes = new WeakMap<Node, PathIndex>();
   const slots: TermSlot[] = [];
-  function intern(variable: SourceTypeFlowVariable): TermSlot {
-    const existing = indexes.get(variable.node);
-    let index: PathIndex;
-    if (existing === undefined) {
-      index = { parts: new Map(), binders: new WeakMap() };
-      indexes.set(variable.node, index);
-    } else {
-      index = existing;
-    }
-    for (const part of variable.path) {
-      if (part.kind === "tuple" && (!Number.isSafeInteger(part.index) || part.index < 0)) {
-        throw new Error("A Source tuple path requires a nonnegative safe integer position.");
-      }
-      const selected: PathIndex | undefined = part.kind === "binder" ? index.binders.get(part.declaration)
-        : index.parts.get(pathKey(part));
-      if (selected !== undefined) {
-        index = selected;
-        continue;
-      }
-      const child: PathIndex = { parts: new Map(), binders: new WeakMap() };
-      if (part.kind === "binder") index.binders.set(part.declaration, child);
-      else index.parts.set(pathKey(part), child);
-      index = child;
-    }
-    if (index.slot === undefined) {
-      const selected: TermSlot = { variable, rank: 0, parent: undefined, nodes: [], terms: [], structures: [], numeric: false, refusals: [] };
-      index.slot = selected;
-      slots.push(selected);
-    }
-    return index.slot;
-  }
+  const views = new WeakMap<TermSlot, SourceTypeFlowTermGroup>();
+  const intern = createSourceTypeFlowVariableIndex<TermSlot>(variable => {
+    const selected: TermSlot = { variable, rank: 0, parent: undefined, nodes: [], terms: [], structures: [], numeric: false, refusals: [] };
+    slots.push(selected);
+    return selected;
+  });
   function root(slot: TermSlot): TermSlot {
     let selected = slot;
     while (selected.parent !== undefined) selected = selected.parent;
@@ -109,7 +78,10 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   }
   function refuse(slot: TermSlot, refusal: SourceRefusal): void {
     const selected = root(slot);
-    if (selected.refusals.length === 0) selected.refusals.push(refusal);
+    if (selected.refusals.length === 0) {
+      selected.refusals.push(refusal);
+      views.delete(selected);
+    }
   }
   function union(left: TermSlot, right: TermSlot, site: Node): void {
     const pending: [TermSlot, TermSlot][] = [[left, right]];
@@ -246,15 +218,26 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
       pendingInference.push(next);
     }
   }
-  function depth(slot: TermSlot, active = new Set<TermSlot>()): number {
+  const depths = new Map<TermSlot, number>();
+  function depth(slot: TermSlot, remaining = 4, active = new Set<TermSlot>()): number {
     const selected = root(slot);
+    const previous = depths.get(selected);
+    if (previous !== undefined) return previous;
     if (active.has(selected)) return 5;
     const nested = children(selected);
-    if (nested.length === 0) return 0;
-    const next = new Set(active).add(selected);
-    let maximum = 0;
-    for (const child of nested) maximum = Math.max(maximum, depth(child, next));
-    return 1 + maximum;
+    if (nested.length === 0) { depths.set(selected, 0); return 0; }
+    if (remaining === 0) return 5;
+    active.add(selected);
+    try {
+      let maximum = 0;
+      for (const child of nested) {
+        const childDepth = depth(child, remaining - 1, active);
+        if (childDepth >= remaining) return 5;
+        maximum = Math.max(maximum, childDepth + 1);
+      }
+      depths.set(selected, maximum);
+      return maximum;
+    } finally { active.delete(selected); }
   }
   for (const slot of slots) {
     const selected = root(slot);
@@ -263,11 +246,16 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
   }
   const view = (slot: TermSlot): SourceTypeFlowTermGroup => {
     const selected = root(slot);
-    return { variable: selected.variable, nodes: selected.nodes, terms: selected.terms, refusals: selected.refusals };
+    const previous = views.get(selected);
+    if (previous !== undefined) return previous;
+    const value = Object.freeze({ variable: selected.variable, nodes: Object.freeze([...selected.nodes]),
+      terms: Object.freeze([...selected.terms]), refusals: Object.freeze([...selected.refusals]) });
+    views.set(selected, value);
+    return value;
   };
   return Object.freeze({
     group: (variable: SourceTypeFlowVariable) => view(intern(variable)),
-    groups: () => [...new Set(slots.map(root))].map(view),
+    groups: () => Object.freeze([...new Set(slots.map(root))].map(view)),
     isInference: (variable: SourceTypeFlowVariable) => inference.has(root(intern(variable))),
     refuse: (variable: SourceTypeFlowVariable, refusal: SourceRefusal) => refuse(intern(variable), refusal),
   });
@@ -275,9 +263,4 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
 
 function structural(term: SourceTypeFlowTerm): term is Extract<SourceTypeFlowTerm, { kind: "array" | "shape" | "declared" | "tuple" | "optional" }> {
   return term.kind === "array" || term.kind === "shape" || term.kind === "declared" || term.kind === "tuple" || term.kind === "optional";
-}
-
-function pathKey(part: Exclude<SourceTypeFlowPathPart, { kind: "binder" }>): string {
-  return part.kind === "element" ? "element" : part.kind === "optional-value" ? "optional-value"
-    : part.kind === "tuple" ? `tuple:${part.index}` : `member:${part.name}`;
 }

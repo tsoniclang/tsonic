@@ -3,6 +3,7 @@ import type { SourceTypeBinding, SourceTypeComponent } from "../../public/source
 import type { SourceProductionResult } from "../../source-model/production.js";
 
 export function createSourceProductionCache<Key extends object, Value>(input: {
+  readonly authenticate: (key: Key, bindings: readonly SourceTypeBinding[]) => void;
   readonly dependency: (key: Key) => SourceTypeComponent;
   readonly produce: (key: Key, bindings: readonly SourceTypeBinding[]) => SourceProductionResult<Value>;
 }): {
@@ -30,16 +31,20 @@ export function createSourceProductionCache<Key extends object, Value>(input: {
       return `${identity(binding.declaration)}:${identity(binding.value)}`;
     }).join("/");
   }
-  function seed(key: Key, bindings: readonly SourceTypeBinding[], value: SourceProductionResult<Value>): void {
+  function retain(key: Key, signature: string, value: SourceProductionResult<Value>): void {
     if (value.kind === "pending") return;
-    const signature = environment(bindings);
     let records = cache.get(key);
     if (records === undefined) { records = new Map(); cache.set(key, records); }
     if (records.has(signature)) return;
     records.set(signature, value);
     revision++;
   }
+  function seed(key: Key, bindings: readonly SourceTypeBinding[], value: SourceProductionResult<Value>): void {
+    input.authenticate(key, bindings);
+    retain(key, environment(bindings), value);
+  }
   function query(key: Key, bindings: readonly SourceTypeBinding[]): SourceProductionResult<Value> {
+    input.authenticate(key, bindings);
     const signature = environment(bindings);
     const previous = cache.get(key)?.get(signature);
     if (previous !== undefined) return previous;
@@ -49,7 +54,7 @@ export function createSourceProductionCache<Key extends object, Value>(input: {
     running.add(signature);
     try {
       const result = input.produce(key, bindings);
-      seed(key, bindings, result);
+      retain(key, signature, result);
       return result;
     } finally { running.delete(signature); }
   }

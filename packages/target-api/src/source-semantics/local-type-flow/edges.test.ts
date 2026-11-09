@@ -5,7 +5,7 @@ import {
   sourcePrimitive, type Node, type SourceFile,
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
-import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext } from "./analysis-context.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { sourceTypeDescriptorStructure } from "./terms.js";
 import { createSourceTypeFlowTerms } from "./term-groups.js";

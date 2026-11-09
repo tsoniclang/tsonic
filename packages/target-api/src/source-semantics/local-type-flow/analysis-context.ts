@@ -1,9 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues } from "../literal-values.js";
-import type { SourceLiteralValue } from "../../source-model/literals/value.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 import type { SourceDescriptorProductionHooks } from "../descriptor-contracts.js";
-import { sourcePrimitiveOperatorLiteralFits } from "./operator-decisions.js";
 import { sourceTypeFlowTypeSyntax, sourceTypeFlowValueSyntax } from "./value-syntax.js";
 import { createSourceLiteralDomainQueries } from "./literal-domains.js";
 import { sourceApplicationStaticReceiver } from "./application-references.js";
@@ -76,18 +74,4 @@ export function createSourceTypeFlowAnalysisContext(source: SourceTypeFlowSource
       return Object.freeze({ start: range.kind === "authored" ? range.start : ast.pos(node), preorder });
     },
   });
-}
-
-export type SourceTypeFlowNumericLiteralDecision =
-  | { readonly kind: "resolved"; readonly primitive: "int64" | "float64" }
-  | { readonly kind: "refused"; readonly reason: string };
-
-export function sourceTypeFlowNumericLiteralKind(literal: SourceLiteralValue): SourceTypeFlowNumericLiteralDecision {
-  const numeric = literal.numeric;
-  if (numeric?.kind === "checked-float64" || numeric?.kind === "authored" && /[.eE]/u.test(numeric.token.decimalText)) {
-    return Object.freeze({ kind: "resolved", primitive: "float64" });
-  }
-  if (sourcePrimitiveOperatorLiteralFits(literal, "int64")) return Object.freeze({ kind: "resolved", primitive: "int64" });
-  return Object.freeze({ kind: "refused",
-    reason: "An unbound integer literal is outside the exact 'int64' range. Annotate it with an exact native type or use bigint." });
 }

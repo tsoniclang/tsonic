@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
 import { createSourceTypeFlowTerms } from "./term-groups.js";
+import { createSourceTypeFlowVariableIndex } from "./variable-index.js";
 import type { SourceTypeFlowGraph, SourceTypeFlowNode, SourceTypeFlowTerm, SourceTypeFlowVariable } from "./types.js";
 
 function fixture() {
@@ -35,6 +36,35 @@ test("canonical variable paths use original nodes and structural positions", () 
   const terms = createSourceTypeFlowTerms(current.ast, current.graph([current.entry(first), current.entry(other)]));
   assert.equal(terms.group(first).variable === terms.group(same).variable, true);
   assert.equal(terms.group(first).variable === terms.group(other).variable, false);
+});
+
+test("inference variable paths preserve delimiters, original binder identities and immutable slots", () => {
+  const current = fixture();
+  const index = createSourceTypeFlowVariableIndex(variable => Object.freeze({
+    node: variable.node, path: Object.freeze(variable.path.map(part => Object.freeze({ ...part }))),
+  }));
+  const single: SourceTypeFlowVariable = { node: current.nodes[0]!, path: [{ kind: "member", name: "a/member:b" }] };
+  const nested: SourceTypeFlowVariable = { node: current.nodes[0]!, path: [{ kind: "member", name: "a" }, { kind: "member", name: "b" }] };
+  const first = index(single), second = index(nested);
+  assert.equal(first !== second, true, "an original key containing a path delimiter is not a nested member path");
+  assert.equal(index({ node: single.node, path: [...single.path] }) === first, true);
+  assert.equal(index({ node: single.node, path: [{ kind: "binder", declaration: current.nodes[0]! }] }) ===
+    index({ node: single.node, path: [{ kind: "binder", declaration: current.nodes[1]! }] }), false);
+  assert.equal(Object.isFrozen(first) && Object.isFrozen(first.path) && first.path.every(Object.isFrozen), true);
+  assert.throws(() => index({ node: single.node, path: [{ kind: "tuple", index: -1 }] }), /nonnegative safe integer/u);
+});
+
+test("inference-group views are immutable and preserve the first exact refusal across snapshots", () => {
+  const current = fixture(), variable = current.variable(0);
+  const terms = createSourceTypeFlowTerms(current.ast, current.graph([current.entry(variable)]));
+  const previous = terms.group(variable);
+  assert.equal(Object.isFrozen(previous) && Object.isFrozen(previous.nodes) && Object.isFrozen(previous.refusals), true);
+  const issue = { kind: "refused" as const, source: "tsonic" as const, code: "TSONIC_LOCAL_TYPE_LIMIT", site: variable.node,
+    message: "the exact owning refusal" };
+  terms.refuse(variable, issue);
+  const selected = terms.group(variable);
+  assert.equal(previous.refusals.length === 0 && selected.refusals.length === 1 && selected.refusals[0] === issue, true);
+  assert.equal(Object.isFrozen(terms.groups()) && Object.isFrozen(selected.refusals), true);
 });
 
 test("array aliases unify their exact element positions", () => {

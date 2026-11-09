@@ -3,7 +3,7 @@ import test from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { SymbolFlagsPrototype, createCompilerSessionFromFiles, createSourceSemanticsExtension, formatDiagnostics, sourcePrimitive, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../target-source-program.js";
-import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext } from "./analysis-context.js";
 import { collectSourceTypeFlowEdges, sourceTypeFlowObjectLiteralReceiver } from "./edges.js";
 import { analyzeSourceEffectiveTypes } from "./solver.js";
 import type { SourceEffectiveTypeOutcome, SourceTypeDescriptor, SourceTypeDescriptorMember, SourceTypeFlowObligation } from "./types.js";

@@ -8,7 +8,7 @@ import type { SourceDescriptorProductionHooks } from "../descriptor-contracts.js
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import { createSourceEnumFacts } from "../enum-facts.js";
 import { sourceEnumDestination, sourceEnumValueDomain } from "../enum-numeric-uses.js";
-import { createSourceTypeFlowAnalysisContext } from "./defaults.js";
+import { createSourceTypeFlowAnalysisContext } from "./analysis-context.js";
 import { collectSourceTypeFlowEdges } from "./edges.js";
 import { collectSourceTypeFlowUses } from "./uses.js";
 import { createSourceGraphSolver } from "./graph-solver.js";
@@ -63,7 +63,16 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   const pending = (node: Node): SourceProductionResult<never> => ({ kind: "pending", dependencies: [dependency(node)] });
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
 
-  const values = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
+  function authenticate(node: Node, bindings: readonly SourceTypeBinding[]): void {
+    input.assertNode(node);
+    for (const binding of bindings) {
+      input.assertNode(binding.declaration);
+      builder.typeParameter(binding.declaration);
+      builder.assertEvidence(binding.value);
+    }
+  }
+
+  const values = createSourceProductionCache<Node, SourceTypeEvidence>({ authenticate, dependency,
     produce: (node, bindings) => {
       const result = produceSourceValue({ ...semantic(), context, inferred,
       expected, construction: occurrence => {
@@ -80,21 +89,26 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       if (result.kind === "resolved" && bindings.length === 0) observeHead(result.value);
       return result;
     } });
-  const declarations = createSourceProductionCache<Node, SourceDeclaredSlot>({ dependency,
+  const declarations = createSourceProductionCache<Node, SourceDeclaredSlot>({ authenticate, dependency,
     produce(node, bindings) {
       if (declarationProduction === undefined) return pending(node);
       const result = produceSourceDeclaredSlot(declarationProduction, node, bindings);
       if (result.kind === "resolved" && bindings.length === 0) observeHead(result.value.type);
       return result;
     } });
-  const completions = createSourceProductionCache<Node, SourceTypeEvidence>({ dependency,
+  const completions = createSourceProductionCache<Node, SourceTypeEvidence>({ authenticate, dependency,
     produce: (node, bindings) => declarationProduction === undefined ? pending(node) : produceSourceCallableCompletion(declarationProduction, node, bindings) });
   const callableHeadKeys = new WeakMap<Node, Map<"body" | "signature", SourceCallableHeadKey>>();
   const callableHeads = createSourceProductionCache<SourceCallableHeadKey, SourceTypeEvidence>({
+    authenticate: (key, bindings) => authenticate(key.declaration, bindings),
     dependency: key => dependency(key.declaration),
     produce: (key, bindings) => declarationProduction === undefined ? pending(key.declaration)
       : produceSourceCallableHead(declarationProduction, key.declaration, bindings) });
   const returns = createSourceProductionCache<SourceSignatureIdentity, SourceTypeEvidence>({
+    authenticate(signature, bindings) {
+      authenticate(signatureRoot(signature), bindings);
+      builder.componentIdentity(signatureRoot(signature), [{ kind: "result", signature }]);
+    },
     dependency: signature => dependency(signatureRoot(signature)),
     produce(signature, bindings) {
       signatures.add(signature);
@@ -104,12 +118,12 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
         "An original nonsyntax callable result requires its authenticated signature component.", "TSONIC_LOCAL_TYPE_SIGNATURE");
       return completions.query(signature.declaration, bindings);
     } });
-  const applications = createSourceProductionCache<Node, SourceProducedApplication>({ dependency,
+  const applications = createSourceProductionCache<Node, SourceProducedApplication>({ authenticate, dependency,
     produce(node) {
       if (applicationProduction === undefined) return pending(node);
       return produceSourceApplication(applicationProduction, node);
     } });
-  const operations = createSourceProductionCache<Node, SourceOperation>({ dependency,
+  const operations = createSourceProductionCache<Node, SourceOperation>({ authenticate, dependency,
     produce(node) {
       return produceSourceOperation({ ...semantic(), value: occurrence => value(occurrence, []), literal: context.literal,
         unboundLiteral: occurrence => {
@@ -121,7 +135,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
           return { kind: "resolved", value: selected.value?.type.kind === "primitive" ? selected.value.type.primitive : undefined };
         } }, node);
     } });
-  const destinations = createSourceProductionCache<Node, SourcePresence<SourceUseDestination>>({ dependency,
+  const destinations = createSourceProductionCache<Node, SourcePresence<SourceUseDestination>>({ authenticate, dependency,
     produce: (node, bindings) => slots === undefined ? pending(node) : slots.destination(node, bindings) });
   const enums = createSourceEnumFacts({ sourceFiles: source.sourceFiles, input, navigation: source.navigation, builder,
     componentIdentity: component => context.reader.componentIdentity(component) });
@@ -169,15 +183,10 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function completion(declaration: Node, bindings: readonly SourceTypeBinding[]) { return completions.query(declaration, bindings); }
   function callableHead(declaration: Node, role: "body" | "signature",
     bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
-    input.assertNode(declaration);
+    authenticate(declaration, bindings);
     if (role !== "body" && role !== "signature") throw new Error("An original callable-head question requires its exact role.");
     if (!source.navigation.callableRoles(declaration)[role])
       throw new Error("An original callable-head question requires its actual declaration role.");
-    for (const binding of bindings) {
-      input.assertNode(binding.declaration);
-      builder.typeParameter(binding.declaration);
-      builder.assertEvidence(binding.value);
-    }
     let roles = callableHeadKeys.get(declaration);
     if (roles === undefined) { roles = new Map(); callableHeadKeys.set(declaration, roles); }
     let key = roles.get(role);
