@@ -76,8 +76,11 @@ export function moduleLifetimeFindings(source, file, { immutableData = false } =
     if (!immutableData && ast.is.IsIdentifier(node)) return true;
     if (immutableData && ast.is.IsIdentifier(node)) {
       const parent = ast.parent(node);
-      const symbol = ast.is.IsShorthandPropertyAssignment(parent)
+      let symbol = ast.is.IsShorthandPropertyAssignment(parent)
         ? checker.getLexicallyResolvedSymbol(node) : checker.getSymbolAtLocation(node);
+      if (symbol !== undefined && checker.getSymbolDeclarations(symbol).some(declaration =>
+        ["KindImportSpecifier", "KindImportClause", "KindExportSpecifier", "KindNamespaceImport", "KindNamespaceExport"]
+          .includes(ast.kindName(declaration)))) symbol = checker.getAliasedSymbol(symbol);
       if (symbol === undefined || active.has(symbol)) return false;
       const declaration = checker.getSymbolValueDeclaration(symbol);
       if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration)) return true;

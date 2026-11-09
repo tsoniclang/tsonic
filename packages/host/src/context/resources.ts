@@ -48,12 +48,29 @@ export interface Height {
   readonly height: bigint;
 }
 
+interface Backing {
+  live: boolean;
+  published: boolean;
+  invalidate: (() => void) | undefined;
+  retained: readonly Lease[];
+  dependencies: Set<Backing> | undefined;
+  dependents: Set<Backing> | undefined;
+}
+
+export interface Publication {
+  readonly backing: Backing;
+  readonly heights: readonly Height[];
+  readonly retire: () => void;
+}
+
 export interface QueryResources {
   readonly domain: Domain;
   readonly root: boolean;
   readonly leases: Set<Lease>;
   readonly baseline: Map<Counter, bigint>;
   readonly heights: Map<Counter, Height>;
+  scope: ResourceScope | undefined;
+  backing: Backing | undefined;
 }
 
 function immutableRecord(value: object, fields: readonly string[]): boolean {
@@ -155,6 +172,7 @@ export class Resources {
     if (root) domain.operation = new Map();
     const ticket: QueryResources = {
       domain, root, leases: new Set(), baseline: new Map(), heights: new Map(),
+      scope: undefined, backing: undefined,
     };
     for (const value of this.#depths) ticket.baseline.set(value, value.depth);
     this.#tickets.push(ticket);
@@ -170,6 +188,7 @@ export class Resources {
   validate(scope: ResourceScope, ticket: QueryResources): void {
     const actual = this.#scope(scope);
     if (actual.domain !== ticket.domain) invariant("INVALID_RESOURCE_SCOPE", actual.owner.owner);
+    ticket.scope = scope;
   }
 
   site(scope: ResourceScope): Presence<SourceSite> {
@@ -181,29 +200,53 @@ export class Resources {
   }
 
   end(ticket: QueryResources): void {
+    if (ticket.backing !== undefined && !ticket.backing.published) this.#retire(ticket.backing);
     for (const lease of ticket.leases) {
       if (!lease.transferred) lease.release();
     }
+    ticket.leases.clear();
+    ticket.baseline.clear();
+    ticket.heights.clear();
     this.#tickets.pop();
     if (ticket.root) ticket.domain.operation = undefined;
   }
 
-  publish(ticket: QueryResources, invalidate: () => void): {
-    readonly heights: readonly Height[]; readonly retire: () => void;
-  } {
+  publish(ticket: QueryResources, invalidate: () => void): Publication | undefined {
+    const backing = this.#backing(ticket);
+    if (!backing.live) return undefined;
     const retained = [...ticket.leases].filter(lease => lease.active && lease.retention === "retained");
-    let live = true;
-    const retire = (): void => {
-      if (!live) return;
-      live = false;
-      invalidate();
-      for (const lease of retained) lease.release();
-    };
+    const retire = (): void => { this.#retire(backing); };
+    backing.invalidate = invalidate;
+    backing.retained = retained;
+    backing.published = true;
     for (const lease of retained) {
       lease.transferred = true;
       lease.invalidate = retire;
     }
-    return Object.freeze({ heights: Object.freeze([...ticket.heights.values()]), retire });
+    return Object.freeze({ backing, heights: Object.freeze([...ticket.heights.values()]), retire });
+  }
+
+  read(ticket: QueryResources, publication: Publication | undefined): void {
+    const parent = this.#tickets[this.#tickets.length - 2];
+    if (parent === undefined) return;
+    const previous = parent.backing;
+    if (previous !== undefined && !previous.live) return;
+    if (publication === undefined || !publication.backing.live) {
+      this.#retire(this.#backing(parent));
+      return;
+    }
+    const child = publication.backing;
+    if (previous?.dependencies?.has(child)) return;
+    const scope = parent.scope;
+    if (scope === undefined || this.#tickets[this.#tickets.length - 1] !== ticket) {
+      invariant("INVALID_RESOURCE_SCOPE");
+    }
+    scope.charge(this.keyDimension(scope), 8n);
+    const backing = this.#backing(parent);
+    if (backing.dependencies === undefined) backing.dependencies = new Set();
+    if (child.dependents === undefined) child.dependents = new Set();
+    backing.dependencies.add(child);
+    child.dependents.add(backing);
   }
 
   checkHeights(scope: ResourceScope, heights: readonly Height[]): void {
@@ -256,7 +299,9 @@ export class Resources {
           release: (): void => {
             if (!lease.active) return;
             lease.active = false;
-            lease.invalidate?.();
+            const invalidate = lease.invalidate;
+            lease.invalidate = undefined;
+            invalidate?.();
             actual.value[retention] -= amount;
             actual.usage[retention] -= amount;
             state.leases.delete(lease);
@@ -330,6 +375,40 @@ export class Resources {
     const actual = this.#scopes.get(scope);
     if (actual === undefined || !actual.open) invariant("INVALID_RESOURCE_SCOPE");
     return actual;
+  }
+
+  #backing(ticket: QueryResources): Backing {
+    if (ticket.backing === undefined) {
+      ticket.backing = { live: true, published: false, invalidate: undefined,
+        retained: [], dependencies: undefined, dependents: undefined };
+    }
+    return ticket.backing;
+  }
+
+  #retire(backing: Backing): void {
+    if (!backing.live) return;
+    backing.live = false;
+    const pending = [backing];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (current === undefined) invariant("INVALID_RESOURCE_SCOPE");
+      const invalidate = current.invalidate;
+      current.invalidate = undefined;
+      invalidate?.();
+      for (const dependent of current.dependents ?? []) {
+        if (dependent.live) {
+          dependent.live = false;
+          pending.push(dependent);
+        }
+        dependent.dependencies?.delete(current);
+      }
+      for (const dependency of current.dependencies ?? []) dependency.dependents?.delete(current);
+      current.dependencies?.clear();
+      current.dependents?.clear();
+      const retained = current.retained;
+      current.retained = [];
+      for (const lease of retained) lease.release();
+    }
   }
 
   #admit(scope: Scope, dimension: string, amount: bigint): { value: Counter; usage: Usage } {

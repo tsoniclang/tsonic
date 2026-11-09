@@ -4,7 +4,7 @@ import type {
 import type { QueryChainEntry } from "../model/contract.js";
 import { invariant } from "./failures.js";
 import type { Keys } from "./keys.js";
-import type { Height, QueryResources, Resources } from "./resources.js";
+import type { Publication, QueryResources, Resources } from "./resources.js";
 
 export interface QuestionMetadata {
   readonly owner: string;
@@ -17,8 +17,7 @@ export interface QuestionMetadata {
 
 interface Memo<Answer> {
   readonly answer: Answer;
-  readonly heights: readonly Height[];
-  readonly retire: () => void;
+  readonly publication: Publication;
 }
 
 export class QuestionState<Input, Answer> implements QuestionMetadata {
@@ -26,7 +25,7 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
   declare readonly name: string;
   declare readonly domain: string;
   readonly #handle: Question<Input, Answer>;
-  readonly #authenticate: (input: Input) => QuestionIdentity;
+  #authenticate: ((input: Input) => QuestionIdentity) | undefined;
   readonly #retention: "immutable" | "completed-outcome";
   readonly #memo = new Map<bigint, Memo<Answer>>();
   readonly #active = new Set<bigint>();
@@ -70,6 +69,7 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
     chain: readonly QueryChainEntry[], setSite: (scope: ResourceScope) => void): Answer {
     this.#calls += 1n;
     const authenticate = this.#authenticate;
+    if (authenticate === undefined) invariant("CONTEXT_CLOSED", this.owner, this.name);
     const identity = resources.authenticate(ticket, () => {
       const projected = authenticate(input);
       if (projected === null || typeof projected !== "object"
@@ -87,7 +87,8 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
     if (this.#active.has(key)) invariant("QUESTION_CYCLE", this.owner, this.name, chain);
     const cached = this.#memo.get(key);
     if (cached !== undefined) {
-      resources.checkHeights(identity.scope, cached.heights);
+      resources.checkHeights(identity.scope, cached.publication.heights);
+      resources.read(ticket, cached.publication);
       this.#hits += 1n;
       return cached.answer;
     }
@@ -99,8 +100,12 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
       resources.assertOpen();
       if (this.#complete(answer)) {
         const publication = resources.publish(ticket, () => { this.#memo.delete(key); });
-        this.#memo.set(key, { answer, ...publication });
-        this.#completed += 1n;
+        try { resources.read(ticket, publication); }
+        catch (error) { publication?.retire(); throw error; }
+        if (publication !== undefined) {
+          this.#memo.set(key, { answer, publication });
+          this.#completed += 1n;
+        }
       }
       return answer;
     } finally {
@@ -114,10 +119,11 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
   }
 
   close(): void {
-    for (const memo of this.#memo.values()) memo.retire();
+    for (const memo of this.#memo.values()) memo.publication.retire();
     this.#memo.clear();
     this.#active.clear();
     this.#provider = undefined;
+    this.#authenticate = undefined;
   }
 
   #complete(answer: Answer): boolean {

@@ -179,6 +179,15 @@ test("layers reject upward type contracts and accept only declared lower or peer
   expect([["packages/host/src/constants/value.ts", 'import type { Facts } from "../model/contract.js";'], [model, facts]], []);
   expect([["packages/host/src/orchestration/owner.ts", 'import { register } from "../navigation/register.js";'],
     ["packages/host/src/navigation/register.ts", "export function register(): void {}"]], []);
+  const context = hostModules.find(module => module.name === "context");
+  assert.equal(context !== undefined, true);
+  assert.equal(context.layer, 0);
+  assert.deepEqual(context.dependencies, ["model"]);
+  assert.equal(context.registration, "packages/host/src/context/register.ts");
+  expect([["packages/host/src/orchestration/owner.ts", 'import { contextFactory } from "../context/register.js";'],
+    ["packages/host/src/context/register.ts", "export const contextFactory = Object.freeze({});"]], []);
+  expect([["packages/host/src/ingress/owner.ts", 'import { contextFactory } from "../context/register.js";'],
+    ["packages/host/src/context/register.ts", "export const contextFactory = Object.freeze({});"]], ["contract-imports"]);
   expect([["packages/host/src/constants/value.ts", 'import { register } from "../navigation/register.js";'],
     ["packages/host/src/navigation/register.ts", "export function register(): void {}"]], ["contract-imports"]);
   expect([["packages/host/src/model/contract.ts", 'import type { Facts } from "../navigation/private.js";'],
@@ -212,6 +221,22 @@ test("lifetime rejects generic, static, nested and closure-owned mutable collect
   expect([["packages/host/src/ingress/owner.ts", "declare const original: number; const retained = original;"]], ["program-lifetime"]);
   expect([["packages/host/src/ingress/owner.ts", 'let original = "value"; const retained = original;']],
     ["program-lifetime", "program-lifetime"]);
+});
+
+test("immutable module factories retain original imported functions but not mutable, missing or cyclic bindings", () => {
+  const consumer = "packages/host/src/context/register.ts";
+  const producer = "packages/host/src/context/program.ts";
+  expect([[consumer, 'import { createProgram } from "./program.js"; export const contextFactory = Object.freeze({ create: createProgram });'],
+    [producer, "export function createProgram(): number { return 1; }"]], []);
+  expect([[consumer, 'import { labels } from "./program.js"; export const contextFactory = Object.freeze({ labels });'],
+    [producer, 'export const labels = Object.freeze(["stable"]);']], []);
+  expect([[consumer, 'import { labels } from "./program.js"; export const contextFactory = Object.freeze({ labels });'],
+    [producer, "export let labels = 1;"]], ["program-lifetime", "program-lifetime"]);
+  expect([[consumer, 'import { missing } from "./program.js"; export const contextFactory = Object.freeze({ missing });'],
+    [producer, "export const available = 1;"]], ["program-lifetime"]);
+  expect([[consumer, 'import { labels } from "./program.js"; export const contextFactory = Object.freeze({ labels });'],
+    [producer, 'import { contextFactory } from "./register.js"; export const labels = contextFactory;']],
+  ["program-lifetime", "program-lifetime"]);
 });
 
 test("checker types stay in Ingress implementation and never its contract", () => {

@@ -89,6 +89,28 @@ test("the canonical lifetime AST rule preserves transparent immutable data and r
   assert.equal(findings("let current; const nested = { action() { return 1; } };").some(row => row.rule === "module-owned-mutable-cache"), true);
 });
 
+test("immutable data resolves original imported declarations without accepting missing, mutable or cyclic aliases", () => {
+  const owner = "packages/host/src/context/register.ts";
+  const dependency = "packages/host/src/context/program.ts";
+  const classify = (text, original) => {
+    const source = readArchitectureTypeScript(new Map([[owner, text], [dependency, original]]));
+    const file = source.sourceFiles.find(file => source.ast.getFileName(file).endsWith(owner));
+    assert.equal(file !== undefined, true, "actual alias consumer exists before classification");
+    return moduleLifetimeFindings(source, file, { immutableData: true });
+  };
+  assert.deepEqual(classify('import { createProgram as create } from "./program.js"; const factory = Object.freeze({ create });',
+    "export function createProgram() { return 1; }"), []);
+  assert.deepEqual(classify('import { labels } from "./program.js"; const factory = Object.freeze({ labels });',
+    'const original = Object.freeze(["stable"]); export { original as labels };'), []);
+  for (const original of ["export let labels = 1;", "export const labels = [];", "export declare const labels: number;",
+    'import { factory } from "./register.js"; export const labels = factory;']) {
+    assert.equal(classify('import { labels } from "./program.js"; export const factory = Object.freeze({ labels });', original)
+      .some(row => row.rule === "module-owned-mutable-cache"), true, original);
+  }
+  assert.equal(classify('import { missing } from "./program.js"; const factory = Object.freeze({ missing });',
+    "export const other = 1;").some(row => row.rule === "module-owned-mutable-cache"), true);
+});
+
 test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
   assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
     message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);

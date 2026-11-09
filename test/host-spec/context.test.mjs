@@ -762,3 +762,323 @@ test("cached cross-domain heights retain the actual child resource owner under b
     harness.context.close();
   }
 });
+
+test("cold and hot completed dependencies retire parent backing without duplicating child ownership", () => {
+  for (const admission of ["operation", "cohort"]) {
+    for (const warmChild of [false, true]) {
+      const harness = create([domain("work", admission)]);
+      const childLeases = []; const parentLeases = [];
+      let childCalls = 0; let parentCalls = 0;
+      const child = register(harness, "child", (_, scope) => {
+        childCalls += 1; childLeases.push(scope.reserve("rows", 1n, "retained"));
+        return Object.freeze({ generation: childCalls });
+      });
+      const parent = register(harness, "parent", (_, scope) => {
+        parentCalls += 1; parentLeases.push(scope.reserve("rows", 1n, "retained"));
+        return Object.freeze({ child: harness.context.query(child.question, 0), generation: parentCalls });
+      });
+      seal(harness);
+      if (warmChild) harness.context.query(child.question, 0);
+      const first = harness.context.query(parent.question, 0);
+      assert.equal(harness.context.query(parent.question, 0), first);
+      const rows = () => resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows");
+      assert.equal(rows().retained, 2n, "one child lease and one parent lease, not copied child ownership");
+      childLeases[0].release(); childLeases[0].release();
+      assert.equal(rows().retained, 0n, "child retirement releases its direct dependent backing");
+      const second = harness.context.query(parent.question, 0);
+      assert.notEqual(second, first); assert.notEqual(second.child, first.child);
+      assert.equal(childCalls, 2); assert.equal(parentCalls, 2);
+      parentLeases[1].release();
+      assert.equal(rows().retained, 1n, "parent retirement leaves its independently owned child memo alive");
+      const third = harness.context.query(parent.question, 0);
+      assert.notEqual(third, second); assert.equal(third.child, second.child);
+      assert.equal(childCalls, 2); assert.equal(parentCalls, 3);
+      orderedDomain(harness.context.queryUsage.questions.map(row => row.name), ["child", "parent"], Object.is,
+        "complete dependency owner domain");
+      assert.equal(harness.context.queryUsage.questions.every(row => row.active === 0n), true);
+      harness.context.close();
+      for (const lease of [...childLeases, ...parentLeases]) lease.release();
+    }
+  }
+});
+
+test("shared diamonds invalidate every dependent once, including independently warmed parent answers", () => {
+  const harness = create([domain("work", "cohort")]);
+  let backing; const counts = { child: 0, left: 0, right: 0, root: 0 };
+  const child = register(harness, "child", (_, scope) => {
+    counts.child += 1; backing = scope.reserve("rows", 1n, "retained");
+    return Object.freeze({ value: counts.child });
+  });
+  const branch = name => register(harness, name, (_, scope) => {
+    counts[name] += 1; scope.reserve("rows", 1n, "retained");
+    return Object.freeze({ child: harness.context.query(child.question, 0) });
+  });
+  const left = branch("left"); const right = branch("right");
+  const root = register(harness, "root", (_, scope) => {
+    counts.root += 1; scope.reserve("rows", 1n, "retained");
+    return Object.freeze([harness.context.query(left.question, 0), harness.context.query(right.question, 0)]);
+  });
+  seal(harness);
+  const firstLeft = harness.context.query(left.question, 0);
+  const firstRight = harness.context.query(right.question, 0);
+  const first = harness.context.query(root.question, 0);
+  assert.equal(first[0], firstLeft); assert.equal(first[1], firstRight);
+  assert.equal(firstLeft.child, firstRight.child);
+  assert.deepEqual(counts, { child: 1, left: 1, right: 1, root: 1 });
+  const rows = () => resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows");
+  assert.equal(rows().retained, 4n);
+  backing.release(); assert.equal(rows().retained, 0n);
+  const second = harness.context.query(root.question, 0);
+  assert.notEqual(second, first); assert.notEqual(second[0], firstLeft); assert.notEqual(second[1], firstRight);
+  assert.equal(second[0].child, second[1].child);
+  assert.deepEqual(counts, { child: 2, left: 2, right: 2, root: 2 });
+  assert.equal(rows().retained, 4n);
+  const before = usage(harness.context, "keys");
+  assert.equal(harness.context.query(root.question, 0), second);
+  assert.equal(usage(harness.context, "keys") - before < 20n, true, "hot root reads no descendant dependency inventory");
+  harness.context.close(); backing.release();
+});
+
+test("each dependency link prepays bounded retirement once and warm roots do not replay descendants", () => {
+  const harness = create(); const parts = Object.freeze([]); let backing;
+  let childCalls = 0; let parentCalls = 0;
+  const authenticate = () => ({ scope: harness.scope, parts });
+  const child = register(harness, "child", (_, scope) => {
+    childCalls += 1; backing = scope.reserve("rows", 1n, "retained"); return Object.freeze({ value: childCalls });
+  }, { authenticate });
+  const parent = register(harness, "parent", () => {
+    parentCalls += 1;
+    const first = harness.context.query(child.question, 0);
+    assert.equal(harness.context.query(child.question, 0), first);
+    return Object.freeze({ first });
+  }, { authenticate });
+  seal(harness); harness.context.query(child.question, 0);
+  const start = usage(harness.context, "keys");
+  const answer = harness.context.query(parent.question, 0);
+  assert.equal(usage(harness.context, "keys") - start, 11n,
+    "three actual key reads and one eight-unit link/retirement prepayment, not two edge charges");
+  const cold = usage(harness.context, "keys");
+  assert.equal(harness.context.query(parent.question, 0), answer);
+  assert.equal(usage(harness.context, "keys") - cold, 1n);
+  assert.equal(childCalls, 1); assert.equal(parentCalls, 1);
+  backing.release();
+  assert.equal(usage(harness.context, "keys"), cold + 1n, "outside-query retirement uses prepaid work, not a fake operation");
+  assert.notEqual(harness.context.query(parent.question, 0), answer);
+  assert.equal(childCalls, 2); assert.equal(parentCalls, 2);
+  harness.context.close();
+});
+
+test("dependency admission fails before linking while the already completed child remains usable", () => {
+  const harness = create([domain("work", "operation", { keys: 9n })]);
+  const parts = Object.freeze([]); let backing; let parentCalls = 0; let childCalls = 0;
+  const authenticate = () => ({ scope: harness.scope, parts });
+  const child = register(harness, "child", (_, scope) => {
+    childCalls += 1; backing = scope.reserve("rows", 1n, "retained"); return "child";
+  }, { authenticate });
+  const parent = register(harness, "parent", () => {
+    parentCalls += 1; return harness.context.query(child.question, 0);
+  }, { authenticate });
+  seal(harness); assert.equal(harness.context.query(child.question, 0), "child");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    exhausted(() => harness.context.query(parent.question, 0), "keys", 9n);
+    assert.equal(harness.context.query(child.question, 0), "child");
+  }
+  assert.equal(childCalls, 1); assert.equal(parentCalls, 2);
+  assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 1n);
+  backing.release(); harness.context.close();
+});
+
+test("failed, pending and unresolved parents detach staged dependencies without retiring completed children", () => {
+  for (const outcome of ["throw", "pending", "unresolved", "partial"]) {
+    const harness = create(); let childLease; let childCalls = 0; let parentCalls = 0; let complete = false;
+    const original = Error("dependent original exception");
+    const child = register(harness, "child", (_, scope) => {
+      childCalls += 1; childLease = scope.reserve("rows", 1n, "retained"); return Object.freeze({ childCalls });
+    });
+    const parent = register(harness, "parent", (_, scope) => {
+      parentCalls += 1; scope.reserve("rows", 1n, "retained"); harness.context.query(child.question, 0);
+      if (!complete && outcome === "throw") throw original;
+      return Object.freeze({ kind: complete ? "resolved" : outcome });
+    }, { retention: "completed-outcome" });
+    seal(harness);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (outcome === "throw") assert.throws(() => harness.context.query(parent.question, 0), error => error === original);
+      else assert.equal(harness.context.query(parent.question, 0).kind, outcome);
+      assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 1n);
+    }
+    assert.equal(parentCalls, 2); assert.equal(childCalls, 1);
+    childLease.release();
+    assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 0n);
+    complete = true;
+    const answer = harness.context.query(parent.question, 0);
+    assert.equal(harness.context.query(parent.question, 0), answer);
+    assert.equal(childCalls, 2); assert.equal(parentCalls, 3);
+    harness.context.close();
+  }
+});
+
+test("retirement during an active ancestor prevents publishing that ancestor and its completed caller", () => {
+  const harness = create(); let childLease; let invalidates = true;
+  const counts = { child: 0, parent: 0, outer: 0 };
+  const child = register(harness, "child", (_, scope) => {
+    counts.child += 1; childLease = scope.reserve("rows", 1n, "retained"); return Object.freeze({ value: counts.child });
+  });
+  const parent = register(harness, "parent", (_, scope) => {
+    counts.parent += 1; scope.reserve("rows", 1n, "retained");
+    const value = harness.context.query(child.question, 0);
+    if (invalidates) childLease.release();
+    return Object.freeze({ value });
+  });
+  const outer = register(harness, "outer", () => {
+    counts.outer += 1; return Object.freeze({ value: harness.context.query(parent.question, 0) });
+  }); seal(harness);
+  const first = harness.context.query(outer.question, 0);
+  assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 0n);
+  invalidates = false;
+  const second = harness.context.query(outer.question, 0);
+  assert.notEqual(second, first);
+  assert.equal(harness.context.query(outer.question, 0), second);
+  assert.deepEqual(counts, { child: 2, parent: 2, outer: 2 });
+  harness.context.close();
+});
+
+test("public Program methods reject wrong receivers without changing genuine registration or close authority", () => {
+  const harness = create(); let authentications = 0;
+  const question = register(harness, "closed-capture", () => "complete", {
+    authenticate: () => { authentications += 1; return { scope: harness.scope, parts: Object.freeze([]) }; },
+  });
+  const prototype = Object.getPrototypeOf(harness.context);
+  const getter = Object.getOwnPropertyDescriptor(prototype, "queryUsage").get;
+  const methods = [
+    ["register", [{}]], ["sealRegistration", []], ["query", [question.question, 0]],
+    ["resourceScope", ["work", harness.owner, none]], ["close", []],
+  ];
+  orderedDomain(methods.map(([name]) => name), ["register", "sealRegistration", "query", "resourceScope", "close"],
+    Object.is, "complete public Program method receiver domain");
+  for (const receiver of [undefined, null, {}, Object.create(harness.context)]) {
+    for (const [name, arguments_] of methods) assert.throws(() => Reflect.apply(prototype[name], receiver, arguments_), TypeError, name);
+    assert.throws(() => Reflect.apply(getter, receiver, []), TypeError, "queryUsage receiver");
+  }
+  seal(harness); assert.equal(harness.context.query(question.question, 0), "complete");
+  harness.context.close(); harness.context.close();
+  code(() => harness.context.query(question.question, 0), "CONTEXT_CLOSED");
+  code(() => question.provide(() => "other"), "CONTEXT_CLOSED");
+  assert.equal(authentications, 1, "closed authority never invokes the captured callback again");
+  assert.equal(Object.isFrozen(question.question), true);
+  assert.deepEqual(Object.keys(question.question), ["owner", "name"]);
+  assert.equal(question.question.owner, "mechanical"); assert.equal(question.question.name, "closed-capture");
+});
+
+test("backing retirement follows exact memo keys, not every answer owned by the same question", () => {
+  const harness = create(); const leases = new Map(); const generations = new Map();
+  const child = register(harness, "child", (input, scope) => {
+    const generation = (generations.get(input) ?? 0) + 1;
+    generations.set(input, generation); leases.set(input, scope.reserve("rows", 1n, "retained"));
+    return Object.freeze({ input, generation });
+  });
+  const parent = register(harness, "parent", input => Object.freeze({ child: harness.context.query(child.question, input) }));
+  seal(harness);
+  const left = harness.context.query(parent.question, "left");
+  const right = harness.context.query(parent.question, "right");
+  leases.get("left").release();
+  assert.equal(harness.context.query(parent.question, "right"), right);
+  assert.notEqual(harness.context.query(parent.question, "left"), left);
+  assert.deepEqual([...generations], [["left", 2], ["right", 1]]);
+  assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 2n);
+  harness.context.close();
+});
+
+test("a complete shared memo DAG has linear cold link work and prepaid transitive retirement", () => {
+  const harness = create(); const levels = 48; const parts = Object.freeze([]);
+  const authenticate = () => ({ scope: harness.scope, parts });
+  const calls = Array.from({ length: levels + 1 }, () => 0); let leafLease;
+  let previous = register(harness, "leaf", (_, scope) => {
+    calls[0] += 1; leafLease = scope.reserve("rows", 1n, "retained"); return Object.freeze({ leaf: calls[0] });
+  }, { authenticate });
+  for (let level = 0; level < levels; level += 1) {
+    const child = previous;
+    previous = register(harness, `level-${level}`, (_, scope) => {
+      calls[level + 1] += 1; scope.reserve("rows", 1n, "retained");
+      return Object.freeze([harness.context.query(child.question, 0), harness.context.query(child.question, 0)]);
+    }, { authenticate });
+  }
+  seal(harness);
+  const names = ["leaf", ...Array.from({ length: levels }, (_, level) => `level-${level}`)];
+  orderedDomain(harness.context.queryUsage.questions.map(row => row.name), names, Object.is, "complete shared memo DAG");
+  const first = harness.context.query(previous.question, 0);
+  assert.deepEqual(calls, Array.from({ length: levels + 1 }, () => 1));
+  assert.equal(usage(harness.context, "keys"), 4n + 10n * BigInt(levels),
+    "one initial tuple, two child reads per level and one eight-unit distinct edge per level");
+  let value = first;
+  for (let level = 0; level < levels; level += 1) {
+    assert.equal(Array.isArray(value) && value.length === 2, true);
+    assert.equal(value[0], value[1], "both actual shared positions are retained"); value = value[0];
+  }
+  assert.equal(value.leaf, 1);
+  const cold = usage(harness.context, "keys");
+  assert.equal(harness.context.query(previous.question, 0), first);
+  assert.equal(usage(harness.context, "keys") - cold, 1n);
+  assert.deepEqual(calls, Array.from({ length: levels + 1 }, () => 1));
+  const rows = () => resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows");
+  assert.equal(rows().retained, BigInt(levels + 1));
+  leafLease.release(); assert.equal(rows().retained, 0n);
+  assert.equal(usage(harness.context, "keys"), cold + 1n);
+  assert.notEqual(harness.context.query(previous.question, 0), first);
+  assert.deepEqual(calls, Array.from({ length: levels + 1 }, () => 2));
+  harness.context.close();
+});
+
+test("a retired active parent cannot acquire new backing dependencies while finishing its original work", () => {
+  const harness = create(); let lease; let retire = true; let childCalls = 0; let parentCalls = 0;
+  const child = register(harness, "child", (_, scope) => {
+    childCalls += 1; lease = scope.reserve("rows", 1n, "retained"); return Object.freeze({ generation: childCalls });
+  });
+  const parent = register(harness, "parent", (_, scope) => {
+    parentCalls += 1; scope.reserve("rows", 1n, "retained");
+    const first = harness.context.query(child.question, 0);
+    if (retire) lease.release();
+    return Object.freeze({ first, second: harness.context.query(child.question, 0) });
+  }); seal(harness);
+  const first = harness.context.query(parent.question, 0);
+  assert.notEqual(first.first, first.second);
+  assert.equal(childCalls, 2); assert.equal(parentCalls, 1);
+  assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 1n);
+  retire = false;
+  const second = harness.context.query(parent.question, 0);
+  assert.notEqual(second, first); assert.equal(second.first, first.second); assert.equal(second.first, second.second);
+  assert.equal(harness.context.query(parent.question, 0), second);
+  assert.equal(childCalls, 2); assert.equal(parentCalls, 2);
+  lease.release();
+  assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 0n);
+  harness.context.close();
+});
+
+test("failed cold dependency publication releases staged backing before any new child memo is visible", () => {
+  const harness = create([domain("work", "operation", { keys: 9n })]);
+  const parts = Object.freeze([]); const authenticate = () => ({ scope: harness.scope, parts });
+  let childCalls = 0;
+  const child = register(harness, "child", (_, scope) => {
+    childCalls += 1; scope.reserve("rows", 1n, "retained"); return "child";
+  }, { authenticate });
+  const parent = register(harness, "parent", () => harness.context.query(child.question, 0), { authenticate });
+  seal(harness);
+  exhausted(() => harness.context.query(parent.question, 0), "keys", 9n);
+  const rows = resourceRows(harness.context, ["keys", "rows"]);
+  assert.equal(rows.find(row => row.dimension === "rows").retained, 0n);
+  orderedDomain(harness.context.queryUsage.questions.map(row => row.name), ["child", "parent"], Object.is,
+    "complete failed-publication owner domain");
+  assert.equal(harness.context.queryUsage.questions.every(row => row.completed === 0n && row.active === 0n), true);
+  assert.equal(harness.context.query(child.question, 0), "child");
+  assert.equal(childCalls, 2, "failed cold publication did not leave a usable child memo");
+  harness.context.close();
+});
+
+test("a callable carrying the genuine Error prototype still has no private resource authority", () => {
+  const harness = create([domain("work", "cohort", { work: 0n })]);
+  const genuine = exhausted(() => harness.scope.charge("work", 1n), "work", 0n);
+  const callable = Object.setPrototypeOf(() => 0, Object.getPrototypeOf(genuine));
+  assert.equal(callable instanceof Error, true);
+  assert.equal(typeof callable, "function");
+  assert.equal(factory.resourceLimitDiagnostic(callable).kind, "none");
+  harness.context.close();
+});
