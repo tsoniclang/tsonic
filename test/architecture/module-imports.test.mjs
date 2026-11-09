@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
-import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis } from "./tooling/module-graph.mjs";
+import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis, buildTypeScriptModuleGraph, resolveRelativeModule } from "./tooling/module-graph.mjs";
 import { evaluateFunctionLiveness } from "./tooling/architecture-rules.mjs";
+
+test("duplicate authored package imports retain both original edges with absent local targets", () => {
+  const result = buildTypeScriptModuleAnalysis(new Map([["main.ts", 'import "@original/package"; import "@original/package";']]));
+  assert.deepEqual(result.edges.map(edge => ({ source: edge.source, specifier: edge.specifier,
+    target: edge.target, kind: edge.kind, unresolved: edge.unresolved })), [
+    { source: "main.ts", specifier: "@original/package", target: undefined, kind: "package", unresolved: false },
+    { source: "main.ts", specifier: "@original/package", target: undefined, kind: "package", unresolved: false },
+  ]);
+});
 
 test("module import inventory separates actual JavaScript imports from fixture strings", () => {
   const source = new Map([
@@ -17,6 +26,8 @@ test("module import inventory separates actual JavaScript imports from fixture s
       void import(\`./template.mjs\`);
       void import(("./wrapped-string.mjs"));
       void import(((\`./wrapped-template.mjs\`)));
+      const dynamicName = "./fixture-only.js";
+      void import(dynamicName);
     `],
     ["side-effect.mjs", "export {};"],
     ["value.mjs", "export const value = 1;"],
@@ -137,4 +148,58 @@ test("module runtime inventory projects the canonical static import/export fact"
     "the canonical runtime projection is immutable, not another mutable classification cache");
   assert.equal(result.edges.filter(edge => edge.source === "main.ts").length, 8,
     "all type/value/import-type/dynamic edges remain available for architecture and reachability");
+});
+
+test("the architecture graph owns all empty, namespace, default and mixed import/export runtime forms", () => {
+  const files = new Map([["main.ts", `
+    import "./side.js";
+    import {} from "./empty.js";
+    import type Default from "./type-default.js";
+    import Default, { type Shape } from "./default.js";
+    import * as Namespace from "./namespace.js";
+    import type * as Types from "./type-namespace.js";
+    import { type Shape, value } from "./mixed.js";
+    export {} from "./empty-export.js";
+    export * from "./star.js";
+    export * as Named from "./named-star.js";
+    export type * from "./type-star.js";
+    export { type Shape, value } from "./mixed-export.js";
+    export { type Shape } from "./only-type.js";
+  `]]);
+  const result = buildTypeScriptModuleAnalysis(files);
+  assert.equal(result.modules.length, 1);
+  assert.equal(result.edges.length, 13);
+  assert.deepEqual(result.modules[0].runtimeSpecifiers, ["./side.js", "./empty.js", "./default.js", "./namespace.js",
+    "./mixed.js", "./empty-export.js", "./star.js", "./named-star.js", "./mixed-export.js"]);
+});
+
+test("relative module resolution preserves unique declarations, ambiguity and explicit source/output roots", () => {
+  const files = new Map([["src/model/contract.d.ts", "export interface Value {}"], ["src/data/index.ts", "export {};"]]);
+  const declaration = resolveRelativeModule("src/main.ts", "./model/contract.js", files, []);
+  assert.equal(declaration.target, "src/model/contract.d.ts");
+  assert.equal(Object.isFrozen(declaration) && Object.isFrozen(declaration.candidates), true);
+  assert.equal(resolveRelativeModule("src/main.ts", "./data", files, []).target, "src/data/index.ts");
+  assert.equal(resolveRelativeModule("test/main.ts", "../dist/model/contract.js", files, ["src", "dist"]).target, "src/model/contract.d.ts");
+  const ambiguous = resolveRelativeModule("src/main.ts", "./same.js", new Map([["src/same.ts", ""], ["src/same.mts", ""]]), []);
+  assert.equal(ambiguous.target === undefined && ambiguous.ambiguous, true);
+  assert.equal(resolveRelativeModule("src/main.ts", "./missing.js", files, []).target === undefined, true);
+  assert.throws(() => analyzeCheckedTypeScriptModules({}, files, "/architecture/", [""]), /explicit source\/output/u);
+  assert.throws(() => analyzeCheckedTypeScriptModules({}, files, "/architecture/", undefined), /explicit source\/output/u);
+  assert.equal(resolveRelativeModule("src/main.ts", "./data/index.ts", files, []).target, "src/data/index.ts");
+  assert.equal(resolveRelativeModule("src/main.ts", "./model/contract.cjs", files, []).target, "src/model/contract.d.ts");
+  assert.deepEqual(buildTypeScriptModuleGraph(new Map([["main.ts", 'import "./missing.js";']])),
+    buildTypeScriptModuleAnalysis(new Map([["main.ts", 'import "./missing.js";']])).edges);
+});
+
+test("checked graph ownership ignores genuinely checked files outside the selected root or source inventory", () => {
+  const source = createCompilerSessionFromFiles({ currentDirectory: "/architecture", files: new Map([
+    ["/architecture/main.ts", 'export function value() { return 1; } export { outside } from "/foreign/outside.js";'],
+    ["/foreign/outside.ts", "export function outside() { return 2; }"],
+    ["/architecture/unselected.ts", "export function unselected() { return 3; }"],
+  ]), rootFiles: ["/architecture/main.ts", "/foreign/outside.ts", "/architecture/unselected.ts"],
+  compilerOptions: { noLib: true, noResolve: true, module: "esnext", target: "esnext" } }).checkSource();
+  const result = analyzeCheckedTypeScriptModules(source, new Map([["main.ts", 'export function value() { return 1; } export { outside } from "/foreign/outside.js";']]), "/architecture/", []);
+  assert.deepEqual(result.modules.map(module => module.file), ["main.ts"]);
+  assert.deepEqual(result.modules[0].functionExports, ["main.ts#value"]);
+  assert.deepEqual(result.edges.map(edge => edge.specifier), ["/foreign/outside.js"]);
 });
