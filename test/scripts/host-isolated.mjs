@@ -47,6 +47,12 @@ export const compileHostModuleInIsolation = async input => {
     new Set(input.dependencyContracts).size !== input.dependencyContracts.length)
     throw new Error("Isolation requires the complete exact module source inventory and distinct dependency contracts.");
   if (!sources.includes(module.contract)) throw new Error("A whole module must include its actual contract source.");
+  const permitted = new Set(module.dependencies);
+  for (const name of permitted) {
+    const dependency = hostModules.find(dependency => dependency.name === name);
+    if (dependency === undefined) throw new Error("The Host catalogue contains an undeclared dependency owner.");
+    for (const child of dependency.dependencies) permitted.add(child);
+  }
   for (const file of [...sources, ...input.dependencyContracts]) path(file);
   for (const file of input.dependencyContracts) {
     const dependency = hostModules.find(dependency => file.startsWith(`${dependency.directory}/`) &&
@@ -54,6 +60,7 @@ export const compileHostModuleInIsolation = async input => {
     if (dependency === undefined || dependency === module || !file.endsWith(".ts") || file.endsWith(".d.ts") ||
       !input.dependencyContracts.includes(dependency.contract))
       throw new Error("Isolation dependencies must be original declared contract sources and their explicit same-owner data closure.");
+    if (!permitted.has(dependency.name)) throw new Error("Isolation dependencies must belong to the module's declared dependency closure.");
   }
   const output = resolve(root, input.outputDirectory);
   if (typeof input.outputDirectory !== "string" || !input.outputDirectory.startsWith(".temp/") ||

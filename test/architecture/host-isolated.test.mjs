@@ -217,6 +217,9 @@ test("source inventory, paths, contract closure and admitted execution are authe
     await assert.rejects(compileHostModuleInIsolation({ ...input, sourceFiles: [implementation] }), /actual contract/u);
   });
   await fixture(lawful, async input => {
+    await assert.rejects(compileHostModuleInIsolation({ ...input, module: "model", sourceFiles: [model], dependencyContracts: [contract] }), /declared dependency closure/u);
+  });
+  await fixture(lawful, async input => {
     symlinkSync(repository, resolve(input.root, "foreign"));
     await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: ["foreign/package.json"] }), /escapes/u);
     mkdirSync(resolve(input.root, ".temp"));
