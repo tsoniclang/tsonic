@@ -2,9 +2,67 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputSignature } from "../../host-input/identities.js";
 import type { SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
-import type { SourceSignatureOmissionProduction, SourceSignatureParameterProduction } from "../descriptor-contracts.js";
+import type { SourceDescriptorBuilder, SourceSignatureOmissionProduction, SourceSignatureParameterProduction } from "../descriptor-contracts.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
 import type { SourceSemanticProduction } from "./production-context.js";
+import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
+import { failTargetCompilerResourceLimit } from "../../artifacts.js";
+
+export function createSourceOmissionAllowance(builder: SourceDescriptorBuilder, root: Node):
+  (value: SourceTypeEvidence, rest: boolean) => SourceProductionResult<boolean> {
+  const active = new WeakMap<SourceTypeEvidence, Set<boolean>>();
+  const completed = new WeakMap<SourceTypeEvidence, Map<boolean, boolean>>();
+  let depth = 0;
+  let work = 0;
+  function allowsAbsence(value: SourceTypeEvidence, rest: boolean): SourceProductionResult<boolean> {
+    builder.assertEvidence(value);
+    const previous = completed.get(value)?.get(rest);
+    if (previous !== undefined) return { kind: "resolved", value: previous };
+    if (active.get(value)?.has(rest)) return { kind: "pending", dependencies: [value.component] };
+    if (depth >= sourceTypeExpansionBudget.depth) failTargetCompilerResourceLimit("tsonic", "Source type expansion", "depth", sourceTypeExpansionBudget.depth, root);
+    if (++work > sourceTypeExpansionBudget.types) failTargetCompilerResourceLimit("tsonic", "Source type expansion", "types", sourceTypeExpansionBudget.types, root);
+    let path = active.get(value);
+    if (path === undefined) { path = new Set(); active.set(value, path); }
+    path.add(rest);
+    depth++;
+    try {
+      const result = produce(value, rest);
+      if (result.kind === "resolved") {
+        let entries = completed.get(value);
+        if (entries === undefined) { entries = new Map(); completed.set(value, entries); }
+        entries.set(rest, result.value);
+      }
+      return result;
+    } finally { depth--; path.delete(rest); }
+  }
+  function produce(value: SourceTypeEvidence, rest: boolean): SourceProductionResult<boolean> {
+    if (value.sum !== undefined) {
+      let allowed = false;
+      for (const role of value.sum.roles) {
+        const selected = allowsAbsence(role.value, rest);
+        if (selected.kind !== "resolved") return selected;
+        allowed ||= selected.value;
+      }
+      return { kind: "resolved", value: allowed };
+    }
+    const defined = builder.produceDefinition(value);
+    if (defined.kind !== "resolved") return defined;
+    if (defined.value !== value) return allowsAbsence(defined.value, rest);
+    const type = value.type;
+    if (!rest) return { kind: "resolved", value: type.kind === "intrinsic" && type.intrinsic === "void" };
+    if (type.kind === "array") return { kind: "resolved", value: true };
+    if (type.kind !== "tuple") return { kind: "resolved", value: false };
+    for (const [index, element] of type.elements.entries()) {
+      if (element.kind === "optional") continue;
+      const child = builder.component(value, { kind: "tuple-element", index });
+      if (child.kind !== "resolved") return child;
+      const selected = allowsAbsence(child.value, element.kind === "rest");
+      if (selected.kind !== "resolved" || !selected.value) return selected;
+    }
+    return { kind: "resolved", value: true };
+  }
+  return allowsAbsence;
+}
 
 export function produceSourceSignatureOmissions(context: Pick<SourceSemanticProduction, "ast" | "input" | "builder">,
   signature: SourceSignatureIdentity, parameters: readonly SourceSignatureParameterProduction[],
@@ -22,38 +80,8 @@ export function produceSourceSignatureOmissions(context: Pick<SourceSemanticProd
     if (seen.has(binding.declaration)) throw new Error("Signature omission requires one value per original binder.");
     seen.add(binding.declaration);
   }
-  const active = new Set<SourceTypeEvidence>();
-  function allowsAbsence(value: SourceTypeEvidence, rest: boolean): SourceProductionResult<boolean> {
-    builder.assertEvidence(value);
-    if (active.has(value)) return { kind: "pending", dependencies: [value.component] };
-    active.add(value);
-    try {
-      if (value.sum !== undefined) {
-        let allowed = false;
-        for (const role of value.sum.roles) {
-          const selected = allowsAbsence(role.value, rest);
-          if (selected.kind !== "resolved") return selected;
-          allowed ||= selected.value;
-        }
-        return { kind: "resolved", value: allowed };
-      }
-      const defined = builder.produceDefinition(value);
-      if (defined.kind !== "resolved") return defined;
-      if (defined.value !== value) return allowsAbsence(defined.value, rest);
-      const type = value.type;
-      if (!rest) return { kind: "resolved", value: type.kind === "intrinsic" && type.intrinsic === "void" };
-      if (type.kind === "array") return { kind: "resolved", value: true };
-      if (type.kind !== "tuple") return { kind: "resolved", value: false };
-      for (const [index, element] of type.elements.entries()) {
-        if (element.kind === "optional") continue;
-        const child = builder.component(value, { kind: "tuple-element", index });
-        if (child.kind !== "resolved") return child;
-        const selected = allowsAbsence(child.value, element.kind === "rest");
-        if (selected.kind !== "resolved" || !selected.value) return selected;
-      }
-      return { kind: "resolved", value: true };
-    } finally { active.delete(value); }
-  }
+  if (parameters.length === 0) return { kind: "resolved", value: Object.freeze([]) };
+  const allowsAbsence = createSourceOmissionAllowance(builder, original.declaration ?? original.owner ?? parameters[0]!.value.component.root);
   function originalDeclaration(index: number): Node | undefined {
     let current: SourceInputSignature | undefined = original;
     const visited = new Set<SourceInputSignature>();

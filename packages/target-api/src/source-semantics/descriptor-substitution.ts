@@ -4,11 +4,12 @@ import type {
   SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceComponentOwner } from "./descriptor-components.js";
-import type { SourceEvidenceComponent, SourceSignatureOmissionProduction } from "./descriptor-contracts.js";
+import type { SourceEvidenceComponent, SourceSignatureOmissionProduction, SourceIndexedAccessTemplate } from "./descriptor-contracts.js";
+import type { SourceIndexedAccess } from "../public/source/contracts.js";
 import type { SourceEvidenceOwner } from "./descriptor-evidence.js";
 import type { SourceDescriptorInterner } from "./descriptor-interner.js";
 import type { SourceParameterOwner } from "./descriptor-parameters.js";
-import { substituteSourceEvidenceDetails } from "./descriptor-details.js";
+import { composeSourceTypeBindings, substituteSourceEvidenceDetails } from "./descriptor-details.js";
 
 export function createSourceSubstitution(input: {
   components: SourceComponentOwner;
@@ -16,6 +17,9 @@ export function createSourceSubstitution(input: {
   interner: SourceDescriptorInterner;
   parameters: SourceParameterOwner;
   signatureOmissions: SourceSignatureOmissionProduction["signatureOmissions"];
+  indexedTemplate(value: SourceTypeEvidence): SourceIndexedAccessTemplate | undefined;
+  indexedAccess(template: SourceIndexedAccessTemplate, bindings: readonly SourceTypeBinding[]): SourceResult<SourceIndexedAccess>;
+  retainIndexedAccess(source: SourceTypeEvidence, destination: SourceTypeEvidence): void;
   applyFamily(value: SourceSumApplication, bindings: readonly SourceTypeBinding[]): SourceResult<SourceSumApplication>;
   materialize(component: SourceTypeComponent, application: SourceSumApplication, original: SourceInputComponent | undefined): SourceTypeEvidence;
   intersection(component: SourceTypeComponent, parts: readonly SourceTypeEvidence[], result: SourceTypeEvidence,
@@ -27,12 +31,15 @@ export function createSourceSubstitution(input: {
 
   function substitute(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence> {
     const record = input.evidence.record(value);
-    const selectedBindings = input.parameters.bindings(bindings);
-    const environment = new Map(record.requirementBindings.map(binding => [binding.declaration, binding]));
-    for (const binding of selectedBindings) environment.set(binding.declaration, binding);
-    const requirementBindings = Object.freeze([...environment.values()]);
+    const incomingBindings = input.parameters.bindings(bindings);
+    const environment = composeSourceTypeBindings(record.requirementBindings, incomingBindings, substitute);
+    if (environment.kind !== "resolved") return environment;
+    const selectedBindings = input.parameters.bindings(environment.value);
+    const requirementBindings = selectedBindings;
+    const indexedTemplate = input.indexedTemplate(value);
     const free = input.parameters.free(value);
-    if (!selectedBindings.some(binding => free.some(parameter => parameter.declaration === binding.declaration))) {
+    if ((indexedTemplate === undefined || selectedBindings.length === 0) &&
+      !selectedBindings.some(binding => free.some(parameter => parameter.declaration === binding.declaration))) {
       return { kind: "resolved", value };
     }
     const identity = JSON.stringify(selectedBindings.map(binding => [input.components.objectKey(binding.declaration), input.components.objectKey(binding.value)]));
@@ -41,7 +48,10 @@ export function createSourceSubstitution(input: {
     const previous = entries.get(identity);
     if (previous !== undefined) return previous;
     let result: SourceResult<SourceTypeEvidence>;
-    if (value.type.kind === "intersection") {
+    if (indexedTemplate !== undefined) {
+      const selected = input.indexedAccess(indexedTemplate, selectedBindings);
+      result = selected.kind === "refused" ? selected : { kind: "resolved", value: selected.value.result };
+    } else if (value.type.kind === "intersection") {
       const parts: SourceTypeEvidence[] = [];
       for (const [index, type] of value.type.types.entries()) {
         const original = record.components.get(input.components.selectorKey({ kind: "intersection-member", index }));
@@ -74,8 +84,10 @@ export function createSourceSubstitution(input: {
       if (replacement.kind === "refused") result = replacement;
       else {
         const source = input.evidence.record(replacement.value);
-        result = { kind: "resolved", value: input.evidence.create({ ...replacement.value, component: value.component },
-          [...source.components.values()], source.original, source.domain, source.requirementBindings, source.details) };
+        const value = input.evidence.create({ ...replacement.value, component: record.value.component },
+          [...source.components.values()], source.original, source.domain, source.requirementBindings, source.details);
+        input.retainIndexedAccess(replacement.value, value);
+        result = { kind: "resolved", value };
       }
     } else {
       const children: SourceEvidenceComponent[] = [];
@@ -109,8 +121,10 @@ export function createSourceSubstitution(input: {
           if (projected.kind === "refused") result = projected;
           else {
             const record = input.evidence.record(projected.value);
-            result = { kind: "resolved", value: input.evidence.create({ ...projected.value, component: value.component },
-              [...record.components.values()], record.original, record.domain, record.requirementBindings, record.details) };
+            const resultValue = input.evidence.create({ ...projected.value, component: value.component },
+              [...record.components.values()], record.original, record.domain, record.requirementBindings, record.details);
+            input.retainIndexedAccess(projected.value, resultValue);
+            result = { kind: "resolved", value: resultValue };
           }
         } else result = { kind: "resolved", value: input.evidence.create({ ...value,
           type: input.interner.projection(selected.type, value.type.projection),

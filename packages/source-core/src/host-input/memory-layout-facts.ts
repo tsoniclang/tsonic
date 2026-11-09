@@ -66,7 +66,11 @@ class CapturedMemoryLayout implements MemoryLayoutBase {
   protected constructor(value: TsonicMemoryLayoutFact) {
     const owner = memoryLayoutSnapshot();
     const captured = owner.capture(value);
-    Object.assign(this, captured.value);
+    const fields = Object.getOwnPropertyDescriptors(captured.value);
+    Object.defineProperties(this, Object.fromEntries(Object.entries(fields).map(([name, descriptor]) => {
+      if (!("value" in descriptor)) throw new Error("A validated memory layout publishes only immutable own data fields.");
+      return [name, { value: descriptor.value, writable: false, enumerable: true, configurable: false }];
+    })));
     this.#depth = captured.depth;
     this.#work = owner.work();
     Object.freeze(this);

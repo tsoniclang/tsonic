@@ -29,6 +29,7 @@ export function createSourceMemberUseQueries(input: {
   readonly value: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>;
   readonly form: SourceAdmissionFacts["form"];
   readonly disposition: (receiver: SourceTypeEvidence, optionalChain: boolean) => SourceMemberUse["disposition"];
+  readonly character: (occurrence: Node, receiver: SourceTypeEvidence) => SourceProductionResult<SourceTypeEvidence>;
   readonly compose: (occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write",
     values: readonly SourceTypeEvidence[], optionalChain: boolean) => SourceProductionResult<SourceTypeEvidence>;
   readonly destination: (occurrence: Node, receiver: SourceTypeEvidence,
@@ -106,6 +107,19 @@ export function createSourceMemberUseQueries(input: {
       view.assertEvidence(arm);
       if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "absence" && chain) continue;
       if (arm.type.kind === "intrinsic" && arm.type.intrinsic === "any" && original.arms.length === 0) continue;
+      if (arm.type.kind === "string") {
+        if (key.kind !== "present") return unavailable(occurrence, "missing-selected-member");
+        if (key.value.kind === "refused") return key.value;
+        const selectedCharacters = original.arms.filter(item => item.kind === "index" && item.selection.kind === "string-character");
+        if (selectedCharacters.length === 0 || selectedCharacters.some(item => item.selection.declarations.length !== 0))
+          return unavailable(occurrence, "inconsistent-original-origins");
+        const character = reads ? input.character(occurrence, arm) : resolved(undefined);
+        if (character.kind !== "resolved") return character;
+        if (character.value !== undefined) { view.assertEvidence(character.value); readTypes.push(character.value); }
+        arms.push(Object.freeze({ kind: "index", receiver: arm, selection: Object.freeze({ kind: "string-character", declarations: Object.freeze([]) }),
+          key: key.value.value.value, readType: character.value, writeType: undefined, readonly: true }));
+        continue;
+      }
       const selected = inventory.members(arm);
       if (selected.kind !== "resolved") return selected;
       if (selected.value.kind !== "complete") return unavailable(occurrence, "missing-selected-member");

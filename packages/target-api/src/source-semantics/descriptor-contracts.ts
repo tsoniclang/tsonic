@@ -59,6 +59,7 @@ export interface SourceProducedReceiver {
 }
 
 export interface SourceDescriptorReader {
+  literalDomain(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
   componentIdentity(component: SourceInputComponent): SourceTypeComponent;
   describeSyntax(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   describeComponent(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;

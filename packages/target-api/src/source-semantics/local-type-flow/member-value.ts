@@ -14,6 +14,18 @@ export function sourceMemberDisposition(builder: SourceSemanticProduction["build
   return presence === "absent" ? "skip" : presence === "present" ? "evaluate" : "dynamic";
 }
 
+export function produceSourceStringCharacter(context: Pick<SourceSemanticProduction, "builder" | "input">,
+  occurrence: Node, receiver: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {
+  const { builder, input } = context;
+  builder.assertEvidence(receiver);
+  const definition = builder.produceDefinition(receiver);
+  if (definition.kind !== "resolved") return definition;
+  if (definition.value.type.kind !== "string") throw new Error("A Source string character requires its exact canonical string receiver.");
+  return { kind: "resolved", value: builder.evidence({ type: builder.string(), component: builder.componentIdentity(occurrence, []),
+    category: { kind: "known", category: "string" }, numeric: undefined, sum: undefined }, [], input.syntax(occurrence),
+  sourceOpenLiteralDomain, { members: { kind: "unavailable" }, origins: { kind: "complete", nodes: [occurrence] } }) };
+}
+
 export function produceSourceMemberValue(context: Pick<SourceSemanticProduction, "builder" | "input">,
   occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write", arms: readonly SourceTypeEvidence[],
   optionalChain: boolean): SourceProductionResult<SourceTypeEvidence> {

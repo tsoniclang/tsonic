@@ -5,10 +5,12 @@ import { sourceLiteralDomainUnion, sourceOpenLiteralDomain, sourceUnreachableLit
 import type {
   SourceComponentSelector, SourceConstructionDefinition, SourceDeferredProjection, SourceDescriptorView, SourceRefusal, SourceResult,
   SourceSumApplication, SourceSumFamily, SourceTypeBinding, SourceTypeComponent, SourceTypeEvidence, SourceUseDestination,
+  SourceIndexedAccess, SourcePresence,
 } from "../public/source/contracts.js";
 import { createSourceComponentOwner } from "./descriptor-components.js";
 import type { SourceProductionResult } from "../source-model/production.js";
-import type { SourceDescriptorBuilder, SourceSignatureOmissionProduction } from "./descriptor-contracts.js";
+import type { SourceDescriptorBuilder, SourceSignatureOmissionProduction, SourceIndexedAccessProduction,
+  SourceIndexedAccessTemplate, SourceCallableContractProduction } from "./descriptor-contracts.js";
 import { createSourceEvidenceOwner } from "./descriptor-evidence.js";
 import { createSourceFamilyOwner } from "./descriptor-families.js";
 import { createSourceDescriptorInterner } from "./descriptor-interner.js";
@@ -30,6 +32,8 @@ export function createSourceDescriptorOwner(input: {
   assertNode(node: Node): void;
   input: SourceDescriptorInput;
   signatureOmissions: SourceSignatureOmissionProduction["signatureOmissions"];
+  indexedAccess: SourceIndexedAccessProduction["indexedAccess"];
+  callableContracts: SourceCallableContractProduction["callableContracts"];
   members(value: SourceTypeEvidence, original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceMemberInventory>;
   receiverBindings(value: SourceTypeEvidence, direct: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
   construction(occurrence: Node): SourceProductionResult<SourceMemberInventory>;
@@ -49,6 +53,8 @@ export function createSourceDescriptorOwner(input: {
   const derivedComponents = new WeakMap<SourceTypeEvidence, Map<string, SourceTypeEvidence>>();
   const constructions = new WeakMap<Node, { readonly produce: () => SourceProductionResult<SourceConstructionMemberHistory>; result?: SourceConstructionMemberHistory }>();
   const constructionInventories = new WeakMap<Node, SourceMemberInventory>();
+  const indexedTemplates = new WeakMap<SourceTypeEvidence, SourceIndexedAccessTemplate>();
+  const indexedResults = new WeakMap<SourceTypeEvidence, SourceResult<SourcePresence<SourceIndexedAccess>>>();
   const components = createSourceComponentOwner({ assertNode: input.assertNode,
     assertSignature: value => interner.assertSignature(value), assertFamily: value => families.assertFamily(value),
     assertConstruction: value => interner.assertConstruction(value) });
@@ -57,10 +63,12 @@ export function createSourceDescriptorOwner(input: {
   const evidence = createSourceEvidenceOwner({ components, assertNode: input.assertNode,
     assertDescriptor: interner.assertDescriptor, assertOriginal: input.input.assertComponent,
     assertSum: value => families.assertApplication(value) });
-  const parameters = createSourceParameterOwner({ assertNode: input.assertNode, evidence, interner, observe });
+  const parameters = createSourceParameterOwner({ assertNode: input.assertNode, evidence, interner, observe,
+    objectKey: components.objectKey });
   const substitute = createSourceSubstitution({ components, evidence, interner, parameters,
     applyFamily: reapplyFamily, materialize: materializeFamily, intersection, project,
-    signatureOmissions: input.signatureOmissions });
+    signatureOmissions: input.signatureOmissions,
+    indexedTemplate: value => indexedTemplates.get(value), indexedAccess: produceIndexedAccess, retainIndexedAccess });
   const families = createSourceFamilyOwner({ components, evidence, interner, parameters, substitute });
   const members = createSourceInventoryOwner({ evidence, definition: produceMemberDefinition,
     join: (component, values) => join(component, "inferred", values, undefined) });
@@ -125,6 +133,64 @@ export function createSourceDescriptorOwner(input: {
     return result;
   }
 
+  function registerIndexedAccess(value: SourceTypeEvidence, template: SourceIndexedAccessTemplate): void {
+    evidence.assert(value);
+    components.assert(template.component);
+    evidence.assert(template.receiver);
+    evidence.assert(template.key);
+    if (template.original !== undefined) input.input.assertComponent(template.original);
+    const bindings = parameters.bindings(template.bindings);
+    const previous = indexedTemplates.get(value);
+    if (previous !== undefined) {
+      if (previous.component !== template.component || previous.original !== template.original ||
+        previous.receiver !== template.receiver || previous.key !== template.key || previous.bindings.length !== bindings.length ||
+        previous.bindings.some((binding, index) => binding.declaration !== bindings[index]!.declaration || binding.value !== bindings[index]!.value))
+        throw new Error("An indexed Source result retains one exact original selection template and environment.");
+      return;
+    }
+    parameters.registerDependencies(value, [template.receiver, template.key, ...bindings.map(binding => binding.value)]);
+    indexedTemplates.set(value, Object.freeze({ ...template, bindings }));
+  }
+
+  function retainIndexedAccess(source: SourceTypeEvidence, destination: SourceTypeEvidence): void {
+    evidence.assert(source);
+    evidence.assert(destination);
+    const template = indexedTemplates.get(source);
+    if (template !== undefined) registerIndexedAccess(destination, template);
+  }
+
+  function produceIndexedAccess(template: SourceIndexedAccessTemplate, bindings: readonly SourceTypeBinding[]): SourceResult<SourceIndexedAccess> {
+    components.assert(template.component);
+    evidence.assert(template.receiver);
+    evidence.assert(template.key);
+    parameters.bindings(template.bindings);
+    const selected = input.indexedAccess(template, parameters.bindings(bindings));
+    if (selected.kind === "pending") throw new Error("A final Source indexed selection requires its original dependencies to be solved.");
+    if (selected.kind === "resolved") {
+      evidence.assert(selected.value.receiver);
+      evidence.assert(selected.value.key);
+      evidence.assert(selected.value.result);
+      parameters.bindings(selected.value.typeBindings);
+      for (const selection of selected.value.selections) {
+        evidence.assert(selection.receiver);
+        evidence.assert(selection.readType);
+        if (selection.kind === "component") {
+          const child = component(selection.receiver, selection.selector);
+          if (child.kind !== "resolved" || child.value !== selection.readType)
+            throw new Error("An indexed Source component retains its exact registered receiver child.");
+        } else if (selection.kind === "member") {
+          selection.selectedDeclarations.forEach(input.assertNode);
+          selection.readDeclarations.forEach(input.assertNode);
+          for (const origin of [...selection.origins, ...selection.readOrigins]) components.selectorKey({ kind: "member", origin });
+          if (selection.key.kind === "unique-symbol") input.assertNode(selection.key.declaration);
+        } else if (selection.kind === "index") selection.declarations.forEach(input.assertNode);
+        else if (selection.readType.type.kind !== "string" || selection.readType.category.kind !== "known" || selection.readType.category.category !== "string")
+          throw new Error("A Source character selection publishes canonical Source string evidence, not a borrowed descriptor component.");
+      }
+    }
+    return observe(selected);
+  }
+
   function project(originalSource: SourceTypeEvidence, source: SourceTypeEvidence, projection: SourceDeferredProjection,
     bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence> {
     evidence.assert(originalSource);
@@ -169,7 +235,9 @@ export function createSourceDescriptorOwner(input: {
       const selected = roles[0]!;
       if (selected.component === component && (original === undefined || evidence.record(selected).original === original)) return { kind: "resolved", value: selected };
       const record = evidence.record(selected);
-      return { kind: "resolved", value: evidence.create({ ...selected, component }, [...record.components.values()], original, record.domain, record.requirementBindings, record.details) };
+      const result = evidence.create({ ...selected, component }, [...record.components.values()], original, record.domain, record.requirementBindings, record.details);
+      retainIndexedAccess(selected, result);
+      return { kind: "resolved", value: result };
     }
     const declarations = new Set<Node>();
     for (const role of roles) for (const parameter of parameters.free(role)) declarations.add(parameter.declaration);
@@ -320,6 +388,26 @@ export function createSourceDescriptorOwner(input: {
   }
 
   const view: SourceDescriptorView = Object.freeze({ assertEvidence: evidence.assert, assertDescriptor: interner.assertDescriptor,
+    indexedAccess(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceIndexedAccess>> {
+      evidence.assert(value);
+      const template = indexedTemplates.get(value);
+      if (template === undefined) return { kind: "resolved", value: Object.freeze({ kind: "none" }) };
+      const previous = indexedResults.get(value);
+      if (previous !== undefined) return previous;
+      const produced = produceIndexedAccess(template, []);
+      if (produced.kind === "refused") { indexedResults.set(value, produced); return produced; }
+      if (!evidence.equivalent(value, produced.value.result)) throw new Error("Indexed provenance must describe the queried Source result's exact canonical meaning.");
+      const result = Object.freeze({ kind: "resolved" as const, value: Object.freeze({ kind: "present" as const,
+        value: Object.freeze({ ...produced.value, result: value }) }) });
+      indexedResults.set(value, result);
+      return result;
+    },
+    callableContracts(value: SourceTypeEvidence) {
+      const record = evidence.record(value);
+      const result = input.callableContracts(value, record.requirementBindings);
+      if (result.kind === "pending") throw new Error("Final Source callable contracts require their exact original body and advertised environments to be solved.");
+      return observe(result);
+    },
     scalarLiteral(value: SourceTypeEvidence) {
       const domain = evidence.record(value).domain;
       return domain.kind === "finite" && domain.values.length === 1
@@ -329,6 +417,7 @@ export function createSourceDescriptorOwner(input: {
     freeParameters: parameters.free, typeParameter: parameters.get,
     constraint: parameters.constraint, defaultType: parameters.defaultType });
   const builder: SourceDescriptorBuilder = Object.freeze({ ...view, intersection, primitive: interner.primitive, string: interner.string,
+    registerIndexedAccess,
     assertDestination(value: SourceUseDestination): void {
       evidence.assert(value.declaration.type);
       evidence.assert(value.applied);

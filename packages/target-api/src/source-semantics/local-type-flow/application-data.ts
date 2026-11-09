@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
-import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceParameterOmission, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
+import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceOmissionAction, SourceParameterOmission, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 
 export interface SourceProducedApplication {
   readonly application: SourceApplication;
@@ -45,7 +45,10 @@ export interface SourceEffectiveArgument {
 }
 
 export type SourceArgumentPlacement =
-  | { readonly kind: "placed"; readonly values: readonly SourceUnappliedArgumentPlace[] }
+  | { readonly kind: "placed"; readonly values: readonly SourceUnappliedArgumentPlace[]; readonly omitted: readonly {
+      readonly parameter: SourceCallParameter; readonly path: readonly SourceComponentSelector[];
+      readonly destination: SourceTypeEvidence; readonly action: SourceOmissionAction;
+    }[] }
   | { readonly kind: "not-applicable"; readonly site: Node; readonly message: string };
 
 export interface SourceProducedSignature {

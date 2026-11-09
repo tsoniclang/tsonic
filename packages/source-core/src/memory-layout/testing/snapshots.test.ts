@@ -79,6 +79,28 @@ test("reachable captured-layout constructors compute the exact depth128 boundary
     failure.diagnostic.evidence?.includes("depth=128") === true);
 });
 
+test("captured layouts install every validated field without dispatching a derived setter", () => {
+  const input = layoutFixture(), genuine = valueMemoryLayout(snapshotMemoryLayout(input));
+  let executions = 0;
+  class Derived {
+    set byteSize(value: bigint) { executions++; assert.equal(value >= 0n, true); }
+    set fields(value: readonly object[]) { executions++; assert.equal(Array.isArray(value), true); }
+  }
+  const captured = valueMemoryLayout(Reflect.construct(genuine.constructor, [input], Derived));
+  assert.equal(executions, 0);
+  assert.equal(captured.byteSize, input.byteSize);
+  assert.equal(captured.fields.length, input.fields.length);
+  assert.equal(Object.isFrozen(captured), true);
+  const names = Object.getOwnPropertyNames(genuine);
+  assert.deepEqual(Object.getOwnPropertyNames(captured), names);
+  for (const name of names) {
+    const descriptor = Object.getOwnPropertyDescriptor(captured, name);
+    assert.equal(descriptor !== undefined && "value" in descriptor && descriptor.writable === false &&
+      descriptor.enumerable === true && descriptor.configurable === false, true, name);
+  }
+  assert.equal(tsonicMemoryLayoutFactKey.equals(genuine, captured), true);
+});
+
 for (const patch of [
   { byteSize: -1 }, { byteSize: 0.5 }, { byteSize: Number.MAX_SAFE_INTEGER + 1 },
   { byteAlignment: 0n }, { byteAlignment: 3n }, { stride: 4n }, { stride: 10n },

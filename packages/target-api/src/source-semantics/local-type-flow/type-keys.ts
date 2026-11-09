@@ -1,15 +1,20 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceLiteralUnit } from "../../source-model/literals/domain.js";
 import { sourceFiniteLiteralDomain, sourceOpenLiteralDomain } from "../../source-model/literals/domain.js";
-import { sourceLiteralUnitKey } from "../../source-model/literals/key.js";
-import type { SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
+import { sourceLiteralUnitKey, sourceNumericKeyValueKey } from "../../source-model/literals/key.js";
+import type { SourceIndexedAccess, SourceIndexedSelection, SourceMemberKey, SourceMemberOrigin, SourceTypeBinding, SourceTypeEvidence } from "../../public/source/contracts.js";
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceSemanticProduction, SourceSyntaxProduction } from "./production-context.js";
-import { produceSourceSequenceElements } from "./tuple-layout.js";
+import { produceSourceSequenceSelections } from "./tuple-layout.js";
+import type { SourceIndexedAccessTemplate } from "../descriptor-contracts.js";
+import { composeSourceTypeBindings } from "../descriptor-details.js";
+import { produceSourceStringCharacter } from "./member-value.js";
+import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
+import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 
 export function sourceMemberKeyUnit(key: SourceMemberKey): SourceLiteralUnit {
   return key.kind === "unique-symbol" ? { kind: "symbol", declaration: key.declaration }
@@ -84,67 +89,167 @@ export function produceSourceIndexedType(context: SourceSyntaxProduction): Sourc
   const key = reader.describeSyntax(indexed.IndexType, context.bindings);
   if (key.kind !== "resolved") return key;
   if (builder.freeParameters(source.value).length > 0 || builder.freeParameters(key.value).length > 0) return deferred(context, source.value);
-  const selected = indexSource(context, source.value, key.value);
-  return selected.kind !== "resolved" ? selected : builder.join(builder.componentIdentity(syntax, []), "authored", selected.value, context.component);
+  const selected = produceSourceIndexedAccess(context, { component: builder.componentIdentity(syntax, []), original: context.component,
+    receiver: source.value, key: key.value, bindings: context.bindings }, []);
+  return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.result };
 }
 
 export function indexSource(context: SourceSemanticProduction, source: SourceTypeEvidence,
   key: SourceTypeEvidence): SourceProductionResult<readonly SourceTypeEvidence[]> {
+  const selected = selectSourceIndex(context, source, key, []);
+  return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.values };
+}
+
+export function produceSourceIndexedAccess(context: SourceSemanticProduction, template: SourceIndexedAccessTemplate,
+  bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceIndexedAccess> {
   const { builder } = context;
-  if (source.sum !== undefined) {
-    const values = sourceProductionValues(source.sum.arms.map(arm => indexSource(context, arm, key)));
-    return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
+  const environment = composeSourceTypeBindings(template.bindings, bindings, builder.substitute);
+  if (environment.kind !== "resolved") return environment;
+  const source = builder.substitute(template.receiver, environment.value);
+  if (source.kind !== "resolved") return source;
+  const key = builder.substitute(template.key, environment.value);
+  if (key.kind !== "resolved") return key;
+  const selected = selectSourceIndex(context, source.value, key.value, environment.value);
+  if (selected.kind !== "resolved") return selected;
+  const joined = builder.join(template.component, "authored", selected.value.values, template.original);
+  if (joined.kind !== "resolved") return joined;
+  builder.registerIndexedAccess(joined.value, { ...template, receiver: source.value, key: key.value, bindings: environment.value });
+  return { kind: "resolved", value: Object.freeze({ receiver: source.value, key: key.value,
+    typeBindings: environment.value, selections: selected.value.selections, result: joined.value }) };
+}
+
+function selectSourceIndex(context: SourceSemanticProduction, source: SourceTypeEvidence,
+  key: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceProductionResult<{
+    readonly selections: readonly SourceIndexedSelection[]; readonly values: readonly SourceTypeEvidence[];
+  }> {
+  const { builder } = context;
+  let work = 0;
+  const selections: SourceIndexedSelection[] = [];
+  const values: SourceTypeEvidence[] = [];
+  function charge(count = 1): void {
+    if (count > sourceTypeExpansionBudget.types - work) failTargetCompilerResourceLimit("tsonic", "Source type expansion", "types",
+      sourceTypeExpansionBudget.types, key.component.root);
+    work += count;
   }
-  if (key.sum !== undefined) {
-    const values = sourceProductionValues(key.sum.arms.map(arm => indexSource(context, source, arm)));
-    return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
+  function absence(original: SourceTypeEvidence): SourceTypeEvidence {
+    charge();
+    return builder.evidence({ type: builder.intrinsic("absence"), component: original.component,
+      category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
+    { kind: "finite", values: [{ kind: "absence" }] },
+    { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(original) });
   }
+  function select(source: SourceTypeEvidence, key: SourceTypeEvidence, depth: number): SourceProductionResult<true> {
+    builder.assertEvidence(source);
+    builder.assertEvidence(key);
+    charge();
+    if (depth >= sourceTypeExpansionBudget.depth) failTargetCompilerResourceLimit("tsonic", "Source type expansion", "depth",
+      sourceTypeExpansionBudget.depth, key.component.root);
+    if (source.sum !== undefined || key.sum !== undefined) {
+      for (const arm of source.sum?.arms ?? [source]) for (const keyArm of key.sum?.arms ?? [key]) {
+        const selected = select(arm, keyArm, depth + 1);
+        if (selected.kind !== "resolved") return selected;
+      }
+      return { kind: "resolved", value: true };
+    }
   const definition = builder.produceDefinition(source);
   if (definition.kind !== "resolved") return definition;
   const value = definition.value, type = value.type, domain = builder.domain(key);
   if (type.kind === "array") {
     if (key.category.kind !== "known" || key.category.category !== "number") return sourceSemanticRefusal(key.component.root, "An array type index requires its original number key domain.");
     const element = builder.component(value, { kind: "array-element" });
-    return element.kind === "refused" ? element : { kind: "resolved", value: [element.value] };
+    if (element.kind !== "resolved") return element;
+    charge();
+    selections.push(Object.freeze({ kind: "component", receiver: value, selector: Object.freeze({ kind: "array-element" }), readType: element.value }));
+    values.push(element.value);
+    return { kind: "resolved", value: true };
   }
-  if (domain.kind !== "finite") {
-    if (type.kind === "tuple" && key.category.kind === "known" && key.category.category === "number") {
-      return produceSourceSequenceElements(builder, value, undefined);
-    }
+  if (type.kind === "string") {
+    if (key.category.kind !== "known" || key.category.category !== "number") return sourceSemanticRefusal(key.component.root,
+      "A Source string character index requires its canonical number key domain.");
+    const character = produceSourceStringCharacter(context, key.component.root, value);
+    if (character.kind !== "resolved") return character;
+    charge();
+    selections.push(Object.freeze({ kind: "string-character", receiver: value, readType: character.value }));
+    values.push(character.value);
+    return { kind: "resolved", value: true };
   }
-  if (type.kind === "tuple" && domain.kind === "finite") {
-    const values: SourceTypeEvidence[] = [];
-    for (const unit of domain.values) {
+  if (type.kind === "tuple") {
+    const ordinals: (bigint | undefined)[] = [];
+    if (domain.kind !== "finite" && key.category.kind === "known" && key.category.category === "number") ordinals.push(undefined);
+    else if (domain.kind === "finite") for (const unit of domain.values) {
+      charge();
       const name = sourceLiteralUnitKey(unit);
-      if (name === undefined) return sourceSemanticRefusal(key.component.root, "This indexed type has a non-property key domain.");
-      if (name.kind === "name" && /^(0|[1-9][0-9]*)$/u.test(name.name)) {
-        const ordinal = BigInt(name.name);
-        const selected = produceSourceSequenceElements(builder, value, ordinal);
-        if (selected.kind !== "resolved") return selected;
-        if (selected.value.length === 0) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
-        values.push(...selected.value);
-        continue;
-      }
-      return sourceSemanticRefusal(key.component.root, "A tuple type index requires its exact original numeric ordinal.");
+      if (name?.kind !== "name" || !/^(0|[1-9][0-9]*)$/u.test(name.name)) return sourceSemanticRefusal(key.component.root,
+        "A tuple type index requires its exact original numeric ordinal.");
+      ordinals.push(BigInt(name.name));
     }
-    return { kind: "resolved", value: Object.freeze(values) };
+    else return sourceSemanticRefusal(key.component.root, "A tuple type index requires its canonical number key domain.");
+    for (const ordinal of ordinals) {
+      const selected = produceSourceSequenceSelections(builder, value, ordinal);
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.length === 0) return sourceSemanticRefusal(key.component.root, "A tuple type index is outside its original element domain.");
+      for (const slot of selected.value) {
+        charge();
+        selections.push(Object.freeze({ kind: "component", receiver: slot.receiver, selector: slot.selector, readType: slot.value }));
+        values.push(slot.value);
+        if (slot.optional) values.push(absence(slot.value));
+      }
+    }
+    return { kind: "resolved", value: true };
   }
   if (domain.kind === "finite" && domain.values.length > 1) {
-    const values = sourceProductionValues(domain.values.map(unit => indexSource(context, value, sourceKeyEvidence(context, key.component.root, unit))));
-    return values.kind !== "resolved" ? values : { kind: "resolved", value: values.value.flat() };
+    for (const unit of domain.values) {
+      charge();
+      const selected = select(value, sourceKeyEvidence(context, key.component.root, unit), depth + 1);
+      if (selected.kind !== "resolved") return selected;
+    }
+    return { kind: "resolved", value: true };
   }
   const selected = context.objects.indexed(value, key, (destination, source) => sourceKeyDomainContains(builder, destination, source));
   if (selected.kind !== "resolved") return selected;
   if (selected.value.kind === "unavailable") return sourceSemanticRefusal(key.component.root,
     `This indexed type has no complete canonical Source member selection: ${selected.value.reason}.`);
-  const values: SourceTypeEvidence[] = [];
-  for (const row of [...selected.value.members, ...selected.value.indexes]) {
+  for (const row of selected.value.members) {
+    charge();
     const read = row.readType();
     if (read.kind !== "resolved") return read;
     if (read.value.kind === "none") return sourceSemanticRefusal(key.component.root, "An indexed type requires each selected original readable component.");
+    if (row.readOrigins.length === 0) return sourceSemanticRefusal(key.component.root, "An indexed member requires all of its genuine original read origins.");
+    const keys: SourceMemberKey[] = [];
+    for (const origin of row.readOrigins) {
+      charge();
+      const selectedKey = produceSourceMemberKey({ ast: context.ast, input: context.input, literalDomain: context.reader.literalDomain }, origin, row.name, bindings);
+      if (selectedKey.kind !== "resolved") return selectedKey;
+      const same = (candidate: SourceMemberKey): boolean => candidate.kind === "unique-symbol" ? selectedKey.value.kind === "unique-symbol" && candidate.declaration === selectedKey.value.declaration
+        : candidate.kind === "string" ? selectedKey.value.kind === "string" && candidate.value === selectedKey.value.value
+        : selectedKey.value.kind === "number" && sourceNumericKeyValueKey(candidate.value) === sourceNumericKeyValueKey(selectedKey.value.value);
+      if (!keys.some(same)) keys.push(selectedKey.value);
+    }
+    const readDeclarations = row.read === "accessor" ? row.getters : row.declarations;
+    for (const selectedKey of keys) {
+      charge(row.origins.length + row.readOrigins.length + readDeclarations.length + row.declarations.length + 1);
+      selections.push(Object.freeze({ kind: "member", receiver: value, key: selectedKey,
+        origins: Object.freeze([...row.origins]), readOrigins: Object.freeze([...row.readOrigins]),
+        readDeclarations: Object.freeze([...readDeclarations]), selectedDeclarations: Object.freeze([...row.declarations]),
+        optional: row.optional, readType: read.value.value }));
+    }
+    values.push(read.value.value);
+    if (row.optional) values.push(absence(read.value.value));
+  }
+  for (const row of selected.value.indexes) {
+    charge(row.declarations.length + 1);
+    const read = row.readType();
+    if (read.kind !== "resolved") return read;
+    if (read.value.kind === "none") return sourceSemanticRefusal(key.component.root, "An indexed type requires each selected original readable index component.");
+    selections.push(Object.freeze({ kind: "index", receiver: value, declarations: Object.freeze([...row.declarations]),
+      readonly: row.readonly, readType: read.value.value }));
     values.push(read.value.value);
   }
-  return { kind: "resolved", value: Object.freeze(values) };
+  return { kind: "resolved", value: true };
+  }
+  const selected = select(source, key, 0);
+  return selected.kind !== "resolved" ? selected : { kind: "resolved", value: Object.freeze({
+    selections: Object.freeze(selections), values: Object.freeze(values) }) };
 }
 
 function deferred(context: SourceSyntaxProduction, source: SourceTypeEvidence): SourceProductionResult<SourceTypeEvidence> {

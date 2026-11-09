@@ -418,6 +418,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
   }
 
   const reader: SourceDescriptorReader = Object.freeze({
+    literalDomain: hooks.literalDomain,
     componentIdentity: component,
     describeMembers,
     describeSyntax(node: Node, bindings: readonly SourceTypeBinding[]) {

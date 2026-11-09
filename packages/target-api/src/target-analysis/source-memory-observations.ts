@@ -3,6 +3,7 @@ import type { SourcePresence } from "../public/source/contracts.js";
 import type { SourceMemoryQueries, SourceMemoryObservation, SourceMemorySelection } from "../source-model/memory.js";
 import type { SourceMemoryField } from "../source-model/pointers.js";
 import type { SourceStorageBindings } from "../source-model/storage.js";
+import type { SourceMemberPair } from "../source-model/members.js";
 import type { SourceMemoryContext } from "./source-memory-context.js";
 import type { SourceMemoryEnvironments } from "./source-storage/model/memory-environments.js";
 import type { SourceStorageBudget } from "./source-storage/model/resource-budget.js";
@@ -62,16 +63,31 @@ export function createSourceMemoryObservationQueries(input: {
       if (layout.kind !== "value" || query.selectedDeclarations.length === 0)
         return unresolved("A field observation requires its complete original physical member selection.");
       const selectedFields: SourceMemoryField[] = [];
+      const members: Extract<SourceMemberPair, { readonly kind: "present" }>[] = [];
+      for (const declaration of query.selectedDeclarations) {
+        context.assertNode(declaration);
+        if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+        const pair = context.source.facts.objects.correspondingMember(component.value.value, layout.source, declaration, "read");
+        if (pair.kind !== "resolved") return pair;
+        if (pair.value.kind !== "present" || pair.value.value.kind !== "present" ||
+          !pair.value.value.source.declarations.includes(declaration))
+          return unresolved("A field observation requires every original query declaration in its own corresponding applied member group.");
+        const member = pair.value.value;
+        if (query.primary.kind === "present" && (!query.selectedDeclarations.includes(query.primary.value) ||
+          !member.source.declarations.includes(query.primary.value)))
+          return unresolved("A field observation requires its authentic original primary in its own complete query member group.");
+        members.push(member);
+      }
       for (const candidate of layout.fields) {
         if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
-        if (candidate.selectedDeclarations.length === query.selectedDeclarations.length &&
-          query.selectedDeclarations.every(declaration => candidate.selectedDeclarations.includes(declaration))) selectedFields.push(candidate);
+        const matches = members.every(member => member.destination.declarations.length === candidate.member.declarations.length &&
+          member.destination.declarations.every(declaration => candidate.member.declarations.includes(declaration)) &&
+          member.destination.declarations.every(declaration => candidate.selectedDeclarations.includes(declaration)));
+        if (matches) selectedFields.push(candidate);
       }
       if (selectedFields.length !== 1)
         return unresolved("A field observation requires one same-layout field retaining every original selected declaration.");
       const selected = selectedFields[0]!;
-      if (query.primary.kind === "present" && !selected.member.declarations.includes(query.primary.value))
-        return unresolved("A field observation requires its authentic original primary within the complete field group.");
       field = Object.freeze({ kind: "present", value: selected });
     }
     const operand = context.substitute(argument.value.value, component.value.typeBindings);

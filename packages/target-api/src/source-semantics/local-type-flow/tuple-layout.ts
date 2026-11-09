@@ -11,6 +11,13 @@ export interface SourceSequenceSlot {
   readonly container: { readonly value: SourceTypeEvidence; readonly index: number } | undefined;
 }
 
+export interface SourceSequenceSelection {
+  readonly receiver: SourceTypeEvidence;
+  readonly selector: SourceComponentSelector;
+  readonly value: SourceTypeEvidence;
+  readonly optional: boolean;
+}
+
 export function produceSourceSequenceLayout(builder: SourceDescriptorBuilder, source: SourceTypeEvidence,
   path: readonly SourceComponentSelector[] = []): SourceProductionResult<readonly SourceSequenceSlot[]> {
   const active = new Set<SourceTypeEvidence>();
@@ -55,11 +62,26 @@ export function produceSourceSequenceLayout(builder: SourceDescriptorBuilder, so
 
 export function produceSourceSequenceElements(builder: SourceDescriptorBuilder, source: SourceTypeEvidence,
   ordinal: bigint | undefined): SourceProductionResult<readonly SourceTypeEvidence[]> {
+  const selected = produceSourceSequenceSelections(builder, source, ordinal);
+  if (selected.kind !== "resolved") return selected;
+  const values: SourceTypeEvidence[] = [];
+  for (const slot of selected.value) {
+    values.push(slot.value);
+    if (slot.optional) values.push(builder.evidence({ type: builder.intrinsic("absence"), component: slot.value.component,
+      category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
+    { kind: "finite", values: [{ kind: "absence" }] },
+    { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(slot.value) }));
+  }
+  return { kind: "resolved", value: Object.freeze(values) };
+}
+
+export function produceSourceSequenceSelections(builder: SourceDescriptorBuilder, source: SourceTypeEvidence,
+  ordinal: bigint | undefined): SourceProductionResult<readonly SourceSequenceSelection[]> {
   if (ordinal !== undefined && ordinal < 0n) return sourceSemanticRefusal(source.component.root,
     "A Source tuple index requires its exact nonnegative ordinal.");
   const layout = produceSourceSequenceLayout(builder, source);
   if (layout.kind !== "resolved") return layout;
-  const values: SourceTypeEvidence[] = [];
+  const values: SourceSequenceSelection[] = [];
   let minimum = 0n;
   let maximum: bigint | undefined = 0n;
   for (const slot of layout.value) {
@@ -67,13 +89,15 @@ export function produceSourceSequenceElements(builder: SourceDescriptorBuilder, 
     if (selected) {
       if (slot.kind === "rest") {
         if (slot.element === undefined) return { kind: "pending", dependencies: [slot.type.component] };
-        values.push(slot.element);
+        const receiver = builder.produceDefinition(slot.type);
+        if (receiver.kind !== "resolved") return receiver;
+        values.push(Object.freeze({ receiver: receiver.value, selector: Object.freeze({ kind: "array-element" as const }),
+          value: slot.element, optional: false }));
       } else {
-        values.push(slot.type);
-        if (slot.kind === "optional") values.push(builder.evidence({ type: builder.intrinsic("absence"), component: slot.type.component,
-          category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-        { kind: "finite", values: [{ kind: "absence" }] },
-        { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(slot.type) }));
+        if (slot.container === undefined) throw new Error("A Source tuple slot retains its exact registered container and selector.");
+        values.push(Object.freeze({ receiver: slot.container.value,
+          selector: Object.freeze({ kind: "tuple-element" as const, index: slot.container.index }),
+          value: slot.type, optional: slot.kind === "optional" }));
       }
     }
     if (slot.kind === "rest") maximum = undefined;
