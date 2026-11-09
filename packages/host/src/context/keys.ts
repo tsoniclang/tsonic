@@ -47,7 +47,7 @@ export class Keys {
     const active = new Set<readonly unknown[]>([parts]);
     const stack: Frame[] = [{ tuple: parts, children: [], index: 0 }];
     while (stack.length > 0) {
-      const frame = stack.at(-1);
+      const frame = stack[stack.length - 1];
       if (frame === undefined) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
       if (frame.index === frame.tuple.length) {
         const identity = this.#intern(frame.children, charge);
@@ -55,7 +55,7 @@ export class Keys {
         this.#tuples.set(frame.tuple, identity);
         active.delete(frame.tuple);
         stack.pop();
-        const parent = stack.at(-1);
+        const parent = stack[stack.length - 1];
         if (parent === undefined) return identity;
         charge();
         parent.children.push(identity);
@@ -64,7 +64,7 @@ export class Keys {
       charge();
       const descriptor = Object.getOwnPropertyDescriptor(frame.tuple, frame.index);
       frame.index += 1;
-      if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
+      if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, "value")) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
       const value: unknown = descriptor.value;
       if (value !== null && typeof value === "object" && tuple(value)) {
         if (!Object.isFrozen(value) || active.has(value)) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
@@ -138,8 +138,8 @@ export class Keys {
     charge();
     const program = Object.getOwnPropertyDescriptor(value, "programIdentity");
     const owner = Object.getOwnPropertyDescriptor(value, "owner");
-    if (program === undefined || !Object.hasOwn(program, "value") || program.value !== this.#program
-      || owner === undefined || !Object.hasOwn(owner, "value") || typeof owner.value !== "string" || owner.value.length === 0) {
+    if (program === undefined || !Object.prototype.hasOwnProperty.call(program, "value") || program.value !== this.#program
+      || owner === undefined || !Object.prototype.hasOwnProperty.call(owner, "value") || typeof owner.value !== "string" || owner.value.length === 0) {
       invariant("INVALID_QUESTION_KEY", scope.owner.owner);
     }
     let identity = this.#objects.get(value);

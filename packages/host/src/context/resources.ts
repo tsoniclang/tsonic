@@ -59,7 +59,7 @@ export interface QueryResources {
 function immutableRecord(value: object, fields: readonly string[]): boolean {
   return Object.isFrozen(value) && fields.every(field => {
     const descriptor = Object.getOwnPropertyDescriptor(value, field);
-    return descriptor !== undefined && Object.hasOwn(descriptor, "value");
+    return descriptor !== undefined && Object.prototype.hasOwnProperty.call(descriptor, "value");
   });
 }
 
@@ -67,7 +67,7 @@ function dense<Value>(values: readonly Value[]): boolean {
   if (!Array.isArray(values) || !Object.isFrozen(values)) return false;
   for (let index = 0; index < values.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(values, index);
-    if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) {
+    if (descriptor === undefined || !Object.prototype.hasOwnProperty.call(descriptor, "value")) {
       return false;
     }
   }
@@ -263,7 +263,7 @@ export class Resources {
           },
         };
         state.leases.add(lease);
-        this.#tickets.at(-1)?.leases.add(lease);
+        this.#tickets[this.#tickets.length - 1]?.leases.add(lease);
         return Object.freeze({ release: lease.release });
       },
       withDepth: <Value>(dimension: string, action: () => Value): Value => {

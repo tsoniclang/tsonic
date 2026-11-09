@@ -27,13 +27,14 @@ const exact: ContextFactory = contextFactory; void exact;\n`);
     const result = spawnSync(resolve(repository, "node_modules/.bin/tsgo"), ["--ignoreConfig", "--strict",
       "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--noUnusedLocals", "--noUnusedParameters",
       "--noImplicitReturns", "--noFallthroughCasesInSwitch", "--skipLibCheck", "false", "--noEmitOnError",
-      "--module", "nodenext", "--target", "es2022", "--types", "node", "--declaration", "--listFiles",
+      "--module", "nodenext", "--target", "es2020", "--types", "node", "--declaration", "--listFiles",
       "--rootDir", repository, "--outDir", output, probe,
       ...ownerFiles.map(name => resolve(source, "context", name)), resolve(source, "model/contract.ts")], {
       cwd: repository, encoding: "utf8", timeout: 60_000, maxBuffer: 262_144,
     });
     assert.equal(result.error === undefined && result.signal === null, true, "fresh strict source compiler terminated");
-    assert.equal(result.status, 0, result.stdout.slice(0, 16_384));
+    const diagnostics = result.stdout.split(/\r?\n/u).filter(line => /error TS\d+:/u.test(line)).join("\n");
+    assert.equal(result.status, 0, (diagnostics || result.stdout).slice(0, 16_384));
     assert.equal(result.stderr, "");
     const localInputs = result.stdout.split(/\r?\n/u).filter(path => path.startsWith(source));
     orderedDomain(localInputs.sort(), [...ownerFiles.map(name => resolve(source, "context", name)),
@@ -169,7 +170,9 @@ test("registration seals the full registry before invocation and preserves actua
   code(() => register(harness, "late", () => 0), "REGISTRATION_SEALED");
   code(() => first.provide(() => 0), "REGISTRATION_SEALED");
   code(() => harness.context.sealRegistration(), "REGISTRATION_SEALED");
-  code(() => new harness.context.constructor(Symbol(), {}), "INVALID_CONTEXT_INPUT");
+  const constructorFailure = code(() => new harness.context.constructor(Symbol(), {}), "INVALID_CONTEXT_INPUT");
+  assert.throws(() => new constructorFailure.constructor(Object.freeze({}), "INVALID_CONTEXT_INPUT",
+    "mechanical", "constructor", Object.freeze([])), TypeError);
   harness.context.close(); harness.context.close();
   for (const action of [() => harness.context.query(first.question, 1), () => register(harness, "closed", () => 0),
     () => harness.context.sealRegistration(), () => harness.context.queryUsage,
@@ -200,6 +203,30 @@ test("definition data and captured domain are complete, not chosen from returned
   harness.context.close();
 });
 
+test("actual program identity installation cannot dispatch an inherited setter", () => {
+  const first = create();
+  const prototype = first.context.constructor.prototype;
+  let setterCalls = 0;
+  Object.defineProperty(prototype, "programIdentity", {
+    configurable: true, set() { setterCalls += 1; },
+  });
+  try {
+    const second = create();
+    assert.equal(setterCalls, 0);
+    assert.notEqual(second.context.programIdentity, first.context.programIdentity);
+    assert.equal(Object.isFrozen(second.context.programIdentity), true);
+    const descriptor = Object.getOwnPropertyDescriptor(second.context, "programIdentity");
+    assert.equal(descriptor !== undefined && "value" in descriptor && descriptor.writable === false, true);
+    const question = register(second, "real", () => "complete");
+    seal(second);
+    assert.equal(second.context.query(question.question, 0), "complete");
+    second.context.close();
+  } finally {
+    delete prototype.programIdentity;
+    first.context.close();
+  }
+});
+
 test("authentication runs before hits; foreign/copied/getter/closed scopes never borrow authority", () => {
   const harness = create(); const other = create();
   const issued = new Set(); let authentications = 0; let calls = 0;
@@ -225,7 +252,8 @@ test("authentication runs before hits; foreign/copied/getter/closed scopes never
     supplied = scope; code(() => harness.context.query(scopeQuestion.question, 0), "INVALID_RESOURCE_SCOPE");
   }
   let read = 0;
-  for (const bad of [null, {}, { get scope() { read += 1; return harness.scope; }, parts: [] }]) {
+  for (const bad of [null, {}, { get scope() { read += 1; return harness.scope; }, parts: [] },
+    { scope: harness.scope }, { scope: harness.scope, get parts() { read += 1; return []; } }]) {
     code(() => harness.context.query(malformed.question, bad), "INVALID_QUESTION_KEY");
   }
   assert.equal(read, 0);
@@ -328,6 +356,29 @@ test("two typed registrations connect mutually; identical active keys give the w
   harness.context.close();
 });
 
+test("complete immutable scalar, record, vector and function answers preserve identity including undefined", () => {
+  const harness = create();
+  const values = Object.freeze([undefined, null, false, 0n, 9007199254740993n, NaN,
+    Object.freeze({ value: "record" }), Object.freeze([]), Object.freeze(() => 7)]);
+  assert.equal(values.length, 9, "complete independently expected immutable result domain");
+  let calls = 0;
+  const question = register(harness, "immutable-values", input => {
+    calls += 1;
+    return values[input];
+  });
+  seal(harness);
+  for (const [index, expected] of values.entries()) {
+    assert.equal(harness.context.query(question.question, index), expected);
+    assert.equal(harness.context.query(question.question, index), expected);
+  }
+  assert.equal(calls, values.length);
+  const observed = harness.context.queryUsage.questions;
+  orderedDomain(observed.map(row => row.name), ["immutable-values"], Object.is, "complete immutable question domain");
+  assert.equal(observed[0].completed, BigInt(values.length));
+  assert.equal(observed[0].hits, BigInt(values.length));
+  harness.context.close();
+});
+
 test("exact tuple keys preserve scalar types, order, environments, purposes and actual identities", () => {
   const harness = create(); let calls = 0;
   const question = register(harness, "keys", () => ++calls, {
@@ -337,7 +388,7 @@ test("exact tuple keys preserve scalar types, order, environments, purposes and 
   const anotherOwner = Object.freeze({ programIdentity: harness.context.programIdentity, owner: "mechanical" });
   const keys = [[1], [1n], ["1"], [true], [false], [null], [0], [-0], [NaN], [Infinity], [-Infinity],
     ["a", "b"], ["b", "a"], ["a"], [], [harness.owner], [anotherOwner],
-    ["environment", 1], ["environment", 2], ["purpose", 1], [["nested"]], ["nested"], ["a", "a"]].map(Object.freeze);
+    ["environment", 1], ["environment", 2], ["purpose", 1], [Object.freeze(["nested"])], ["nested"], ["a", "a"]].map(Object.freeze);
   assert.equal(keys.length, 23, "complete key opposite domain, including duplicate child cardinality");
   const answers = keys.map(key => harness.context.query(question.question, key));
   assert.equal(new Set(answers).size, keys.length);
@@ -364,11 +415,16 @@ test("key validation rejects every unsupported, mutable, sparse, accessor, forei
   const cyclic = []; cyclic.push(cyclic); Object.freeze(cyclic);
   const getter = []; Object.defineProperty(getter, 0, { get() { reads += 1; return 0; } }); Object.freeze(getter);
   const fake = Object.freeze({ get programIdentity() { reads += 1; return harness.context.programIdentity; }, owner: "test" });
+  const accessorOwner = Object.freeze({ programIdentity: harness.context.programIdentity,
+    get owner() { reads += 1; return "test"; } });
   const cases = [null, {}, [], Object.freeze([undefined]), Object.freeze([Symbol()]), Object.freeze([() => 0]),
     Object.freeze([{}]), Object.freeze([Object.freeze({})]), Object.freeze([Object.freeze({ programIdentity:
-      harness.context.programIdentity, owner: "" })]), Object.freeze([foreign.owner]), Object.freeze([fake]),
+      harness.context.programIdentity, owner: "" })]), Object.freeze([Object.freeze({
+      programIdentity: harness.context.programIdentity })]), Object.freeze([Object.freeze({
+      programIdentity: harness.context.programIdentity, owner: 1 })]), Object.freeze([accessorOwner]),
+    Object.freeze([foreign.owner]), Object.freeze([fake]),
     Object.freeze([,]), Object.freeze([[]]), getter, cyclic];
-  assert.equal(cases.length, 15, "complete invalid key domain");
+  assert.equal(cases.length, 18, "complete invalid key domain");
   for (const parts of cases) code(() => harness.context.query(question.question, parts), "INVALID_QUESTION_KEY");
   assert.equal(reads, 0); assert.equal(calls, 0);
   assert.equal(harness.context.query(question.question, Object.freeze(["valid"])), 1);

@@ -22,12 +22,12 @@ interface Memo<Answer> {
 }
 
 export class QuestionState<Input, Answer> implements QuestionMetadata {
-  readonly owner: string;
-  readonly name: string;
-  readonly domain: string;
+  declare readonly owner: string;
+  declare readonly name: string;
+  declare readonly domain: string;
   readonly #handle: Question<Input, Answer>;
   readonly #authenticate: (input: Input) => QuestionIdentity;
-  readonly #retention: QuestionDefinition<Input, Answer>["retention"];
+  readonly #retention: "immutable" | "completed-outcome";
   readonly #memo = new Map<bigint, Memo<Answer>>();
   readonly #active = new Set<bigint>();
   #provider: ((input: Input, scope: ResourceScope) => Answer) | undefined;
@@ -36,9 +36,11 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
   #hits = 0n;
 
   constructor(definition: QuestionDefinition<Input, Answer>) {
-    this.owner = definition.owner;
-    this.name = definition.name;
-    this.domain = definition.domain;
+    Object.defineProperties(this, {
+      owner: { value: definition.owner, enumerable: true },
+      name: { value: definition.name, enumerable: true },
+      domain: { value: definition.domain, enumerable: true },
+    });
     this.#authenticate = definition.authenticate;
     this.#retention = definition.retention;
     this.#handle = Object.freeze({ owner: this.owner, name: this.name });
@@ -73,7 +75,7 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
       if (projected === null || typeof projected !== "object"
         || !["scope", "parts"].every(field => {
           const descriptor = Object.getOwnPropertyDescriptor(projected, field);
-          return descriptor !== undefined && Object.hasOwn(descriptor, "value");
+          return descriptor !== undefined && Object.prototype.hasOwnProperty.call(descriptor, "value");
         })) {
         invariant("INVALID_QUESTION_KEY", this.owner, this.name);
       }
@@ -123,7 +125,7 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
       if (!Object.isFrozen(answer)) invariant("INVALID_CONTEXT_INPUT", this.owner, this.name);
       if (this.#retention === "completed-outcome") {
         const kind = Object.getOwnPropertyDescriptor(answer, "kind");
-        if (kind === undefined || !Object.hasOwn(kind, "value") || typeof kind.value !== "string") {
+        if (kind === undefined || !Object.prototype.hasOwnProperty.call(kind, "value") || typeof kind.value !== "string") {
           invariant("INVALID_CONTEXT_INPUT", this.owner, this.name);
         }
         return kind.value !== "pending" && kind.value !== "unresolved" && kind.value !== "partial";

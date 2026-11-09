@@ -9,10 +9,10 @@ import { QuestionState } from "./question.js";
 import type { QuestionMetadata } from "./question.js";
 import { Resources, validateOptions } from "./resources.js";
 
-const programAuthority = Symbol("Context program authority");
+const programAuthority = Object.freeze({});
 
 class Program implements Context {
-  readonly programIdentity: ProgramIdentity = Object.freeze({ kind: "program" });
+  declare readonly programIdentity: ProgramIdentity;
   readonly #resources: Resources;
   readonly #keys: Keys;
   readonly #questions = new Map<object, QuestionMetadata>();
@@ -21,8 +21,11 @@ class Program implements Context {
   #declaring = true;
   #sealed = false;
 
-  constructor(authority: symbol, options: ContextOptions) {
+  constructor(authority: object, options: ContextOptions) {
     if (authority !== programAuthority) invariant("INVALID_CONTEXT_INPUT");
+    Object.defineProperty(this, "programIdentity", {
+      value: Object.freeze<ProgramIdentity>({ kind: "program" }), enumerable: true,
+    });
     this.#resources = new Resources(this.programIdentity, options);
     this.#keys = new Keys(this.programIdentity, this.#resources);
     Object.freeze(this);
@@ -39,7 +42,7 @@ class Program implements Context {
     if (definition === null || typeof definition !== "object"
       || !["owner", "name", "domain", "retention", "authenticate"].every(field => {
         const descriptor = Object.getOwnPropertyDescriptor(definition, field);
-        return descriptor !== undefined && Object.hasOwn(descriptor, "value");
+        return descriptor !== undefined && Object.prototype.hasOwnProperty.call(descriptor, "value");
       })
       || typeof definition.owner !== "string" || definition.owner.length === 0
       || typeof definition.name !== "string" || definition.name.length === 0

@@ -13,7 +13,7 @@ const contextPath = resolve(repository, "packages/host/src/context/contract.ts")
 const compiler = resolve(repository, "node_modules/.bin/tsgo");
 const strictArguments = Object.freeze(["--ignoreConfig", "--strict", "--noUncheckedIndexedAccess",
   "--exactOptionalPropertyTypes", "--skipLibCheck", "false", "--noEmitOnError",
-  "--module", "nodenext", "--target", "es2022", "--types", "node"]);
+  "--module", "nodenext", "--target", "es2020", "--types", "node"]);
 
 function compile(argumentsToAdd) {
   const result = spawnSync(compiler, [...strictArguments, ...argumentsToAdd], {
