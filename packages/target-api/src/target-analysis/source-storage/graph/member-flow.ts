@@ -4,7 +4,7 @@ import type { SourceMemberPair } from "../../../source-model/members.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../../../source-model/storage.js";
 import { sourceLiteralDomainUnion } from "../../../source-model/literals/domain.js";
 import { sourceLiteralKeyIdentity } from "../../../source-model/literals/key.js";
-import type { SourceConstructionMemberContribution, SourceMemberInventoryRow } from "../../../source-semantics/member-inventory.js";
+import type { SourceConstructionMemberContribution, SourceConstructionMemberReducers, SourceConstructionMembers, SourceMemberInventoryRow } from "../../../source-semantics/member-inventory.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageClassLineage } from "../model/construction.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageIsScalarType, sourceStorageSubjectType } from "../model/components.js";
@@ -208,8 +208,32 @@ export function createSourceStorageMemberFlow(
     }
     return members.length === 0 ? undefined : Object.freeze({ members: Object.freeze(members), absent: false });
   };
-  const construction = (occurrence: Node, before: Node) => settled(source.analysis.objects.construction(occurrence, before, {
-    read: (original, values) => source.analysis.aggregate(original, values), domain: sourceLiteralDomainUnion }));
+  const constructionReducers: SourceConstructionMemberReducers = Object.freeze({
+    read: (original, values) => source.analysis.aggregate(original, values), domain: sourceLiteralDomainUnion });
+  const copyIndexes = new WeakMap<Extract<SourceConstructionMembers, { readonly kind: "complete" }>,
+    ReadonlyMap<string | Node, SourceStorageCopySelection>>();
+  const construction = (occurrence: Node, before: Node) => settled(source.analysis.objects.construction(occurrence, before, constructionReducers));
+  const copyIndex = (history: Extract<SourceConstructionMembers, { readonly kind: "complete" }>):
+    ReadonlyMap<string | Node, SourceStorageCopySelection> | undefined => {
+    if (!budget.step()) return undefined;
+    const previous = copyIndexes.get(history);
+    if (previous !== undefined) return previous;
+    const rows = budget.createRows();
+    let complete = false;
+    try {
+      if (!rows.add(1)) return undefined;
+      const index = new Map<string | Node, SourceStorageCopySelection>();
+      for (const entry of history.members) {
+        if (!budget.step() || !rows.add(2 + entry.contributions.length)) return undefined;
+        const identity = sourceLiteralKeyIdentity(entry.member.key);
+        if (index.has(identity)) throw new Error("Canonical construction history requires one row per original property key.");
+        index.set(identity, Object.freeze({ optional: entry.member.optional, contributions: entry.contributions }));
+      }
+      copyIndexes.set(history, index);
+      complete = true;
+      return index;
+    } finally { if (!complete) rows.release(); }
+  };
   const copyContributionsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: SourceTypeEvidence,
     before: Node): SourceStorageCopySelection | undefined => {
     if (owner.projection.length !== 0 || !source.ast.is.IsObjectLiteralExpression(owner.node) &&
@@ -220,11 +244,8 @@ export function createSourceStorageMemberFlow(
     const identity = sourceLiteralKeyIdentity(selected.value.source.key);
     const history = construction(owner.node, before);
     if (history.kind !== "complete") return undefined;
-    const entries = history.members.filter(entry => sourceLiteralKeyIdentity(entry.member.key) === identity);
-    if (entries.length > 1) throw new Error("Canonical construction history requires one row per original property key.");
-    if (entries.length === 0) return Object.freeze({ optional: true, contributions: Object.freeze([]) });
-    const entry = entries[0]!;
-    return Object.freeze({ optional: entry.member.optional, contributions: entry.contributions });
+    const entries = copyIndex(history);
+    return entries === undefined ? undefined : entries.get(identity) ?? Object.freeze({ optional: true, contributions: Object.freeze([]) });
   };
   const spreadMembersFor = (expression: Node, evaluation: Node): readonly SourceStorageSpreadMember[] | undefined => {
     if (!budget.step()) return undefined;

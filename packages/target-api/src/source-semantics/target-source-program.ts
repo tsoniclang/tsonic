@@ -28,6 +28,9 @@ import { createSourceControlFlowQueries } from "../target-analysis/flow/graph.js
 import { createSourceIntegerFacts } from "../source-navigation/integer-ranges/index.js";
 import { createSourceStorageAnalysis } from "../target-analysis/source-storage/analysis.js";
 import type { SourceStorageAnalysisInputs } from "../target-analysis/source-storage/model/program.js";
+import type { SourceConstructionMemberReducers } from "./member-inventory.js";
+import { createSourceMemoryContext } from "../target-analysis/source-memory-context.js";
+import { createSourceMemoryMetadataProduction } from "../target-analysis/source-memory-metadata.js";
 import { createSourceSafetyFacts } from "../target-analysis/source-safety-production.js";
 import { createSourceAttributeFacts } from "../target-analysis/source-attribute-production.js";
 
@@ -73,11 +76,12 @@ export function composeSourceProgram(input: SourceProgramInput) {
     return owner.observe(result);
   }
 
+  const constructionReducers: SourceConstructionMemberReducers = Object.freeze({
+    read: (original, values) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
+    domain: sourceLiteralDomainUnion });
   const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
     construction(occurrence) {
-      const selected = requiredObjects().construction(occurrence, occurrence, {
-        read: (original, values) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
-        domain: sourceLiteralDomainUnion });
+      const selected = requiredObjects().construction(occurrence, occurrence, constructionReducers);
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "complete"
         ? selected.value.inventory : { kind: "unavailable" } };
     },
@@ -202,7 +206,12 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const controlFlow = createSourceControlFlowQueries(program, owner.builder.domain,
     declaration => settle(requiredSolved().callableHead(declaration, "body", Object.freeze([]))));
   const attributes = createSourceAttributeFacts({ input: input.core, assertNode });
+  const memoryContext = createSourceMemoryContext({ source: program, original: input.core.memory, assertNode,
+    assertComponent: input.input.assertComponent, signature,
+    componentIdentity: requiredReader().componentIdentity, equivalent: owner.equivalent });
+  const memoryMetadata = createSourceMemoryMetadataProduction(memoryContext);
   const storageInputs = Object.freeze<SourceStorageAnalysisInputs>({ inventory: memberInventory,
+    memory: Object.freeze({ context: memoryContext, metadata: memoryMetadata }),
     objects: completeObjects, settle, callableHead: solved.callableHead, declared: completeObjectQueries.declared,
     aggregate(original, values) {
       assertNode(original);

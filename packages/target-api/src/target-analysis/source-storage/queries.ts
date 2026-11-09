@@ -19,6 +19,8 @@ import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceClassFieldHasStorage, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
 import type { SourceStorageBindings, SourceStorageSubjectsSelection, SourceStorageSubjectSelection, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier, SourceStorageBoundActivation, SourceStorageBindingsSelection, SourceStorageWriteOccurrence } from "../../source-model/storage.js";
 import type { SourceStorageQueries } from "../../source-model/program.js";
+import { createSourceMemoryQueries } from "./memory.js";
+import type { SourceMemoryQueries } from "../../source-model/memory.js";
 
 export function createSourceStorageQueries(
   source: SourceStorageProgram,
@@ -204,7 +206,12 @@ export function createSourceStorageQueries(
       : Object.freeze({ kind: "open" as const, producers: Object.freeze(producers), boundaries: selected.boundaries,
           includesAbsence: selected.includesAbsence });
   });
+  let memory: SourceMemoryQueries | undefined;
   const query: SourceStorageQueries = Object.freeze({
+    get memory() {
+      if (memory === undefined) throw new Error("Memory queries require the same completed original storage graph.");
+      return memory;
+    },
     source: source.program,
     sourceFiles: Object.freeze([...sourceFiles]),
     nodes: Object.freeze([...transport.visitedNodes]),
@@ -661,6 +668,7 @@ export function createSourceStorageQueries(
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
   const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
+  memory = createSourceMemoryQueries({ source, storage: query, budget, transport, bindingStates });
   return Object.freeze({
     ...query,
     subject: sourceStorageOutcome(query.subject),

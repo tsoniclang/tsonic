@@ -3,7 +3,7 @@ import type { SourceDescriptorView, SourcePresence, SourceTypeBinding, SourceTyp
 import type { SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../source-model/production.js";
-import type { SourceConstructionMemberContribution, SourceConstructionMemberReducers, SourceConstructionMembers,
+import type { SourceConstructionMemberContribution, SourceConstructionMemberHistory, SourceConstructionMemberReducers, SourceConstructionMembers,
   SourceIndexInventoryRow, SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
 
 export function createSourceConstructionMemberQuery(input: {
@@ -14,6 +14,11 @@ export function createSourceConstructionMemberQuery(input: {
   key(value: SourceLiteralKey): string | Node;
 }): (occurrence: Node, before: Node, reducers: SourceConstructionMemberReducers) => SourceProductionResult<SourceConstructionMembers> {
   const { ast, view, inventory, assertNode, key } = input;
+  type Complete = Extract<SourceConstructionMembers, { readonly kind: "complete" }>;
+  const histories = new WeakMap<SourceConstructionMemberHistory, {
+    readonly order: ReadonlyMap<Node, number>;
+    readonly prefixes: WeakMap<Node, WeakMap<SourceConstructionMemberReducers, Complete>>;
+  }>();
   interface Alternative {
     readonly rows: readonly SourceMemberInventoryRow[];
     readonly contributions: readonly SourceConstructionMemberContribution[];
@@ -43,9 +48,22 @@ export function createSourceConstructionMemberQuery(input: {
     const history = inventory.constructionHistory(occurrence);
     if (history.kind !== "resolved") return history;
     if (history.value.occurrence !== occurrence) throw new Error("Construction selection requires its exact authenticated original history.");
-    const boundary = before === occurrence ? history.value.steps.length : history.value.steps.findIndex(step => step.evaluation === before);
-    if (boundary < 0) throw new Error("A construction prefix requires an actual original evaluation boundary.");
-    const order = new Map(history.value.steps.map((step, index) => [step.evaluation, index]));
+    let retained = histories.get(history.value);
+    if (retained === undefined) {
+      const order = new Map<Node, number>();
+      for (const [index, step] of history.value.steps.entries()) {
+        assertNode(step.evaluation);
+        if (order.has(step.evaluation)) throw new Error("An original construction evaluates each step once.");
+        order.set(step.evaluation, index);
+      }
+      retained = { order, prefixes: new WeakMap() };
+      histories.set(history.value, retained);
+    }
+    const boundary = before === occurrence ? history.value.steps.length : retained.order.get(before);
+    if (boundary === undefined) throw new Error("A construction prefix requires an actual original evaluation boundary.");
+    const previous = retained.prefixes.get(before)?.get(reducers);
+    if (previous !== undefined) return { kind: "resolved", value: previous };
+    const order = retained.order;
     const groups = new Map<string | Node, Group>();
     const indexes: SourceIndexInventoryRow[] = [];
     for (const step of history.value.steps.slice(0, boundary)) {
@@ -72,6 +90,7 @@ export function createSourceConstructionMemberQuery(input: {
         continue;
       }
       assertNode(step.operand);
+      const excluded = new Set(step.excluded.map(key));
       const source = step.source();
       if (source.kind !== "resolved") return source;
       view.assertEvidence(source.value);
@@ -84,7 +103,7 @@ export function createSourceConstructionMemberQuery(input: {
         if (selected.kind !== "resolved") return selected;
         if (selected.value.kind !== "complete") return { kind: "resolved", value: { kind: "unavailable" } };
         for (const row of selected.value.members) {
-          if (prototype(row) || step.excluded.some(excluded => key(excluded) === key(row.key))) continue;
+          if (prototype(row) || excluded.has(key(row.key))) continue;
           const identity = key(row.key);
           let group = candidates.get(identity);
           if (group === undefined) { group = { key: row.key, name: row.name, rows: [], definite: new Set() }; candidates.set(identity, group); }
@@ -142,7 +161,11 @@ export function createSourceConstructionMemberQuery(input: {
         } });
       members.push(Object.freeze({ member, contributions: frozen(contributions) }));
     }
-    return { kind: "resolved", value: Object.freeze({ kind: "complete", inventory: Object.freeze({ kind: "complete",
-      members: frozen(members.map(value => value.member)), indexes: frozen(indexes) }), members: frozen(members) }) };
+    const result: Complete = Object.freeze({ kind: "complete", inventory: Object.freeze({ kind: "complete",
+      members: frozen(members.map(value => value.member)), indexes: frozen(indexes) }), members: frozen(members) });
+    let prefixes = retained.prefixes.get(before);
+    if (prefixes === undefined) { prefixes = new WeakMap(); retained.prefixes.set(before, prefixes); }
+    prefixes.set(reducers, result);
+    return { kind: "resolved", value: result };
   };
 }

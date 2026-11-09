@@ -1,0 +1,35 @@
+import type { SourceMemoryQueries } from "../../source-model/memory.js";
+import type { SourceStorageBindings } from "../../source-model/storage.js";
+import type { SourceStorageQueries } from "../../source-model/program.js";
+import { createSourceClosedArrayStorageQueries } from "../source-array-storage.js";
+import { createSourceMemoryBindingQueries } from "../source-memory-bindings.js";
+import { createSourcePointerBackingQueries } from "../source-pointer-backing.js";
+import type { SourceStorageScope } from "./graph/scoped-model.js";
+import { createSourceMemoryEnvironments } from "./model/memory-environments.js";
+import { createSourceStorageMemoryMetadata } from "./model/memory-metadata.js";
+import { sourceStorageOutcome, type SourceStorageProgram } from "./model/program.js";
+import type { SourceStorageBudget } from "./model/resource-budget.js";
+import type { createSourceStorageTransport } from "./transport/transport.js";
+
+export function createSourceMemoryQueries(input: {
+  readonly source: SourceStorageProgram;
+  readonly storage: SourceStorageQueries;
+  readonly budget: SourceStorageBudget;
+  readonly transport: ReturnType<typeof createSourceStorageTransport>;
+  readonly bindingStates: WeakMap<SourceStorageBindings, readonly SourceStorageScope[]>;
+}): SourceMemoryQueries {
+  const { context, metadata } = input.source.analysis.memory;
+  const environments = createSourceMemoryEnvironments({ ...input, context });
+  const pointerBacking = createSourcePointerBackingQueries({ ...input, environments });
+  const memoryMetadata = createSourceStorageMemoryMetadata({ ...input, environments, metadata });
+  const memoryBindings = createSourceMemoryBindingQueries({ ...input, environments, context, metadata });
+  const closedArrayStorage = createSourceClosedArrayStorageQueries(input);
+  return Object.freeze({
+    pointerBacking: Object.freeze({ value: sourceStorageOutcome(pointerBacking.value), returned: sourceStorageOutcome(pointerBacking.returned) }),
+    memoryMetadata: Object.freeze({ value: sourceStorageOutcome(memoryMetadata.value), declaration: sourceStorageOutcome(memoryMetadata.declaration),
+      isCompileTimeExpression: sourceStorageOutcome(memoryMetadata.isCompileTimeExpression) }),
+    memoryBindings: Object.freeze({ field: sourceStorageOutcome(memoryBindings.field), record: sourceStorageOutcome(memoryBindings.record),
+      inventory: sourceStorageOutcome(memoryBindings.inventory) }),
+    closedArrayStorage: Object.freeze({ resolve: sourceStorageOutcome(closedArrayStorage.resolve) }),
+  });
+}

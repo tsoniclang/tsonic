@@ -21,6 +21,7 @@ import { substituteSourceEvidenceDetails } from "./descriptor-details.js";
 export interface SourceDescriptorOwner {
   readonly builder: SourceDescriptorBuilder;
   readonly view: SourceDescriptorView;
+  equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): boolean;
   observe<Value>(result: SourceResult<Value>): SourceResult<Value>;
   refusals(): readonly SourceRefusal[];
 }
@@ -466,5 +467,5 @@ export function createSourceDescriptorOwner(input: {
     },
     publishFamily: families.publish, applyFamily: (family: SourceSumFamily, bindings: readonly SourceTypeBinding[]) => observe(families.apply(family, bindings)),
     substituteCategory: parameters.category, seal: () => view });
-  return Object.freeze({ builder, view, observe, refusals: () => Object.freeze([...refusals]) });
+  return Object.freeze({ builder, view, equivalent: evidence.equivalent, observe, refusals: () => Object.freeze([...refusals]) });
 }

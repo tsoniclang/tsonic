@@ -34,6 +34,9 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
   const metadataCache = new WeakMap<Node, SourceConstructionMemberHistory>();
   const constructions = new WeakMap<Node, SourceLiteralConstruction>();
   const active = new Set<Node>();
+  const reducers: import("../member-inventory.js").SourceConstructionMemberReducers = Object.freeze({
+    read: (original, values) => builder.join(builder.componentIdentity(original, []), "inferred", values, undefined),
+    domain: sourceLiteralDomainUnion });
   const none = Object.freeze({ kind: "resolved", value: Object.freeze({ kind: "none" }) } as const);
   const presence = (value: SourceProductionResult<SourceTypeEvidence>): SourceProductionResult<SourcePresence<SourceTypeEvidence>> =>
     value.kind !== "resolved" ? value : { kind: "resolved", value: { kind: "present", value: value.value } };
@@ -172,8 +175,7 @@ export function createSourceConstructionProduction(context: SourceConstructionPr
   }
 
   function object(occurrence: Node): SourceProductionResult<SourceLiteralConstruction> {
-    const selected = context.objects.construction(occurrence, occurrence, {
-      read: (original, values) => builder.join(builder.componentIdentity(original, []), "inferred", values, undefined), domain: sourceLiteralDomainUnion });
+    const selected = context.objects.construction(occurrence, occurrence, reducers);
     if (selected.kind !== "resolved") return selected;
     if (selected.value.kind !== "complete") return sourceSemanticRefusal(occurrence, "An original object construction requires a complete member inventory.");
     const inventory = selected.value.inventory;
