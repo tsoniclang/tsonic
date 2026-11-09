@@ -234,5 +234,5 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
       ? present(Object.freeze({ operation: parent, operand: occurrence, role: "data-layout" })) : none;
   };
   const memory: SourceInputMemoryQueries = Object.freeze({ metadata, layout, field, fieldBinding, recordBinding, compileTimeUse });
-  return Object.freeze({ memory, layoutIdentity });
+  return Object.freeze({ memory });
 }

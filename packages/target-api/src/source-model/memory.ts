@@ -9,6 +9,7 @@ import type {
   SourceMemoryField,
   SourceMemoryLayout,
   SourcePointerOperation,
+  SourceRawMemoryOperation,
 } from "./pointers.js";
 import type {
   SourceStorageBindings,
@@ -104,7 +105,18 @@ export interface SourceMemoryBindingInventory {
   readonly selectedDeclarations: readonly Node[];
 }
 
+export interface SourceMemoryRawLocation {
+  readonly operation: Extract<SourceRawMemoryOperation, { readonly operation: "to-raw" | "reinterpret" }>;
+  readonly pointee: SourceTypeEvidence;
+  readonly layout: SourceMemoryLayout;
+  readonly bindings: SourceStorageBindings;
+  readonly typeBindings: readonly SourceTypeBinding[];
+}
+
 export interface SourceMemoryQueries {
+  readonly rawLocation: {
+    resolve(occurrence: Node, bindings: SourceStorageBindings): SourceMemorySelection<SourcePresence<SourceMemoryRawLocation>>;
+  };
   readonly pointerBacking: {
     value(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceMemorySelection<SourcePointerBacking>;
     returned(declaration: Node, bindings: SourceStorageBindings): SourceMemorySelection<SourcePointerBacking>;

@@ -1,8 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceApplication, SourcePresence, SourceResult, SourceTypeEvidence, SourceValueOperand } from "../public/source/contracts.js";
-import type { SourcePointerFacts, SourcePointerOperation, SourceRawLocation } from "../source-model/pointers.js";
+import type { SourcePointerFacts, SourcePointerOperation } from "../source-model/pointers.js";
 import type { SourceStoragePlace } from "../source-model/protocols.js";
-import { createSourceMemoryLayoutQuery } from "./source-memory-layout.js";
 import type { SourcePointerProductionInput } from "./source-pointer-input.js";
 
 function resolved<Value>(value: Value): SourceResult<Value> { return Object.freeze({ kind: "resolved", value }); }
@@ -12,7 +11,6 @@ const none = Object.freeze({ kind: "none" } as const);
 export function createSourcePointerOperationQuery(input: SourcePointerProductionInput): SourcePointerFacts["pointerOperation"] {
   const { core, applications, values, view, assertNode, originalComponent, unavailable } = input;
   const retained = new WeakMap<Node, ReturnType<SourcePointerFacts["pointerOperation"]>>();
-  const layout = createSourceMemoryLayoutQuery(input);
   const pointee = (application: SourceApplication, index: number, observed: boolean): SourceResult<SourceTypeEvidence> => {
     const parameter = application.identity.signature.typeParameters[index];
     const bindings = application.identity.signatureBindings.filter(binding => binding.declaration === parameter);
@@ -154,19 +152,12 @@ export function createSourcePointerOperationQuery(input: SourcePointerProduction
     } else if (selected.family === "raw-memory") {
       const common = { ...base, family: "raw-memory" as const };
       if (selected.operation === "to-raw" || selected.operation === "reinterpret") {
-        const value = pointee(application.value, 0, true);
+        const value = pointee(application.value, 0, false);
         if (value.kind === "refused") return value;
-        let location: SourceRawLocation;
-        if (selected.location.kind === "rejected") location = selected.location;
-        else {
-          const published = layout(selected.location.layout, value.value);
-          if (published.kind === "refused") return published;
-          location = Object.freeze({ kind: "resolved", layout: published.value });
-        }
         operation = selected.operation === "to-raw" ? Object.freeze({ ...common, operation: selected.operation,
-          pointer: operand(selected.pointer), pointee: value.value, layout: operand(selected.layout), location })
+          pointer: operand(selected.pointer), pointee: value.value, layout: operand(selected.layout) })
           : Object.freeze({ ...common, operation: selected.operation, raw: operand(selected.raw),
-            pointee: value.value, layout: operand(selected.layout), location });
+            pointee: value.value, layout: operand(selected.layout) });
       } else if (selected.operation === "byte-offset") operation = Object.freeze({ ...common, operation: selected.operation,
         raw: operand(selected.raw), offset: operand(selected.offset), integer: selected.integer, dataLayout: selected.dataLayout });
       else operation = selected.operation === "raw-to-address-integer" ? Object.freeze({ ...common, operation: selected.operation,

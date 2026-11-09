@@ -7,7 +7,6 @@ import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
 import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { tsonicNativePointerOperationFactKey } from "./native-pointer-facts.js";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
-import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 import { tsonicPointerViewFactKey } from "./pointer-view-facts.js";
 import { createSourceCoreMarkerInput, sourceCoreMarkerFacts } from "./marker-facts.js";
 import { createSourceCoreSafetyInput } from "./safety-input.js";
@@ -28,7 +27,7 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
   const markerInput = createSourceCoreMarkerInput({ sourceFacts, assertNode });
   const safetyInput = createSourceCoreSafetyInput(input);
   const attributeInput = createSourceCoreAttributeInput(input);
-  const { memory, layoutIdentity } = createSourceCoreMemoryInput(input);
+  const { memory } = createSourceCoreMemoryInput(input);
   const operations = new WeakMap<Node, ReturnType<SourceInputCoreQueries["operation"]>>();
   const none = Object.freeze({ kind: "none" } as const);
   const unavailable = Object.freeze({ kind: "unavailable" } as const);
@@ -156,13 +155,9 @@ export function createSourceCoreInput(input: SourceCoreInputOptions): SourceInpu
       pointer: projected.pointerExpression, read: projected.readExpression, write: projected.writeExpression, optional: projected.optional });
     else if (memory !== undefined) {
       if (memory.operation === "to-raw" || memory.operation === "reinterpret") {
-        const finalized = selectTsonicRawLocationOperation(ast, sourceFacts, occurrence);
-        if (finalized === undefined) throw new Error("Raw location facts require their canonical finalized selector.");
-        const location = finalized.kind === "rejected" ? Object.freeze({ kind: "rejected" as const, reason: finalized.reason })
-          : Object.freeze({ kind: "resolved" as const, layout: layoutIdentity(finalized.layout) });
         selected = memory.operation === "to-raw" ? Object.freeze({ family: "raw-memory", operation: memory.operation,
-          pointer: memory.pointerExpression, layout: memory.layoutExpression, location })
-          : Object.freeze({ family: "raw-memory", operation: memory.operation, raw: memory.rawExpression, layout: memory.layoutExpression, location });
+          pointer: memory.pointerExpression, layout: memory.layoutExpression })
+          : Object.freeze({ family: "raw-memory", operation: memory.operation, raw: memory.rawExpression, layout: memory.layoutExpression });
       } else if (memory.operation === "byte-offset") selected = Object.freeze({ family: "raw-memory", operation: memory.operation,
         raw: memory.rawExpression, offset: memory.offsetExpression, dataLayout: memory.dataLayoutExpression,
         integer: Object.freeze({ runtimeBase: memory.offsetRuntimeBase, signedness: memory.offsetSignedness, width: memory.offsetWidth }) });

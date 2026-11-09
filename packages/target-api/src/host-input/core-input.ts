@@ -1,7 +1,7 @@
 import type { Node, SourcePointerMutability } from "@tsonic/tsts";
 import type { SourcePresence } from "../public/source/contracts.js";
 import type { SourceInputComponent } from "./identities.js";
-import type { SourceInputLayoutIdentity, SourceInputMemoryQueries } from "./memory-input.js";
+import type { SourceInputMemoryQueries } from "./memory-input.js";
 import type { SourceInputMarkerQueries, SourceInputMarkers } from "./marker-input.js";
 import type { SourceInputSafetyQueries } from "./safety-input.js";
 import type { SourceAttributeBuilderFact } from "../source-model/attributes.js";
@@ -19,9 +19,6 @@ export type SourceInputPointerType =
   | { readonly kind: "function-pointer"; readonly declaration: Node; readonly parameters: readonly SourceInputComponent[];
       readonly result: SourceInputComponent; readonly abi: readonly string[] };
 
-export type SourceInputRawLocation = { readonly kind: "resolved"; readonly layout: SourceInputLayoutIdentity }
-  | { readonly kind: "rejected"; readonly reason: string };
-
 export type SourceInputPointerOperation =
   | { readonly family: "typed-location"; readonly operation: "address-of" | "allocate" | "load" | "store" |
       "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer";
@@ -36,10 +33,8 @@ export type SourceInputPointerOperation =
   | { readonly family: "raw-address"; readonly operation: "bind-raw-pointer"; readonly identity: Node }
   | { readonly family: "raw-address"; readonly operation: "equal-raw-pointer"; readonly left: Node; readonly right: Node }
   | { readonly family: "raw-address"; readonly operation: "hash-raw-pointer"; readonly pointer: Node }
-  | { readonly family: "raw-memory"; readonly operation: "to-raw"; readonly pointer: Node; readonly layout: Node;
-      readonly location: SourceInputRawLocation }
-  | { readonly family: "raw-memory"; readonly operation: "reinterpret"; readonly raw: Node; readonly layout: Node;
-      readonly location: SourceInputRawLocation }
+  | { readonly family: "raw-memory"; readonly operation: "to-raw"; readonly pointer: Node; readonly layout: Node }
+  | { readonly family: "raw-memory"; readonly operation: "reinterpret"; readonly raw: Node; readonly layout: Node }
   | { readonly family: "raw-memory"; readonly operation: "byte-offset"; readonly raw: Node; readonly offset: Node;
       readonly integer: { readonly runtimeBase: "number" | "bigint"; readonly signedness: "signed" | "unsigned";
         readonly width: 8 | 16 | 32 | 64 | 128 }; readonly dataLayout: Node }

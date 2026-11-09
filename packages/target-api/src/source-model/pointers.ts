@@ -30,9 +30,6 @@ export type SourceMemoryLayout = {
       readonly element: SourceMemoryLayout }
 );
 
-export type SourceRawLocation = { readonly kind: "resolved"; readonly layout: SourceMemoryLayout }
-  | { readonly kind: "rejected"; readonly reason: string };
-
 export type SourcePointerType = { readonly value: SourceTypeEvidence } & (
   | { readonly kind: "raw-address" }
   | { readonly kind: "typed-location" | "native-pointer"; readonly pointee: SourceTypeEvidence;
@@ -86,9 +83,9 @@ export type SourceAddressIntegerDomain =
 
 export type SourceRawMemoryOperation = SourcePointerOperationBase & { readonly family: "raw-memory" } & (
   | { readonly operation: "to-raw"; readonly pointer: SourceValueOperand; readonly pointee: SourceTypeEvidence;
-      readonly layout: SourceValueOperand; readonly location: SourceRawLocation }
+      readonly layout: SourceValueOperand }
   | { readonly operation: "reinterpret"; readonly raw: SourceValueOperand; readonly pointee: SourceTypeEvidence;
-      readonly layout: SourceValueOperand; readonly location: SourceRawLocation }
+      readonly layout: SourceValueOperand }
   | { readonly operation: "byte-offset"; readonly raw: SourceValueOperand; readonly offset: SourceValueOperand;
       readonly integer: { readonly runtimeBase: "number" | "bigint"; readonly signedness: "signed" | "unsigned";
         readonly width: 8 | 16 | 32 | 64 | 128 }; readonly dataLayout: Node }

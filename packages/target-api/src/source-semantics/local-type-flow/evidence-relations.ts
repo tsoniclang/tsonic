@@ -8,8 +8,20 @@ export type SourceEvidenceRelation = "yes" | "no" | "deferred";
 
 export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "builder" | "objects">, source: SourceTypeEvidence,
   destination: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
+  return relateSourceEvidence(context, source, destination, "fit");
+}
+
+export function sourceMemoryDomainsEquivalent(context: Pick<SourceSemanticProduction, "builder" | "objects">,
+  left: SourceTypeEvidence, right: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
+  return relateSourceEvidence(context, left, right, "memory");
+}
+
+function relateSourceEvidence(context: Pick<SourceSemanticProduction, "builder" | "objects">, source: SourceTypeEvidence,
+  destination: SourceTypeEvidence, purpose: "fit" | "memory"): SourceProductionResult<SourceEvidenceRelation> {
   const { builder, objects } = context;
   const active = new Map<SourceTypeEvidence, Set<SourceTypeEvidence>>();
+  const completed = new Map<SourceTypeEvidence, Map<SourceTypeEvidence, SourceEvidenceRelation>>();
+  let cycles = 0;
   const resolved = (value: SourceEvidenceRelation): SourceProductionResult<SourceEvidenceRelation> => ({ kind: "resolved", value });
 
   function combine(values: readonly SourceProductionResult<SourceEvidenceRelation>[], every: boolean): SourceProductionResult<SourceEvidenceRelation> {
@@ -36,6 +48,19 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
   function relate(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
     builder.assertEvidence(left);
     builder.assertEvidence(right);
+    const previous = purpose === "memory" ? completed.get(left)?.get(right) : undefined;
+    if (previous !== undefined) return resolved(previous);
+    const previousCycles = cycles;
+    const result = compare(left, right);
+    if (purpose === "memory" && result.kind === "resolved" && (result.value === "no" || previousCycles === cycles)) {
+      let values = completed.get(left);
+      if (values === undefined) { values = new Map(); completed.set(left, values); }
+      values.set(right, result.value);
+    }
+    return result;
+  }
+
+  function compare(left: SourceTypeEvidence, right: SourceTypeEvidence): SourceProductionResult<SourceEvidenceRelation> {
     if (left.type.kind === "intersection" || right.type.kind === "intersection") {
       const first = builder.produceDefinition(left);
       if (first.kind !== "resolved") return first;
@@ -44,10 +69,12 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
       return relate(first.value, second.value);
     }
     const actual = left.type, required = right.type;
-    if (actual.kind === "intrinsic" && actual.intrinsic === "never") return resolved("yes");
-    if (required.kind === "intrinsic" && (required.intrinsic === "unknown" || required.intrinsic === "any")) return resolved("yes");
+    if (purpose === "memory" && (actual.kind === "intrinsic" && (actual.intrinsic === "any" || actual.intrinsic === "unknown") ||
+      required.kind === "intrinsic" && (required.intrinsic === "any" || required.intrinsic === "unknown"))) return resolved("deferred");
+    if (purpose === "fit" && actual.kind === "intrinsic" && actual.intrinsic === "never") return resolved("yes");
+    if (purpose === "fit" && required.kind === "intrinsic" && (required.intrinsic === "unknown" || required.intrinsic === "any")) return resolved("yes");
     if (actual.kind === "parameter" || required.kind === "parameter") return resolved(
-      actual.kind === "parameter" && required.kind === "parameter" && actual.declaration === required.declaration ? "yes" : "deferred");
+      purpose === "fit" && actual.kind === "parameter" && required.kind === "parameter" && actual.declaration === required.declaration ? "yes" : "deferred");
     if (actual.kind === "projection" || required.kind === "projection") return resolved("deferred");
     if (actual.kind === "intrinsic" && actual.intrinsic === "any") return resolved("deferred");
     if (left.sum !== undefined) return combine(left.sum.arms.map(arm => relate(arm, right)), true);
@@ -58,7 +85,10 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
     if (left.category.kind === "known" && right.category.kind === "known" && left.category.category !== right.category.category) return resolved("no");
     if (left === right) return resolved("yes");
     let rightValues = active.get(left);
-    if (rightValues?.has(right)) return resolved("deferred");
+    if (rightValues?.has(right)) {
+      if (purpose === "memory") cycles++;
+      return resolved(purpose === "memory" ? "yes" : "deferred");
+    }
     if (rightValues === undefined) { rightValues = new Set(); active.set(left, rightValues); }
     rightValues.add(right);
     try {
@@ -113,9 +143,11 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
           if (pairs.value.kind === "unavailable") return resolved(pairs.value.reason === "unresolved-shape" ? "deferred" : "no");
           for (const pair of pairs.value.members) {
             if (pair.kind === "absent") {
-              if (!pair.destination.optional) return resolved("no");
+              if (purpose === "memory" || !pair.destination.optional) return resolved("no");
               continue;
             }
+            if (purpose === "memory" && (pair.source.optional !== pair.destination.optional ||
+              pair.source.readonly !== pair.destination.readonly)) return resolved("no");
             if (pair.source.optional && !pair.destination.optional) return resolved("no");
             if (pair.destination.readType !== undefined) {
               if (pair.source.readType === undefined) return resolved("no");
@@ -129,6 +161,7 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
           for (const pair of pairs.value.indexes) {
             const alternatives: SourceProductionResult<SourceEvidenceRelation>[] = [];
             for (const candidate of pair.sources) {
+              if (purpose === "memory" && candidate.source.readonly !== pair.destination.readonly) continue;
               const selected: SourceProductionResult<SourceEvidenceRelation>[] = [resolved(candidate.coverage)];
               if (pair.destination.readType !== undefined) selected.push(candidate.source.readType === undefined ? resolved("no")
                 : relate(candidate.source.readType, pair.destination.readType));
@@ -161,5 +194,9 @@ export function sourceEvidenceExtends(context: Pick<SourceSemanticProduction, "b
       return resolved("no");
     } finally { rightValues.delete(right); }
   }
-  return relate(source, destination);
+  builder.assertEvidence(source);
+  builder.assertEvidence(destination);
+  if (purpose === "memory" && (builder.freeParameters(source).length !== 0 || builder.freeParameters(destination).length !== 0))
+    return resolved("deferred");
+  return purpose === "fit" ? relate(source, destination) : combine([relate(source, destination), relate(destination, source)], true);
 }
