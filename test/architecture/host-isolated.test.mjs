@@ -46,6 +46,36 @@ test("a complete whole module compiles against freshly checked declarations with
   });
 });
 
+test("Host I/O isolation checks its real installed platform declarations without exposing peer implementations", async () => {
+  const contract = "packages/host/src/project/contract.ts";
+  const implementation = "packages/host/src/project/paths.ts";
+  const files = new Map([
+    [contract, "export interface FileName { readonly value: string; }"],
+    [implementation, 'import { isAbsolute } from "node:path"; export function absolute(value: string): boolean { return value.length > 0 && isAbsolute(value); }'],
+  ]);
+  await fixture(files, async input => {
+    const result = await compileHostModuleInIsolation({ ...input, module: "project", sourceFiles: [contract, implementation], dependencyContracts: [] });
+    assert.equal(result.kind, "passed", result.log.slice(-4096));
+    assert.match(result.log, /@types\/node/u);
+    assert.deepEqual(readdirSync(resolve(input.root, input.outputDirectory)), []);
+  });
+});
+
+test("only Ingress implementation uses the real pinned checker declarations behind a closed contract", async () => {
+  const contract = "packages/host/src/ingress/contract.ts";
+  const implementation = "packages/host/src/ingress/reader.ts";
+  const files = new Map([
+    [contract, "export interface Observation { readonly flags: number; }"],
+    [implementation, 'import type { Type } from "@tsonic/tsts"; export function flags(type: Type): number { return type.flags; }'],
+  ]);
+  await fixture(files, async input => {
+    const result = await compileHostModuleInIsolation({ ...input, module: "ingress", sourceFiles: [contract, implementation], dependencyContracts: [] });
+    assert.equal(result.kind, "passed", result.log.slice(0, 4096));
+    assert.match(result.log, /packages\/tsts\/dist/u);
+    assert.deepEqual(readdirSync(resolve(input.root, input.outputDirectory)), []);
+  });
+});
+
 test("private type-only dependencies cannot pass by including a peer implementation", async () => {
   const files = new Map(lawful);
   files.set(implementation, 'import type { Private } from "../model/private.js"; export function value(input: Private): number { return input.value; }');
@@ -118,6 +148,19 @@ test("fresh contract emission rejects private declaration leaks and never trusts
     assert.match(result.log, /isolated-compile/u);
     assert.equal(existsSync(resolve(input.root, "packages/host/dist/model/contract.d.ts")), true,
       "the caller's unrelated output is neither used nor removed");
+  });
+});
+
+test("compiler-resolved ambient dependencies cannot escape through ancestor package lookup", async () => {
+  const files = new Map(lawful);
+  files.set(model, '/// <reference types="ambient-peer" />\nexport interface Fact { readonly value: number; }');
+  files.set("node_modules/ambient-peer/package.json", JSON.stringify({ name: "ambient-peer", types: "index.d.ts" }));
+  files.set("node_modules/ambient-peer/index.d.ts", "interface HiddenPeer { readonly value: number; }");
+  await fixture(files, async input => {
+    const result = await compileHostModuleInIsolation(input);
+    assert.equal(result.kind, "failed");
+    assert.match(result.log, /Compiler resolved an undeclared source or peer declaration/u);
+    assert.deepEqual(readdirSync(resolve(input.root, input.outputDirectory)), []);
   });
 });
 

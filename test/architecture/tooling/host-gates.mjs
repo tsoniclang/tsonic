@@ -11,7 +11,7 @@ import { SymbolFlagsAlias } from "../../../packages/tsts/dist/src/index.js";
 
 const retiredPackages = Object.freeze(["@tsonic/target-api", "@tsonic/source-core", "@tsonic/js-source-profile"]);
 const retiredMembers = Object.freeze(["effectiveTypes", "semantics", "sourceFacts", "typeFor", "emptyBindings",
-  "storageAnalysis", "sealFormalMemberWriteDemands", "createTargetSourceProgram", "readCsharpRawLocation"]);
+  "storageAnalysis", "sealFormalMemberWriteDemands", "createTargetSourceProgram"]);
 const producerMembers = Object.freeze(["builder", "interner", "seed", "register", "sealRegistration", "solve",
   "provide", "produce", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "evidence", "intern"]);
 

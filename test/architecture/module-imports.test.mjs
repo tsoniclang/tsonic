@@ -17,6 +17,8 @@ test("module import inventory separates actual JavaScript imports from fixture s
       void import(\`./template.mjs\`);
       void import(("./wrapped-string.mjs"));
       void import(((\`./wrapped-template.mjs\`)));
+      const dynamicName = "./fixture-only.js";
+      void import(dynamicName);
     `],
     ["side-effect.mjs", "export {};"],
     ["value.mjs", "export const value = 1;"],
@@ -182,13 +184,13 @@ test("relative module resolution preserves unique declarations, ambiguity and ex
 
 test("checked graph ownership ignores genuinely checked files outside the selected root or source inventory", () => {
   const source = createCompilerSessionFromFiles({ currentDirectory: "/architecture", files: new Map([
-    ["/architecture/main.ts", "export function value() { return 1; }"],
+    ["/architecture/main.ts", 'export function value() { return 1; } export { outside } from "/foreign/outside.js";'],
     ["/foreign/outside.ts", "export function outside() { return 2; }"],
     ["/architecture/unselected.ts", "export function unselected() { return 3; }"],
   ]), rootFiles: ["/architecture/main.ts", "/foreign/outside.ts", "/architecture/unselected.ts"],
   compilerOptions: { noLib: true, noResolve: true, module: "esnext", target: "esnext" } }).checkSource();
-  const result = analyzeCheckedTypeScriptModules(source, new Map([["main.ts", "export function value() { return 1; }"]]), "/architecture/", []);
+  const result = analyzeCheckedTypeScriptModules(source, new Map([["main.ts", 'export function value() { return 1; } export { outside } from "/foreign/outside.js";']]), "/architecture/", []);
   assert.deepEqual(result.modules.map(module => module.file), ["main.ts"]);
   assert.deepEqual(result.modules[0].functionExports, ["main.ts#value"]);
-  assert.deepEqual(result.edges, []);
+  assert.deepEqual(result.edges.map(edge => edge.specifier), ["/foreign/outside.js"]);
 });

@@ -73,6 +73,7 @@ test("one per-view factory and immutable metadata do not become module ownership
 });
 
 test("the canonical lifetime AST rule preserves transparent immutable data and rejects malformed freeze ownership", () => {
+  assert.deepEqual(findings("const primitiveValues = [1, 2];"), []);
   for (const expression of [
     'Object.freeze(({ kind: "fact" }))',
     'Object.freeze({ kind: "fact" } as const)',

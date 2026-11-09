@@ -80,6 +80,7 @@ export function moduleLifetimeFindings(source, file, { immutableData = false } =
         ? checker.getLexicallyResolvedSymbol(node) : checker.getSymbolAtLocation(node);
       if (symbol === undefined || active.has(symbol)) return false;
       const declaration = checker.getSymbolValueDeclaration(symbol);
+      if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration)) return true;
       if (declaration === undefined || !ast.is.IsVariableDeclaration(declaration) ||
         ast.variableDeclarationKind(declaration) !== "const") return false;
       active.add(symbol);

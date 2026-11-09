@@ -86,6 +86,8 @@ test("lifetime rejects generic, static, nested and closure-owned mutable collect
     const catalogue = Object.freeze({ names: Object.freeze(["one", "two"]) });
     const name = "entry"; const alias = name;
     const stable = Object.freeze({ alias });
+    function pure(value: number): number { return value + 1; }
+    const operations = Object.freeze({ pure });
     export function createOwner() { const cache = new WeakMap(); return { read(value) { return cache.get(value); } }; }
     class View { cache = new Map(); }
   `]], []);
@@ -171,6 +173,7 @@ test("Publication exposes immutable answers, not builders, seeds or program back
     expect([["packages/host/src/publication/contract.ts", `export interface View { ${member}(value: number): void; }`]], ["read-only-publication"]);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly source: { seed(value: number): void; }; }"]], ["read-only-publication"]);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly seed: (value: number) => void; }"]], ["read-only-publication"]);
+  expect([["packages/host/src/publication/contract.ts", "export interface View { readonly seed: (() => void); }"]], ["read-only-publication"]);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly programIdentity: string; value(): number; }"]], []);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly values: Map<string, number>; }"]],
     ["contract-closure", "read-only-publication"]);

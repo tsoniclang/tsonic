@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { hostModules } from "../architecture/tooling/host-modules.mjs";
 import { inspectHostStructure } from "../architecture/tooling/host-gates.mjs";
@@ -17,6 +18,11 @@ export const compileHostModuleInIsolation = async input => {
   if (module === undefined) throw new Error("Isolated compilation requires a declared whole Host module.");
   const compiler = resolve(toolingRoot, "node_modules/@typescript/native-preview/bin/tsgo.js");
   if (!existsSync(compiler)) throw new Error("The installed pinned project compiler is required for isolation.");
+  const compilerPackage = createRequire(compiler).resolve(`@typescript/native-preview-${process.platform}-${process.arch}/package.json`);
+  const platformRoots = [realpathSync(resolve(dirname(compilerPackage), "lib")),
+    ...(module.layer >= 5 || module.name === "ingress" ? [realpathSync(resolve(toolingRoot, "node_modules/@types/node")),
+      realpathSync(resolve(toolingRoot, "node_modules/undici-types"))] : []),
+    ...(module.name === "ingress" ? [realpathSync(resolve(toolingRoot, "packages/tsts/dist"))] : [])];
   /** @param {string} file */
   const path = file => {
     if (typeof file !== "string" || file.length === 0 || isAbsolute(file) || file.includes("\\") ||
@@ -77,16 +83,26 @@ export const compileHostModuleInIsolation = async input => {
       noUnusedLocals: true, noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true,
       forceConsistentCasingInFileNames: true, esModuleInterop: true,
       noEmitOnError: true, skipLibCheck: false, declaration: true, emitDeclarationOnly: true,
-      target: "es2020", module: "nodenext", moduleResolution: "nodenext", types: [], rootDir: directory, outDir,
+      target: "es2020", module: "nodenext", moduleResolution: "nodenext",
+      types: module.layer >= 5 || module.name === "ingress" ? ["node"] : [], rootDir: directory, outDir,
     }, files: files.map(file => resolve(directory, file)) }));
     writeFileSync(resolve(directory, "package.json"), JSON.stringify({ type: "module", private: true }));
-    const result = spawnSync(process.execPath, [compiler, "--project", config], {
+    const result = spawnSync(process.execPath, [compiler, "--project", config, "--listFiles"], {
       cwd: directory, encoding: "utf8", maxBuffer: 1_048_576, timeout: 60_000,
     });
     if (result.error !== undefined) throw result.error;
     if (result.signal !== null) throw new Error(`The isolated compiler terminated with ${result.signal}.`);
     logs.push(`strict compiler exit=${result.status}\n${result.stdout}${result.stderr}`);
-    return result.status === 0;
+    if (result.status !== 0) return false;
+    const checked = result.stdout.trim().split(/\r?\n/u).filter(Boolean).map(file => realpathSync(file));
+    if (checked.length === 0) throw new Error("The successful compiler did not report its actual checked source closure.");
+    const foreign = checked.find(file => !file.startsWith(`${directory}${sep}`) &&
+      (!/\.d\.(?:ts|mts|cts)$/u.test(file) || !platformRoots.some(root => file.startsWith(`${root}${sep}`))));
+    if (foreign !== undefined) {
+      logs.push(`isolated-compile: Compiler resolved an undeclared source or peer declaration: ${foreign}`);
+      return false;
+    }
+    return true;
   };
   try {
     const initial = inspectHostStructure({ root, files: [...sources, ...input.dependencyContracts], declarationFiles: input.dependencyContracts });
