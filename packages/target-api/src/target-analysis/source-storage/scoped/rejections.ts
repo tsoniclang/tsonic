@@ -55,7 +55,7 @@ export function createSourceStorageScopedRejections(source: SourceStorageProgram
     actualTypes?: readonly (readonly SourceTypeEvidence[] | undefined)[], phase: "call" | "active" = "call"): readonly SourceStorageTerm[] | undefined => {
     if (budget.failure() !== undefined) return undefined;
     if (phase === "call" && source.ast.hasModifierKind(candidate, "async"))
-      return [Object.freeze({ kind: "empty", absence: undefined })];
+      return [Object.freeze({ kind: "empty", absence: undefined, missingMember: false })];
     const terms: SourceStorageTerm[] = [];
     for (const region of transport.regions.callable(candidate, invocation, undefined, undefined, actualTypes, phase)) {
       if (!budget.step()) return undefined;
@@ -77,7 +77,7 @@ export function createSourceStorageScopedRejections(source: SourceStorageProgram
       }
     }
     return budget.failure() !== undefined ? undefined : terms.length === 0
-      ? [Object.freeze({ kind: "empty", absence: undefined })] : terms;
+      ? [Object.freeze({ kind: "empty", absence: undefined, missingMember: false })] : terms;
   };
   const caught = (reference: SourceStorageReference): SourceStorageReduction | undefined => {
     if (reference.subject.kind !== "input" || reference.subject.projection.length !== 0) return undefined;

@@ -6,6 +6,10 @@ export type SourceLiteralKey =
   | { readonly kind: "name"; readonly name: string }
   | { readonly kind: "symbol"; readonly declaration: Node };
 
+export function sourceLiteralKeyIdentity(value: SourceLiteralKey): string | Node {
+  return value.kind === "name" ? value.name : value.declaration;
+}
+
 function numericName(token: SourceNumericLiteralToken): string {
   if (token.coefficient === 0n) return "0";
   const coefficient = token.coefficient.toString();

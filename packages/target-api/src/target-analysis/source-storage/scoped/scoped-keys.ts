@@ -172,10 +172,10 @@ export function createSourceStorageScopedKeys(source: SourceStorageProgram, budg
         return value === undefined ? undefined : ["qualified", selected.guards.key, value];
       }
       if (selected.kind === "empty") {
-        if (selected.absence === undefined) return [selected.kind, null];
+        if (selected.absence === undefined) return [selected.kind, selected.missingMember ? 1 : 0, null];
         const reference = selected.absence;
         const activation = birthKey(reference.subject, reference.scope);
-        return activation === undefined ? undefined : [selected.kind,
+        return activation === undefined ? undefined : [selected.kind, selected.missingMember ? 1 : 0,
           scopes.identity(reference.subject), activation, reference.guards?.key ?? null];
       }
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand), selected.deferred === true ? 1 : 0];

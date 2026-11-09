@@ -29,7 +29,7 @@ function fixture(limits = {}) {
 for (const kind of ["instantiation", "member", "application"]) {
   test(`deep ${kind} keys finish through bounded continuations rather than the native stack`, () => {
     const current = fixture();
-    let term = { kind: "empty", absence: undefined };
+    let term = { kind: "empty", absence: undefined, missingMember: false };
     for (let index = 0; index < 4096; index += 1) term = current.wrap(kind, term);
     const key = current.keys.encode(term);
     assert.equal(typeof key, "string", "every exact nested component has a completed encoding");
@@ -41,7 +41,8 @@ for (const kind of ["instantiation", "member", "application"]) {
 
 test("deep key continuations preserve active-cycle rejection without publishing partial work", () => {
   const current = fixture();
-  const cyclic = { kind: "store", destination: { kind: "empty" }, receiver: undefined, value: { kind: "empty" } };
+  const cyclic = { kind: "store", destination: { kind: "empty", absence: undefined, missingMember: false },
+    receiver: undefined, value: { kind: "empty", absence: undefined, missingMember: false } };
   cyclic.receiver = cyclic;
   let term = cyclic;
   for (let index = 0; index < 2048; index += 1) term = current.wrap("member", term);
@@ -49,12 +50,13 @@ test("deep key continuations preserve active-cycle rejection without publishing 
   assert.equal(current.budget.failure(), "Source storage key terms require an acyclic exact value.",
     "the existing exact-cycle diagnostic survives explicit suspension");
   current.keys.releaseReferenceMemo();
-  assert.equal(current.keys.encode({ kind: "empty" }), undefined, "release cannot clear the sticky source failure");
+  assert.equal(current.keys.encode({ kind: "empty", absence: undefined, missingMember: false }), undefined,
+    "release cannot clear the sticky source failure");
 });
 
 test("key continuation rows remain subject to the existing finite budget", () => {
   const current = fixture({ maximumTransportRows: 64 });
-  let term = { kind: "empty" };
+  let term = { kind: "empty", absence: undefined, missingMember: false };
   for (let index = 0; index < 128; index += 1) term = current.wrap("instantiation", term);
   assert.equal(current.keys.encode(term), undefined, "uncompleted continuation frames are never free");
   assert.equal(current.budget.failure(), "Source storage transport exceeds its finite transport-row budget.");

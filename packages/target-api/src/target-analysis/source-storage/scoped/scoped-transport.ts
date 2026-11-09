@@ -208,5 +208,5 @@ export function sourceStorageStoredValue(ast: AstReader, store: SourceStorageSto
     import("../graph/scoped-model.js").SourceStorageTerm | undefined {
   if (value !== undefined) return sourceStorageReference(value, scope);
   return store.kind === "mutation" && store.values.length === 0 && store.reason === undefined && ast.is.IsDeleteExpression(store.operation)
-    ? Object.freeze({ kind: "empty", absence: sourceStorageReference(store.storage, scope) }) : undefined;
+    ? Object.freeze({ kind: "empty", missingMember: false, absence: sourceStorageReference(store.storage, scope) }) : undefined;
 }

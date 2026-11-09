@@ -31,7 +31,7 @@ import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageCallbackEntry, SourceStorageInvocationInputSlots } from "../../../source-model/storage.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceDeclarationAmbientContext } from "../../../source-navigation/declaration-context.js";
-import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
+import { createSourceStorageMemberFlow, createSourceStorageMemberImplementations, sourceStorageCopyComponents } from "../graph/member-flow.js";
 import { createSourceStorageStoredValues, createSourceStorageFormalMemberWrites } from "../graph/stored-values.js";
 import type { SourceStorageWrite } from "../model/stores.js";
 import { createSourceStorageStoreProjections } from "../graph/store-projections.js";
@@ -562,32 +562,26 @@ export function createSourceStorageTransport(
           if (!step()) return;
           if (!sourceStorageIsMemberProjection(component)) continue;
           const destination = subject(object, "value", [component]);
-          let before = object;
-          while (step()) {
-            const contribution = memberFlow.copyContributionFor(owner, component.declaration, type, before);
-            if (contribution === undefined || contribution.kind === "absent") break;
+          const copied = memberFlow.copyContributionsFor(owner, component.declaration, type, object);
+          if (copied === undefined) return;
+          for (const contribution of copied.contributions) {
+            if (!step()) return;
             if (contribution.kind === "own") {
-              if (!ast.is.IsGetAccessorDeclaration(contribution.declaration) && !ast.is.IsSetAccessorDeclaration(contribution.declaration))
-                connect(subjectFor(ObjectLiteralProperty_Value(ast, contribution.declaration)), destination);
-              break;
+              for (const declaration of contribution.declarations) {
+                if (!step()) return;
+                if (!ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
+                  connect(subjectFor(ObjectLiteralProperty_Value(ast, declaration)), destination);
+              }
+              continue;
             }
-            const original = subjectFor(contribution.expression);
+            const original = subjectFor(contribution.operand);
             if (original === undefined) return;
-            let definite = contribution.definite;
-            for (const selected of contribution.components) {
+            for (const selected of sourceStorageCopyComponents(contribution.member)) {
               if (!step() || !sourceStorageIsMemberProjection(selected)) return;
               const declaration = selected.declaration;
-              const declaredOwner = sourceMemberOwner(ast, declaration);
-              if (declaredOwner !== undefined && (ast.is.IsClassDeclaration(declaredOwner) || ast.is.IsClassExpression(declaredOwner)) &&
-                (ast.is.IsMethodDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) {
-                definite = false;
-                continue;
-              }
               if (ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)) continue;
               connect(subject(original.node, original.kind, [...original.projection, selected]), destination);
             }
-            if (definite) break;
-            before = contribution.evaluation;
           }
         }
       };

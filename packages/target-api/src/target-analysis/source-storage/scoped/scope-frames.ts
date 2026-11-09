@@ -35,7 +35,8 @@ export function createSourceStorageScopeFrames(input: {
     actuals: SourceStorageFrameInput["values"]): SourceStorageFrame | undefined => {
     if (!budget.step()) return undefined;
     const key = `actuals:${[candidate, invocation, caller, captured].map(identity).join(":")}:${actuals.map(value =>
-      value.kind === "empty" ? value.absence === undefined ? "empty" : `empty:${identity(value.absence.subject)}/${identity(value.absence.scope)}`
+      value.kind === "empty" ? value.absence === undefined ? `empty:${value.missingMember ? 1 : 0}`
+        : `empty:${value.missingMember ? 1 : 0}:${identity(value.absence.subject)}/${identity(value.absence.scope)}`
         : value.kind === "input-frontier" ? `input:${identity(value.input.subject)}/${identity(value.input.scope)}/${identity(value.subject)}/${identity(value.scope)}/${value.preservesInput ? 1 : 0}/${value.guards?.key ?? ""}`
         : `${identity(value.subject)}/${identity(value.scope)}`).join(";")}`;
     const cached = frames.get(key);

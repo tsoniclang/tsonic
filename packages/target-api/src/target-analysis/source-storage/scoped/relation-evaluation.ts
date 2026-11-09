@@ -59,7 +59,7 @@ export function createSourceStorageRelationEvaluation(source: SourceStorageProgr
   boundary?: SourceStorageInputWalkBoundary) {
   const relations = new Map<string, SourceStorageRelation>();
   const rows = budget.createRows();
-  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined });
+  const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty", absence: undefined, missingMember: false });
   const initializers = createSourceStorageInitializerSummaries(source, budget, scopes, creation, keys);
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
     if (scope === scopes.empty || subject.kind === "member") return scope;

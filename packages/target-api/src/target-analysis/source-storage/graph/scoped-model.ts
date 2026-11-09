@@ -112,7 +112,7 @@ export type SourceStorageTerm =
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
       readonly scope: SourceStorageScope; readonly reason: string; readonly exposure?: Node; readonly executionOnly?: true;
       readonly effectOnly?: true; readonly demandFailure?: true }
-  | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined }
+  | { readonly kind: "empty"; readonly absence: SourceStorageReference | undefined; readonly missingMember: boolean }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
       readonly activation: { readonly kind: "invoke" } | { readonly kind: "provided"; readonly argument: SourceStorageTerm | undefined }

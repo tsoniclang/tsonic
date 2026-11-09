@@ -170,7 +170,7 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
       if (term.absence === undefined) return term;
       const scope = applyScope(term.absence.scope, replacements);
       return scope === undefined ? undefined : scope === term.absence.scope ? term
-        : Object.freeze({ kind: "empty", absence: Object.freeze({ ...term.absence, scope }) });
+        : Object.freeze({ ...term, absence: Object.freeze({ ...term.absence, scope }) });
     }
     if (term.kind === "guarded") {
       const value = applyTerm(term.value, replacements);
@@ -263,7 +263,8 @@ export function createSourceStorageScopes(source: SourceStorageProgram, budget: 
     const from = sourceStorageProjectionType(source, entry.subject, entry.views);
     if (from === undefined) return undefined;
     if (sourcePresenceLiteralDisposition(source.analysis.literalDomain(from)) === "absent")
-      return retain(1) ? [Object.freeze({ kind: "empty", absence: sourceStorageReference(entry.subject, entry.scope) })] : undefined;
+      return retain(1) ? [Object.freeze({ kind: "empty", missingMember: false,
+        absence: sourceStorageReference(entry.subject, entry.scope) })] : undefined;
     const selected: SourceStorageTerm[] = [];
     const collect = (projection: SourceStorageSubject["projection"]): void => {
       const projected = subject(entry.subject.node, entry.subject.kind, projection);

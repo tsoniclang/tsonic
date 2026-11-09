@@ -39,7 +39,7 @@ export function createSourceStorageScopedSuccessors(source: SourceStorageProgram
   outside: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageReference | undefined = () => undefined) {
   const { ast, semantics } = source;
   const { navigation } = source.facts;
-  const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined });
+  const empty: Extract<SourceStorageTerm, { readonly kind: "empty" }> = Object.freeze({ kind: "empty", absence: undefined, missingMember: false });
   const absent: Extract<SourceStorageReduction, { readonly kind: "replace" }> = Object.freeze({
     kind: "replace", terms: Object.freeze([empty]),
   });
@@ -166,7 +166,7 @@ export function createSourceStorageScopedSuccessors(source: SourceStorageProgram
       sourceStorageFormalOwner(term.subject, source) === term.scope.owner) return symbolicProjection(term.subject, term.scope, undefined, term.views);
     const node = term.subject.node;
     if (term.subject.kind === "value" && ast.is.IsReturnStatement(node) && Node_Expression(ast, node) === undefined)
-      return { kind: "replace", terms: [Object.freeze({ kind: "empty",
+      return { kind: "replace", terms: [Object.freeze({ kind: "empty", missingMember: false,
         absence: sourceStorageReference(term.subject, term.scope) })] };
     if (term.subject.kind === "value" && ast.is.IsElementAccessExpression(node) &&
       ast.as.AsElementAccessExpression(node)?.QuestionDotToken !== undefined) {
@@ -297,7 +297,7 @@ export function createSourceStorageScopedSuccessors(source: SourceStorageProgram
       if (component?.kind === "tuple-element" && term.subject.projection.length === 1 &&
         !elements.some(element => element !== undefined && ast.is.IsSpreadElement(element)) &&
         (elements[component.index] === undefined || ast.is.IsOmittedExpression(elements[component.index])))
-        initial = Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, term.scope) });
+        initial = Object.freeze({ kind: "empty", missingMember: false, absence: sourceStorageReference(term.subject, term.scope) });
       else if (elements.length === 0) initial = empty;
     }
     if (term.subject.kind === "value" && term.subject.projection.length === 0 &&
@@ -310,7 +310,7 @@ export function createSourceStorageScopedSuccessors(source: SourceStorageProgram
         (container === undefined || !ast.is.IsForInStatement(container) && !ast.is.IsForOfStatement(container))) {
         const ambient = transport.declarationIsAmbient(node);
         if (ambient === undefined) return undefined;
-        if (!ambient) initial = Object.freeze({ kind: "empty",
+        if (!ambient) initial = Object.freeze({ kind: "empty", missingMember: false,
           absence: sourceStorageReference(term.subject, creatorScope(node, term.scope)) });
       }
     }
@@ -401,7 +401,7 @@ export function createSourceStorageScopedSuccessors(source: SourceStorageProgram
     if (term.subject.kind === "return" && ast.body(node) !== undefined && !ast.is.IsConstructorDeclaration(node)) {
       const completion = semantics.forNode(node).operations.callableCompletion(node);
       if (completion === undefined || completion.declaration !== node) return undefined;
-      if (completion.canFallThrough) terms.push(Object.freeze({ kind: "empty",
+      if (completion.canFallThrough) terms.push(Object.freeze({ kind: "empty", missingMember: false,
         absence: sourceStorageReference(term.subject, term.scope) }));
     }
     if (ambient || sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))

@@ -2,7 +2,7 @@ import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceCorrespondenceIndex, SourceCorrespondenceMember, SourceIndexPair, SourceMemberCorrespondence, SourceMemberPair } from "../source-model/members.js";
 import type { SourceDescriptorView, SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeBinding, SourceTypeEvidence } from "../public/source/contracts.js";
 import { sourceLiteralUnitsEqual, type SourceLiteralDomain } from "../source-model/literals/domain.js";
-import { sourceLiteralUnitKey, type SourceLiteralKey } from "../source-model/literals/key.js";
+import { sourceLiteralKeyIdentity, sourceLiteralUnitKey, type SourceLiteralKey } from "../source-model/literals/key.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceConstructionMemberReducers, SourceConstructionMembers, SourceIndexInventoryRow, SourceMemberInventory, SourceMemberInventoryQueries, SourceMemberInventoryRow, SourceMemberSubject } from "./member-inventory.js";
 import { createSourceConstructionMemberQuery } from "./construction-members.js";
@@ -58,7 +58,7 @@ export function createSourceMemberCorrespondenceQueries(input: {
   const members = new WeakMap<SourceTypeEvidence, WeakMap<SourceMemberInventoryRow, Map<"correspondence" | "read", SourceCorrespondenceMember>>>();
   const unavailable = (reason: Unavailable["reason"]): Unavailable => Object.freeze({ kind: "unavailable", reason });
   const resolved = <Value>(value: Value): SourceResult<Value> => Object.freeze({ kind: "resolved", value });
-  const key = (value: SourceLiteralKey): string | Node => value.kind === "name" ? value.name : value.declaration;
+  const key = sourceLiteralKeyIdentity;
   const evidence = (value: SourceTypeEvidence): SourceMemberSubject => ({ kind: "evidence", value });
   const subjectKey = (subject: SourceMemberSubject): Node | SourceTypeEvidence => {
     if (subject.kind === "evidence") { view.assertEvidence(subject.value); return subject.value; }

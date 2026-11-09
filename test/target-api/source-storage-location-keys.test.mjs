@@ -65,7 +65,7 @@ function applicationFixture() {
 
 test("completed compound encodings are reused and released with their exact query cohort", () => {
   const current = fixture(0);
-  const term = Object.freeze({ kind: "empty", absence: undefined });
+  const term = Object.freeze({ kind: "empty", absence: undefined, missingMember: false });
   const encoded = current.keys.encode(term);
   assert.equal(typeof encoded, "string", "the complete original term has a canonical key");
   const retained = current.budget.usage().rows;
@@ -78,6 +78,9 @@ test("completed compound encodings are reused and released with their exact quer
   assert.equal(current.budget.usage().rows, retained - 1, "the completed term's own retained row is released at the existing boundary");
   assert.equal(current.keys.encode(term), encoded, "a fresh cohort preserves canonical structural identity");
   assert.equal(current.budget.usage().rows, retained, "the fresh cohort reserves its own completed row before publication");
+  const missing = Object.freeze({ kind: "empty", absence: undefined, missingMember: true });
+  assert.equal(current.keys.encode(missing) === encoded, false,
+    "a missing copied property is not a present property whose value is absence");
 });
 
 test("an application keeps distinct ordinary and physical-root invocation encodings", () => {
@@ -130,7 +133,7 @@ test("a throwing compound key publishes no partial completed child", () => {
 
 test("compound memoization preserves active-cycle and sticky finite-budget refusal", () => {
   const current = fixture(0);
-  const empty = Object.freeze({ kind: "empty", absence: undefined });
+  const empty = Object.freeze({ kind: "empty", absence: undefined, missingMember: false });
   const cycle = { kind: "store", destination: empty, receiver: undefined, value: empty };
   cycle.receiver = cycle;
   Object.freeze(cycle);

@@ -1,4 +1,4 @@
-import type { SourceStorageProgram } from "../model/program.js";
+import { sourceStorageValue, type SourceStorageProgram } from "../model/program.js";
 import type { Node } from "@tsonic/tsts";
 
 import type { SourceStorageSubject } from "../../../source-model/storage.js";
@@ -327,7 +327,8 @@ export function createSourceStorageSubstitutions(source: SourceStorageProgram, b
               : current.kind === "member" ? current.selection.kind !== "access" ? current.selection.subject
                 : transport.subject(current.selection.node) : undefined;
             const type = subject === undefined ? undefined : sourceStorageSubjectType(source, subject);
-            if (type === undefined || !source.semantics.forNode(subject!.node).types.isNever(type)) {
+            const definition = type === undefined ? undefined : sourceStorageValue(source.facts.descriptors.definition(type));
+            if (definition?.type.kind !== "intrinsic" || definition.type.intrinsic !== "never") {
               if (!temporary.add(1)) return undefined;
               emptyDemands.push(current);
             }
@@ -489,10 +490,10 @@ export function createSourceStorageSubstitutions(source: SourceStorageProgram, b
         if (subject === undefined) return undefined;
         const target = transport.invocationTargets.get(invocation);
         const accessors = transport.accessorTargets.get(invocation);
-        const operation = accessors === undefined ? undefined
-          : source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
-          : source.ast.is.IsElementAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
-        const receiver = transport.subjectFor(operation?.receiver.expression);
+        const operation = accessors !== undefined &&
+          (source.ast.is.IsPropertyAccessExpression(invocation) || source.ast.is.IsElementAccessExpression(invocation))
+          ? sourceStorageValue(source.facts.objects.use(invocation)) : undefined;
+        const receiver = transport.subjectFor(operation?.receiver.occurrence);
         const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
         for (const scope of bindings) {
           if (!budget.step() || !temporary.add(1)) return undefined;

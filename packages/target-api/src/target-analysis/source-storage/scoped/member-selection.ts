@@ -2,7 +2,6 @@ import type { SourceStorageProgram } from "../model/program.js";
 import type { SourceTypeEvidence } from "../../../public/source/contracts.js";
 import type { Node } from "@tsonic/tsts";
 
-import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageReference, SourceStorageInputFrontier, SourceStorageScopedSubject } from "../graph/scoped-model.js";
 import { sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "../model/subjects.js";
@@ -25,7 +24,7 @@ export function createSourceStoragePhysicalMembers(source: SourceStorageProgram,
   }) {
   return (receiver: SourceStorageReference | SourceStorageInputFrontier, target: Node, receiverType: SourceTypeEvidence,
     mode: "read" | "write", view: SourceStorageSubject): SourceStoragePhysicalMembers | undefined => {
-    const { ast, semantics } = source;
+    const { ast } = source;
     const { navigation } = source.facts;
     const admits = (declaration: Node): boolean => mode === "read" ? !ast.is.IsSetAccessorDeclaration(declaration)
       : !ast.is.IsGetAccessorDeclaration(declaration);
@@ -38,21 +37,12 @@ export function createSourceStoragePhysicalMembers(source: SourceStorageProgram,
     if (!construction) {
       const symbolic = queries.symbolic(receiver);
       const selectedView = symbolic ? view : receiver.subject;
-      // The correspondence of a union receiver is the one of the union member that declares the target.
-      const declaring = (): SourceTypeEvidence => {
-        const { types, declarations: selected } = semantics.forNode(selectedView.node);
-        const members = types.isUnion(receiverType) ? types.unionOrIntersectionTypes(receiverType).filter(member =>
-          types.propertyInfos(member).some(property => [property.symbol, ...property.rootSymbols]
-            .some(symbol => selected.symbolDeclarations(symbol).includes(target)))) : [];
-        return members.length === 1 ? members[0]! : receiverType;
-      };
-      const declared = declaring();
-      if (transport.memberFlow.excludes(selectedView, declared))
+      if (transport.memberFlow.excludes(selectedView, receiverType))
         return { kind: "known", members: Object.freeze([]), absent: false, excluded: true };
-      const correspondence = transport.memberFlow.memberFor(selectedView, target, declared);
+      const correspondence = transport.memberFlow.memberFor(selectedView, target, receiverType);
       if (correspondence === undefined) return unresolved("Source storage members require exact checked correspondence.");
       if (correspondence.kind === "absent") {
-        if (!correspondence.destination.property.optional) return unresolved("Source storage members require exact checked correspondence.");
+        if (!correspondence.destination.optional) return unresolved("Source storage members require exact checked correspondence.");
         const subject = sourceStorageMemberSubject(target, ast, transport.subject);
         const written = subject !== undefined && (transport.storedValuesFor(subject)?.length ?? 0) !== 0;
         return { kind: "known", members: Object.freeze(written ? [{ subject: subject!, bindings: receiver.scope }] : []),
@@ -69,13 +59,10 @@ export function createSourceStoragePhysicalMembers(source: SourceStorageProgram,
       }
       if (declarations.length > 0 && members.length === 0)
         return unresolved("Source storage correspondence does not provide the actual checked member operation mode.");
-      const optional = correspondence.source.property.optional;
+      const optional = correspondence.source.optional;
       return { kind: "known", members: Object.freeze(members), absent: members.length === 0 || optional, excluded: false };
     }
-    const owner = sourceMemberOwner(ast, target);
-    const selected = semantics.forNode(allocation);
-    const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
-      : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
+    const contract = receiverType;
     const operand = transport.invocationTargets.get(allocation);
     if (contract === undefined || operand === undefined)
       return unresolved("Source storage members require their checked construction contract.");
