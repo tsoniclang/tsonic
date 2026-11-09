@@ -721,7 +721,7 @@ test("every actual generic boundary, readonly record family and malformed factua
   }
   const malformed = [
     ["wrong-family",2322,"const invalid: Model.ExtensionObservationInput = {input:sourceInput,original,family:'invocation'};"],
-    ["wrong-primitive",2322,"const invalid: Model.SourcePrimitive = 'int53';"],
+    ["wrong-primitive",2820,"const invalid: Model.SourcePrimitive = 'int53';"],
     ["wrong-symbol",2322,"const invalid: Model.WellKnownSymbol = 'same-spelling-local';"],
     ["wrong-address-pair",2322,"const invalid: Model.ObservedAddressInteger = {width:32,runtimeBase:'bigint',signedness:'unsigned'};"],
     ["wrong-layout-width",2322,"const invalid: Model.ObservedDataLayout = {...layout,addressWidth:16};"],
@@ -738,12 +738,12 @@ test("every actual generic boundary, readonly record family and malformed factua
     ["missing-string-receiver",2322,"const invalid: Model.ObservedIndexSelection = {kind:'string-character',read:component};"],
     ["unavailable-needs-diagnostics",2322,"const invalid: Model.InputObservation<Model.Original> = {kind:'unavailable',reason:'unvisited'};"],
     ["wrong-observed-channel",2322,"const invalid: Model.InputObservation<Model.Original> = {kind:'pending',dependencies:[original]};"],
-    ["syntax-answer-family",2322,"const invalid: Model.ComponentObservation = {kind:'syntax',component:original};"],
+    ["syntax-answer-family",2739,"const invalid: Model.ComponentObservation = {kind:'syntax',component:original};"],
     ["unknown-syntax-kind",2322,"const invalid: Model.SyntaxKind = 'KindInventedNode';"],
-    ["range-alias-not-kind",2322,"const invalid: Model.SyntaxKind = 'KindFirstStatement';"],
+    ["range-alias-not-kind",2820,"const invalid: Model.SyntaxKind = 'KindFirstStatement';"],
     ["wrong-syntax-role",2322,"const invalid: Model.SyntaxRole = 'native-layout';"],
     ["wrong-answer-tag",2322,"const invalid: Model.ApplicationObservation = {kind:'signature',signature:observedSignature};"],
-    ["wrong-answer-payload",2322,"const invalid: Model.MemberObservation = {kind:'use',use:{kind:'present',value:original}};"],
+    ["wrong-answer-payload",2740,"const invalid: Model.MemberObservation = {kind:'use',use:{kind:'present',value:original}};"],
     ["wrong-selection-projection",2322,"const invalid: Model.ComponentSelection = {kind:'signature-component',signature,root:original,part:{kind:'tuple-element',index:0}};"],
     ["frozen-d1-has-no-site",2339,"originalRecord.site;"],
     ["no-source-evidence",2305,"import type {Evidence} from " + JSON.stringify(port) + ";"],
@@ -764,11 +764,11 @@ test("every actual generic boundary, readonly record family and malformed factua
     ["record-bindings","Model.ObservedRecordBinding","fields"], ["library-declarations","Model.SourceLibrary","declarations"],
   ]) cases.push({name:"readonly-vector-" + name,code:2339,
     text:"declare const record: " + type + "; record." + field + ".push();"});
-  for (const [name, question, wrong] of [
-    ["original","originalQuestion","componentInput"], ["syntax","syntaxQuestion","applicationInput"],
-    ["component","componentQuestion","applicationInput"], ["application","applicationQuestion","memberInput"],
-    ["member","memberQuestion","extensionInput"], ["extension","extensionQuestion","syntaxInput"],
-  ]) cases.push({name:"question-" + name,code:2345,text:"context.query(" + question + "," + wrong + ");"});
+  for (const [name, question, wrong, code] of [
+    ["original","originalQuestion","componentInput",2345], ["syntax","syntaxQuestion","applicationInput",2741],
+    ["component","componentQuestion","applicationInput",2345], ["application","applicationQuestion","memberInput",2345],
+    ["member","memberQuestion","extensionInput",2741], ["extension","extensionQuestion","syntaxInput",2379],
+  ]) cases.push({name:"question-" + name,code,text:"context.query(" + question + "," + wrong + ");"});
   for (const [name, question, input, answer] of [
     ["original","originalQuestion","originalInput","SyntaxObservation"],
     ["syntax","syntaxQuestion","syntaxInput","ComponentObservation"],
@@ -835,8 +835,11 @@ test("the complete type-only literal graph has exact lower edges and rejects an 
     text:'import type {Original} from "../model/foundation-data.js"; export interface Observation {readonly original:Original;}'}]),
     project => {
       const rejected = inspectHostStructure({root:project.root,files:project.files,declarationFiles:[]});
-      orderedDomain(rejected.map(finding => finding.gate), ["contract-imports"], Object.is,
-        "private leaf peer import is a real architecture rejection, not an unresolved compiler fiction");
+      orderedDomain(rejected.map(finding => finding.gate), ["contract-closure","contract-imports"], Object.is,
+        "private leaf peer import violates both closed declaration and explicit peer-port ownership: "
+          + JSON.stringify(rejected.map(finding => [finding.gate,finding.file,finding.start])));
+      assert.equal(rejected.every(finding => finding.file === peer),true,
+        "both actual findings belong to the authored private-leaf peer import");
     });
 });
 
