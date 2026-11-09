@@ -54,7 +54,7 @@ function create(domains = [domain()]) {
   const context = factory.create(Object.freeze({ resourceDomains: Object.freeze(domains) }));
   const owner = Object.freeze({ programIdentity: context.programIdentity, owner: "mechanical" });
   const scope = context.resourceScope(domains[0].name, owner, none);
-  return { context, owner, scope };
+  return { context, owner, scope, providers: [] };
 }
 
 function register(harness, name, provider, {
@@ -62,8 +62,17 @@ function register(harness, name, provider, {
   authenticate = input => ({ scope, parts: Object.freeze([input]) }),
 } = {}) {
   const registration = harness.context.register({ owner: "mechanical", name, domain: declared, retention, authenticate });
-  if (provider !== undefined) registration.provide(provider);
+  if (provider !== undefined) harness.providers.push(() => registration.provide(provider));
   return registration;
+}
+
+function connect(harness) {
+  for (const provide of harness.providers.splice(0)) provide();
+}
+
+function seal(harness) {
+  connect(harness);
+  harness.context.sealRegistration();
 }
 
 function code(action, expected, owner) {
@@ -103,6 +112,13 @@ function usage(context, dimension) {
   return rows.reduce((sum, row) => sum + row.charged, 0n);
 }
 
+function resourceRows(context, expected) {
+  const rows = context.queryUsage.resources;
+  orderedDomain(rows.map(row => row.dimension).sort(), [...expected].sort(), Object.is,
+    "complete observed resource dimension domain");
+  return rows;
+}
+
 test("complete immutable policies reject malformed, missing, sparse and accessor data before state", () => {
   const valid = domain();
   const bad = [null, undefined, {}, { resourceDomains: Object.freeze([valid]) },
@@ -134,6 +150,8 @@ test("registration seals the full registry before invocation and preserves actua
   const second = register(harness, "unused", undefined);
   code(() => harness.context.query(first.question, 1), "REGISTRATION_UNSEALED", "mechanical");
   code(() => register(harness, "first", () => 0), "DUPLICATE_QUESTION", "mechanical");
+  connect(harness);
+  code(() => register(harness, "after-connection", () => 0), "REGISTRATION_SEALED", "mechanical");
   code(() => first.provide(() => 0), "DUPLICATE_PROVIDER", "mechanical");
   code(() => harness.context.sealRegistration(), "MISSING_PROVIDER", "mechanical");
   assert.equal(calls, 0, "neither failed seal nor registration runs providers");
@@ -175,7 +193,7 @@ test("definition data and captured domain are complete, not chosen from returned
   const wrong = register(harness, "wrong", () => 0, { declared: "first", scope: other });
   const captured = harness.context.register(valid); captured.provide(() => 1);
   valid.domain = "missing"; valid.name = "changed"; valid.authenticate = () => { throw Error("mutated"); };
-  harness.context.sealRegistration();
+  seal(harness);
   code(() => harness.context.query(wrong.question, 1), "INVALID_RESOURCE_SCOPE");
   assert.equal(harness.context.query(captured.question, 0), 1);
   assert.equal(captured.question.name, "valid");
@@ -198,7 +216,7 @@ test("authentication runs before hits; foreign/copied/getter/closed scopes never
     authenticate: () => ({ scope: supplied, parts: Object.freeze([]) }),
   });
   const malformed = register(harness, "identity", () => 1, { authenticate: value => value });
-  harness.context.sealRegistration();
+  seal(harness);
   assert.equal(harness.context.query(question.question, input), "answer");
   assert.equal(harness.context.query(question.question, input), "answer");
   assert.throws(() => harness.context.query(question.question, Object.freeze({ token: 1 })), /not issued/u);
@@ -234,7 +252,7 @@ test("domain frames precede authentication, reject reentrancy and do not merge i
     if (mode === "foreign-domain") secondScope.charge("work", 1n);
     return { scope: harness.scope, parts: Object.freeze([mode]) };
   } });
-  harness.context.sealRegistration();
+  seal(harness);
   for (const action of [() => harness.scope.charge("work", 0n),
     () => harness.scope.reserve("rows", 0n, "temporary"), () => harness.scope.withDepth("depth", () => 0)]) {
     code(action, "INVALID_RESOURCE_SCOPE");
@@ -258,7 +276,7 @@ test("all complete outcomes retain original identity; incomplete and thrown resu
   const mutable = register(harness, "mutable", () => ({}));
   const badOutcome = register(harness, "bad-outcome", input => input, { retention: "completed-outcome",
     authenticate: () => ({ scope: harness.scope, parts: Object.freeze([]) }) });
-  harness.context.sealRegistration();
+  seal(harness);
   orderedDomain([...values.keys()], outcomes, Object.is, "every closed outcome arm");
   for (const kind of outcomes) {
     current = values.get(kind);
@@ -282,7 +300,10 @@ test("all complete outcomes retain original identity; incomplete and thrown resu
   for (const value of [1, Object.freeze({}), Object.freeze({ kind: 1 }), Object.freeze({ get kind() { throw thrown; } })]) {
     code(() => harness.context.query(badOutcome.question, value), "INVALID_CONTEXT_INPUT");
   }
-  assert.equal(harness.context.queryUsage.questions.every(row => row.active === 0n), true);
+  const observed = harness.context.queryUsage.questions;
+  orderedDomain(observed.map(row => row.name), ["outcomes", "fallible", "mutable", "bad-outcome"], Object.is,
+    "complete registered outcome/error question domain");
+  assert.equal(observed.every(row => row.active === 0n), true);
   harness.context.close();
 });
 
@@ -301,6 +322,8 @@ test("two typed registrations connect mutually; identical active keys give the w
   assert.equal(error.chain.every(entry => entry.site === none || entry.site.kind === "none"), true);
   cycle = false;
   assert.equal(harness.context.query(first.question, 2), 2);
+  orderedDomain(harness.context.queryUsage.questions.map(row => row.name), ["first", "second"], Object.is,
+    "complete recursive question domain before counters");
   assert.equal(harness.context.queryUsage.questions.every(row => row.active === 0n), true);
   harness.context.close();
 });
@@ -310,12 +333,12 @@ test("exact tuple keys preserve scalar types, order, environments, purposes and 
   const question = register(harness, "keys", () => ++calls, {
     authenticate: parts => ({ scope: harness.scope, parts }),
   });
-  harness.context.sealRegistration();
+  seal(harness);
   const anotherOwner = Object.freeze({ programIdentity: harness.context.programIdentity, owner: "mechanical" });
   const keys = [[1], [1n], ["1"], [true], [false], [null], [0], [-0], [NaN], [Infinity], [-Infinity],
     ["a", "b"], ["b", "a"], ["a"], [], [harness.owner], [anotherOwner],
-    ["environment", 1], ["environment", 2], ["purpose", 1], [["nested"]], ["nested"]].map(Object.freeze);
-  assert.equal(keys.length, 22, "complete key opposite domain");
+    ["environment", 1], ["environment", 2], ["purpose", 1], [["nested"]], ["nested"], ["a", "a"]].map(Object.freeze);
+  assert.equal(keys.length, 23, "complete key opposite domain, including duplicate child cardinality");
   const answers = keys.map(key => harness.context.query(question.question, key));
   assert.equal(new Set(answers).size, keys.length);
   for (let index = 0; index < keys.length; index += 1) {
@@ -329,15 +352,15 @@ test("exact tuple keys preserve scalar types, order, environments, purposes and 
     && Object.isFrozen(snapshot.resources) && snapshot.resources.every(Object.isFrozen)), true);
   orderedDomain(snapshots[0].questions.map(row => row.name), ["keys"], Object.is, "complete question usage domain");
   orderedDomain(snapshots[0].resources.map(row => row.dimension), ["keys"], Object.is, "complete observed resource domain");
-  assert.equal(snapshots[0].questions[0].completed, 22n);
-  assert.equal(snapshots[0].questions[0].hits, 23n);
+  assert.equal(snapshots[0].questions[0].completed, 23n);
+  assert.equal(snapshots[0].questions[0].hits, 24n);
   harness.context.close();
 });
 
 test("key validation rejects every unsupported, mutable, sparse, accessor, foreign and cyclic tuple", () => {
   const harness = create(); const foreign = create(); let calls = 0; let reads = 0;
   const question = register(harness, "invalid", () => ++calls, { authenticate: parts => ({ scope: harness.scope, parts }) });
-  harness.context.sealRegistration();
+  seal(harness);
   const cyclic = []; cyclic.push(cyclic); Object.freeze(cyclic);
   const getter = []; Object.defineProperty(getter, 0, { get() { reads += 1; return 0; } }); Object.freeze(getter);
   const fake = Object.freeze({ get programIdentity() { reads += 1; return harness.context.programIdentity; }, owner: "test" });
@@ -356,7 +379,7 @@ test("shared tuple cold work is linear in distinct nodes and edges; a warm root 
   const harness = create(); let authentications = 0;
   const question = register(harness, "sharing", () => "complete", { authenticate: parts => {
     authentications += 1; return { scope: harness.scope, parts };
-  } }); harness.context.sealRegistration();
+  } }); seal(harness);
   const levels = 80; const width = 64;
   let child = Object.freeze(["leaf"]);
   for (let index = 0; index < levels; index += 1) child = Object.freeze([child, child]);
@@ -369,6 +392,8 @@ test("shared tuple cold work is linear in distinct nodes and edges; a warm root 
   assert.equal(harness.context.query(question.question, root), "complete");
   assert.equal(usage(harness.context, "keys") - cold, 1n, "one admitted root-summary lookup, no descendant replay");
   assert.equal(authentications, 2);
+  assert.equal(harness.context.query(question.question, Object.freeze([child])), "complete");
+  assert.equal(harness.context.queryUsage.questions[0].completed, 2n, "wide and singleton shared-child vectors stay distinct");
   harness.context.close();
 });
 
@@ -384,7 +409,7 @@ test("every dimension/policy has below/at/over exact finite charging, with inval
           const amount = limit + offset - (dimension === "keys" ? 4n : 0n);
           scope.charge(dimension, amount); return "complete";
         }, { authenticate: () => ({ scope: harness.scope, parts }) });
-        harness.context.sealRegistration();
+        seal(harness);
         if (offset === 1n) exhausted(() => harness.context.query(question.question, 0), dimension, limit);
         else assert.equal(harness.context.query(question.question, 0), "complete");
         harness.context.close();
@@ -399,7 +424,7 @@ test("every dimension/policy has below/at/over exact finite charging, with inval
       }
       return "complete";
     });
-    harness.context.sealRegistration(); harness.context.query(invalid.question, 0); harness.context.close();
+    seal(harness); harness.context.query(invalid.question, 0); harness.context.close();
   }
 });
 
@@ -410,7 +435,7 @@ test("operation roots reset independently while nested same-domain work shares t
   });
   const nested = register(harness, "nested", (input, scope) => {
     scope.charge("work", 1n); return harness.context.query(question.question, input);
-  }); harness.context.sealRegistration();
+  }); seal(harness);
   assert.equal(harness.context.query(question.question, 1), 1);
   assert.equal(harness.context.query(question.question, 2), 2);
   exhausted(() => harness.context.query(nested.question, 3), "work", 2n);
@@ -430,11 +455,11 @@ test("cohort owner identity cannot reset charged totals through scope.close or r
   independent.charge("work", 2n);
   exhausted(() => independent.charge("work", 1n), "work", 2n, "second-real-owner");
   code(() => harness.context.resourceScope("missing", harness.owner, none), "INVALID_RESOURCE_SCOPE");
-  for (const owner of [null, {}, { ...harness.owner }, Object.freeze({ ...harness.owner, owner: "" }),
+  for (const owner of [null, 1, {}, { ...harness.owner }, Object.freeze({ ...harness.owner, owner: "" }),
     Object.freeze({ programIdentity: Object.freeze({ kind: "program" }), owner: "foreign" })]) {
     code(() => harness.context.resourceScope("work", owner, none), "INVALID_RESOURCE_SCOPE");
   }
-  for (const site of [null, {}, Object.freeze({ kind: "bad" }), Object.freeze({ kind: "present" })]) {
+  for (const site of [null, 1, {}, Object.freeze({ kind: "bad" }), Object.freeze({ kind: "present" })]) {
     code(() => harness.context.resourceScope("work", harness.owner, site), "INVALID_RESOURCE_SCOPE");
   }
   harness.context.close();
@@ -451,17 +476,17 @@ test("temporary/staged leases release on every exit; only completed retained row
       exhausted(() => scope.reserve("rows", 1n, "retained"), "rows", 3n);
       if (mode === "throw") throw failure;
       return Object.freeze({ kind: mode });
-    }, { retention: "completed-outcome" }); harness.context.sealRegistration();
+    }, { retention: "completed-outcome" }); seal(harness);
     assert.throws(() => harness.context.query(question.question, 0), error => error === failure);
     for (const kind of ["pending", "unresolved", "partial"]) {
       mode = kind; harness.context.query(question.question, 0);
-      const rows = harness.context.queryUsage.resources.find(row => row.dimension === "rows");
+      const rows = resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows");
       assert.equal(rows.temporary, 0n); assert.equal(rows.retained, 0n);
     }
     mode = "refused";
     const answer = harness.context.query(question.question, 0);
     assert.equal(harness.context.query(question.question, 0), answer);
-    assert.equal(harness.context.queryUsage.resources.find(row => row.dimension === "rows").retained, 2n);
+    assert.equal(resourceRows(harness.context, ["keys", "rows"]).find(row => row.dimension === "rows").retained, 2n);
     temporary.release(); temporary.release(); retained.release(); retained.release();
     const again = harness.context.query(question.question, 0);
     assert.notEqual(again, answer, "explicit backing-lease release invalidated the old completed memo");
@@ -474,12 +499,12 @@ test("wrapper-close releases outside cohort leases but leaves transferred comple
   const outside = harness.scope.reserve("rows", 2n, "retained");
   harness.scope.reserve("rows", 1n, "temporary");
   harness.scope.close(); outside.release();
-  const afterClose = harness.context.queryUsage.resources.find(row => row.dimension === "rows");
+  const afterClose = resourceRows(harness.context, ["rows"]).find(row => row.dimension === "rows");
   assert.equal(afterClose.retained, 0n); assert.equal(afterClose.temporary, 0n);
   let scope = harness.context.resourceScope("work", harness.owner, none); let calls = 0;
   const question = register(harness, "transferred", (_, actual) => {
     calls += 1; actual.reserve("rows", 4n, "retained"); return "retained";
-  }, { authenticate: () => ({ scope, parts: Object.freeze([]) }) }); harness.context.sealRegistration();
+  }, { authenticate: () => ({ scope, parts: Object.freeze([]) }) }); seal(harness);
   assert.equal(harness.context.query(question.question, 0), "retained");
   scope.close(); scope = harness.context.resourceScope("work", harness.owner, none);
   assert.equal(harness.context.query(question.question, 0), "retained"); assert.equal(calls, 1);
@@ -498,7 +523,7 @@ test("current-root depth checks include cached relative child heights and finall
     : harness.context.query(child.question, 0)));
   const thrown = Error("depth action");
   const fallible = register(harness, "fallible", (_, scope) => scope.withDepth("depth", () => { throw thrown; }));
-  harness.context.sealRegistration();
+  seal(harness);
   assert.equal(harness.context.query(child.question, 0), 1);
   assert.equal(harness.context.query(parent.question, "at"), 1);
   exhausted(() => harness.context.query(parent.question, "deep"), "depth", 3n);
@@ -521,6 +546,140 @@ test("resource authority rejects copied kinds, reachable constructors, inherited
     constructor() { super(Symbol(), "work", 0n, genuine.diagnostic); }
   }
   assert.throws(() => new Copied(), TypeError);
+  let setterCalls = 0;
+  Object.defineProperty(genuine.constructor.prototype, "dimension", {
+    configurable: true, set() { setterCalls += 1; },
+  });
+  try {
+    exhausted(() => harness.scope.charge("work", 1n), "work", 0n);
+    assert.equal(setterCalls, 0, "own immutable fields bypass inherited setters");
+  } finally { delete genuine.constructor.prototype.dimension; }
   assert.equal(factory.resourceLimitDiagnostic(genuine).value, genuine.diagnostic);
   harness.context.close();
+});
+
+test("every dimension admits exact temporary/retained/depth work under both policies", () => {
+  for (const admission of ["operation", "cohort"]) {
+    for (const dimension of dimensions) {
+      const limit = dimension === "keys" ? 8n : 2n;
+      const harness = create([domain("work", admission, { [dimension]: limit })]);
+      const question = register(harness, "mechanisms", (_, scope) => {
+        const available = dimension === "keys" ? 4n : limit;
+        const temporary = scope.reserve(dimension, available - 1n, "temporary");
+        const retained = scope.reserve(dimension, 1n, "retained");
+        exhausted(() => scope.reserve(dimension, 1n, "temporary"), dimension, limit);
+        retained.release(); retained.release(); temporary.release();
+        let entered = 0;
+        const descend = remaining => scope.withDepth(dimension, () => {
+          entered += 1;
+          if (remaining > 1n) return descend(remaining - 1n);
+          exhausted(() => scope.withDepth(dimension, () => { throw Error("unadmitted work"); }), dimension, limit);
+          return "complete";
+        });
+        assert.equal(descend(available), "complete");
+        assert.equal(BigInt(entered), available);
+        return "complete";
+      }, { authenticate: () => ({ scope: harness.scope, parts: Object.freeze([]) }) });
+      seal(harness);
+      assert.equal(harness.context.query(question.question, 0), "complete");
+      const row = resourceRows(harness.context, dimension === "keys" ? ["keys"] : ["keys", dimension])
+        .find(entry => entry.dimension === dimension);
+      assert.equal(row.temporary, 0n); assert.equal(row.retained, 0n); assert.equal(row.peak, limit);
+      harness.context.close();
+    }
+  }
+});
+
+test("authentication/key failures release staged leases and hot answers still pass admission", () => {
+  const harness = create([domain("work", "cohort", { work: 2n, rows: 2n })]);
+  let good = false; let calls = 0;
+  const question = register(harness, "staged", () => { calls += 1; return "complete"; }, {
+    authenticate: () => {
+      harness.scope.reserve("rows", 2n, "retained");
+      if (!good) return { scope: harness.scope, parts: Object.freeze([undefined]) };
+      harness.scope.charge("work", 1n);
+      return { scope: harness.scope, parts: Object.freeze([]) };
+    },
+  }); seal(harness);
+  code(() => harness.context.query(question.question, 0), "INVALID_QUESTION_KEY");
+  assert.equal(harness.context.queryUsage.resources.find(row => row.dimension === "rows").retained, 0n);
+  good = true;
+  assert.equal(harness.context.query(question.question, 0), "complete");
+  exhausted(() => harness.context.query(question.question, 0), "rows", 2n);
+  assert.equal(calls, 1, "hot cache does not bypass original resource admission/authentication");
+  harness.context.close();
+});
+
+test("exact bigint limits exceed53bits without rounding and all linked retained rows retire together", () => {
+  const huge = 9007199254740995n;
+  const harness = create([domain("work", "cohort", { work: huge, rows: 2n })]);
+  harness.scope.charge("work", huge);
+  const error = exhausted(() => harness.scope.charge("work", 1n), "work", huge);
+  assert.equal(error.diagnostic.evidence.find(entry => entry.name === "attempted").value, huge + 1n);
+  assert.equal(usage(harness.context, "work"), huge);
+  let first; let calls = 0;
+  const question = register(harness, "linked", (_, scope) => {
+    calls += 1; first = scope.reserve("rows", 1n, "retained");
+    scope.reserve("rows", 1n, "retained"); return "complete";
+  }); seal(harness);
+  assert.equal(harness.context.query(question.question, 0), "complete");
+  first.release();
+  assert.equal(harness.context.queryUsage.resources.find(row => row.dimension === "rows").retained, 0n);
+  assert.equal(harness.context.query(question.question, 0), "complete"); assert.equal(calls, 2);
+  harness.context.close();
+});
+
+test("authentication never receives private state as this, and close during work forbids publication", () => {
+  const harness = create();
+  let receiver = "not-called";
+  const question = register(harness, "private-this", () => "complete", {
+    authenticate: function () {
+      receiver = this;
+      return { scope: harness.scope, parts: Object.freeze([]) };
+    },
+  });
+  const closes = register(harness, "closing", (_, scope) => scope.withDepth("depth", () => {
+    scope.reserve("rows", 1n, "retained"); harness.context.close(); return "not-published";
+  })); seal(harness);
+  assert.equal(harness.context.query(question.question, 0), "complete"); assert.equal(receiver, undefined);
+  code(() => harness.context.query(closes.question, 0), "CONTEXT_CLOSED");
+  harness.context.close();
+});
+
+test("only a successful first provider ends declaration, and failed seal leaves existing connections repairable", () => {
+  const harness = create();
+  const first = register(harness, "first", undefined);
+  code(() => first.provide(null), "INVALID_CONTEXT_INPUT", "mechanical");
+  code(() => ({ ...first }).provide(() => 0), "FOREIGN_QUESTION", "mechanical");
+  const second = register(harness, "second", undefined);
+  code(() => first.provide.call(second, () => 0), "FOREIGN_QUESTION", "mechanical");
+  first.provide(input => harness.context.query(second.question, input) + 1);
+  code(() => register(harness, "not-declared", () => 1), "REGISTRATION_SEALED", "mechanical");
+  code(() => harness.context.sealRegistration(), "MISSING_PROVIDER", "mechanical");
+  code(() => harness.context.query(first.question, 1), "REGISTRATION_UNSEALED", "mechanical");
+  second.provide(input => input * 2);
+  harness.context.sealRegistration();
+  orderedDomain(harness.context.queryUsage.questions.map(row => row.name), ["first", "second"], Object.is,
+    "complete mutually connected registry");
+  assert.equal(harness.context.query(first.question, 3), 7);
+  harness.context.close();
+});
+
+test("owner/name pairs and independent actual programs do not share memo or declaration identity", () => {
+  const harness = create();
+  const registrations = [["a/b", "c"], ["a", "b/c"]].map(([owner, name]) => harness.context.register({
+    owner, name, domain: "work", retention: "immutable",
+    authenticate: input => ({ scope: harness.scope, parts: Object.freeze([input]) }),
+  }));
+  assert.equal(registrations.length, 2, "complete distinct owner/name pair domain");
+  registrations.forEach((registration, index) => registration.provide(() => index));
+  harness.context.sealRegistration();
+  registrations.forEach((registration, index) => assert.equal(harness.context.query(registration.question, 0), index));
+  const independent = create();
+  const sameName = independent.context.register({ owner: "a/b", name: "c", domain: "work", retention: "immutable",
+    authenticate: input => ({ scope: independent.scope, parts: Object.freeze([input]) }) });
+  sameName.provide(() => 99); independent.context.sealRegistration();
+  assert.equal(independent.context.query(sameName.question, 0), 99);
+  code(() => harness.context.query(sameName.question, 0), "FOREIGN_QUESTION");
+  harness.context.close(); independent.context.close();
 });

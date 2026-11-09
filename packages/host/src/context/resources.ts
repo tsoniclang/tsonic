@@ -34,7 +34,6 @@ interface Scope {
 }
 
 interface Lease {
-  readonly scope: Scope;
   readonly retention: "temporary" | "retained";
   readonly release: () => void;
   active: boolean;
@@ -57,17 +56,18 @@ export interface QueryResources {
   readonly heights: Map<Counter, Height>;
 }
 
-export function immutableRecord(value: object, fields: readonly string[]): boolean {
+function immutableRecord(value: object, fields: readonly string[]): boolean {
   return Object.isFrozen(value) && fields.every(field => {
     const descriptor = Object.getOwnPropertyDescriptor(value, field);
-    return descriptor !== undefined && "value" in descriptor;
+    return descriptor !== undefined && Object.hasOwn(descriptor, "value");
   });
 }
 
-export function dense<Value>(values: readonly Value[]): boolean {
+function dense<Value>(values: readonly Value[]): boolean {
   if (!Array.isArray(values) || !Object.isFrozen(values)) return false;
   for (let index = 0; index < values.length; index += 1) {
-    if (!Object.hasOwn(values, index) || !Object.getOwnPropertyDescriptor(values, index)?.hasOwnProperty("value")) {
+    const descriptor = Object.getOwnPropertyDescriptor(values, index);
+    if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) {
       return false;
     }
   }
@@ -117,8 +117,10 @@ function total(value: Counter): bigint {
 export class Resources {
   readonly #program: ProgramIdentity;
   readonly #domains = new Map<string, Domain>();
-  readonly #scopes = new Map<ResourceScope, Scope>();
+  #scopes = new WeakMap<ResourceScope, Scope>();
+  readonly #liveScopes = new Set<Scope>();
   readonly #tickets: QueryResources[] = [];
+  readonly #depths = new Set<Counter>();
   #authenticating: QueryResources | undefined;
   #open = true;
 
@@ -154,12 +156,7 @@ export class Resources {
     const ticket: QueryResources = {
       domain, root, leases: new Set(), baseline: new Map(), heights: new Map(),
     };
-    for (const actual of this.#domains.values()) {
-      const budgets = actual.operation === undefined ? [] : [actual.operation];
-      for (const budget of [...budgets, ...actual.cohorts.values()]) {
-        for (const value of budget.values()) ticket.baseline.set(value, value.depth);
-      }
-    }
+    for (const value of this.#depths) ticket.baseline.set(value, value.depth);
     this.#tickets.push(ticket);
     return ticket;
   }
@@ -234,17 +231,9 @@ export class Resources {
       || !immutableRecord(owner, ["programIdentity", "owner"])
       || owner.programIdentity !== this.#program || !nonempty(owner.owner)
       || site === null || typeof site !== "object" || !immutableRecord(site, ["kind"])
-      || (site.kind !== "none" && site.kind !== "present")) {
+      || (site.kind !== "none" && site.kind !== "present")
+      || !immutableRecord(site, site.kind === "none" ? ["kind"] : ["kind", "value"])) {
       invariant("INVALID_RESOURCE_SCOPE");
-    }
-    if (site.kind === "present") {
-      if (!immutableRecord(site, ["value"]) || site.value === null || typeof site.value !== "object"
-        || !immutableRecord(site.value, ["original", "document", "start", "length"])
-        || site.value.original.programIdentity !== this.#program
-        || typeof site.value.document !== "string" || !Number.isSafeInteger(site.value.start)
-        || !Number.isSafeInteger(site.value.length) || site.value.start < 0 || site.value.length < 0) {
-        invariant("INVALID_RESOURCE_SCOPE", owner.owner);
-      }
     }
     const state: Scope = { domain, owner, site, leases: new Set(), open: true };
     const scope: ResourceScope = Object.freeze({
@@ -256,13 +245,14 @@ export class Resources {
         this.#peak(actual.usage);
       },
       reserve: (dimension: string, amount: bigint, retention: "temporary" | "retained"): Reservation => {
+        this.assertOpen();
         if (retention !== "temporary" && retention !== "retained") invariant("INVALID_RESOURCE_SCOPE", owner.owner);
         const actual = this.#admit(state, dimension, amount);
         actual.value[retention] += amount;
         actual.usage[retention] += amount;
         this.#peak(actual.usage);
         const lease: Lease = {
-          scope: state, retention, active: true, transferred: false, invalidate: undefined,
+          retention, active: true, transferred: false, invalidate: undefined,
           release: (): void => {
             if (!lease.active) return;
             lease.active = false;
@@ -279,12 +269,14 @@ export class Resources {
       withDepth: <Value>(dimension: string, action: () => Value): Value => {
         const actual = this.#admit(state, dimension, 1n);
         actual.value.depth += 1n;
+        this.#depths.add(actual.value);
         actual.usage.depth += 1n;
         this.#peak(actual.usage);
         this.#observe(actual.value, domainName, owner, dimension, actual.value.depth);
         try { return action(); }
         finally {
           actual.value.depth -= 1n;
+          if (actual.value.depth === 0n) this.#depths.delete(actual.value);
           actual.usage.depth -= 1n;
         }
       },
@@ -292,9 +284,11 @@ export class Resources {
         if (!state.open) return;
         state.open = false;
         for (const lease of state.leases) if (!lease.transferred) lease.release();
+        this.#liveScopes.delete(state);
       },
     });
     this.#scopes.set(scope, state);
+    this.#liveScopes.add(state);
     return scope;
   }
 
@@ -316,11 +310,13 @@ export class Resources {
   close(): void {
     if (!this.#open) return;
     this.#open = false;
-    for (const state of this.#scopes.values()) {
+    for (const state of this.#liveScopes) {
       state.open = false;
       for (const lease of state.leases) lease.release();
     }
-    this.#scopes.clear();
+    this.#scopes = new WeakMap();
+    this.#liveScopes.clear();
+    this.#depths.clear();
     for (const domain of this.#domains.values()) {
       domain.cohorts.clear();
       domain.usage.clear();

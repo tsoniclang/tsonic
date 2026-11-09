@@ -18,6 +18,7 @@ class Program implements Context {
   readonly #questions = new Map<object, QuestionMetadata>();
   readonly #names = new Map<string, Set<string>>();
   readonly #chain: QueryChainEntry[] = [];
+  #declaring = true;
   #sealed = false;
 
   constructor(authority: symbol, options: ContextOptions) {
@@ -35,16 +36,18 @@ class Program implements Context {
 
   register<Input, Answer>(definition: QuestionDefinition<Input, Answer>): Registration<Input, Answer> {
     this.#resources.assertOpen();
-    if (this.#sealed) invariant("REGISTRATION_SEALED");
     if (definition === null || typeof definition !== "object"
-      || !["owner", "name", "domain", "retention", "authenticate"].every(field =>
-        Object.getOwnPropertyDescriptor(definition, field)?.hasOwnProperty("value"))
+      || !["owner", "name", "domain", "retention", "authenticate"].every(field => {
+        const descriptor = Object.getOwnPropertyDescriptor(definition, field);
+        return descriptor !== undefined && Object.hasOwn(descriptor, "value");
+      })
       || typeof definition.owner !== "string" || definition.owner.length === 0
       || typeof definition.name !== "string" || definition.name.length === 0
       || typeof definition.authenticate !== "function" || !this.#resources.hasDomain(definition.domain)
       || (definition.retention !== "immutable" && definition.retention !== "completed-outcome")) {
       invariant("INVALID_CONTEXT_INPUT");
     }
+    if (!this.#declaring) invariant("REGISTRATION_SEALED", definition.owner, definition.name);
     let names = this.#names.get(definition.owner);
     if (names?.has(definition.name)) invariant("DUPLICATE_QUESTION", definition.owner, definition.name);
     if (names === undefined) {
@@ -55,11 +58,18 @@ class Program implements Context {
     const state = new QuestionState(definition);
     const question = state.handle();
     this.#questions.set(question, state);
-    return Object.freeze({ question, provide: (provider: (input: Input, scope: ResourceScope) => Answer): void => {
-      this.#resources.assertOpen();
-      if (this.#sealed) invariant("REGISTRATION_SEALED", state.owner, state.name);
-      state.provide(provider);
-    } });
+    const program = this;
+    const registration: Registration<Input, Answer> = Object.freeze({
+      question,
+      provide(provider: (input: Input, scope: ResourceScope) => Answer): void {
+        program.#resources.assertOpen();
+        if (this !== registration) invariant("FOREIGN_QUESTION", state.owner, state.name);
+        if (program.#sealed) invariant("REGISTRATION_SEALED", state.owner, state.name);
+        state.provide(provider);
+        program.#declaring = false;
+      },
+    });
+    return registration;
   }
 
   sealRegistration(): void {
@@ -68,6 +78,7 @@ class Program implements Context {
     for (const state of this.#questions.values()) {
       if (!state.ready()) invariant("MISSING_PROVIDER", state.owner, state.name);
     }
+    this.#declaring = false;
     this.#sealed = true;
   }
 

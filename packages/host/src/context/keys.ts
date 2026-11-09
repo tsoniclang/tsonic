@@ -1,7 +1,7 @@
 import type { ProgramIdentity } from "../model/contract.js";
 import type { QuestionKeyPart, ResourceScope } from "./contract.js";
 import { invariant } from "./failures.js";
-import { Resources } from "./resources.js";
+import type { Resources } from "./resources.js";
 
 interface Trie {
   readonly children: Map<bigint, Trie>;
@@ -64,7 +64,7 @@ export class Keys {
       charge();
       const descriptor = Object.getOwnPropertyDescriptor(frame.tuple, frame.index);
       frame.index += 1;
-      if (descriptor === undefined || !("value" in descriptor)) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
+      if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
       const value: unknown = descriptor.value;
       if (value !== null && typeof value === "object" && tuple(value)) {
         if (!Object.isFrozen(value) || active.has(value)) invariant("INVALID_QUESTION_KEY", scope.owner.owner);
@@ -138,8 +138,8 @@ export class Keys {
     charge();
     const program = Object.getOwnPropertyDescriptor(value, "programIdentity");
     const owner = Object.getOwnPropertyDescriptor(value, "owner");
-    if (program === undefined || !("value" in program) || program.value !== this.#program
-      || owner === undefined || !("value" in owner) || typeof owner.value !== "string" || owner.value.length === 0) {
+    if (program === undefined || !Object.hasOwn(program, "value") || program.value !== this.#program
+      || owner === undefined || !Object.hasOwn(owner, "value") || typeof owner.value !== "string" || owner.value.length === 0) {
       invariant("INVALID_QUESTION_KEY", scope.owner.owner);
     }
     let identity = this.#objects.get(value);

@@ -3,9 +3,8 @@ import type {
 } from "./contract.js";
 import type { QueryChainEntry } from "../model/contract.js";
 import { invariant } from "./failures.js";
-import { Keys } from "./keys.js";
-import { Resources } from "./resources.js";
-import type { Height, QueryResources } from "./resources.js";
+import type { Keys } from "./keys.js";
+import type { Height, QueryResources, Resources } from "./resources.js";
 
 export interface QuestionMetadata {
   readonly owner: string;
@@ -68,15 +67,21 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
   run(input: Input, resources: Resources, ticket: QueryResources, keys: Keys,
     chain: readonly QueryChainEntry[], setSite: (scope: ResourceScope) => void): Answer {
     this.#calls += 1n;
-    const identity = resources.authenticate(ticket, () => this.#authenticate(input));
-    if (identity === null || typeof identity !== "object"
-      || !Object.getOwnPropertyDescriptor(identity, "scope")?.hasOwnProperty("value")
-      || !Object.getOwnPropertyDescriptor(identity, "parts")?.hasOwnProperty("value")) {
-      invariant("INVALID_QUESTION_KEY", this.owner, this.name);
-    }
-    resources.validate(identity.scope, ticket);
-    setSite(identity.scope);
-    const key = keys.encode(identity.parts, identity.scope);
+    const authenticate = this.#authenticate;
+    const identity = resources.authenticate(ticket, () => {
+      const projected = authenticate(input);
+      if (projected === null || typeof projected !== "object"
+        || !["scope", "parts"].every(field => {
+          const descriptor = Object.getOwnPropertyDescriptor(projected, field);
+          return descriptor !== undefined && Object.hasOwn(descriptor, "value");
+        })) {
+        invariant("INVALID_QUESTION_KEY", this.owner, this.name);
+      }
+      resources.validate(projected.scope, ticket);
+      setSite(projected.scope);
+      return { scope: projected.scope, key: keys.encode(projected.parts, projected.scope) };
+    });
+    const key = identity.key;
     if (this.#active.has(key)) invariant("QUESTION_CYCLE", this.owner, this.name, chain);
     const cached = this.#memo.get(key);
     if (cached !== undefined) {
@@ -118,7 +123,7 @@ export class QuestionState<Input, Answer> implements QuestionMetadata {
       if (!Object.isFrozen(answer)) invariant("INVALID_CONTEXT_INPUT", this.owner, this.name);
       if (this.#retention === "completed-outcome") {
         const kind = Object.getOwnPropertyDescriptor(answer, "kind");
-        if (kind === undefined || !("value" in kind) || typeof kind.value !== "string") {
+        if (kind === undefined || !Object.hasOwn(kind, "value") || typeof kind.value !== "string") {
           invariant("INVALID_CONTEXT_INPUT", this.owner, this.name);
         }
         return kind.value !== "pending" && kind.value !== "unresolved" && kind.value !== "partial";
