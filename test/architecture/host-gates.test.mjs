@@ -209,6 +209,9 @@ test("lifetime rejects generic, static, nested and closure-owned mutable collect
     expect([["packages/host/src/ingress/owner.ts", text]],
       text.startsWith("const first") ? ["program-lifetime", "program-lifetime"] : ["program-lifetime"]);
   expect([["packages/host/src/ingress/owner.ts", "class View { static readonly names = Object.freeze([1, 2]); }"]], []);
+  expect([["packages/host/src/ingress/owner.ts", "declare const original: number; const retained = original;"]], ["program-lifetime"]);
+  expect([["packages/host/src/ingress/owner.ts", 'let original = "value"; const retained = original;']],
+    ["program-lifetime", "program-lifetime"]);
 });
 
 test("checker types stay in Ingress implementation and never its contract", () => {
@@ -385,6 +388,8 @@ test("default mapped members are mutable unless the actual homomorphic input pro
   const publication = "packages/host/src/publication/contract.ts";
   for (const declarations of [
     'export type Writable = { [Key in "value"]: number };',
+    'export type Writable = { [Key in never]: number };',
+    'export type Writable = { [Key in readonly number[]]: number };',
     'export type Keys = "value"; export type Writable = { [Key in Keys]: number };',
     'export type Mapped<Keys extends string> = { [Key in Keys]: number }; export type Writable = Mapped<"value">;',
     'export type Copy<Value> = { [Key in keyof Value]: Value[Key] }; export type Writable = Copy<{ value: number }>;',
@@ -402,6 +407,11 @@ test("default mapped members are mutable unless the actual homomorphic input pro
 
 test("mapped readonly inheritance uses actual aliased and generic inputs without removing producer authority", () => {
   const publication = "packages/host/src/publication/contract.ts";
+  expect([["packages/host/src/model/owner.ts", `
+    class Query { read(): number { return 1; } }
+    type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };
+    export type View = Readonly<Query>;
+  `]], []);
   const declarations = `
     export type Copy<Value> = { [Key in keyof Value]: Value[Key] };
     export type Keys<Value> = keyof Value;
@@ -426,21 +436,27 @@ test("mapped readonly inheritance uses actual aliased and generic inputs without
     export type RecursiveCopy = Copy<Recursive>;
     export type UnionCopy = Copy<InputAlias | { readonly other: boolean }>;
     export type ParenthesizedCopy = Parenthesized<InputAlias>;
+    export type IntersectionCopy = Copy<{ readonly child: InputAlias & { readonly other: boolean } }>;
+    export type Atoms = Copy<{ readonly wide: bigint; readonly identity: symbol; readonly absent: null | undefined }>;
   `;
   expect([[model, declarations], [publication, `
     import type { Inherited, KeyAliasInherited, Concrete, ReadonlyInput, PartialReadonly, Applied, ReadonlyTuple,
-      ReadonlyIndex, Query, RecursiveCopy, UnionCopy, ParenthesizedCopy } from "../model/contract.js";
+      ReadonlyIndex, Query, RecursiveCopy, UnionCopy, ParenthesizedCopy, IntersectionCopy, Atoms } from "../model/contract.js";
     export interface View {
       readonly inherited: Inherited; readonly keyAlias: KeyAliasInherited; readonly concrete: Concrete; readonly plain: ReadonlyInput;
       readonly partial: PartialReadonly; readonly applied: Applied; readonly tuple: ReadonlyTuple;
       readonly index: ReadonlyIndex; readonly query: Query; readonly recursive: RecursiveCopy;
       readonly union: UnionCopy; readonly parenthesized: ParenthesizedCopy;
+      readonly intersection: IntersectionCopy; readonly atoms: Atoms;
     }
   `]], []);
   expect([[model, declarations], [publication, `
     import type { Copy, Readonly, Partial } from "../model/contract.js";
+    import type * as Data from "../model/contract.js";
     export interface View {
       readonly inherited: Copy<({ readonly value: number })>;
+      readonly namespaced: import("../model/contract.js").Copy<{ readonly value: number }>;
+      readonly qualified: Readonly<Data.InputAlias>;
       readonly plain: Readonly<{ value: number }>;
       readonly partial: Partial<Readonly<{ value: number }>>;
     }
@@ -474,6 +490,8 @@ test("ordinary generic unknown and object constraints are type bounds rather tha
     export interface ObjectBound<Value extends object> { readonly value: Value; }
     export type UnknownAlias<Value extends unknown> = { readonly value: Value };
     export type ObjectAlias<Value extends object> = { readonly value: Value };
+    export type UnknownCondition<Value> = Value extends unknown ? number : never;
+    export type ObjectCondition<Value> = Value extends object ? number : never;
   `]], []);
   expect([[model, "export interface Opaque { readonly value: unknown; readonly object: object; }"]],
     ["contract-closure", "contract-closure"]);

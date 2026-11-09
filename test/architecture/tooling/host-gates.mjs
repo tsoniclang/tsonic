@@ -290,8 +290,9 @@ export const inspectHostStructure = input => {
     const parameter = type => queries.getSymbolDeclarations(queries.getTypeSymbol(type))
       .some(declaration => declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration));
     const input = ast.is.IsMappedTypeNode(node) ? mappedKeySource(node) : undefined;
+    const argumentBearing = ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node);
     if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)) ||
-      ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
+      argumentBearing && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
     /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Type>} */
     const active = new Set();
     /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Type, boolean>} */

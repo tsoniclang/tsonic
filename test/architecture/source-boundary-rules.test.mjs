@@ -92,6 +92,8 @@ test("the canonical lifetime AST rule preserves transparent immutable data and r
 test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
   assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
     message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);
+  assert.deepEqual(findings(`function forward(refusal) { return { "code": refusal.code, "source": "tsonic",
+    "message": refusal.message, "sourceNode": refusal.site, 0: "native" }; }`, "src/analysis/program/source-facts.ts"), []);
   for (const text of [
     'const issue = { code: "TSONIC_LOCAL_TYPE_NEW", source: "tsonic", message: "new", sourceNode: node };',
     'function forward(refusal) { return { code: refusal.code, source: "tsonic", message: "changed", sourceNode: refusal.site }; }',
@@ -107,6 +109,11 @@ test("Native-owned failures and the exact resource infrastructure code stay inde
 });
 
 test("Native follows demand dispositions without comparing Host refusal codes", () => {
+  for (const expression of ['("TSONIC_SOURCE_FORM_UNSUPPORTED")', '"TSONIC_SOURCE_FORM_UNSUPPORTED" as const',
+    '<string>"TSONIC_SOURCE_FORM_UNSUPPORTED"', '"TSONIC_SOURCE_FORM_UNSUPPORTED" satisfies string',
+    '"TSONIC_SOURCE_FORM_UNSUPPORTED"!'])
+    assert.equal(findings(`const code = ${expression}; if (refusal.code === code) reject();`, "src/analysis/native-operands.ts")
+      .some(row => row.rule === "native-source-code-comparison"), true, expression);
   for (const text of [
     'if (source.disposition !== "false" || source.whenTrue.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',
     'if (source.disposition !== "true" || source.whenFalse.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") reject();',

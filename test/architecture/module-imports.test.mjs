@@ -4,6 +4,15 @@ import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/ind
 import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis, buildTypeScriptModuleGraph, resolveRelativeModule } from "./tooling/module-graph.mjs";
 import { evaluateFunctionLiveness } from "./tooling/architecture-rules.mjs";
 
+test("duplicate authored package imports retain both original edges with absent local targets", () => {
+  const result = buildTypeScriptModuleAnalysis(new Map([["main.ts", 'import "@original/package"; import "@original/package";']]));
+  assert.deepEqual(result.edges.map(edge => ({ source: edge.source, specifier: edge.specifier,
+    target: edge.target, kind: edge.kind, unresolved: edge.unresolved })), [
+    { source: "main.ts", specifier: "@original/package", target: undefined, kind: "package", unresolved: false },
+    { source: "main.ts", specifier: "@original/package", target: undefined, kind: "package", unresolved: false },
+  ]);
+});
+
 test("module import inventory separates actual JavaScript imports from fixture strings", () => {
   const source = new Map([
     ["main.mjs", `
