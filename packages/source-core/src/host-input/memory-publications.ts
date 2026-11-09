@@ -34,10 +34,17 @@ class MemoryPublicationOwner {
     if (sources.owner !== undefined) assertMemorySource(sources.owner, call);
   }
 
-  static snapshot(value: MemorySourcePublication): MemorySourcePublication {
-    const authority = value.authority;
+  static #authority(value: MemorySourcePublication): MemoryPublicationOwner {
+    const descriptor = value !== null && typeof value === "object"
+      ? Object.getOwnPropertyDescriptor(value, "authority") : undefined;
+    const authority: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
     if (!(authority instanceof MemoryPublicationOwner) || !authority.#publications.has(value))
       throw new Error("Memory provenance requires its original per-program factual publication.");
+    return authority;
+  }
+
+  static snapshot(value: MemorySourcePublication): MemorySourcePublication {
+    const authority = MemoryPublicationOwner.#authority(value);
     const result = exactRecord(value, ["call", "authority", "source"], ["owner"]);
     authority.#assert(result.call, result);
     authority.#publications.add(result);
@@ -46,9 +53,8 @@ class MemoryPublicationOwner {
 
   static read(program: SourceProgramQueries, value: MemorySourcePublication, subject: ExtensionFactSubject):
     MemoryTypePublicationSources {
-    const authority = value.authority;
-    if (!(authority instanceof MemoryPublicationOwner) || !authority.#publications.has(value) ||
-      authority.#program.containsSourceFile !== program.containsSourceFile || value.call !== subject)
+    const authority = MemoryPublicationOwner.#authority(value);
+    if (authority.#program.containsSourceFile !== program.containsSourceFile || value.call !== subject)
       throw new Error("Memory provenance cannot cross its original program, publication or occurrence boundary.");
     authority.#assert(value.call, value);
     return value;

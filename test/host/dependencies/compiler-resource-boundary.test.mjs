@@ -40,6 +40,7 @@ test("normal compilation retains the exact demanded Source resource diagnostic a
   assert.equal(diagnostic === result.targets[0].compileResult.diagnostics[0], true,
     "the normal entry retains the same diagnostic object through its rejected target result");
   assert.equal(diagnostic.code, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  assert.equal(diagnostic.category, "error");
   assert.equal(diagnostic.source, "tsonic");
   assert.deepEqual(diagnostic.evidence, [`depth=${sourceTypeExpansionBudget.depth}`]);
   const site = diagnostic.sourceNode;

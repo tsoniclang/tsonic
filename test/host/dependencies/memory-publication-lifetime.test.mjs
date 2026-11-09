@@ -52,6 +52,10 @@ test("memory publication authority belongs to its genuine program and original a
     selected.source.declaration === first.source.declaration && selected.source.sourceType === first.source.sourceType, true,
   "the finalized snapshot retains every original application/binder/observed-component identity");
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.source), true);
+  const snapshot = tsonicMemorySourceFactKey.snapshot(first.value);
+  assert.equal(snapshot !== first.value && Object.isFrozen(snapshot), true,
+    "the genuine snapshot hook always creates its own frozen root");
+  assert.equal(snapshot.source === first.value.source, true, "original immutable provenance remains shared");
   assert.equal(readMemoryPublicationSources(second.checked, second.checked.sourceFacts, second.call) !== undefined, true);
   assert.throws(() => readMemoryPublicationSources(second.checked, first.checked.sourceFacts, first.call),
     /original program, publication or occurrence boundary/);
@@ -59,6 +63,12 @@ test("memory publication authority belongs to its genuine program and original a
   assert.throws(() => tsonicMemorySourceFactKey.snapshot({ ...first.value }), /original per-program factual publication/);
   assert.throws(() => tsonicMemorySourceFactKey.snapshot({ ...first.value, authority: second.owner }),
     /original per-program factual publication/);
+  let authorityReads = 0;
+  const accessor = Object.defineProperty({ ...first.value }, "authority", {
+    get() { authorityReads += 1; throw new Error("Publication authentication must not execute an accessor."); },
+  });
+  assert.throws(() => tsonicMemorySourceFactKey.snapshot(accessor), /original per-program factual publication/);
+  assert.equal(authorityReads, 0);
   assert.throws(() => first.owner.create(first.call, { source: { ...first.source, declaration: first.call }, owner: undefined }),
     /identical original binder and observed argument/);
   assert.throws(() => first.owner.create(first.call, { source: first.source, owner: second.source }), /exact original application/);
