@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,7 @@ import test from "node:test";
 import * as implementation from "../../packages/host/src/model/register.ts";
 import { orderedDomain, sameIdentity } from "./runner/assertions.mjs";
 import { withSpecProject } from "./runner/project.mjs";
+import { inspectHostStructure } from "../architecture/tooling/host-gates.mjs";
 
 function recorder(onCharge = () => {}) {
   const charges = [];
@@ -33,6 +35,26 @@ test("the sole composition export is a frozen stateless algebra with no arbitrar
   assert.equal(Object.isFrozen(implementation.modelAlgebra), true);
   assert.equal(implementation.modelAlgebra.integerInRange, undefined);
   assert.throws(() => { implementation.modelAlgebra.integerBounds = () => {}; }, TypeError);
+});
+
+test("the actual stateless Model port is composition-only, not a peer implementation dependency", async () => {
+  const repository = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+  const sources = ["packages/host/src/model/contract.ts", "packages/host/src/model/register.ts"]
+    .map(path => ({ path, text: readFileSync(resolve(repository, path), "utf8") }));
+  for (const [path, expected] of [["packages/host/src/orchestration/model-composition.ts", []],
+    ["packages/host/src/ingress/observations.ts", ["contract-imports"]]]) {
+    await withSpecProject([...sources, { path, text: `
+      import { modelAlgebra } from "../model/register.js";
+      export function compose() {
+        const selected = Object.freeze({ algebra: modelAlgebra });
+        return selected;
+      }
+    ` }], project => {
+      const findings = inspectHostStructure({ root: project.root, files: project.files, declarationFiles: [] });
+      orderedDomain(findings.map(finding => finding.gate).sort(), expected, Object.is,
+        `complete findings at ${path}: ${JSON.stringify(findings.map(finding => [finding.gate, finding.file, finding.start]))}`);
+    });
+  }
 });
 
 test("all ten formats retain exact frozen bounds and every adjacent boundary", () => {
@@ -304,7 +326,7 @@ void range; void fit; void result;\n`;
   const compile = files => {
     const result = spawnSync(resolve(repository, "node_modules/.bin/tsgo"), ["--ignoreConfig", "--strict",
       "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--skipLibCheck", "false", "--noEmitOnError",
-      "--module", "nodenext", "--target", "es2022", "--types", "node", "--noEmit", ...files],
+      "--module", "nodenext", "--target", "es2020", "--types", "node", "--noEmit", ...files],
     { cwd: repository, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536 });
     assert.equal(result.error === undefined, true, "actual strict compiler completes");
     assert.equal(result.signal, null);

@@ -48,7 +48,7 @@ function validKey<SymbolIdentity>(key: AlgebraKey<SymbolIdentity> | undefined,
   work.charge(1n);
   return typeof key === "object" && key !== null
     && (key.kind === "name" && typeof key.name === "string"
-      || key.kind === "symbol" && Object.hasOwn(key, "identity"));
+      || key.kind === "symbol" && Object.getOwnPropertyDescriptor(key, "identity") !== undefined);
 }
 
 function keyEqual<SymbolIdentity>(left: AlgebraKey<SymbolIdentity> | undefined,
@@ -82,7 +82,7 @@ function validateDomain<SymbolIdentity>(domain: KeyDomain<SymbolIdentity>,
       if (!Array.isArray(domain.keys)) return invalidKey;
       for (let index = 0; index < domain.keys.length; index += 1) {
         work.charge(1n);
-        if (!Object.hasOwn(domain.keys, index) || !validKey(domain.keys[index], work)) return invalidKey;
+        if (Object.getOwnPropertyDescriptor(domain.keys, index) === undefined || !validKey(domain.keys[index], work)) return invalidKey;
       }
       for (let index = 0; index < domain.keys.length; index += 1) {
         for (let previous = 0; previous < index; previous += 1) {
