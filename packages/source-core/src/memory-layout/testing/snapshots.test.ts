@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, Type } from "@tsonic/tsts";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
-import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
+import { maximumMemoryLayoutDepth, snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
+import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import type { TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { captureDataLayoutRegistrations } from "../registrations.js";
 import { valueMemoryLayout } from "./fixtures.js";
@@ -37,6 +38,45 @@ test("layout snapshots deeply freeze metadata without freezing compiler subjects
   }
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(input)));
   assert.ok(!tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout({ ...input, stride: 12n })));
+});
+
+test("reachable captured-layout constructors validate forged fields and cannot accept a caller depth", () => {
+  const input = layoutFixture(), genuine = valueMemoryLayout(snapshotMemoryLayout(input));
+  const constructors = [genuine.constructor, Object.getPrototypeOf(Object.getPrototypeOf(genuine)).constructor];
+  assert.equal(constructors.length, 2, "both the concrete and inherited constructor routes are retained");
+  for (const constructor of constructors) {
+    assert.equal(Object.isFrozen(constructor) && Object.isFrozen(constructor.prototype), true);
+    for (const forged of [
+      { ...input, byteSize: -1n },
+      { ...input, fields: [{ ...input.fields[0]!, byteAlignment: 0n }] },
+      { ...input, fields: [{ ...input.fields[0]!, fieldLayout: { ...input.fields[0]!.fieldLayout,
+        dataLayout: { ...input.dataLayout, fingerprint: "foreign-ABI" } } }] },
+    ]) assert.throws(() => Reflect.construct(constructor, [forged, 0]));
+    let executions = 0;
+    const accessor = Object.defineProperty({ ...input }, "fields", { get() { executions++; return input.fields; } });
+    assert.throws(() => Reflect.construct(constructor, [accessor]));
+    assert.equal(executions, 0, "a constructor does not execute a forged metadata accessor");
+  }
+  const independent = valueMemoryLayout(Reflect.construct(genuine.constructor, [genuine]));
+  assert.equal(independent !== genuine && independent.fields === genuine.fields && Object.isFrozen(independent), true);
+  assert.equal(tsonicMemoryLayoutFactKey.equals(genuine, independent), true);
+});
+
+test("reachable captured-layout constructors compute the exact depth128 boundary from genuine children", () => {
+  const input = layoutFixture();
+  let child = valueMemoryLayout(snapshotMemoryLayout({ ...input, byteSize: 0n, stride: 0n, fields: [] }));
+  const parent = () => ({ ...child, fields: [{ ...input.fields[0]!, byteOffset: 0n,
+    fieldType: child.sourceType, fieldLayout: child }] });
+  for (let depth = 1; depth < maximumMemoryLayoutDepth; depth++) {
+    const previous = child;
+    child = valueMemoryLayout(Reflect.construct(child.constructor, [parent()]));
+    assert.equal(child.fields.length === 1 && child.fields[0]!.fieldLayout === previous && Object.isFrozen(child.fields), true);
+  }
+  const independent = valueMemoryLayout(Reflect.construct(child.constructor, [child]));
+  assert.equal(independent !== child && independent.fields === child.fields, true);
+  assert.throws(() => Reflect.construct(child.constructor, [parent(), 0]), (failure: unknown) =>
+    failure instanceof TargetCompilerResourceLimitFailure && failure.diagnostic.code === "TSONIC_COMPILER_RESOURCE_LIMIT" &&
+    failure.diagnostic.evidence?.includes("depth=128") === true);
 });
 
 for (const patch of [

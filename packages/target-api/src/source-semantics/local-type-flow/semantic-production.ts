@@ -4,8 +4,8 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 
 
 
-export function sourceSemanticRefusal(site: Node, message: string, code = "TSONIC_LOCAL_TYPE_UNSUPPORTED"): SourceRefusal {
-  return Object.freeze({ kind: "refused", source: "tsonic", code, site, message });
+export function sourceSemanticRefusal(site: Node, message: string, code = "TSONIC_LOCAL_TYPE_UNSUPPORTED", related?: Node): SourceRefusal {
+  return Object.freeze({ kind: "refused", source: "tsonic", code, site, message, ...(related === undefined ? {} : { related }) });
 }
 
 export function sourceCategoryChoice(values: readonly SourceTypeEvidence[]): SourceCategoryDomain {

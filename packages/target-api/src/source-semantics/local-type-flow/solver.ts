@@ -36,6 +36,7 @@ import { produceSourceGuardPredicate } from "./guard-predicates.js";
 import { produceSourceMemberValue } from "./member-value.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { produceSourceReceiver } from "./receivers.js";
+import { produceSourceSignatureOmissions } from "./signature-omissions.js";
 import { produceSourceBindingHistory } from "./binding-production.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
@@ -196,6 +197,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]) { return returns.query(signature, bindings); }
 
   const hooks: SourceDescriptorProductionHooks = {
+    signatureOmissions: (signature, parameters, bindings) => produceSourceSignatureOmissions({ ast, input, builder }, signature, parameters, bindings),
     receiver: (declaration, bindings) => declarationProduction === undefined ? pending(declaration)
       : produceSourceReceiver(declarationProduction, declaration, bindings),
     literalDomain: (component, bindings) => produceSourceComponentLiteralDomain({ ast, input, builder, value, component: place }, component, bindings),

@@ -5,7 +5,8 @@ import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceCorrespondenceMember } from "../../source-model/members.js";
 import type { SourceDeclarationProduction } from "./production-context.js";
 import { Node_Initializer } from "../../source-navigation/ast.js";
-import { produceSourceParameterPresence, produceSourceReceiverBindings } from "./callable-production.js";
+import { produceSourceReceiverBindings } from "./callable-production.js";
+import { produceSourceParameterPresence } from "./parameter-presence.js";
 import { sourceTypeFlowCallableReturns } from "./callable-returns.js";
 import { sourceProductionValues, sourceSemanticRefusal } from "./semantic-production.js";
 import { sourceStoredValueDomain } from "./value-production.js";
@@ -50,7 +51,8 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
   }
   if (value.kind !== "resolved") return value;
   if (ast.is.IsParameterDeclaration(declaration) && ast.as.AsParameterDeclaration(declaration)?.QuestionToken !== undefined) {
-    value = produceSourceParameterPresence(production, input.syntax(declaration), value.value, true);
+    const component = input.syntax(declaration);
+    value = produceSourceParameterPresence(production.builder, component, reader.componentIdentity(component), value.value, true);
     if (value.kind !== "resolved") return value;
   }
   return { kind: "resolved", value: Object.freeze({ origin: { kind: "declaration" as const, declaration }, type: value.value }) };
@@ -68,7 +70,9 @@ export function produceSourceDeclaredComponent(production: SourceDeclarationProd
       const value = reader.describeSyntax(annotation, bindings);
       if (value.kind !== "resolved") return value;
       const parameter = last.kind === "parameter" ? input.describeSignature(last.signature).parameters[last.index] : undefined;
-      return produceSourceParameterPresence(production, component, value.value, parameter?.optional === true && !parameter.rest);
+      const syntax = ast.as.AsParameterDeclaration(declaration);
+      const optional = syntax === undefined ? parameter?.optional === true && !parameter.rest : syntax.QuestionToken !== undefined;
+      return produceSourceParameterPresence(production.builder, component, reader.componentIdentity(component), value.value, optional);
     }
     const selected = context.destination(declaration, bindings);
     if (selected.kind !== "resolved") return selected;

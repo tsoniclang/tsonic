@@ -55,6 +55,25 @@ export type SourceMemberKey =
   | { readonly kind: "number"; readonly value: Extract<SourceLiteralUnit, { readonly kind: "number" }>["value"] }
   | { readonly kind: "unique-symbol"; readonly declaration: Node };
 
+export type SourceIndexedSelection =
+  | { readonly kind: "member"; readonly receiver: SourceTypeEvidence; readonly key: SourceMemberKey;
+      readonly origins: readonly SourceMemberOrigin[]; readonly readOrigins: readonly SourceMemberOrigin[];
+      readonly readDeclarations: readonly Node[]; readonly selectedDeclarations: readonly Node[];
+      readonly optional: boolean; readonly readType: SourceTypeEvidence }
+  | { readonly kind: "index"; readonly receiver: SourceTypeEvidence; readonly declarations: readonly Node[];
+      readonly readonly: boolean; readonly readType: SourceTypeEvidence }
+  | { readonly kind: "component"; readonly receiver: SourceTypeEvidence;
+      readonly selector: SourceComponentSelector; readonly readType: SourceTypeEvidence }
+  | { readonly kind: "string-character"; readonly receiver: SourceTypeEvidence; readonly readType: SourceTypeEvidence };
+
+export interface SourceIndexedAccess {
+  readonly receiver: SourceTypeEvidence;
+  readonly key: SourceTypeEvidence;
+  readonly typeBindings: readonly SourceTypeBinding[];
+  readonly selections: readonly SourceIndexedSelection[];
+  readonly result: SourceTypeEvidence;
+}
+
 export interface SourceTypeDescriptorMember {
   readonly name: string;
   readonly key: SourceMemberKey;
@@ -64,12 +83,107 @@ export interface SourceTypeDescriptorMember {
   readonly type: SourceTypeDescriptor;
 }
 
+export interface SourceParameterOmission {
+  readonly acceptsOmission: boolean;
+  readonly initializer: SourcePresence<Node>;
+}
+
+export type SourceOmissionAction =
+  | { readonly kind: "absence"; readonly value: SourceTypeEvidence }
+  | { readonly kind: "initializer"; readonly initializer: Node }
+  | { readonly kind: "empty-rest" };
+
+export interface SourceOmittedArgument {
+  readonly parameter: SourceArgumentPlace["parameter"];
+  readonly path: readonly SourceComponentSelector[];
+  readonly destination: SourceUseDestination;
+  readonly action: SourceOmissionAction;
+}
+
+export interface SourceCallableEndpoint {
+  readonly head: SourceTypeEvidence;
+  readonly signature: SourceSignatureIdentity;
+  readonly classBindings: readonly SourceTypeBinding[];
+  readonly signatureBindings: readonly SourceTypeBinding[];
+  readonly capturedBindings: readonly SourceTypeBinding[];
+}
+
+export interface SourceCallableParameterEndpoint {
+  readonly signature: SourceSignatureIdentity;
+  readonly index: number;
+  readonly path: readonly SourceComponentSelector[];
+  readonly value: SourceTypeEvidence;
+}
+
+export type SourceCallableEmbedding =
+  | { readonly kind: "direct"; readonly source: SourceTypeEvidence; readonly destination: SourceTypeEvidence }
+  | { readonly kind: "sum"; readonly source: SourceTypeEvidence; readonly destination: SourceTypeEvidence;
+      readonly application: SourceSumApplication; readonly role: SourceSumRole;
+      readonly arms: readonly { readonly source: SourceTypeEvidence; readonly index: number }[] };
+
+export type SourceCallableResultBoundary =
+  | { readonly kind: "embedding"; readonly embedding: SourceCallableEmbedding }
+  | { readonly kind: "declared-overload"; readonly contractDeclaration: Node; readonly bodyDeclaration: Node;
+      readonly source: SourceTypeEvidence; readonly destination: SourceTypeEvidence };
+
+export type SourceCallableCapture =
+  | { readonly kind: "binding"; readonly declaration: Node; readonly references: readonly Node[];
+      readonly slot: SourceDeclaredSlot }
+  | { readonly kind: "receiver"; readonly owner: Node; readonly origin: SourceReceiverOrigin;
+      readonly references: readonly Node[]; readonly value: SourceTypeEvidence };
+
+export interface SourceCallableBody {
+  readonly declaration: Node;
+  readonly body: Node;
+  readonly template: SourceCallableEndpoint;
+  readonly activation: Node;
+  readonly captures: readonly SourceCallableCapture[];
+  readonly parameters: readonly {
+    readonly input: SourceCallableParameterEndpoint;
+    readonly slot: SourceDeclaredSlot;
+    readonly initializer: SourcePresence<Node>;
+  }[];
+}
+
+export type SourceCallableParameterBinding =
+  | { readonly kind: "parameter"; readonly source: SourceCallableParameterEndpoint;
+      readonly destination: SourceCallableParameterEndpoint; readonly embedding: SourceCallableEmbedding }
+  | { readonly kind: "omitted"; readonly destination: SourceCallableParameterEndpoint;
+      readonly action: SourceOmissionAction };
+
+export interface SourceCallableImplementation {
+  readonly body: SourceCallableBody;
+  readonly applied: SourceCallableEndpoint;
+  readonly parameters: readonly SourceCallableParameterBinding[];
+  readonly receiver: SourcePresence<{
+    readonly origin: SourceReceiverOrigin;
+    readonly source: SourceTypeEvidence;
+    readonly destination: SourceTypeEvidence;
+    readonly embedding: SourceCallableEmbedding;
+  }>;
+  readonly result: SourceCallableResultBoundary;
+}
+
+export interface SourceCallableContract {
+  readonly advertised: SourceCallableEndpoint;
+  readonly implementation: SourcePresence<SourceCallableImplementation>;
+}
+
+export interface SourceCallableExecution {
+  readonly contracts: readonly SourceCallableContract[];
+  readonly results: readonly {
+    readonly signature: SourceSignatureIdentity;
+    readonly embedding: SourceCallableEmbedding;
+  }[];
+}
+
 export interface SourceTypeDescriptorSignature {
   readonly identity: SourceSignatureIdentity;
   readonly receiver?: { readonly declaration?: Node; readonly origin: SourceReceiverOrigin; readonly type: SourceTypeDescriptor };
   readonly parameters: readonly {
     readonly declaration?: Node;
     readonly kind: "required" | "optional" | "rest";
+    readonly omission: SourceParameterOmission;
     readonly type: SourceTypeDescriptor;
   }[];
   readonly result: SourceTypeDescriptor;
@@ -250,6 +364,8 @@ export interface SourceApplication {
   readonly sourceArguments: readonly SourceAuthoredArgument[];
   /** Parameter bindings only; sourceArgumentIndex joins each binding to its authored evaluation. */
   readonly arguments: readonly SourceArgumentPlace[];
+  readonly omittedArguments: readonly SourceOmittedArgument[];
+  readonly execution: SourcePresence<SourceCallableExecution>;
   readonly result: SourceTypeEvidence;
 }
 
@@ -392,6 +508,8 @@ export interface SourceEnumFacts {
 }
 
 export interface SourceDescriptorView {
+  callableContracts(value: SourceTypeEvidence): SourceResult<readonly SourceCallableContract[]>;
+  indexedAccess(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceIndexedAccess>>;
   assertEvidence(value: SourceTypeEvidence): void;
   assertDescriptor(value: SourceTypeDescriptor): void;
   scalarLiteral(value: SourceTypeEvidence): SourcePresence<SourceLiteralUnit>;

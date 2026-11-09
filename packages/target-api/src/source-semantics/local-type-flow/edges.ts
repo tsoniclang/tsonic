@@ -73,7 +73,10 @@ export function collectSourceTypeFlowEdges(context: SourceTypeFlowAnalysisContex
     const initializer = Node_Initializer(ast, node), annotation = ast.typeNode(node);
     const result = record(node, annotation === undefined ? "open-local" : "fixed", annotation === undefined ? undefined
       : { kind: "original", site: node, component: input.syntax(annotation) }, node, initializer);
-    if (initializer !== undefined) connect(value(initializer), result, node);
+    if (initializer !== undefined) {
+      const source = value(initializer);
+      if (annotation === undefined) connect(source, result, node);
+    }
     return result;
   }
 

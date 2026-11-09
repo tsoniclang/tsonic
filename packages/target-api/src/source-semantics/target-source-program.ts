@@ -13,6 +13,8 @@ import { sourceLiteralDomainUnion } from "../source-model/literals/domain.js";
 import { produceSourceProjection } from "./local-type-flow/projections.js";
 import { produceSourceSyntaxType } from "./local-type-flow/syntax-production.js";
 import { sourceMemoryDomainsEquivalent } from "./local-type-flow/evidence-relations.js";
+import { produceSourceSignatureOmissions } from "./local-type-flow/signature-omissions.js";
+import { sourceMemberDisposition } from "./local-type-flow/member-value.js";
 import { sourceKeyDomainContains } from "./local-type-flow/key-domains.js";
 import { analyzeSourceTypeFlow } from "./local-type-flow/solver.js";
 import { createSourceMemberCorrespondenceQueries } from "./member-correspondence.js";
@@ -80,6 +82,8 @@ export function composeSourceProgram(input: SourceProgramInput) {
     read: (original: Node, values: readonly SourceTypeEvidence[]) => owner.builder.join(owner.builder.componentIdentity(original, []), "inferred", values, undefined),
     domain: sourceLiteralDomainUnion });
   const owner = createSourceDescriptorOwner({ input: input.input, assertNode,
+    signatureOmissions: (signature, parameters, bindings) =>
+      produceSourceSignatureOmissions({ ast, input: input.input, builder: owner.builder }, signature, parameters, bindings),
     construction(occurrence) {
       const selected = requiredObjects().construction(occurrence, occurrence, constructionReducers);
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "complete"
@@ -171,6 +175,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
       objectQueries = queries;
       memberUses = createSourceMemberUseQueries({ view: owner.view,
         inventory: memberInventory, assertNode,
+        form: admission.form, disposition: (receiver, chain) => sourceMemberDisposition(owner.builder, receiver, chain),
         select: input.memberUse, value: occurrence => queries.value(occurrence, []), compose: queries.memberValue,
         destination: queries.memberDestination, unavailable });
       objectProduction = Object.freeze({ ...correspondence, use: memberUses.use });

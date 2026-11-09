@@ -10,6 +10,7 @@ import type { SourceEvidenceDetails, SourceIndexInventoryRow, SourceMemberInvent
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import { composeSourceTypeBindings } from "../descriptor-details.js";
+import { produceSourceParameterPresence } from "./parameter-presence.js";
 
 export interface SourceDescriptorReaderInput {
   readonly input: SourceDescriptorInput;
@@ -187,6 +188,7 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     if (refusal !== undefined) return options.observe(refusal);
     const local = bindings.filter(binding => !selectedIdentity.typeParameters.includes(binding.declaration));
     const parameters: SourceTypeDescriptorSignature["parameters"][number][] = [];
+    const formalValues: SourceTypeEvidence[] = [];
     let receiver: SourceTypeDescriptorSignature["receiver"];
     if (facts.receiver !== undefined) {
       const value = describeComponent(facts.receiver, local);
@@ -207,8 +209,18 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     for (const [index, parameter] of facts.parameters.entries()) {
       const value = describeComponent(parameter.value, local);
       if (value.kind !== "resolved") return value;
-      parameters.push({ kind: parameter.kind, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }), type: value.value.type });
+      formalValues.push(value.value);
+    }
+    const omissions = hooks.signatureOmissions(selectedIdentity, facts.parameters.map((parameter, index) => ({
+      declaration: parameter.declaration, kind: parameter.kind, value: formalValues[index]!,
+    })), local);
+    if (omissions.kind !== "resolved") return omissions;
+    for (const [index, parameter] of facts.parameters.entries()) {
+      const metadata = omissions.value[index]!;
+      const value = produceSourceParameterPresence(builder, parameter.value, component(parameter.value), formalValues[index]!, metadata.kind === "optional");
+      if (value.kind !== "resolved") return value;
       children.push({ selector: { kind: "parameter", signature: selectedIdentity, index }, value: value.value });
+      parameters.push({ ...metadata, ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }), type: value.value.type });
     }
     const owner = facts.identity.owner;
     const result = facts.identity.signatureKind === "construct" && owner !== undefined &&

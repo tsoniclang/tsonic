@@ -11,23 +11,10 @@ import type { SourceCallableProduction } from "./production-context.js";
 import type { SourceProducedSignature } from "./application-data.js";
 import { produceSourceDefinitionParameters } from "./definition-parameters.js";
 import { produceSourceReceiver } from "./receivers.js";
+import { produceSourceSignatureOmissions } from "./signature-omissions.js";
+import { produceSourceParameterPresence } from "./parameter-presence.js";
 
 
-
-export function produceSourceParameterPresence(context: Pick<SourceSemanticProduction, "builder" | "reader">,
-  component: SourceInputComponent, value: SourceTypeEvidence, optional: boolean): SourceProductionResult<SourceTypeEvidence> {
-  if (!optional) return { kind: "resolved", value };
-  const { builder, reader } = context;
-  const identity = reader.componentIdentity(component);
-  if (value.type.kind === "optional" || value.sum?.arms.some(arm => arm.type.kind === "intrinsic" &&
-    (arm.type.intrinsic === "absence" || arm.type.intrinsic === "void")) || value.type.kind === "intrinsic" &&
-    (value.type.intrinsic === "absence" || value.type.intrinsic === "void")) return builder.join(identity, "authored", [value], component);
-  const absence = builder.evidence({ type: builder.intrinsic("absence"), component: identity,
-    category: { kind: "known", category: "absence" }, numeric: undefined, sum: undefined }, [], undefined,
-  { kind: "finite", values: [{ kind: "absence" }] },
-  { members: { kind: "unavailable" }, origins: builder.sourceOriginSubjects(value) });
-  return builder.join(identity, "authored", [value, absence], component);
-}
 
 export function produceSourceCallableSignature(context: SourceCallableProduction, original: SourceInputSignature,
   bindings: readonly SourceTypeBinding[], constructedClass: Node | undefined, root: Node): SourceProductionResult<SourceProducedSignature> {
@@ -62,18 +49,29 @@ export function produceSourceCallableSignature(context: SourceCallableProduction
     }
     return undefined;
   }
-  const parameters: SourceCallParameter[] = [];
+  const originalParameters: Omit<SourceCallParameter, "omission">[] = [];
   for (const parameter of shape.parameters) {
-    if (parameter.index !== parameters.length) throw new Error("A Source signature requires its original complete formal ordinal vector.");
+    if (parameter.index !== originalParameters.length) throw new Error("A Source signature requires its original complete formal ordinal vector.");
     const component = input.signatureComponent(original, root, { kind: "parameter", index: parameter.index });
     const declaration = parameter.declaration ?? inheritedDeclaration(parameter.index);
     const annotation = declaration === undefined ? undefined : ast.typeNode(declaration);
     const value = annotation === undefined ? context.parameter(component, declaration, identity, parameter.index, activeBindings)
       : reader.describeSyntax(annotation, activeBindings);
     if (value.kind !== "resolved") return value;
-    const present = produceSourceParameterPresence(context, component, value.value, parameter.optional && !parameter.rest);
+    originalParameters.push({ index: parameter.index, declaration,
+      kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: value.value });
+  }
+  const omissions = produceSourceSignatureOmissions(context, identity, originalParameters.map(parameter => ({
+    declaration: parameter.declaration, kind: parameter.kind, value: parameter.type,
+  })), activeBindings);
+  if (omissions.kind !== "resolved") return omissions;
+  const parameters: SourceCallParameter[] = [];
+  for (const parameter of originalParameters) {
+    const metadata = omissions.value[parameter.index]!;
+    const component = input.signatureComponent(original, root, { kind: "parameter", index: parameter.index });
+    const present = produceSourceParameterPresence(builder, component, reader.componentIdentity(component), parameter.type, metadata.kind === "optional");
     if (present.kind !== "resolved") return present;
-    parameters.push({ index: parameter.index, declaration, kind: parameter.rest ? "rest" : parameter.optional ? "optional" : "required", type: present.value });
+    parameters.push(Object.freeze({ ...parameter, ...metadata, type: present.value }));
   }
   let receiver: SourceProducedSignature["receiver"];
   if (shape.receiver !== undefined) {
@@ -191,7 +189,7 @@ export function produceSourceReceiverBindings(context: SourceCallableProduction,
 export function sourceProducedSignatureDescriptor(value: SourceProducedSignature): SourceTypeDescriptorSignature {
   return Object.freeze({ identity: value.identity, ...(value.receiver === undefined ? {} : { receiver: {
     ...(value.receiver.declaration === undefined ? {} : { declaration: value.receiver.declaration }), origin: value.receiver.origin, type: value.receiver.value.type } }),
-  parameters: value.parameters.map(parameter => ({ kind: parameter.kind, type: parameter.type.type,
+  parameters: value.parameters.map(parameter => ({ kind: parameter.kind, omission: parameter.omission, type: parameter.type.type,
     ...(parameter.declaration === undefined ? {} : { declaration: parameter.declaration }) })), result: value.result.type });
 }
 

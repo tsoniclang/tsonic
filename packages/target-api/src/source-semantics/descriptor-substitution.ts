@@ -4,7 +4,7 @@ import type {
   SourceTypeDescriptor, SourceTypeDescriptorSignature, SourceTypeEvidence,
 } from "../public/source/contracts.js";
 import type { SourceComponentOwner } from "./descriptor-components.js";
-import type { SourceEvidenceComponent } from "./descriptor-contracts.js";
+import type { SourceEvidenceComponent, SourceSignatureOmissionProduction } from "./descriptor-contracts.js";
 import type { SourceEvidenceOwner } from "./descriptor-evidence.js";
 import type { SourceDescriptorInterner } from "./descriptor-interner.js";
 import type { SourceParameterOwner } from "./descriptor-parameters.js";
@@ -15,6 +15,7 @@ export function createSourceSubstitution(input: {
   evidence: SourceEvidenceOwner;
   interner: SourceDescriptorInterner;
   parameters: SourceParameterOwner;
+  signatureOmissions: SourceSignatureOmissionProduction["signatureOmissions"];
   applyFamily(value: SourceSumApplication, bindings: readonly SourceTypeBinding[]): SourceResult<SourceSumApplication>;
   materialize(component: SourceTypeComponent, application: SourceSumApplication, original: SourceInputComponent | undefined): SourceTypeEvidence;
   intersection(component: SourceTypeComponent, parts: readonly SourceTypeEvidence[], result: SourceTypeEvidence,
@@ -115,7 +116,25 @@ export function createSourceSubstitution(input: {
           type: input.interner.projection(selected.type, value.type.projection),
           category: input.parameters.category(value.category, selectedBindings) }, children, record.original, record.domain, requirementBindings, details) };
       } else {
-        const type = rebuild(value.type, child, input.interner);
+        const signatureOmissions = new Map<SourceTypeDescriptorSignature["identity"], SourceTypeDescriptorSignature["parameters"]>();
+        if (value.type.kind === "shape" || value.type.kind === "callable") {
+          for (const signature of [...value.type.calls, ...value.type.constructs]) {
+            const parameters = signature.parameters.map((parameter, index) => {
+              const value = childMap.get(input.components.selectorKey({ kind: "parameter", signature: signature.identity, index }));
+              if (value === undefined) throw new Error("Signature omission requires each exact substituted formal child.");
+              return { declaration: parameter.declaration, kind: parameter.kind, value };
+            });
+            const metadata = input.signatureOmissions(signature.identity, parameters,
+              selectedBindings.filter(binding => !signature.identity.typeParameters.includes(binding.declaration)));
+            if (metadata.kind === "pending")
+              throw new Error("A final Source signature substitution requires its original omission dependencies to be solved.");
+            if (metadata.kind === "refused") { entries.set(identity, metadata); return metadata; }
+            signatureOmissions.set(signature.identity, signature.parameters.map((parameter, index) => ({
+              ...parameter, ...metadata.value[index]!, type: parameters[index]!.value.type,
+            })));
+          }
+        }
+        const type = rebuild(value.type, child, input.interner, signatureOmissions);
         const category = input.parameters.category(value.category, selectedBindings);
         const numeric = value.numeric === undefined ? undefined
           : { ...value.numeric, category: input.parameters.category(value.numeric.category, selectedBindings) };
@@ -137,13 +156,15 @@ function selectedSignature(selector: SourceComponentSelector): SourceTypeDescrip
 
 function rebuild(type: SourceTypeDescriptor,
   child: (selector: SourceComponentSelector, original: SourceTypeDescriptor) => SourceTypeDescriptor,
-  interner: SourceDescriptorInterner): SourceTypeDescriptor {
+  interner: SourceDescriptorInterner,
+  omissions: ReadonlyMap<SourceTypeDescriptorSignature["identity"], SourceTypeDescriptorSignature["parameters"]>): SourceTypeDescriptor {
   function signature(value: SourceTypeDescriptorSignature): SourceTypeDescriptorSignature {
+    const parameters = omissions.get(value.identity);
+    if (parameters === undefined) throw new Error("A rebuilt Source signature requires its whole freshly reduced omission vector.");
     return { identity: value.identity,
       ...(value.receiver === undefined ? {} : { receiver: { ...value.receiver,
         type: child({ kind: "receiver", signature: value.identity }, value.receiver.type) } }),
-      parameters: value.parameters.map((parameter, index) => ({ ...parameter,
-        type: child({ kind: "parameter", signature: value.identity, index }, parameter.type) })),
+      parameters,
       result: child({ kind: "result", signature: value.identity }, value.result) };
   }
   switch (type.kind) {

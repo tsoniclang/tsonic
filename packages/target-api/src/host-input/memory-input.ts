@@ -79,7 +79,19 @@ export interface SourceInputMemoryRecordBinding {
   }[];
 }
 
+export type SourceInputMemoryObservation = {
+  readonly occurrence: Node;
+  readonly source: SourceInputMemorySource;
+  readonly layoutExpression: Node;
+  readonly layout: SourceInputLayoutIdentity;
+} & (
+  | { readonly operation: "size" | "alignment" | "stride" }
+  | { readonly operation: "field-offset"; readonly selector: Node; readonly selection: Node;
+      readonly primary: SourcePresence<Node>; readonly selectedDeclarations: readonly Node[] }
+);
+
 export interface SourceInputMemoryQueries {
+  observation(occurrence: Node): SourceInputMemorySelection<SourceInputMemoryObservation>;
   metadata(occurrence: Node): SourceInputMemorySelection<SourceInputMemoryMetadata>;
   layout(identity: SourceInputLayoutIdentity): SourceInputMemorySelection<SourceInputMemoryLayout>;
   field(identity: SourceInputMemoryFieldIdentity): SourceInputMemorySelection<SourceInputMemoryField>;

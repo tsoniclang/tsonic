@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputMemberUseSelection } from "../host-input/member-input.js";
 import type { SourceMemberUse, SourceMemberUseArm } from "../source-model/member-use.js";
-import type { SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
+import type { SourceAdmissionFacts, SourceDescriptorView, SourcePresence, SourceRefusal, SourceResult, SourceTypeEvidence,
   SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceMemberInventoryQueries, SourceMemberInventoryRow } from "./member-inventory.js";
@@ -27,6 +27,8 @@ export function createSourceMemberUseQueries(input: {
   readonly assertNode: (node: Node) => void;
   readonly select: (occurrence: Node) => SourceInputMemberUseSelection;
   readonly value: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>;
+  readonly form: SourceAdmissionFacts["form"];
+  readonly disposition: (receiver: SourceTypeEvidence, optionalChain: boolean) => SourceMemberUse["disposition"];
   readonly compose: (occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write",
     values: readonly SourceTypeEvidence[], optionalChain: boolean) => SourceProductionResult<SourceTypeEvidence>;
   readonly destination: (occurrence: Node, receiver: SourceTypeEvidence,
@@ -64,17 +66,39 @@ export function createSourceMemberUseQueries(input: {
     const receiver = value(original.receiver.occurrence);
     if (receiver.kind !== "resolved") return receiver;
     view.assertEvidence(receiver.value);
-    let key: SourcePresence<SourceValueOperand> = Object.freeze({ kind: "none" });
+    const chain = original.optionalChain || original.chainContinuation;
+    const disposition = input.disposition(receiver.value, chain);
+    let key: SourcePresence<SourceResult<SourceValueOperand>> = Object.freeze({ kind: "none" });
+    if (disposition === "skip") {
+      if (original.key !== undefined) {
+        assertNode(original.key);
+        const form = input.form(original.key);
+        if (form.kind === "refused") {
+          if (form.code !== "TSONIC_SOURCE_FORM_UNSUPPORTED") return form;
+          key = Object.freeze({ kind: "present", value: form });
+        }
+      }
+      const read = purpose === "place" || original.access === "read" || original.access === "read-write"
+        ? compose(occurrence, receiver.value, "read", [], chain) : resolved(undefined);
+      if (read.kind !== "resolved") return read;
+      return resolved(Object.freeze({ occurrence,
+        receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }), key, disposition,
+        access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
+        chainContinuation: original.chainContinuation,
+        selectedDeclaration: original.selectedDeclaration === undefined ? Object.freeze({ kind: "none" })
+          : Object.freeze({ kind: "present", value: original.selectedDeclaration }),
+        selectedDeclarations: original.selectedDeclarations, readDeclarations: original.readDeclarations,
+        writeDeclarations: original.writeDeclarations, readType: read.value, writeType: undefined, arms: Object.freeze([]) }));
+    }
     if (original.key !== undefined) {
       assertNode(original.key);
       const selected = value(original.key);
       if (selected.kind !== "resolved") return selected;
       view.assertEvidence(selected.value);
-      key = Object.freeze({ kind: "present", value: Object.freeze({ occurrence: original.key, value: selected.value }) });
+      key = Object.freeze({ kind: "present", value: resolved(Object.freeze({ occurrence: original.key, value: selected.value })) });
     }
     const reads = purpose === "place" || original.access === "read" || original.access === "read-write";
     const writes = purpose === "place" || original.access === "write" || original.access === "read-write";
-    const chain = original.optionalChain || original.chainContinuation;
     const arms: SourceMemberUseArm[] = [];
     const readTypes: SourceTypeEvidence[] = [];
     const writeTypes: SourceTypeEvidence[] = [];
@@ -116,6 +140,7 @@ export function createSourceMemberUseQueries(input: {
         continue;
       }
       if (key.kind !== "present") return unavailable(occurrence, "missing-selected-member");
+      if (key.value.kind === "refused") return key.value;
       const selectedIndexes = original.arms.filter(item => item.kind === "index");
       const selections = selectedIndexes.map(item => item.selection).filter(item => {
         if (item.kind === "array-element") return arm.type.kind === "array";
@@ -154,7 +179,7 @@ export function createSourceMemberUseQueries(input: {
       }
       if (readType !== undefined) readTypes.push(readType);
       if (writeType !== undefined) writeTypes.push(writeType);
-      arms.push(Object.freeze({ kind: "index", receiver: arm, selection, key: key.value.value, readType, writeType, readonly }));
+      arms.push(Object.freeze({ kind: "index", receiver: arm, selection, key: key.value.value.value, readType, writeType, readonly }));
     }
     const read = reads && (purpose === "use" || readTypes.length === arms.length)
       ? compose(occurrence, receiver.value, "read", Object.freeze(readTypes), chain) : resolved(undefined);
@@ -165,7 +190,7 @@ export function createSourceMemberUseQueries(input: {
     if (read.value !== undefined) view.assertEvidence(read.value);
     if (write.value !== undefined) view.assertEvidence(write.value);
     return resolved(Object.freeze({ occurrence, receiver: Object.freeze({ occurrence: original.receiver.occurrence, value: receiver.value }),
-      key, access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
+      key, disposition, access: original.access, callCallee: original.callCallee, optionalChain: original.optionalChain,
       chainContinuation: original.chainContinuation,
       selectedDeclaration: original.selectedDeclaration === undefined ? Object.freeze({ kind: "none" })
         : Object.freeze({ kind: "present", value: original.selectedDeclaration }),

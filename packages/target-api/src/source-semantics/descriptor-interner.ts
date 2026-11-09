@@ -17,6 +17,7 @@ export interface SourceDescriptorInternerInput {
 export interface SourceDescriptorInterner {
   assertDescriptor(value: SourceTypeDescriptor): void;
   assertSignature(value: SourceSignatureIdentity): void;
+  originalSignature(value: SourceSignatureIdentity): SourceInputSignature;
   assertConstruction(value: SourceConstructionDefinition): void;
   key(value: SourceTypeDescriptor): number;
   primitive(primitive: SourcePrimitiveKind): SourceTypeDescriptor;
@@ -43,7 +44,7 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   const descriptorKeys = new WeakMap<SourceTypeDescriptor, number>();
   const signatures = new WeakMap<SourceInputSignature, SourceSignatureIdentity>();
   const activeSignatures = new Set<SourceInputSignature>();
-  const signatureKeys = new WeakMap<SourceSignatureIdentity, number>();
+  const signatureKeys = new WeakMap<SourceSignatureIdentity, { readonly key: number; readonly original: SourceInputSignature }>();
   const objectKeys = new WeakMap<object, number>();
   const constructions = new WeakMap<Node, SourceConstructionDefinition>();
   const constructionIdentities = new WeakSet<SourceConstructionDefinition>();
@@ -77,7 +78,7 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   function signatureKey(value: SourceSignatureIdentity): number {
     const selected = signatureKeys.get(value);
     if (selected === undefined) throw new Error("A Source signature must belong to this exact program view.");
-    return selected;
+    return selected.key;
   }
 
   function intern<Descriptor extends SourceTypeDescriptor>(identity: string, create: () => Descriptor): Descriptor {
@@ -174,14 +175,17 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   function signatureShapeKey(value: SourceTypeDescriptorSignature): readonly unknown[] {
     return [signatureKey(value.identity), value.receiver === undefined ? null
       : [optionalNodeKey(value.receiver.declaration), receiverKey(value.receiver.origin), key(value.receiver.type)],
-    value.parameters.map(parameter => [parameter.kind, optionalNodeKey(parameter.declaration), key(parameter.type)]), key(value.result)];
+    value.parameters.map(parameter => [parameter.kind, optionalNodeKey(parameter.declaration), key(parameter.type),
+      parameter.omission.acceptsOmission, parameter.omission.initializer.kind === "none" ? null : nodeKey(parameter.omission.initializer.value)]), key(value.result)];
   }
 
   function freezeSignature(value: SourceTypeDescriptorSignature): SourceTypeDescriptorSignature {
     signatureShapeKey(value);
     return Object.freeze({ identity: value.identity,
       ...(value.receiver === undefined ? {} : { receiver: Object.freeze({ ...value.receiver, origin: Object.freeze({ ...value.receiver.origin }) }) }),
-      parameters: Object.freeze(value.parameters.map(parameter => Object.freeze({ ...parameter }))), result: value.result });
+      parameters: Object.freeze(value.parameters.map(parameter => Object.freeze({ ...parameter,
+        omission: Object.freeze({ acceptsOmission: parameter.omission.acceptsOmission,
+          initializer: Object.freeze({ ...parameter.omission.initializer }) }) }))), result: value.result });
   }
 
   function memberShapeKey(value: SourceTypeDescriptorMember): readonly unknown[] {
@@ -215,7 +219,7 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
             signature(part.owner, part.signatureKind, part, part.declaration, part.typeParameters))) }) });
       const selected: SourceSignatureIdentity = Object.freeze({ owner, kind,
         ...(declaration === undefined ? {} : { declaration }), typeParameters: Object.freeze([...parameters]), composition });
-      signatureKeys.set(selected, nextSignatureKey++);
+      signatureKeys.set(selected, Object.freeze({ key: nextSignatureKey++, original }));
       signatures.set(original, selected);
       return selected;
     } finally { activeSignatures.delete(original); }
@@ -224,6 +228,10 @@ export function createSourceDescriptorInterner(input: SourceDescriptorInternerIn
   return Object.freeze({
     assertDescriptor: (value: SourceTypeDescriptor): void => { key(value); },
     assertSignature: (value: SourceSignatureIdentity): void => { signatureKey(value); },
+    originalSignature(value: SourceSignatureIdentity): SourceInputSignature {
+      signatureKey(value);
+      return signatureKeys.get(value)!.original;
+    },
     assertConstruction,
     key,
     primitive: (primitive: SourcePrimitiveKind): SourceTypeDescriptor =>

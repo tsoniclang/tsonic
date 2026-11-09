@@ -130,4 +130,5 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
   }
   const operation = call.name === "sizeof" ? "size" : call.name === "alignof" ? "alignment" : "stride";
   publishMemoryFact(call, tsonicMemoryLayoutQueryFactKey, { ...base, operation });
+  captureMemoryBindingSource(call, 0);
 }

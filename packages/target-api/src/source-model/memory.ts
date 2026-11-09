@@ -113,7 +113,22 @@ export interface SourceMemoryRawLocation {
   readonly typeBindings: readonly SourceTypeBinding[];
 }
 
+export interface SourceMemoryObservation {
+  readonly occurrence: Node;
+  readonly operation: "size" | "alignment" | "stride" | "field-offset";
+  readonly operand: SourceValueOperand;
+  readonly layout: SourceMemoryLayout;
+  readonly field: SourcePresence<SourceMemoryField>;
+  readonly result: SourceTypeEvidence;
+  readonly value: bigint;
+  readonly bindings: SourceStorageBindings;
+  readonly typeBindings: readonly SourceTypeBinding[];
+}
+
 export interface SourceMemoryQueries {
+  readonly observation: {
+    value(occurrence: Node, bindings: SourceStorageBindings): SourceMemorySelection<SourcePresence<SourceMemoryObservation>>;
+  };
   readonly rawLocation: {
     resolve(occurrence: Node, bindings: SourceStorageBindings): SourceMemorySelection<SourcePresence<SourceMemoryRawLocation>>;
   };

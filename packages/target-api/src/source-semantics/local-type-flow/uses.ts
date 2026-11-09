@@ -1,4 +1,5 @@
 import { Node_Initializer } from "../../source-navigation/ast.js";
+import { sourceArgumentContextSite } from "./argument-context.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowGraph, SourceTypeFlowUse } from "./types.js";
 
 export function collectSourceTypeFlowUses(context: SourceTypeFlowAnalysisContext, graph: SourceTypeFlowGraph): readonly SourceTypeFlowUse[] {
@@ -10,9 +11,11 @@ export function collectSourceTypeFlowUses(context: SourceTypeFlowAnalysisContext
     const node = record.node;
     const annotation = ast.typeNode(node);
     if (annotation !== undefined && (ast.is.IsVariableDeclaration(node) || ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node))) {
-      uses.push({ kind: "contextual", variable: record.variable, site: node });
+      const initializer = Node_Initializer(ast, node);
+      const source = initializer === undefined ? undefined : records.get(initializer);
+      if (source !== undefined) uses.push({ kind: "contextual", variable: source.variable, site: initializer! });
     }
-    if (!(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
+    if (sourceArgumentContextSite({ ast }, node) === undefined && !(ast.is.IsArrayLiteralExpression(node) || ast.is.IsObjectLiteralExpression(node) ||
       ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsNumericLiteral(node))) continue;
     uses.push({ kind: "contextual", variable: record.variable, site: node });
   }
@@ -27,5 +30,8 @@ export function collectSourceTypeFlowUses(context: SourceTypeFlowAnalysisContext
       }
     }
   }
-  return Object.freeze(uses.sort((left, right) => context.order(left.site).preorder - context.order(right.site).preorder));
+  return Object.freeze(uses.sort((left, right) => {
+    const first = context.order(left.site), second = context.order(right.site);
+    return first.start - second.start || first.preorder - second.preorder;
+  }).map(use => Object.freeze(use)));
 }

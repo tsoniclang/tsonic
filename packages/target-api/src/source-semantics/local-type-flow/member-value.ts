@@ -4,6 +4,15 @@ import { sourceOpenLiteralDomain, sourcePresenceLiteralDisposition } from "../..
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceSemanticRefusal } from "./semantic-production.js";
 import type { SourceSemanticProduction } from "./production-context.js";
+import type { SourceMemberUse } from "../../source-model/member-use.js";
+
+export function sourceMemberDisposition(builder: SourceSemanticProduction["builder"], receiver: SourceTypeEvidence,
+  optionalChain: boolean): SourceMemberUse["disposition"] {
+  builder.assertEvidence(receiver);
+  if (!optionalChain) return "evaluate";
+  const presence = sourcePresenceLiteralDisposition(builder.domain(receiver));
+  return presence === "absent" ? "skip" : presence === "present" ? "evaluate" : "dynamic";
+}
 
 export function produceSourceMemberValue(context: Pick<SourceSemanticProduction, "builder" | "input">,
   occurrence: Node, receiver: SourceTypeEvidence, purpose: "read" | "write", arms: readonly SourceTypeEvidence[],

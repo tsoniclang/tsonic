@@ -18,6 +18,7 @@ export interface SourceTypeFlowTerms {
   group(variable: SourceTypeFlowVariable): SourceTypeFlowTermGroup;
   groups(): readonly SourceTypeFlowTermGroup[];
   isInference(variable: SourceTypeFlowVariable): boolean;
+  isFillable(variable: SourceTypeFlowVariable): boolean;
   refuse(variable: SourceTypeFlowVariable, refusal: SourceRefusal): void;
 }
 
@@ -257,6 +258,11 @@ export function createSourceTypeFlowTerms(ast: AstReader, graph: SourceTypeFlowG
     group: (variable: SourceTypeFlowVariable) => view(intern(variable)),
     groups: () => Object.freeze([...new Set(slots.map(root))].map(view)),
     isInference: (variable: SourceTypeFlowVariable) => inference.has(root(intern(variable))),
+    isFillable: (variable: SourceTypeFlowVariable) => {
+      const selected = root(intern(variable));
+      return inference.has(selected) && selected.terms.some(term => term.kind === "numeric" || term.kind === "array" ||
+        term.kind === "shape" || term.kind === "construction" || term.kind === "tuple" || term.kind === "optional");
+    },
     refuse: (variable: SourceTypeFlowVariable, refusal: SourceRefusal) => refuse(intern(variable), refusal),
   });
 }

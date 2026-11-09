@@ -7,6 +7,11 @@ import { collectSourceTypeFlowSignatures } from "./signatures.js";
 import { createSourceTypeFlowRefusal } from "./refusals.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowGraph, SourceTypeFlowTerm, SourceTypeFlowUse, SourceTypeFlowVariable } from "./types.js";
 
+interface SourceTypeFlowDemand {
+  readonly site: Node;
+  readonly value: SourceTypeEvidence;
+}
+
 export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, graph: SourceTypeFlowGraph,
   uses: readonly SourceTypeFlowUse[], produce: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence>,
   contextualValue: (occurrence: Node) => SourceProductionResult<SourceTypeEvidence | undefined>): {
@@ -22,7 +27,7 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
   const variables = new Map(graph.nodes.filter(record => record.variable.path.length === 0).map(record => [record.node, record.variable]));
   const completed = new Map<SourceTypeFlowVariable, SourceProductionResult<SourceTypeEvidence>>();
   const active = new Set<SourceTypeFlowVariable>();
-  const fills = new Map<SourceTypeFlowVariable, SourceTypeEvidence[]>();
+  const fills = new Map<SourceTypeFlowVariable, SourceTypeFlowDemand[]>();
   const contextual = new Map<SourceTypeFlowVariable, Node[]>();
   const inputs = new Map<SourceTypeFlowVariable, SourceTypeFlowVariable[]>();
   const derived = new Map(graph.derived.map(record => [terms.group(record.result).variable, record.node]));
@@ -44,8 +49,8 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
     }
     if (use.kind === "fill") {
       const values = fills.get(selected);
-      if (values === undefined) fills.set(selected, [use.value]);
-      else values.push(use.value);
+      if (values === undefined) fills.set(selected, [{ site: use.site, value: use.value }]);
+      else values.push({ site: use.site, value: use.value });
     }
   }
   for (const input of graph.producerInputs) {
@@ -72,9 +77,9 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
         if (signature !== undefined) return sourceSemanticRefusal(signature.site,
           "This value reaches an inferred signature and cannot take its type from a use. Annotate the value or the signature.", "TSONIC_LOCAL_TYPE_SIGNATURE");
         const first = authoritative[0]!;
-        const same = authoritative.every(value => value.type === first.type);
-        result = same ? { kind: "resolved", value: first } : sourceSemanticRefusal(variable.node,
-          "Linked original declarations require different concrete Source destinations.", "TSONIC_LOCAL_TYPE_CONFLICT");
+        const conflict = authoritative.find(demand => demand.value.type !== first.value.type);
+        result = conflict === undefined ? { kind: "resolved", value: first.value } : sourceSemanticRefusal(conflict.site,
+          "Linked original declarations require different concrete Source destinations.", "TSONIC_LOCAL_TYPE_CONFLICT", first.site);
       } else if (derived.has(key) || calls.has(key)) result = produce(derived.get(key) ?? calls.get(key)!);
       else {
         const values: SourceProductionResult<SourceTypeEvidence>[] = [];
@@ -139,13 +144,14 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
     }
     return produce(term.site);
   }
-  function destinations(variable: SourceTypeFlowVariable): SourceProductionResult<readonly SourceTypeEvidence[]> {
+  function destinations(variable: SourceTypeFlowVariable): SourceProductionResult<readonly SourceTypeFlowDemand[]> {
     const values = [...fills.get(variable) ?? []];
+    if (!terms.isFillable(variable)) return { kind: "resolved", value: values };
     for (const node of contextual.get(variable) ?? []) {
       const value = contextualValue(node);
       if (value.kind !== "resolved") return value;
       if (value.value !== undefined && !(value.value.type.kind === "intrinsic" &&
-        ["unknown", "any", "object", "void"].includes(value.value.type.intrinsic))) values.push(value.value);
+        ["unknown", "any", "object", "void"].includes(value.value.type.intrinsic))) values.push({ site: node, value: value.value });
     }
     return { kind: "resolved", value: values };
   }
@@ -155,7 +161,8 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
       if (variable === undefined) return { kind: "resolved", value: [] };
       const group = terms.group(variable);
       const selected = destinations(group.variable);
-      if (selected.kind !== "resolved" || selected.value.length > 0) return selected;
+      if (selected.kind !== "resolved") return selected;
+      if (selected.value.length > 0) return { kind: "resolved", value: selected.value.map(demand => demand.value) };
       const values: SourceTypeEvidence[] = [];
       for (const term of group.terms) {
         if (term.kind !== "fixed" && term.kind !== "original") continue;

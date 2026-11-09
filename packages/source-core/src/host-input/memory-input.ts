@@ -3,7 +3,7 @@ import type { CheckedSourceProgram, Node, ResolvedCallApplicationEvidence,
 import type { SourceInputApplication, SourceInputComponent, SourceInputLayoutIdentity,
   SourceInputMemoryField, SourceInputMemoryFieldBinding, SourceInputMemoryFieldIdentity,
   SourceInputMemoryLayout, SourceInputMemoryMetadata, SourceInputMemoryQueries,
-  SourceInputMemoryRecordBinding, SourceInputMemorySelection, SourceInputMemorySource } from "@tsonic/target-api/host";
+  SourceInputMemoryObservation, SourceInputMemoryRecordBinding, SourceInputMemorySelection, SourceInputMemorySource } from "@tsonic/target-api/host";
 import type { SourcePresence } from "@tsonic/target-api/source";
 import { selectInlineSourceMember } from "./selected-source-member.js";
 import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "./memory-layout-facts.js";
@@ -38,6 +38,7 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
   const capturedLayouts = new WeakMap<SourceInputLayoutIdentity, SourceInputMemoryLayout>();
   const capturedFields = new WeakMap<SourceInputMemoryFieldIdentity, SourceInputMemoryField>();
   const capturedMetadata = new WeakMap<Node, SourceInputMemorySelection<SourceInputMemoryMetadata>>();
+  const capturedObservations = new WeakMap<Node, SourceInputMemoryObservation>();
   const capturedFieldBindings = new WeakMap<Node, SourceInputMemorySelection<SourceInputMemoryFieldBinding>>();
   const capturedRecordBindings = new WeakMap<Node, SourceInputMemorySelection<SourceInputMemoryRecordBinding>>();
   const sources = (occurrence: Node): MemoryTypePublicationSources | undefined => {
@@ -205,6 +206,42 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
     capturedRecordBindings.set(occurrence, result);
     return result;
   };
+  const observation: SourceInputMemoryQueries["observation"] = occurrence => {
+    assertNode(occurrence);
+    const previous = capturedObservations.get(occurrence);
+    if (previous !== undefined) return available(previous);
+    const query = readTsonicMemoryLayoutQuery(sourceFacts, occurrence);
+    if (query === undefined) return none;
+    if (query.call !== occurrence) throw new Error("A layout observation retains its exact original query occurrence.");
+    assertNode(query.layoutExpression);
+    const finalized = readTsonicMemoryLayout(sourceFacts, query.layoutExpression);
+    if (finalized === undefined || !isFinalizedMemoryLayoutFacts(sourceFacts, finalized))
+      return unavailable(occurrence, "A layout observation requires its exact finalized original descriptor.");
+    const origins = sources(occurrence);
+    const component = origins === undefined ? undefined : source(origins.source);
+    if (component === undefined)
+      return unavailable(occurrence, "A layout observation requires its genuine original application and source component.");
+    const base = { occurrence, source: component, layoutExpression: query.layoutExpression, layout: layoutIdentity(finalized) };
+    let result: SourceInputMemoryObservation;
+    if (query.operation === "field-offset") {
+      const selector = ast.arguments(occurrence)[1];
+      const file = ast.getSourceFile(occurrence);
+      if (selector === undefined || file === undefined)
+        return unavailable(occurrence, "A field observation requires its original selected field argument.");
+      const selected = selectInlineSourceMember(selector, checked.getSourceFileQueries(file));
+      if (selected.kind !== "selected" || selected.selectedDeclaration !== query.selectedFieldDeclaration ||
+        selected.selectedDeclarations.length === 0 || selected.selectedDeclaration !== undefined &&
+          !selected.selectedDeclarations.includes(selected.selectedDeclaration))
+        return unavailable(occurrence, "A field observation requires its complete original selected declaration group.");
+      assertNode(selector); assertNode(selected.expression);
+      selected.selectedDeclarations.forEach(assertNode);
+      result = Object.freeze({ ...base, operation: "field-offset", selector, selection: selected.expression,
+        primary: selected.selectedDeclaration === undefined ? none : present(selected.selectedDeclaration),
+        selectedDeclarations: Object.freeze([...selected.selectedDeclarations]) });
+    } else result = Object.freeze({ ...base, operation: query.operation });
+    capturedObservations.set(occurrence, result);
+    return available(result);
+  };
   const compileTimeUse: SourceInputMemoryQueries["compileTimeUse"] = occurrence => {
     assertNode(occurrence);
     const ownLayout = readTsonicMemoryLayout(sourceFacts, occurrence);
@@ -232,6 +269,6 @@ export function createSourceCoreMemoryInput(input: SourceCoreOriginalCallInput &
     return raw.dataLayoutExpression === occurrence
       ? present(Object.freeze({ operation: parent, operand: occurrence, role: "data-layout" })) : none;
   };
-  const memory: SourceInputMemoryQueries = Object.freeze({ metadata, layout, field, fieldBinding, recordBinding, compileTimeUse });
+  const memory: SourceInputMemoryQueries = Object.freeze({ observation, metadata, layout, field, fieldBinding, recordBinding, compileTimeUse });
   return Object.freeze({ memory });
 }

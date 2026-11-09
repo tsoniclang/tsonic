@@ -8,7 +8,7 @@ import type {
 } from "../public/source/contracts.js";
 import { createSourceComponentOwner } from "./descriptor-components.js";
 import type { SourceProductionResult } from "../source-model/production.js";
-import type { SourceDescriptorBuilder } from "./descriptor-contracts.js";
+import type { SourceDescriptorBuilder, SourceSignatureOmissionProduction } from "./descriptor-contracts.js";
 import { createSourceEvidenceOwner } from "./descriptor-evidence.js";
 import { createSourceFamilyOwner } from "./descriptor-families.js";
 import { createSourceDescriptorInterner } from "./descriptor-interner.js";
@@ -29,6 +29,7 @@ export interface SourceDescriptorOwner {
 export function createSourceDescriptorOwner(input: {
   assertNode(node: Node): void;
   input: SourceDescriptorInput;
+  signatureOmissions: SourceSignatureOmissionProduction["signatureOmissions"];
   members(value: SourceTypeEvidence, original: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceMemberInventory>;
   receiverBindings(value: SourceTypeEvidence, direct: readonly SourceTypeBinding[]): SourceProductionResult<readonly SourceTypeBinding[]>;
   construction(occurrence: Node): SourceProductionResult<SourceMemberInventory>;
@@ -58,7 +59,8 @@ export function createSourceDescriptorOwner(input: {
     assertSum: value => families.assertApplication(value) });
   const parameters = createSourceParameterOwner({ assertNode: input.assertNode, evidence, interner, observe });
   const substitute = createSourceSubstitution({ components, evidence, interner, parameters,
-    applyFamily: reapplyFamily, materialize: materializeFamily, intersection, project });
+    applyFamily: reapplyFamily, materialize: materializeFamily, intersection, project,
+    signatureOmissions: input.signatureOmissions });
   const families = createSourceFamilyOwner({ components, evidence, interner, parameters, substitute });
   const members = createSourceInventoryOwner({ evidence, definition: produceMemberDefinition,
     join: (component, values) => join(component, "inferred", values, undefined) });
@@ -374,6 +376,7 @@ export function createSourceDescriptorOwner(input: {
     intrinsic: interner.intrinsic, parameter: parameters.register, optional: interner.optional, union: interner.union,
     array: interner.array, tuple: interner.tuple, shape: interner.shape, callable: interner.callable,
     declared: interner.declared, projection: interner.projection, signature: interner.signature,
+    originalSignature: interner.originalSignature,
     constructionDefinition(occurrence: Node, captures: readonly Node[]): SourceConstructionDefinition {
       input.assertNode(occurrence);
       if (!input.input.ast.is.IsObjectLiteralExpression(occurrence)) throw new Error("A Source construction definition requires its actual original object literal.");

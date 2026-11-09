@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
-import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
+import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceParameterOmission, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 
 export interface SourceProducedApplication {
   readonly application: SourceApplication;
@@ -17,6 +17,7 @@ export interface SourceCallParameter {
   readonly index: number;
   readonly declaration: Node | undefined;
   readonly kind: "required" | "optional" | "rest";
+  readonly omission: SourceParameterOmission;
   readonly type: SourceTypeEvidence;
 }
 

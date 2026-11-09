@@ -4,13 +4,47 @@ import type { SourceLiteralDomain } from "../source-model/literals/domain.js";
 import type { SourceProductionResult } from "../source-model/production.js";
 import type { SourceConstructionMemberHistory, SourceEvidenceDetails, SourceMemberInventory, SourceOriginSubjects } from "./member-inventory.js";
 import type {
+  SourceCallableContract, SourceParameterOmission, SourceIndexedAccess,
   SourceCategoryDomain, SourceComponentSelector, SourceDeclaredDescriptor, SourceConstructionDefinition,
   SourceDeferredProjection, SourceDescriptorView, SourcePresence, SourceReceiverOrigin, SourceResult, SourceSignatureIdentity,
   SourceSumApplication, SourceSumFamily, SourceTypeBinding, SourceTypeComponent,
   SourceTypeDescriptor, SourceTypeEvidence, SourceTypeParameter, SourceTypeParameterRequirement, SourceUseDestination,
 } from "../public/source/contracts.js";
 
-export interface SourceDescriptorProductionHooks {
+export interface SourceIndexedAccessTemplate {
+  readonly component: SourceTypeComponent;
+  readonly original: SourceInputComponent | undefined;
+  readonly receiver: SourceTypeEvidence;
+  readonly key: SourceTypeEvidence;
+  readonly bindings: readonly SourceTypeBinding[];
+}
+
+export interface SourceIndexedAccessProduction {
+  indexedAccess(template: SourceIndexedAccessTemplate, bindings: readonly SourceTypeBinding[]):
+    SourceProductionResult<SourceIndexedAccess>;
+}
+
+export interface SourceSignatureParameterProduction {
+  readonly declaration: Node | undefined;
+  readonly kind: "required" | "optional" | "rest";
+  readonly value: SourceTypeEvidence;
+}
+
+export interface SourceSignatureOmissionProduction {
+  signatureOmissions(signature: SourceSignatureIdentity,
+    parameters: readonly SourceSignatureParameterProduction[], bindings: readonly SourceTypeBinding[]):
+    SourceProductionResult<readonly {
+      readonly kind: "required" | "optional" | "rest";
+      readonly omission: SourceParameterOmission;
+    }[]>;
+}
+
+export interface SourceCallableContractProduction {
+  callableContracts(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]):
+    SourceProductionResult<readonly SourceCallableContract[]>;
+}
+
+export interface SourceDescriptorProductionHooks extends SourceSignatureOmissionProduction {
   receiver(declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourcePresence<SourceProducedReceiver>>;
   literalDomain(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceLiteralDomain>;
   declaredValue(component: SourceInputComponent, declaration: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
@@ -38,6 +72,8 @@ export interface SourceEvidenceComponent {
 }
 
 export interface SourceDescriptorBuilder extends SourceDescriptorView {
+  originalSignature(value: SourceSignatureIdentity): SourceInputSignature;
+  registerIndexedAccess(value: SourceTypeEvidence, template: SourceIndexedAccessTemplate): void;
   assertDestination(value: SourceUseDestination): void;
   primitive(primitive: SourcePrimitiveKind): SourceTypeDescriptor;
   string(): SourceTypeDescriptor;

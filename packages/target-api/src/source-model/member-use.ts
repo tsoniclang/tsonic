@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceMemberOrigin, SourcePresence, SourceTypeEvidence, SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
+import type { SourceMemberOrigin, SourcePresence, SourceResult, SourceTypeEvidence, SourceUseDestination, SourceValueOperand } from "../public/source/contracts.js";
 
 export type SourceIndexSelection =
   | { readonly kind: "array-element" | "string-character"; readonly declarations: readonly Node[] }
@@ -35,7 +35,8 @@ export type SourceMemberUseArm = SourcePropertyUseArm | SourceIndexUseArm;
 export interface SourceMemberUse {
   readonly occurrence: Node;
   readonly receiver: { readonly occurrence: Node; readonly value: SourceTypeEvidence };
-  readonly key: SourcePresence<SourceValueOperand>;
+  readonly key: SourcePresence<SourceResult<SourceValueOperand>>;
+  readonly disposition: "skip" | "evaluate" | "dynamic";
   readonly access: "read" | "write" | "read-write" | "delete";
   readonly callCallee: boolean;
   readonly optionalChain: boolean;
