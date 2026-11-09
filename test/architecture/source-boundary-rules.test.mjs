@@ -71,6 +71,22 @@ test("one per-view factory and immutable metadata do not become module ownership
   `), []);
 });
 
+test("the canonical lifetime AST rule preserves transparent immutable data and rejects malformed freeze ownership", () => {
+  for (const expression of [
+    'Object.freeze(({ kind: "fact" }))',
+    'Object.freeze({ kind: "fact" } as const)',
+    'Object.freeze({ kind: "fact" } satisfies { readonly kind: string })',
+    'Object.freeze(<{ readonly kind: string }>{ kind: "fact" })',
+    'Object.freeze({ kind: "fact" }!)',
+    'Object.freeze(-1)', 'Object.freeze(true)', 'Object.freeze(null)',
+    'Object.freeze([1n, false, `fact`, () => 1, function read() { return 2; }])',
+  ]) assert.deepEqual(findings(`const facts = ${expression};`), []);
+  for (const expression of ["Object.freeze()", "Object.freeze({}, {})", "Object.freeze(new Map())",
+    "freeze({})", "Custom.freeze({})", "Object.other({})"])
+    assert.equal(findings(`const facts = ${expression};`).filter(row => row.rule === "module-owned-mutable-cache").length, 1);
+  assert.equal(findings("let current; const nested = { action() { return 1; } };").some(row => row.rule === "module-owned-mutable-cache"), true);
+});
+
 test("Native forwarding preserves one original refusal code, message and site without a new Source code", () => {
   assert.deepEqual(findings(`function forward(refusal) { return { code: refusal.code, category: "error", source: "tsonic",
     message: refusal.message, sourceNode: refusal.site }; }`, "src/analysis/program/source-facts.ts"), []);

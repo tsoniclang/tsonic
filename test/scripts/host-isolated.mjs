@@ -42,8 +42,11 @@ export const compileHostModuleInIsolation = async input => {
   if (!sources.includes(module.contract)) throw new Error("A whole module must include its actual contract source.");
   for (const file of [...sources, ...input.dependencyContracts]) path(file);
   for (const file of input.dependencyContracts) {
-    const dependency = hostModules.find(dependency => dependency.contract === file);
-    if (dependency === undefined || dependency === module) throw new Error("Isolation dependencies must be original declared contract sources.");
+    const dependency = hostModules.find(dependency => file.startsWith(`${dependency.directory}/`) &&
+      !file.slice(dependency.directory.length + 1).includes("/"));
+    if (dependency === undefined || dependency === module || !file.endsWith(".ts") || file.endsWith(".d.ts") ||
+      !input.dependencyContracts.includes(dependency.contract))
+      throw new Error("Isolation dependencies must be original declared contract sources and their explicit same-owner data closure.");
   }
   const output = resolve(root, input.outputDirectory);
   if (typeof input.outputDirectory !== "string" || !input.outputDirectory.startsWith(".temp/") ||
@@ -80,7 +83,7 @@ export const compileHostModuleInIsolation = async input => {
     return result.status === 0;
   };
   try {
-    const initial = inspectHostStructure({ root, files: [...sources, ...input.dependencyContracts], declarationFiles: [] });
+    const initial = inspectHostStructure({ root, files: [...sources, ...input.dependencyContracts], declarationFiles: input.dependencyContracts });
     if (initial.length !== 0) return failed(initial.map(finding => `${finding.gate}:${finding.file}:${finding.start}: ${finding.message}`).join("\n"));
     const contracts = resolve(stage, "contracts"), emitted = resolve(stage, "checked-contracts");
     for (const file of input.dependencyContracts) copy(path(file), resolve(contracts, file));

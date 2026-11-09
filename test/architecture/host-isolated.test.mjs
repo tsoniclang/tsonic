@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import childProcess from "node:child_process";
+import filesystem from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -55,6 +58,55 @@ test("private type-only dependencies cannot pass by including a peer implementat
   });
 });
 
+test("dependency contracts list the entire freshly checked same-owner data closure explicitly", async () => {
+  const data = "packages/host/src/model/data.ts";
+  const files = new Map(lawful);
+  files.set(model, 'export type { Fact } from "./data.js";');
+  files.set(data, "export interface Fact { readonly value: number; }");
+  await fixture(files, async input => {
+    const missing = await compileHostModuleInIsolation(input);
+    assert.equal(missing.kind, "failed");
+    assert.match(missing.log, /isolated-compile/u);
+    const result = await compileHostModuleInIsolation({ ...input, dependencyContracts: [model, data] });
+    assert.equal(result.kind, "passed", result.log.slice(0, 4096));
+    writeFileSync(resolve(input.root, data), "export interface Fact { readonly value: number; } export function hidden() { return 1; }");
+    const implementationLeak = await compileHostModuleInIsolation({ ...input, dependencyContracts: [model, data] });
+    assert.equal(implementationLeak.kind, "failed");
+    assert.match(implementationLeak.log, /contract-closure/u);
+    await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: [data] }), /explicit same-owner/u);
+  });
+});
+
+test("a target-neutral external consumer typechecks against only the real fresh Publication contract", async () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  const files = new Map([[publication, "export interface Published { readonly value: number; }"]]);
+  await fixture(files, async input => {
+    const result = await compileHostModuleInIsolation({ ...input, module: "publication", sourceFiles: [publication], dependencyContracts: [] });
+    assert.equal(result.kind, "passed", result.log.slice(0, 4096));
+    const consumer = resolve(input.root, "consumer.ts");
+    writeFileSync(consumer, 'import type { Published } from "./packages/host/src/publication/contract.js"; export function read(value: Published): number { return value.value; }');
+    writeFileSync(resolve(input.root, "tsconfig.json"), JSON.stringify({ compilerOptions: {
+      strict: true, skipLibCheck: false, noEmitOnError: true, declaration: true, emitDeclarationOnly: true,
+      types: [], target: "es2022", module: "nodenext", rootDir: "packages/host/src/publication", outDir: "checked",
+    }, files: [publication] }));
+    const emitted = spawnSync(process.execPath, [compiler, "--project", resolve(input.root, "tsconfig.json")],
+    { cwd: input.root, encoding: "utf8", maxBuffer: 1_048_576, timeout: 60_000 });
+    if (emitted.error !== undefined) throw emitted.error;
+    assert.equal(emitted.status, 0, `${emitted.stdout}${emitted.stderr}`.slice(0, 8192));
+    rmSync(resolve(input.root, publication));
+    const generated = resolve(input.root, "checked/contract.d.ts");
+    assert.equal(existsSync(generated), true, "the actual fresh Publication declaration exists before consumer checking");
+    writeFileSync(consumer, 'import type { Published } from "./checked/contract.js"; export function read(value: Published): number { return value.value; }');
+    writeFileSync(resolve(input.root, "tsconfig.json"), JSON.stringify({ compilerOptions: {
+      strict: true, skipLibCheck: false, noEmit: true, types: [], target: "es2022", module: "nodenext",
+    }, files: ["consumer.ts"] }));
+    const compiled = spawnSync(process.execPath, [compiler, "--project", resolve(input.root, "tsconfig.json")],
+    { cwd: input.root, encoding: "utf8", maxBuffer: 1_048_576, timeout: 60_000 });
+    if (compiled.error !== undefined) throw compiled.error;
+    assert.equal(compiled.status, 0, `${compiled.stdout}${compiled.stderr}`.slice(0, 8192));
+  });
+});
+
 test("fresh contract emission rejects private declaration leaks and never trusts a stale declaration", async () => {
   const files = new Map(lawful);
   files.set(model, 'export type Fact = import("./private.js").Private;');
@@ -102,6 +154,11 @@ test("source inventory, paths, contract closure and admitted execution are authe
     await assert.rejects(compileHostModuleInIsolation({ ...input, outputDirectory: "../outside" }), /disposable/u);
     await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: ["../outside.ts"] }), /canonical/u);
     await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: [implementation] }), /original declared/u);
+    writeFileSync(resolve(input.root, "packages/host/src/constants/readme.txt"), "not a source file");
+    mkdirSync(resolve(input.root, "packages/host/src/constants/nested"));
+    writeFileSync(resolve(input.root, "packages/host/src/constants/nested/extra.ts"), "export interface Extra { readonly value: number; }");
+    await assert.rejects(compileHostModuleInIsolation(input), /complete exact/u);
+    rmSync(resolve(input.root, "packages/host/src/constants/nested"), { recursive: true });
     symlinkSync(resolve(input.root, model), resolve(input.root, "packages/host/src/constants/hidden.ts"));
     await assert.rejects(compileHostModuleInIsolation(input), /symlink/u);
   });
@@ -111,6 +168,38 @@ test("source inventory, paths, contract closure and admitted execution are authe
       delete process.env.TSONIC_TEST_ADMISSION;
       await assert.rejects(compileHostModuleInIsolation(input), /admitted process-group/u);
     } finally { process.env.TSONIC_TEST_ADMISSION = admission; }
+  });
+  await fixture(lawful, async input => {
+    rmSync(resolve(input.root, contract));
+    await assert.rejects(compileHostModuleInIsolation({ ...input, sourceFiles: [implementation] }), /actual contract/u);
+  });
+  await fixture(lawful, async input => {
+    symlinkSync(repository, resolve(input.root, "foreign"));
+    await assert.rejects(compileHostModuleInIsolation({ ...input, dependencyContracts: ["foreign/package.json"] }), /escapes/u);
+    mkdirSync(resolve(input.root, ".temp"));
+    symlinkSync(repository, resolve(input.root, ".temp/foreign"));
+    await assert.rejects(compileHostModuleInIsolation({ ...input, outputDirectory: ".temp/foreign" }), /escapes/u);
+  });
+});
+
+test("missing compiler and original compiler process errors fail visibly and dispose only their own stage", async context => {
+  await fixture(lawful, async input => {
+    const original = filesystem.existsSync;
+    const missing = context.mock.method(filesystem, "existsSync", path => path === compiler ? false : original(path));
+    syncBuiltinESMExports();
+    try { await assert.rejects(compileHostModuleInIsolation(input), /installed pinned/u); }
+    finally { missing.mock.restore(); syncBuiltinESMExports(); }
+    const failure = new Error("original compiler process failure");
+    const processError = context.mock.method(childProcess, "spawnSync", () => ({ error: failure }));
+    syncBuiltinESMExports();
+    try { await assert.rejects(compileHostModuleInIsolation(input), error => error === failure); }
+    finally { processError.mock.restore(); syncBuiltinESMExports(); }
+    assert.deepEqual(readdirSync(resolve(input.root, input.outputDirectory)), []);
+    const signal = context.mock.method(childProcess, "spawnSync", () => ({ signal: "SIGTERM" }));
+    syncBuiltinESMExports();
+    try { await assert.rejects(compileHostModuleInIsolation(input), /terminated with SIGTERM/u); }
+    finally { signal.mock.restore(); syncBuiltinESMExports(); }
+    assert.deepEqual(readdirSync(resolve(input.root, input.outputDirectory)), []);
   });
 });
 

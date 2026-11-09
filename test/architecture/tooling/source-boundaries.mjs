@@ -37,7 +37,10 @@ export function checkerImportFindings(source, file) {
 
 export function moduleLifetimeFindings(source, file, { immutableData = false } = {}) {
   const ast = source.ast;
+  if (ast.isDeclarationFile(file)) return [];
   const findings = [];
+  const checker = source.getSourceFileQueries(file).checker;
+  const active = new Set();
   const transparent = node => {
     if (ast.is.IsParenthesizedExpression(node)) return ast.as.AsParenthesizedExpression(node).Expression;
     if (ast.is.IsAsExpression(node)) return ast.as.AsAsExpression(node).Expression;
@@ -71,6 +74,19 @@ export function moduleLifetimeFindings(source, file, { immutableData = false } =
     if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindNumericLiteral", "KindBigIntLiteral",
       "KindTrueKeyword", "KindFalseKeyword", "KindNullKeyword", "KindArrowFunction", "KindFunctionExpression"].includes(kind)) return true;
     if (!immutableData && ast.is.IsIdentifier(node)) return true;
+    if (immutableData && ast.is.IsIdentifier(node)) {
+      const parent = ast.parent(node);
+      const symbol = ast.is.IsShorthandPropertyAssignment(parent)
+        ? checker.getLexicallyResolvedSymbol(node) : checker.getSymbolAtLocation(node);
+      if (symbol === undefined || active.has(symbol)) return false;
+      const declaration = checker.getSymbolValueDeclaration(symbol);
+      if (declaration === undefined || !ast.is.IsVariableDeclaration(declaration) ||
+        ast.variableDeclarationKind(declaration) !== "const") return false;
+      active.add(symbol);
+      const result = immutable(ast.as.AsVariableDeclaration(declaration).Initializer);
+      active.delete(symbol);
+      return result;
+    }
     if (!immutableData && ast.is.IsArrayLiteralExpression(node)) return ast.elements(node).every(immutable);
     if (!immutableData && ast.is.IsObjectLiteralExpression(node)) return ast.properties(node).every(property =>
       ast.is.IsPropertyAssignment(property) && immutable(ast.as.AsPropertyAssignment(property).Initializer));
@@ -85,16 +101,22 @@ export function moduleLifetimeFindings(source, file, { immutableData = false } =
     const value = unwrap(arguments_[0]);
     if (ast.is.IsArrayLiteralExpression(value)) return ast.elements(value).every(immutable);
     if (!ast.is.IsObjectLiteralExpression(value)) return immutable(value);
-    return ast.properties(value).every(property => ast.is.IsPropertyAssignment(property) &&
-      immutable(ast.as.AsPropertyAssignment(property).Initializer));
+    return ast.properties(value).every(property => ast.is.IsPropertyAssignment(property)
+      ? immutable(ast.as.AsPropertyAssignment(property).Initializer)
+      : ast.is.IsShorthandPropertyAssignment(property) && immutable(ast.name(property)));
   };
   const visit = node => {
     const declaration = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)
       : ast.is.IsPropertyDeclaration(node) && ast.hasModifierKind(node, "static") ? ast.as.AsPropertyDeclaration(node) : undefined;
     if (declaration !== undefined && moduleOwned(node)) {
+      for (let parent = node; parent !== undefined; parent = ast.parent(parent)) {
+        if (ast.hasModifierKind(parent, "ambient")) return;
+      }
       const initializer = declaration.Initializer;
       const name = ast.name(node);
-      if (initializer === undefined || !immutable(initializer)) {
+      const mutableBinding = immutableData && (ast.is.IsVariableDeclaration(node)
+        ? ast.variableDeclarationKind(node) !== "const" : !ast.hasModifierKind(node, "readonly"));
+      if (mutableBinding || initializer === undefined || !immutable(initializer)) {
         findings.push(finding(ast, file, name ?? node, "module-owned-mutable-cache"));
       }
     }
@@ -184,5 +206,6 @@ function inputPath(ast, file) {
 
 function finding(ast, file, node, rule) {
   const range = ast.authoredRange(node);
-  return Object.freeze({ file: inputPath(ast, file), line: ast.getSourceText(file).slice(0, range.start).split("\n").length, rule });
+  return Object.freeze({ file: inputPath(ast, file), start: range.start,
+    line: ast.getSourceText(file).slice(0, range.start).split("\n").length, rule });
 }

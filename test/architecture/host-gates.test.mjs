@@ -65,6 +65,12 @@ test("layers reject upward type contracts and accept only declared lower or peer
   expect([["packages/host/src/model/value.ts", 'import type { Facts } from "../navigation/contract.js";'],
     ["packages/host/src/navigation/contract.ts", facts]], ["layers"]);
   expect([["packages/host/src/constants/value.ts", 'import type { Facts } from "../model/contract.js";'], [model, facts]], []);
+  expect([["packages/host/src/orchestration/owner.ts", 'import { register } from "../navigation/register.js";'],
+    ["packages/host/src/navigation/register.ts", "export function register(): void {}"]], []);
+  expect([["packages/host/src/constants/value.ts", 'import { register } from "../navigation/register.js";'],
+    ["packages/host/src/navigation/register.ts", "export function register(): void {}"]], ["contract-imports"]);
+  expect([["packages/host/src/model/contract.ts", 'import type { Facts } from "../navigation/private.js";'],
+    ["packages/host/src/navigation/private.ts", facts]], ["contract-closure", "contract-imports", "layers"]);
 });
 
 test("lifetime rejects generic, static, nested and closure-owned mutable collections without exemptions", () => {
@@ -74,12 +80,21 @@ test("lifetime rejects generic, static, nested and closure-owned mutable collect
     "class View { static cache = new WeakMap<object, number>(); }",
     "class View { static { const cache = new WeakSet<object>(); } }",
     "const read = (() => { const cache = new WeakMap<object, number>(); return value => cache.get(value); })();"])
-    expect([["packages/host/src/ingress/owner.ts", text]], ["program-lifetime"]);
+    expect([["packages/host/src/ingress/owner.ts", text]],
+      text.startsWith("const read") ? ["program-lifetime", "program-lifetime"] : ["program-lifetime"]);
   expect([["packages/host/src/ingress/owner.ts", `
     const catalogue = Object.freeze({ names: Object.freeze(["one", "two"]) });
+    const name = "entry"; const alias = name;
+    const stable = Object.freeze({ alias });
     export function createOwner() { const cache = new WeakMap(); return { read(value) { return cache.get(value); } }; }
     class View { cache = new Map(); }
   `]], []);
+  for (const text of ["let current = 1;", "var current = 1;", "class View { static current = 1; }",
+    "const first = second; const second = first;", "const values = [];", "const values = {};",
+    "const values = Object.freeze({ nested: [] });"])
+    expect([["packages/host/src/ingress/owner.ts", text]],
+      text.startsWith("const first") ? ["program-lifetime", "program-lifetime"] : ["program-lifetime"]);
+  expect([["packages/host/src/ingress/owner.ts", "class View { static readonly names = Object.freeze([1, 2]); }"]], []);
 });
 
 test("checker types stay in Ingress implementation and never its contract", () => {
@@ -87,11 +102,35 @@ test("checker types stay in Ingress implementation and never its contract", () =
   expect([["packages/host/src/ingress/contract.ts", 'import type { Type } from "@tsonic/tsts";']], ["ingress-checker"]);
   expect([["packages/host/src/ingress/reader.ts", 'import type { Type } from "@tsonic/tsts";']], []);
   expect([[model, facts]], []);
+  expect([["packages/host/src/objects/reader.ts", 'export function load() { return import("@tsonic/tsts"); }']], ["ingress-checker"]);
+  expect([["packages/host/src/objects/reader.ts", 'import * as Checker from "@tsonic/tsts";']], ["ingress-checker"]);
+  expect([["packages/host/src/ingress/reader.ts", 'export function load() { return import("@tsonic/tsts"); }']], []);
+});
+
+test("raw checker aliases and transitive Publication authority cannot hide behind closed records", () => {
+  expect([["packages/host/src/ingress/contract.ts", 'import type { Type } from "@tsonic/tsts"; export interface Raw { readonly child: Type; }'],
+    ["packages/host/src/constants/contract.ts", 'import type { Raw } from "../ingress/contract.js"; export interface Answer { readonly data: Raw; }']],
+  ["ingress-checker", "ingress-checker", "ingress-checker"]);
+  expect([["packages/host/src/context/contract.ts", "export interface Authority { seed(): void; }"],
+    ["packages/host/src/publication/contract.ts", 'import type { Authority } from "../context/contract.js"; export interface ReadOnly { readonly nested: Authority; }']],
+  ["read-only-publication"]);
+  expect([[model, "export interface Opaque { readonly identity: unique symbol; }"]], []);
+  expect([[model, 'import type { Solver } from "../type-flow/contract.js"; export interface Callback { readonly request: (provider: Solver) => number; }'],
+    ["packages/host/src/type-flow/contract.ts", "export interface Solver { solve(): number; }"]], ["layers"]);
+  expect([["packages/host/src/context/contract.ts", `
+    declare const questionTypes: unique symbol;
+    export type Retention<Answer> = unknown extends Answer ? never : object extends Answer ? never : "immutable";
+    export interface Question<Input, Answer> { readonly [questionTypes]?: { readonly input: (value: Input) => Input; readonly answer: (value: Answer) => Answer; }; }
+    export interface Scope { withDepth<T>(action: () => T): T; }
+    export type Provider<Input, Answer> = (input: Input, scope: Scope) => Answer;
+    export interface Context { provide<Input, Answer>(provider: Provider<Input, Answer>): void; }
+  `]], []);
+  expect([[model, "export interface Operation { readonly apply: (value: number) => number; }"]], []);
 });
 
 test("one current name rejects renamed imports, exports, wildcard and forwarding facades", () => {
   expect([[model, 'const value = 1; export { value as second };']], ["one-current-name"]);
-  expect([[model, 'export * from "./facts.js";'], ["packages/host/src/model/facts.ts", facts]], ["one-current-name", "contract-closure"]);
+  expect([[model, 'export * from "./facts.js";'], ["packages/host/src/model/facts.ts", facts]], ["one-current-name"]);
   expect([["packages/host/src/model/value.ts", 'import { bound as other } from "./facts.js";'],
     ["packages/host/src/model/facts.ts", "export function bound(value: number): boolean { return value > 0; }"]], ["one-current-name"]);
   expect([["packages/host/src/model/value.ts", 'import { bound } from "./facts.js"; export function second(value: number) { return bound(value); }'],
@@ -112,13 +151,19 @@ test("external consumers use only Publication, never a private service or retire
   expect([["consumer.ts", 'import type { Facts } from "./packages/host/src/model/contract.js";'], [model, facts]], ["publication-consumer"]);
   expect([["consumer.ts", 'import type { Facts } from "./packages/host/src/publication/contract.js";'],
     ["packages/host/src/publication/contract.ts", facts]], []);
+  expect([["consumer.ts", 'import type { Facts } from "@tsonic/host/private";']], ["publication-consumer"]);
+  expect([["consumer.ts", 'import { readFile } from "node:fs";']], []);
 });
 
 test("Publication exposes immutable answers, not builders, seeds or program back-pointers", () => {
   for (const member of ["seed", "register", "intern", "set", "seal", "resourceScope", "evidence"])
     expect([["packages/host/src/publication/contract.ts", `export interface View { ${member}(value: number): void; }`]], ["read-only-publication"]);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly source: { seed(value: number): void; }; }"]], ["read-only-publication"]);
+  expect([["packages/host/src/publication/contract.ts", "export interface View { readonly seed: (value: number) => void; }"]], ["read-only-publication"]);
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly programIdentity: string; value(): number; }"]], []);
+  expect([["packages/host/src/publication/contract.ts", "export interface View { readonly values: Map<string, number>; }"]],
+    ["contract-closure", "read-only-publication"]);
+  expect([["packages/host/src/publication/contract.ts", "export interface View { readonly values: ReadonlyMap<string, number>; }"]], []);
 });
 
 test("retired package entries and semantic accessors are rejected rather than aliased", () => {
@@ -126,13 +171,19 @@ test("retired package entries and semantic accessors are rejected rather than al
     expect([["packages/host/src/objects/value.ts", `import type { Facts } from "${name}";`]], ["retired-api"]);
   expect([["packages/host/src/storage/contract.ts", "export interface View { readonly effectiveTypes: string; }"]], ["retired-api"]);
   expect([["packages/host/src/storage/contract.ts", facts]], []);
+  expect([["packages/host/src/storage/owner.ts", "export function read(view: View) { return view.effectiveTypes; }"]], ["retired-api"]);
 });
 
 test("declaration closure rejects private dependencies, inferred factories and capability disguises", () => {
-  expect([[model, 'import type { Facts } from "./private.js";'], ["packages/host/src/model/private.ts", facts]], ["contract-closure"]);
-  expect([[model, "export type Facts = ReturnType<typeof createFacts>; function createFacts() { return 1; }"]], ["contract-closure"]);
+  expect([[model, 'import type { Facts } from "./facts.js";'], ["packages/host/src/model/facts.ts", facts]], []);
+  expect([[model, "export type Facts = ReturnType<typeof createFacts>; function createFacts() { return 1; }"]], ["contract-closure", "contract-closure"]);
+  expect([[model, 'import type { Facts } from "./private.js";'],
+    ["packages/host/src/model/private.ts", "export function createFacts() { return 1; }"]], ["contract-closure"]);
   expect([[model, "export interface Facts { value: number; }"]], ["contract-closure"]);
   expect([[model, "export interface Facts { readonly value: unknown; }"]], ["contract-closure"]);
+  expect([[model, "export interface Facts { readonly value: object; }"]], ["contract-closure"]);
+  expect([[model, "export interface Facts { readonly value: string | unknown; }"]], ["contract-closure"]);
+  expect([[model, "export interface Facts { readonly value: () => (() => number); }"]], []);
   expect([[model, facts]], []);
   const declaration = "packages/host/src/model/contract.d.ts";
   expect([[declaration, facts]], [], [declaration]);
@@ -144,10 +195,15 @@ test("isolation's structural half rejects unresolved or ambiguous implementation
     ["packages/host/src/model/same.ts", "export const value = 1;"],
     ["packages/host/src/model/same.mts", "export const value = 2;"]], ["isolated-compile"]);
   expect([["packages/host/src/model/value.ts", 'import type { Facts } from "./contract.js";'], [model, facts]], []);
+  expect([["packages/host/src/constants/value.ts", 'import type { Facts } from "@tsonic/host/private";']], ["contract-imports"]);
+  expect([["packages/host/src/constants/value.ts", 'import type { Facts } from "unlisted-peer";']], ["isolated-compile"]);
+  expect([[model, 'import type { FileHandle } from "node:fs/promises";']], ["layers"]);
+  expect([["packages/host/src/project/files.ts", 'import { readFile } from "node:fs/promises";']], []);
 });
 
 test("tool failures, traversal, foreign symlinks and duplicate inputs never become an empty gate result", () => {
   fixture(new Map([[model, facts]]), input => {
+    assert.throws(() => inspectHostStructure({ ...input, files: [], declarationFiles: [] }), /complete distinct/u);
     assert.throws(() => inspectHostStructure({ ...input, files: [model, model] }), /distinct/u);
     assert.throws(() => inspectHostStructure({ ...input, files: ["../foreign.ts"] }), /canonical/u);
     assert.throws(() => inspectHostStructure({ ...input, files: ["/absolute.ts"] }), /canonical/u);

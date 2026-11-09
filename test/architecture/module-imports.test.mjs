@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "../../packages/tsts/dist/src/index.js";
-import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis, resolveRelativeModule } from "./tooling/module-graph.mjs";
+import { analyzeCheckedTypeScriptModules, buildTypeScriptModuleAnalysis, buildTypeScriptModuleGraph, resolveRelativeModule } from "./tooling/module-graph.mjs";
 import { evaluateFunctionLiveness } from "./tooling/architecture-rules.mjs";
 
 test("module import inventory separates actual JavaScript imports from fixture strings", () => {
@@ -173,4 +173,22 @@ test("relative module resolution preserves unique declarations, ambiguity and ex
   assert.equal(ambiguous.target === undefined && ambiguous.ambiguous, true);
   assert.equal(resolveRelativeModule("src/main.ts", "./missing.js", files, []).target === undefined, true);
   assert.throws(() => analyzeCheckedTypeScriptModules({}, files, "/architecture/", [""]), /explicit source\/output/u);
+  assert.throws(() => analyzeCheckedTypeScriptModules({}, files, "/architecture/", undefined), /explicit source\/output/u);
+  assert.equal(resolveRelativeModule("src/main.ts", "./data/index.ts", files, []).target, "src/data/index.ts");
+  assert.equal(resolveRelativeModule("src/main.ts", "./model/contract.cjs", files, []).target, "src/model/contract.d.ts");
+  assert.deepEqual(buildTypeScriptModuleGraph(new Map([["main.ts", 'import "./missing.js";']])),
+    buildTypeScriptModuleAnalysis(new Map([["main.ts", 'import "./missing.js";']])).edges);
+});
+
+test("checked graph ownership ignores genuinely checked files outside the selected root or source inventory", () => {
+  const source = createCompilerSessionFromFiles({ currentDirectory: "/architecture", files: new Map([
+    ["/architecture/main.ts", "export function value() { return 1; }"],
+    ["/foreign/outside.ts", "export function outside() { return 2; }"],
+    ["/architecture/unselected.ts", "export function unselected() { return 3; }"],
+  ]), rootFiles: ["/architecture/main.ts", "/foreign/outside.ts", "/architecture/unselected.ts"],
+  compilerOptions: { noLib: true, noResolve: true, module: "esnext", target: "esnext" } }).checkSource();
+  const result = analyzeCheckedTypeScriptModules(source, new Map([["main.ts", "export function value() { return 1; }"]]), "/architecture/", []);
+  assert.deepEqual(result.modules.map(module => module.file), ["main.ts"]);
+  assert.deepEqual(result.modules[0].functionExports, ["main.ts#value"]);
+  assert.deepEqual(result.edges, []);
 });

@@ -27,7 +27,7 @@ const rows = [
   ["packages", 5, "Resolve source packages and declaration-file closure.", ["project"]],
   ["plugins", 5, "Resolve selected target and contribution closure.", ["project", "packages", "publication"]],
   ["artifacts", 5, "Reconstruct and transactionally publish declared artifacts.", ["publication", "project"]],
-  ["orchestration", 5, "Run one lifecycle from selected input through external handoff.", ["project", "packages", "plugins", "ingress", "publication", "artifacts"]],
+  ["orchestration", 5, "Run one lifecycle from selected input through external handoff.", ["context", "project", "packages", "plugins", "ingress", "publication", "artifacts"]],
   ["command", 6, "Translate command requests into the Host compilation lifecycle.", ["orchestration", "project", "artifacts"]],
   ["scaffolding", 6, "Create a project from a validated starter description.", ["plugins", "publication", "project"]],
 ];
@@ -37,6 +37,6 @@ export const hostModules = Object.freeze(rows.map(([name, layer, responsibility,
     ? "packages/create-tsonic/src" : `packages/host/src/${name}`;
   const common = layer >= 2 && layer <= 4 ? ["model", "context"] : layer === 5 || layer === 6 ? ["model"] : [];
   return Object.freeze({ name, layer, responsibility, directory,
-    contract: `${directory}/contract.ts`, registration: `${directory}/register.ts`,
+    contract: `${directory}/contract.ts`, registration: layer >= 1 && layer <= 4 ? `${directory}/register.ts` : undefined,
     dependencies: Object.freeze([...new Set([...common, ...dependencies])]) });
 }));

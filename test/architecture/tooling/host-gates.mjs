@@ -13,7 +13,7 @@ const retiredPackages = Object.freeze(["@tsonic/target-api", "@tsonic/source-cor
 const retiredMembers = Object.freeze(["effectiveTypes", "semantics", "sourceFacts", "typeFor", "emptyBindings",
   "storageAnalysis", "sealFormalMemberWriteDemands", "createTargetSourceProgram", "readCsharpRawLocation"]);
 const producerMembers = Object.freeze(["builder", "interner", "seed", "register", "sealRegistration", "solve",
-  "produce", "producer", "seal", "set", "delete", "clear", "resourceScope", "evidence", "intern"]);
+  "provide", "produce", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "evidence", "intern"]);
 
 /** @param {string} file */
 function owner(file) {
@@ -41,6 +41,7 @@ function safeFile(root, file) {
 export const inspectHostStructure = input => {
   const root = realpathSync(input.root);
   if (!Array.isArray(input.files) || !Array.isArray(input.declarationFiles) ||
+    input.files.length + input.declarationFiles.length === 0 ||
     new Set(input.files).size !== input.files.length || new Set(input.declarationFiles).size !== input.declarationFiles.length)
     throw new Error("Host gate inputs require complete distinct source and declaration vectors.");
   const files = new Map([...new Set([...input.files, ...input.declarationFiles])].map(file =>
@@ -48,22 +49,49 @@ export const inspectHostStructure = input => {
   const declarations = new Set(input.declarationFiles);
   const source = readArchitectureTypeScript(files);
   const { ast } = source;
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node | undefined} name */
+  const memberName = name => {
+    if (name !== undefined && ast.is.IsComputedPropertyName(name)) {
+      const expression = ast.as.AsComputedPropertyName(name)?.Expression;
+      return expression !== undefined && ast.is.IsStringLiteral(expression) ? ast.text(expression) : undefined;
+    }
+    return name !== undefined && (ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name) || ast.is.IsNumericLiteral(name))
+      ? ast.text(name) : undefined;
+  };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node | undefined} original */
+  const callableType = original => {
+    let node = original;
+    while (node !== undefined && ast.is.IsParenthesizedTypeNode(node)) node = ast.as.AsParenthesizedTypeNode(node)?.Type;
+    return node !== undefined && ast.is.IsFunctionTypeNode(node);
+  };
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
   const productionMember = node => {
     const name = ast.name(node);
     const type = ast.typeNode(node);
-    return name !== undefined && producerMembers.includes(ast.text(name)) &&
-      (ast.is.IsMethodSignatureDeclaration(node) || type !== undefined && ast.is.IsFunctionTypeNode(type));
+    const text = memberName(name);
+    return text !== undefined && producerMembers.includes(text) &&
+      (ast.is.IsMethodSignatureDeclaration(node) || callableType(type));
   };
   const analysis = buildTypeScriptModuleAnalysis(files);
+  const closedFiles = new Set([...declarations, ...[...files.keys()].filter(file => {
+    const module = owner(file);
+    return module !== undefined && contract(file, module);
+  })]);
+  for (let previous = -1; previous !== closedFiles.size;) {
+    previous = closedFiles.size;
+    for (const edge of analysis.edges) {
+      if (edge.target !== undefined && closedFiles.has(edge.source) && owner(edge.source) === owner(edge.target))
+        closedFiles.add(edge.target);
+    }
+  }
   /** @type {import("./host-gates.mjs").HostGateFinding[]} */
   const findings = [];
-  /** @param {import("./host-gates.mjs").HostGate} gate @param {string} file @param {import("../../../packages/tsts/dist/src/index.js").Node | undefined} node @param {string} message */
+  /** @param {import("./host-gates.mjs").HostGate} gate @param {string} file @param {import("../../../packages/tsts/dist/src/index.js").Node | number | undefined} node @param {string} message */
   const add = (gate, file, node, message) => {
-    const range = node === undefined ? undefined : ast.authoredRange(node);
+    const range = node === undefined || typeof node === "number" ? undefined : ast.authoredRange(node);
     if (range !== undefined && range.kind !== "authored") throw new Error("Architecture findings require an actual authored input site.");
-    const start = range === undefined ? 0 : range.start;
-    if (!findings.some(finding => finding.gate === gate && finding.file === file && finding.start === start && finding.message === message))
+    const start = typeof node === "number" ? node : range === undefined ? 0 : range.start;
+    if (!findings.some(finding => finding.gate === gate && finding.file === file && finding.start === start))
       findings.push(Object.freeze({ gate, file, start, message }));
   };
   const sourceFiles = new Map(source.sourceFiles.map(file => {
@@ -92,8 +120,20 @@ export const inspectHostStructure = input => {
     const node = site(edge.source, edge.specifier);
     const external = from === undefined && !edge.source.startsWith("packages/");
     const publicContract = to?.name === "publication" && contract(edge.target, to);
-    if (retiredPackages.some(name => edge.specifier === name || edge.specifier.startsWith(`${name}/`)))
+    const retired = retiredPackages.some(name => edge.specifier === name || edge.specifier.startsWith(`${name}/`));
+    if (retired)
       add("retired-api", edge.source, node, "A retired semantic package cannot resolve as a current Host contract.");
+    if (from !== undefined && edge.kind === "package" && !retired) {
+      const checkerPlatform = edge.specifier === "@tsonic/tsts" || edge.specifier.startsWith("@tsonic/tsts/");
+      if (checkerPlatform && (from.name !== "ingress" || closedFiles.has(edge.source)))
+        add("ingress-checker", edge.source, node, "Raw checker capability belongs only to the Ingress implementation.");
+      if (edge.specifier === "@tsonic/host" || edge.specifier.startsWith("@tsonic/host/"))
+        add("contract-imports", edge.source, node, "Internal Host dependencies use the explicit contract source port, never package-output resolution.");
+      else if (!isBuiltin(edge.specifier) && !checkerPlatform)
+        add("isolated-compile", edge.source, node, "An undeclared package cannot enter the isolated source and declaration closure.");
+      else if (isBuiltin(edge.specifier) && from.layer < 5)
+        add("layers", edge.source, node, "Platform I/O is owned by Host orchestration and I/O modules, not a semantic service or data contract.");
+    }
     if (external && !isBuiltin(edge.specifier) && !publicContract &&
       (edge.kind === "relative" || edge.specifier.startsWith("@tsonic/")))
       add("publication-consumer", edge.source, node, "External consumers may depend only on the Publication contract.");
@@ -101,7 +141,7 @@ export const inspectHostStructure = input => {
       add("isolated-compile", edge.source, node, "A relative dependency must resolve uniquely within the supplied current module and contracts.");
       continue;
     }
-    if (from !== undefined && to !== undefined && (contract(edge.source, from) || declarations.has(edge.source)) && !contract(edge.target, to))
+    if (from !== undefined && to !== undefined && from !== to && closedFiles.has(edge.source) && !contract(edge.target, to))
       add("contract-closure", edge.source, node, "A declaration contract cannot close over an implementation.");
     if (from === undefined || to === undefined || from === to) continue;
     const registration = from.name === "orchestration" && edge.target === to.registration;
@@ -144,10 +184,10 @@ export const inspectHostStructure = input => {
       add("directory-ownership", file, undefined, "Product implementation must belong to exactly one declared module directory.");
     if (module === undefined) continue;
     for (const finding of checkerImportFindings(source, node)) {
-      add("ingress-checker", file, undefined, finding.rule);
+      add("ingress-checker", file, finding.start, finding.rule);
     }
     for (const finding of moduleLifetimeFindings(source, node, { immutableData: true })) {
-      add("program-lifetime", file, undefined, finding.rule);
+      add("program-lifetime", file, finding.start, finding.rule);
     }
     /** @param {import("../../../packages/tsts/dist/src/index.js").Node | undefined} current */
     const collect = current => {
@@ -198,7 +238,7 @@ export const inspectHostStructure = input => {
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
     if (module === undefined) continue;
-    const isContract = contract(file, module) || declarations.has(file);
+    const isContract = closedFiles.has(file);
     const publication = module.name === "publication";
     const rawAllowed = module.name === "ingress" && !isContract;
     /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Symbol>} */
@@ -207,6 +247,10 @@ export const inspectHostStructure = input => {
     const visit = current => {
       if (current === undefined) return;
       const kind = ast.kindName(current);
+      if (isContract && (ast.is.IsFunctionDeclaration(current) && ast.body(current) !== undefined ||
+        ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current) || ast.is.IsClassDeclaration(current) ||
+        ast.is.IsCallExpression(current) || ast.is.IsNewExpression(current)))
+        add("contract-closure", file, current, "Closed contract source contains data declarations, not executable implementations.");
       if (ast.is.IsImportSpecifier(current) || ast.is.IsExportSpecifier(current)) {
         const selected = ast.is.IsImportSpecifier(current) ? ast.as.AsImportSpecifier(current) : ast.as.AsExportSpecifier(current);
         if (selected?.PropertyName !== undefined && ast.text(selected.PropertyName) !== ast.text(ast.name(current)))
@@ -233,28 +277,36 @@ export const inspectHostStructure = input => {
       const name = ast.name(current);
       if (name !== undefined && (ast.is.IsPropertySignatureDeclaration(current) || ast.is.IsMethodSignatureDeclaration(current) ||
         ast.is.IsPropertyDeclaration(current) || ast.is.IsMethodDeclaration(current))) {
-        const text = ast.text(name);
-        if (retiredMembers.includes(text)) add("retired-api", file, current, "A retired handler or semantic accessor cannot be reintroduced.");
+        const text = memberName(name);
+        if (text !== undefined && retiredMembers.includes(text)) add("retired-api", file, current, "A retired handler or semantic accessor cannot be reintroduced.");
         if (publication && productionMember(current)) add("read-only-publication", file, current, "Publication exposes answers, never production or mutable program authority.");
         if (isContract && ast.is.IsPropertySignatureDeclaration(current)) {
           const type = ast.typeNode(current);
           if (!ast.hasModifierKind(current, "readonly"))
             add("contract-closure", file, current, "Contract data properties must be explicitly immutable.");
-          if (ast.is.IsFunctionTypeNode(type)) {
-            const selected = ast.as.AsFunctionTypeNode(type);
-            if (ast.parameters(type).some(parameter => ast.is.IsFunctionTypeNode(ast.typeNode(parameter))) ||
-              ast.is.IsFunctionTypeNode(selected?.Type))
-              add("layers", file, current, "A contract cannot smuggle a semantic provider callback across layers.");
-          }
         }
       }
       if (isContract && ast.is.IsTypeReferenceNode(current)) {
         const selected = ast.as.AsTypeReferenceNode(current);
-        if (["ReturnType", "Parameters", "InstanceType"].includes(ast.text(selected?.TypeName)))
+        if (selected?.TypeName !== undefined && ast.is.IsIdentifier(selected.TypeName) &&
+          ["ReturnType", "Parameters", "InstanceType"].includes(ast.text(selected.TypeName)))
           add("contract-closure", file, current, "Factory-derived contract types expose an implementation rather than explicit closed data.");
+        if (selected?.TypeName !== undefined && ast.is.IsIdentifier(selected.TypeName) &&
+          ["Map", "Set", "WeakMap", "WeakSet"].includes(ast.text(selected.TypeName))) {
+          const declaration = symbol(selected.TypeName);
+          if (declaration === undefined || checker(current).getSymbolDeclarations(declaration).length === 0) {
+            add("contract-closure", file, current, "Contract data cannot expose a mutable platform collection.");
+            if (publication) add("read-only-publication", file, current, "Publication cannot expose a platform collection's mutator authority.");
+          }
+        }
       }
-      if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind))
-        add("contract-closure", file, current, "Contract payloads require closed data rather than an opaque capability disguise.");
+      if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
+        const parent = ast.parent(current);
+        const condition = parent !== undefined && ast.is.IsConditionalTypeNode(parent) ? ast.as.AsConditionalTypeNode(parent) : undefined;
+        const parameter = parent !== undefined && ast.is.IsTypeParameterDeclaration(parent) ? ast.as.AsTypeParameterDeclaration(parent) : undefined;
+        if (condition?.CheckType !== current && condition?.ExtendsType !== current && parameter?.Constraint !== current)
+          add("contract-closure", file, current, "Contract payloads require closed data rather than an opaque capability disguise.");
+      }
       if (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current)) {
         const body = ast.body(current);
         const statements = body !== undefined && ast.is.IsBlock(body) ? ast.statements(body) : [];
