@@ -18,7 +18,7 @@ import { createSourceParameterOwner } from "./descriptor-parameters.js";
 import { createSourceSubstitution } from "./descriptor-substitution.js";
 import { createSourceInventoryOwner } from "./descriptor-inventory.js";
 import type { SourceConstructionMemberHistory, SourceEvidenceDetails, SourceMemberInventory } from "./member-inventory.js";
-import { substituteSourceEvidenceDetails } from "./descriptor-details.js";
+import { composeSourceTypeBindings, substituteSourceEvidenceDetails } from "./descriptor-details.js";
 
 export interface SourceDescriptorOwner {
   readonly builder: SourceDescriptorBuilder;
@@ -389,14 +389,16 @@ export function createSourceDescriptorOwner(input: {
 
   const view: SourceDescriptorView = Object.freeze({ assertEvidence: evidence.assert, assertDescriptor: interner.assertDescriptor,
     indexedAccess(value: SourceTypeEvidence): SourceResult<SourcePresence<SourceIndexedAccess>> {
-      evidence.assert(value);
+      const record = evidence.record(value);
       const template = indexedTemplates.get(value);
       if (template === undefined) return { kind: "resolved", value: Object.freeze({ kind: "none" }) };
       const previous = indexedResults.get(value);
       if (previous !== undefined) return previous;
       const produced = produceIndexedAccess(template, []);
       if (produced.kind === "refused") { indexedResults.set(value, produced); return produced; }
-      if (!evidence.equivalent(value, produced.value.result)) throw new Error("Indexed provenance must describe the queried Source result's exact canonical meaning.");
+      const applied = builder.withBindings(produced.value.result, record.requirementBindings);
+      if (applied.kind === "refused") { indexedResults.set(value, applied); return applied; }
+      if (!evidence.equivalent(value, applied.value)) throw new Error("Indexed provenance must describe the queried Source result's exact canonical meaning.");
       const result = Object.freeze({ kind: "resolved" as const, value: Object.freeze({ kind: "present" as const,
         value: Object.freeze({ ...produced.value, result: value }) }) });
       indexedResults.set(value, result);
@@ -418,6 +420,18 @@ export function createSourceDescriptorOwner(input: {
     constraint: parameters.constraint, defaultType: parameters.defaultType });
   const builder: SourceDescriptorBuilder = Object.freeze({ ...view, intersection, primitive: interner.primitive, string: interner.string,
     registerIndexedAccess,
+    bindings: (value: SourceTypeEvidence) => evidence.record(value).requirementBindings,
+    withBindings(value: SourceTypeEvidence, supplied: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence> {
+      const record = evidence.record(value);
+      const environment = composeSourceTypeBindings(record.requirementBindings, parameters.bindings(supplied), substitute);
+      if (environment.kind !== "resolved") return observe(environment);
+      if (record.requirementBindings.length === environment.value.length && record.requirementBindings.every((binding, index) =>
+        binding.declaration === environment.value[index]!.declaration && binding.value === environment.value[index]!.value))
+        return { kind: "resolved", value };
+      const result = evidence.create(value, [...record.components.values()], record.original, record.domain, environment.value, record.details);
+      retainIndexedAccess(value, result);
+      return { kind: "resolved", value: result };
+    },
     assertDestination(value: SourceUseDestination): void {
       evidence.assert(value.declaration.type);
       evidence.assert(value.applied);

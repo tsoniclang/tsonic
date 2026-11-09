@@ -113,9 +113,11 @@ export function produceSourceIndexedAccess(context: SourceSemanticProduction, te
   if (selected.kind !== "resolved") return selected;
   const joined = builder.join(template.component, "authored", selected.value.values, template.original);
   if (joined.kind !== "resolved") return joined;
-  builder.registerIndexedAccess(joined.value, { ...template, receiver: source.value, key: key.value, bindings: environment.value });
+  const result = builder.withBindings(joined.value, environment.value);
+  if (result.kind !== "resolved") return result;
+  builder.registerIndexedAccess(result.value, { ...template, receiver: source.value, key: key.value, bindings: environment.value });
   return { kind: "resolved", value: Object.freeze({ receiver: source.value, key: key.value,
-    typeBindings: environment.value, selections: selected.value.selections, result: joined.value }) };
+    typeBindings: environment.value, selections: selected.value.selections, result: result.value }) };
 }
 
 function selectSourceIndex(context: SourceSemanticProduction, source: SourceTypeEvidence,

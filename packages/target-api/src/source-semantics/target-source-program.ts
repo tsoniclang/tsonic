@@ -160,7 +160,7 @@ export function composeSourceProgram(input: SourceProgramInput) {
   const correspondence = createSourceMemberCorrespondenceQueries({ ast, view: owner.view,
     inventory: memberInventory, assertNode, domain: owner.builder.domain });
   solved = analyzeSourceTypeFlow({ ast, sourceFiles, navigation, enclosing: navigationOwner.analysis.enclosing,
-    input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, profile, admission,
+    input: input.input, protocolInput: input.protocolInput, descriptorBuilder: owner.builder, equivalent: owner.equivalent, profile, admission,
     createDescriptorReader(hooks) {
       if (reader !== undefined) throw new Error("A Source solve must create exactly one descriptor reader for its view.");
       reader = createSourceTypeDescriptorReader({ input: input.input, builder: owner.builder, hooks, observe: owner.observe,

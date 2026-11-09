@@ -2,15 +2,17 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputApplication, SourceInputBackingConstraint, SourceInputCallCandidate, SourceInputDiagnosticIdentity } from "../../host-input/call-input.js";
 import type { SourceApplication, SourceArgumentPlace, SourceAuthoredArgument, SourceComponentSelector, SourceOmissionAction, SourceParameterOmission, SourceReceiverOrigin, SourceSignatureIdentity, SourceTypeEvidence, SourceValueOperand } from "../../public/source/contracts.js";
 
+export type SourceCallCore = Omit<SourceApplication, "execution">;
+
 export interface SourceProducedApplication {
-  readonly application: SourceApplication;
+  readonly application: SourceCallCore;
   readonly original: SourceInputApplication;
   readonly diagnostics: readonly SourceInputDiagnosticIdentity[];
 }
 
 export type SourceCallCandidateEvaluation =
   | { readonly kind: "not-applicable"; readonly candidate: SourceInputCallCandidate; readonly site: Node; readonly message: string }
-  | { readonly kind: "applicable"; readonly candidate: SourceInputCallCandidate; readonly application: SourceApplication;
+  | { readonly kind: "applicable"; readonly candidate: SourceInputCallCandidate; readonly application: SourceCallCore;
       readonly proven: readonly SourceInputBackingConstraint[] };
 
 export interface SourceCallParameter {

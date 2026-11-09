@@ -6,6 +6,7 @@ import { sourceKeyDomainContains } from "./key-domains.js";
 import { sourceEvidenceExtends } from "./evidence-relations.js";
 import { sourceTypeExpansionBudget } from "../type-expansion-budget.js";
 import { failTargetCompilerResourceLimit } from "../../artifacts.js";
+import { produceSourceSequenceLayout } from "./tuple-layout.js";
 
 export interface SourceCallableEquation {
   readonly template: SourceTypeEvidence;
@@ -72,6 +73,25 @@ export function produceSourceCallableBindings(context: SourceSemanticProduction 
   }
 
   function parts(template: SourceTypeEvidence, actual: SourceTypeEvidence, direction: SourceCallableEquation["direction"], depth: number): SourceProductionResult<true> {
+    if (template.sum !== undefined) {
+      const fixed = template.sum.roles.filter(role => !builder.freeParameters(role.value).some(parameter => parameters.has(parameter.declaration)));
+      const inferred = template.sum.roles.filter(role => builder.freeParameters(role.value).some(parameter => parameters.has(parameter.declaration)));
+      for (const arm of actual.sum?.arms ?? [actual]) {
+        let covered = false;
+        for (const role of fixed) {
+          charge();
+          const relation = sourceEvidenceExtends(context, arm, role.value);
+          if (relation.kind !== "resolved") return relation;
+          if (relation.value === "deferred") return pending(template, actual);
+          covered ||= relation.value === "yes";
+        }
+        if (covered) continue;
+        if (inferred.length !== 1) return pending(template, actual);
+        const result = equate(inferred[0]!.value, arm, direction, depth + 1);
+        if (result.kind !== "resolved") return result;
+      }
+      return { kind: "resolved", value: true };
+    }
     if (template.type.kind === "declared" && actual.type.kind === "declared" && template.type.declaration === actual.type.declaration && template.type.facet === actual.type.facet) {
       if (template.type.typeArguments.length !== actual.type.typeArguments.length) return pending(template, actual);
       for (let index = 0; index < template.type.typeArguments.length; index++) {
@@ -88,6 +108,20 @@ export function produceSourceCallableBindings(context: SourceSemanticProduction 
     if (left.value !== template || right.value !== actual) return equate(left.value, right.value, direction, depth + 1);
     if (template.type.kind === "array" && actual.type.kind === "array") return child(template, actual,
       { kind: "array-element" }, { kind: "array-element" }, direction, depth);
+    if (template.type.kind === "array" && actual.type.kind === "tuple") {
+      const element = builder.component(template, { kind: "array-element" });
+      if (element.kind !== "resolved") return element;
+      const sequence = produceSourceSequenceLayout(builder, actual);
+      if (sequence.kind !== "resolved") return sequence;
+      for (const slot of sequence.value) {
+        charge();
+        const value = slot.kind === "rest" ? slot.element : slot.type;
+        if (value === undefined) return pending(template, actual);
+        const result = equate(element.value, value, direction, depth + 1);
+        if (result.kind !== "resolved") return result;
+      }
+      return { kind: "resolved", value: true };
+    }
     if (template.type.kind === "optional" && actual.type.kind === "optional") return child(template, actual,
       { kind: "optional-value" }, { kind: "optional-value" }, direction, depth);
     if (template.type.kind === "tuple" && actual.type.kind === "tuple") {
@@ -130,7 +164,15 @@ export function produceSourceCallableBindings(context: SourceSemanticProduction 
     const values = constraints.get(declaration);
     const known = selected.get(declaration);
     if (known !== undefined) continue;
-    if (values === undefined) return { kind: "pending", dependencies: Object.freeze(equations.map(equation => equation.template.component)) };
+    if (values === undefined) {
+      const fallback = builder.defaultType(builder.typeParameter(declaration));
+      if (fallback.kind !== "resolved") return fallback;
+      if (fallback.value.kind === "none") return { kind: "pending", dependencies: Object.freeze(equations.map(equation => equation.template.component)) };
+      const value = builder.substitute(fallback.value.value, [...selected].map(([declaration, value]) => ({ declaration, value })));
+      if (value.kind !== "resolved") return value;
+      selected.set(declaration, value.value);
+      continue;
+    }
     let value: SourceTypeEvidence;
     if (values.inputs.length > 0) {
       const joined = builder.join(builder.componentIdentity(root, []), "inferred", values.inputs, undefined);

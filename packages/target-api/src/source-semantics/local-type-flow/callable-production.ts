@@ -137,11 +137,23 @@ export function produceSourceHeritageBindings(context: SourceCallableProduction,
         const expression = ast.as.AsExpressionWithTypeArguments(reference)?.Expression;
         const base = navigation.sourceReferenceFor(expression)?.declaration;
         if (base === undefined) return sourceSemanticRefusal(reference, "An original heritage application requires its actual selected declaration.");
-        const arguments_ = ast.typeArguments(reference), parameters = ast.typeParameters(base);
-        if (arguments_.length > parameters.length) return sourceSemanticRefusal(reference, "An original heritage application has an invalid binder vector.");
-        for (const [index, parameter] of parameters.entries()) {
+        const arguments_ = ast.typeArguments(reference), localParameters = ast.typeParameters(base);
+        const parameters = produceSourceDefinitionParameters(context, base);
+        if (parameters.kind !== "resolved") return parameters;
+        if (arguments_.length > localParameters.length) return sourceSemanticRefusal(reference, "An original heritage application has an invalid local binder vector.");
+        for (const parameter of parameters.value) {
           if (parameter === undefined) return sourceSemanticRefusal(base, "An original base binder is missing.");
           const ordered = [...values].map(([declaration, value]) => ({ declaration, value }));
+          const index = localParameters.indexOf(parameter);
+          if (index < 0) {
+            const inherited = values.get(parameter);
+            if (inherited === undefined) {
+              const captured = reader.describeSyntax(parameter, ordered);
+              if (captured.kind !== "resolved") return captured;
+              values.set(parameter, captured.value);
+            }
+            continue;
+          }
           const syntax = arguments_[index] ?? (ast.is.IsTypeParameterDeclaration(parameter) ? ast.as.AsTypeParameterDeclaration(parameter)?.DefaultType : undefined);
           if (syntax === undefined) return sourceSemanticRefusal(reference, "An original base application leaves its class binder unbound.", "TSONIC_LOCAL_TYPE_GENERIC");
           const value = reader.describeSyntax(syntax, ordered);
@@ -195,7 +207,7 @@ export function sourceProducedSignatureDescriptor(value: SourceProducedSignature
 
 export function produceSourceCallableHead(context: SourceCallableProduction, declaration: Node,
   bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence> {
-  const { ast, input, builder } = context;
+  const { ast, input } = context;
   input.assertNode(declaration);
   const original = input.signatureForDeclaration(declaration);
   if (original.kind === "none") return sourceSemanticRefusal(declaration,
@@ -203,19 +215,26 @@ export function produceSourceCallableHead(context: SourceCallableProduction, dec
   const owner = ast.is.IsConstructorDeclaration(declaration) ? ast.parent(declaration) : undefined;
   if (owner !== undefined && !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner))
     throw new Error("An original constructor implementation requires its actual class owner.");
-  const produced = produceSourceCallableSignature(context, original.value, bindings, owner, declaration);
+  return produceSourceSignatureHead(context, original.value, bindings, owner, declaration);
+}
+
+export function produceSourceSignatureHead(context: SourceCallableProduction, original: SourceInputSignature,
+  bindings: readonly SourceTypeBinding[], owner: Node | undefined, root: Node): SourceProductionResult<SourceTypeEvidence> {
+  const { builder } = context;
+  const produced = produceSourceCallableSignature(context, original, bindings, owner, root);
   if (produced.kind !== "resolved") return produced;
   const signature = produced.value;
-  if (signature.identity.declaration !== declaration)
+  if (signature.identity.declaration !== original.declaration)
     throw new Error("A callable head must retain its exact original API-domain declaration.");
   const children: SourceEvidenceComponent[] = signature.parameters.map(parameter => ({
     selector: { kind: "parameter", signature: signature.identity, index: parameter.index }, value: parameter.type }));
   if (signature.receiver !== undefined) children.push({ selector: { kind: "receiver", signature: signature.identity }, value: signature.receiver.value });
   children.push({ selector: { kind: "result", signature: signature.identity }, value: signature.result });
   const descriptor = sourceProducedSignatureDescriptor(signature);
-  return { kind: "resolved", value: builder.evidence({ type: builder.callable({
+  const value = builder.evidence({ type: builder.callable({
     calls: signature.identity.kind === "call" ? [descriptor] : [], constructs: signature.identity.kind === "construct" ? [descriptor] : [] }),
-  component: builder.componentIdentity(declaration, []), category: { kind: "known", category: "function" }, numeric: undefined, sum: undefined },
+  component: builder.componentIdentity(root, []), category: { kind: "known", category: "function" }, numeric: undefined, sum: undefined },
   children, undefined, sourcePresentLiteralDomain,
-  { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: [declaration] } }) };
+  { members: { kind: "complete", members: [], indexes: [] }, origins: { kind: "complete", nodes: original.declaration === undefined ? [] : [original.declaration] } });
+  return builder.withBindings(value, bindings);
 }

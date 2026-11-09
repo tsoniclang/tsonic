@@ -6,6 +6,7 @@ import { sourcePresentLiteralDomain } from "../../source-model/literals/domain.j
 import type { SourceProductionResult } from "../../source-model/production.js";
 import { sourceReceiverOwner } from "../../source-navigation/receiver-owner.js";
 import type { SourceDescriptorBuilder, SourceDescriptorReader, SourceProducedReceiver } from "../descriptor-contracts.js";
+import { sourceOriginalTypeParameterCaptures } from "./type-parameter-captures.js";
 
 export interface SourceReceiverProduction {
   readonly ast: AstReader;
@@ -21,30 +22,7 @@ export function produceSourceConstructionReference(context: SourceReceiverProduc
   const { ast, input, builder, reader, navigation } = context;
   input.assertNode(occurrence);
   if (!ast.is.IsObjectLiteralExpression(occurrence)) throw new Error("An anonymous Source receiver requires its actual original object literal.");
-  const ancestors = new Set<Node>();
-  for (let owner = ast.parent(occurrence); owner !== undefined; owner = ast.parent(owner)) ancestors.add(owner);
-  const captures = new Set<Node>();
-  const visited = new Set<Node>();
-  const pending = [occurrence];
-  while (pending.length > 0) {
-    const node = pending.pop()!;
-    if (visited.has(node)) continue;
-    visited.add(node);
-    const declaration = navigation.sourceReferenceFor(node)?.declaration;
-    if (declaration !== undefined) {
-      if (ast.is.IsTypeParameterDeclaration(declaration)) {
-        const owner = ast.parent(declaration);
-        if (owner !== undefined && ancestors.has(owner)) captures.add(declaration);
-      } else {
-        const annotation = ast.typeNode(declaration);
-        if (annotation !== undefined) pending.push(annotation);
-      }
-    }
-    const children: Node[] = [];
-    ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
-    for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!);
-  }
-  const ordered = Object.freeze([...captures]);
+  const ordered = sourceOriginalTypeParameterCaptures({ ast, navigation }, occurrence);
   const values: SourceTypeEvidence[] = [];
   for (const declaration of ordered) {
     const parameter = reader.describeSyntax(declaration, []);

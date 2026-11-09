@@ -19,7 +19,7 @@ import { createSourceSolvedFacts } from "./publication.js";
 import { createSourceLiteralDomainQueries, produceSourceComponentLiteralDomain } from "./literal-domains.js";
 import { createSourceSolvedProtocolFacts } from "./protocol-production.js";
 import { produceSourceApplication, type SourceApplicationProduction } from "./applications.js";
-import type { SourceProducedApplication } from "./application-data.js";
+import type { SourceCallCore, SourceProducedApplication } from "./application-data.js";
 import { produceSourceCallableHead, produceSourceCallableSignature, produceSourceHeritageBindings } from "./callable-production.js";
 import { produceSourceDeclaredComponent, produceSourceDeclaredSlot, produceSourceCallableCompletion, produceSourceMemberDestination, sourceUnresolvedDeclaration } from "./declaration-production.js";
 import type { SourceDeclarationProduction } from "./production-context.js";
@@ -38,6 +38,7 @@ import { createSourceTypeFlowRefusal } from "./refusals.js";
 import { produceSourceReceiver } from "./receivers.js";
 import { produceSourceSignatureOmissions } from "./signature-omissions.js";
 import { produceSourceBindingHistory } from "./binding-production.js";
+import { createSourceCallableContracts } from "./callable-contracts.js";
 import type { SourceTypeFlowAnalysisContext, SourceTypeFlowSource } from "./types.js";
 
 interface SourceCallableHeadKey {
@@ -176,7 +177,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
   function destination(node: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourcePresence<SourceUseDestination>> {
     return destinations.query(node, bindings);
   }
-  function application(node: Node): SourceProductionResult<SourceApplication> {
+  function application(node: Node): SourceProductionResult<SourceCallCore> {
     const result = applications.query(node, []);
     return result.kind !== "resolved" ? result : { kind: "resolved", value: result.value.application };
   }
@@ -255,6 +256,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
       const selected = protocols.iteration(owner);
       return selected.kind !== "resolved" ? selected : { kind: "resolved", value: selected.value.kind === "present" ? selected.value.value.element : undefined };
     } };
+  const callableProduction = createSourceCallableContracts({ ...declarationProduction, equivalent: source.equivalent,
+    enclosing: source.enclosing });
   applicationProduction = { ...declarationProduction, objects: context.objects, profile: source.profile,
     component: (component, bindings, candidate) => produceSourceOriginalComponent(declarationProduction!, component, bindings, candidate),
     admits, proves };
@@ -305,8 +308,8 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     if (selected !== undefined && selected.kind !== "resolved") return selected;
     const candidates = selected?.kind === "resolved" ? selected.value : [];
     if (candidates.length > 0) {
-      if (!candidates.every(value => value.type === candidates[0]!.type)) return sourceSemanticRefusal(node,
-        "This original Source value has conflicting declared destinations.", "TSONIC_LOCAL_TYPE_CONFLICT");
+      if (!candidates.every(value => value.type === candidates[0]!.type && value.category === candidates[0]!.category)) return sourceSemanticRefusal(node,
+        "This original Source value has conflicting declared destinations or operation categories. Use an explicit conversion at the conflicting boundary.", "TSONIC_LOCAL_TYPE_CONFLICT");
       return { kind: "resolved", value: candidates[0] };
     }
     return contextual(node, bindings);
@@ -426,7 +429,12 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     } else constructionFacts.set(node, none);
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       const result = settle(node, applications.query(node, []));
-      applicationFacts.set(node, result.kind === "refused" ? result : { kind: "resolved", value: result.value.application });
+      if (result.kind === "refused") applicationFacts.set(node, result);
+      else {
+        const execution = settle(node, callableProduction.execution(result.value.application));
+        applicationFacts.set(node, execution.kind === "refused" ? execution : { kind: "resolved",
+          value: Object.freeze({ ...result.value.application, execution: execution.value }) });
+      }
       if (result.kind === "resolved") result.value.diagnostics.forEach(identity => diagnostics.add(identity));
     }
   }
@@ -449,6 +457,7 @@ export function analyzeSourceTypeFlow(source: SourceTypeFlowSource) {
     return context.reader.describeSyntax(node, bindings);
   } });
   return Object.freeze({ ...published, ...domains, enums: enums.facts, protocols: protocols.facts, callableHead,
+    callableContracts: callableProduction.contracts,
     analysis: Object.freeze({ context, graph: collected, uses }),
     dischargedDiagnostics: Object.freeze([...diagnostics]) });
 }

@@ -73,6 +73,8 @@ export interface SourceEvidenceComponent {
 }
 
 export interface SourceDescriptorBuilder extends SourceDescriptorView {
+  bindings(value: SourceTypeEvidence): readonly SourceTypeBinding[];
+  withBindings(value: SourceTypeEvidence, bindings: readonly SourceTypeBinding[]): SourceResult<SourceTypeEvidence>;
   originalSignature(value: SourceSignatureIdentity): SourceInputSignature;
   registerIndexedAccess(value: SourceTypeEvidence, template: SourceIndexedAccessTemplate): void;
   assertDestination(value: SourceUseDestination): void;

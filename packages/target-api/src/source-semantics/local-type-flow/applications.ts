@@ -5,7 +5,7 @@ import type {
 import type { SourceInputComponent } from "../../host-input/identities.js";
 import type {
   SourceApplication, SourceApplicationIdentity, SourceApplicationReceiver, SourceArgumentPlace, SourceAuthoredArgument,
-  SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence, SourceCallableExecution,
+  SourceDeclaredSlot, SourceTypeBinding, SourceTypeEvidence,
 } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceObjectProduction } from "../member-use.js";
@@ -28,7 +28,6 @@ export interface SourceApplicationProduction extends SourceCallableProduction {
   component(component: SourceInputComponent, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<SourceTypeEvidence>;
   admits(source: SourceTypeEvidence, destination: SourceTypeEvidence, site: Node): SourceProductionResult<boolean>;
   proves(constraint: SourceInputBackingConstraint, bindings: readonly SourceTypeBinding[], candidate: SourceInputCallCandidate): SourceProductionResult<boolean>;
-  execution(callee: SourceTypeEvidence, identity: SourceApplicationIdentity, result: SourceTypeEvidence): SourceProductionResult<SourceCallableExecution>;
 }
 
 
@@ -171,8 +170,7 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
         classBindings: Object.freeze(classBindings), signatureBindings: Object.freeze([]) });
       return { kind: "resolved", value: { kind: "applicable", candidate: value, proven: [], application: Object.freeze({ identity,
         kind: original.kind, optionalCall, argumentDisposition, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
-        receiver, sourceArguments: sourceArguments.value, arguments: Object.freeze([]), omittedArguments: Object.freeze([]),
-        execution: Object.freeze({ kind: "none" }), result: result.value }) } };
+        receiver, sourceArguments: sourceArguments.value, arguments: Object.freeze([]), omittedArguments: Object.freeze([]), result: result.value }) } };
     }
     for (const parameter of original.signatureArguments) {
       const value = stated(parameter);
@@ -328,13 +326,10 @@ export function produceSourceApplication(context: SourceApplicationProduction, i
     const occurrenceResult = builder.join(builder.componentIdentity(invocation, []), "inferred", [result], observedResult);
     if (occurrenceResult.kind === "refused") return occurrenceResult;
     result = occurrenceResult.value;
-    const execution = context.execution(callee.value, identity, result);
-    if (execution.kind !== "resolved") return execution;
     return { kind: "resolved", value: Object.freeze({ kind: "applicable", candidate: value, proven: Object.freeze(proven),
       application: Object.freeze({ identity,
       kind: original.kind, optionalCall, argumentDisposition, callee: Object.freeze({ occurrence: original.callee.occurrence, value: callee.value }),
-      receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), omittedArguments: omittedArguments.value,
-      execution: Object.freeze({ kind: "present", value: execution.value }), result }),
+      receiver, sourceArguments: Object.freeze(sourceArguments), arguments: Object.freeze(arguments_), omittedArguments: omittedArguments.value, result }),
     }) };
   }
 

@@ -11,10 +11,11 @@ import type { SourceObjectProductionQueries } from "../object-production.js";
 import type { SourcePropertyName } from "../../source-model/property-names.js";
 import type { SourceInputProtocolQueries } from "../../host-input/protocol-input.js";
 import type { createSourceValueGuardQueries } from "../guard-queries.js";
-import type { SourceAdmissionFacts, SourceApplication, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
+import type { SourceAdmissionFacts, SourceCallableRole, SourceDeclaredSlot, SourceOperation, SourcePresence, SourcePrimitiveOperator,
   SourceRefusal, SourceSignatureIdentity, SourceTypeBinding, SourceTypeEvidence, SourceUseDestination } from "../../public/source/contracts.js";
 import type { SourceProductionResult } from "../../source-model/production.js";
 import type { SourceDescriptorBuilder, SourceDescriptorProductionHooks, SourceDescriptorReader } from "../descriptor-contracts.js";
+import type { SourceCallCore } from "./application-data.js";
 
 export interface SourceTypeFlowSource {
   readonly admission: SourceAdmissionFacts;
@@ -23,6 +24,7 @@ export interface SourceTypeFlowSource {
   readonly navigation: SourceNodeNavigationFacts;
   readonly input: SourceDescriptorInput;
   readonly descriptorBuilder: SourceDescriptorBuilder;
+  equivalent(left: SourceTypeEvidence, right: SourceTypeEvidence): boolean;
   readonly profile: SourcePresence<SourceJsApiFacts>;
   readonly protocolInput: SourceInputProtocolQueries;
   enclosing(node: Node | undefined, role: SourceCallableRole, visit: (node: Node) => boolean): Node | undefined;
@@ -52,7 +54,7 @@ export interface SourceTypeFlowAnalysisContext {
   value(occurrence: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   place(component: SourceInputComponent, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   destination(occurrence: Node, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourcePresence<SourceUseDestination>>;
-  application(occurrence: Node): SourceProductionResult<SourceApplication>;
+  application(occurrence: Node): SourceProductionResult<SourceCallCore>;
   operation(occurrence: Node): SourceProductionResult<SourceOperation>;
   callableReturn(signature: SourceSignatureIdentity, bindings: readonly SourceTypeBinding[]): SourceProductionResult<SourceTypeEvidence>;
   propertyName(node: Node): SourceProductionResult<SourcePropertyName>;

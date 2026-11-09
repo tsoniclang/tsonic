@@ -408,7 +408,8 @@ export function createSourceTypeDescriptorReader(options: SourceDescriptorReader
     reading.add(key);
     expansionDepth++;
     try {
-      const result = read(input.describe(original), bindings);
+      const produced = read(input.describe(original), bindings);
+      const result = produced.kind !== "resolved" ? produced : builder.withBindings(produced.value, bindings);
       if (result.kind === "pending") return result;
       let results = cache.get(original);
       if (results === undefined) { results = new Map(); cache.set(original, results); }

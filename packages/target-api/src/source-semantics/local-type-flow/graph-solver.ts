@@ -77,9 +77,9 @@ export function createSourceGraphSolver(context: SourceTypeFlowAnalysisContext, 
         if (signature !== undefined) return sourceSemanticRefusal(signature.site,
           "This value reaches an inferred signature and cannot take its type from a use. Annotate the value or the signature.", "TSONIC_LOCAL_TYPE_SIGNATURE");
         const first = authoritative[0]!;
-        const conflict = authoritative.find(demand => demand.value.type !== first.value.type);
+        const conflict = authoritative.find(demand => demand.value.type !== first.value.type || demand.value.category !== first.value.category);
         result = conflict === undefined ? { kind: "resolved", value: first.value } : sourceSemanticRefusal(conflict.site,
-          "Linked original declarations require different concrete Source destinations.", "TSONIC_LOCAL_TYPE_CONFLICT", first.site);
+          "Linked original declarations require different Source destinations or operation categories. Use an explicit conversion at the conflicting boundary.", "TSONIC_LOCAL_TYPE_CONFLICT", first.site);
       } else if (derived.has(key) || calls.has(key)) result = produce(derived.get(key) ?? calls.get(key)!);
       else {
         const values: SourceProductionResult<SourceTypeEvidence>[] = [];
