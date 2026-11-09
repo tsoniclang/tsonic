@@ -153,9 +153,13 @@ test("the complete types-only closure emits fresh checked declarations and compi
       resolve(repository, "packages/host/src"), "--outDir", declarations, modelPath, contextPath]);
     assert.equal(emitted.status, 0, `fresh checked declaration emit: ${emitted.stdout.slice(0, 8192)}`);
     orderedDomain((await readdir(declarations)).sort(), ["context", "model"], Object.is, "complete declaration modules");
-    for (const owner of ["context", "model"]) {
-      orderedDomain(await readdir(resolve(declarations, owner)), ["contract.d.ts"], Object.is, `${owner} declaration only`);
-    }
+    const modelDeclarations = ["contract.d.ts", "core-input-data.d.ts", "foundation-data.d.ts",
+      "input-answer-data.d.ts", "input-data.d.ts", "library-data.d.ts", "original-input-data.d.ts",
+      "program-input-data.d.ts", "syntax-data.d.ts"];
+    orderedDomain(await readdir(resolve(declarations, "context")), ["contract.d.ts"], Object.is,
+      "Context declaration only");
+    orderedDomain((await readdir(resolve(declarations, "model"))).sort(), modelDeclarations, Object.is,
+      "complete actual Model declaration closure");
     const contextDeclaration = await readFile(resolve(declarations, "context/contract.d.ts"), "utf8");
     assert.equal(contextDeclaration.includes('from "../model/contract.js"'), true, "only the explicit lower Model port");
     const probe = resolve(project.root, "isolated.mts");
@@ -167,6 +171,10 @@ test("the complete types-only closure emits fresh checked declarations and compi
     assert.equal(isolated.stdout.includes(contextPath), false, "no Context implementation source redirect");
     assert.equal(isolated.stdout.includes(resolve(declarations, "model/contract.d.ts")), true);
     assert.equal(isolated.stdout.includes(resolve(declarations, "context/contract.d.ts")), true);
+    orderedDomain(isolated.stdout.split(/\r?\n/u).filter(path => path.startsWith(declarations)).sort(),
+      [...modelDeclarations.map(name => resolve(declarations, "model", name)),
+        resolve(declarations, "context/contract.d.ts")].sort(), Object.is,
+      "actual consumer loads every and only the fresh declared contract files");
   });
 });
 

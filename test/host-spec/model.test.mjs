@@ -39,7 +39,11 @@ test("the sole composition export is a frozen stateless algebra with no arbitrar
 
 test("the actual stateless Model port is composition-only, not a peer implementation dependency", async () => {
   const repository = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-  const sources = ["packages/host/src/model/contract.ts", "packages/host/src/model/register.ts"]
+  const sources = ["packages/host/src/model/contract.ts", "packages/host/src/model/register.ts",
+    "packages/host/src/model/foundation-data.ts", "packages/host/src/model/library-data.ts",
+    "packages/host/src/model/syntax-data.ts", "packages/host/src/model/input-data.ts",
+    "packages/host/src/model/core-input-data.ts", "packages/host/src/model/original-input-data.ts",
+    "packages/host/src/model/program-input-data.ts", "packages/host/src/model/input-answer-data.ts"]
     .map(path => ({ path, text: readFileSync(resolve(repository, path), "utf8") }));
   for (const [path, expected] of [["packages/host/src/orchestration/model-composition.ts", []],
     ["packages/host/src/ingress/observations.ts", ["contract-imports"]]]) {

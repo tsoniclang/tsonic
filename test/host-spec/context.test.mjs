@@ -18,6 +18,8 @@ before(async () => {
     const ownerFiles = (await readdir(resolve(source, "context"))).filter(name => name.endsWith(".ts")).sort();
     orderedDomain(ownerFiles, ["contract.ts", "failures.ts", "keys.ts", "program.ts", "question.ts",
       "register.ts", "resources.ts"], Object.is, "complete actual Context source domain");
+    const modelFiles = ["contract.ts", "core-input-data.ts", "foundation-data.ts", "input-answer-data.ts",
+      "input-data.ts", "library-data.ts", "original-input-data.ts", "program-input-data.ts", "syntax-data.ts"];
     const probe = resolve(project.root, "binding.mts");
     await writeFile(probe, `import {contextFactory} from ${JSON.stringify(resolve(source, "context/register.js"))};
 import type {ContextFactory} from ${JSON.stringify(resolve(source, "context/contract.js"))};
@@ -29,7 +31,8 @@ const exact: ContextFactory = contextFactory; void exact;\n`);
       "--noImplicitReturns", "--noFallthroughCasesInSwitch", "--skipLibCheck", "false", "--noEmitOnError",
       "--module", "nodenext", "--target", "es2020", "--types", "node", "--declaration", "--listFiles",
       "--rootDir", repository, "--outDir", output, probe,
-      ...ownerFiles.map(name => resolve(source, "context", name)), resolve(source, "model/contract.ts")], {
+      ...ownerFiles.map(name => resolve(source, "context", name)),
+      ...modelFiles.map(name => resolve(source, "model", name))], {
       cwd: repository, encoding: "utf8", timeout: 60_000, maxBuffer: 262_144,
     });
     assert.equal(result.error === undefined && result.signal === null, true, "fresh strict source compiler terminated");
@@ -38,7 +41,8 @@ const exact: ContextFactory = contextFactory; void exact;\n`);
     assert.equal(result.stderr, "");
     const localInputs = result.stdout.split(/\r?\n/u).filter(path => path.startsWith(source));
     orderedDomain(localInputs.sort(), [...ownerFiles.map(name => resolve(source, "context", name)),
-      resolve(source, "model/contract.ts")].sort(), Object.is, "complete isolated production input closure");
+      ...modelFiles.map(name => resolve(source, "model", name))].sort(), Object.is,
+      "complete isolated production input closure");
     const actual = await import(pathToFileURL(resolve(output, "packages/host/src/context/register.js")).href);
     orderedDomain(Object.keys(actual), ["contextFactory"], Object.is, "actual sole runtime export");
     factory = actual.contextFactory;
