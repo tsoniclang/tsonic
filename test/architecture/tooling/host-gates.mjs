@@ -179,6 +179,34 @@ export const inspectHostStructure = input => {
     }
     return selected;
   };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} original @returns {boolean} */
+  const readonlySequence = original => {
+    let parent = ast.parent(original);
+    while (parent !== undefined && ast.is.IsParenthesizedTypeNode(parent)) parent = ast.parent(parent);
+    if (parent !== undefined && ast.is.IsTypeOperatorNode(parent))
+      return ast.operatorKindName(parent) === "KindReadonlyKeyword";
+    if (parent !== undefined && (ast.is.IsRestTypeNode(parent) || ast.is.IsNamedTupleMember(parent) &&
+      ast.as.AsNamedTupleMember(parent)?.DotDotDotToken !== undefined)) {
+      const tuple = ast.parent(parent);
+      return tuple !== undefined && ast.is.IsTupleTypeNode(tuple) && readonlySequence(tuple);
+    }
+    return false;
+  };
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const mutableData = node => {
+    if (ast.is.IsPropertySignatureDeclaration(node) || ast.is.IsIndexSignatureDeclaration(node))
+      return !ast.hasModifierKind(node, "readonly");
+    if (ast.is.IsArrayTypeNode(node) || ast.is.IsTupleTypeNode(node)) return !readonlySequence(node);
+    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
+      : ast.is.IsExpressionWithTypeArguments(node) ? ast.as.AsExpressionWithTypeArguments(node)?.Expression : undefined;
+    const terminal = name !== undefined && ast.is.IsQualifiedName(name) ? ast.as.AsQualifiedName(name)?.Right
+      : name !== undefined && ast.is.IsPropertyAccessExpression(name) ? ast.name(name) : name;
+    const text = terminal !== undefined && ast.is.IsIdentifier(terminal) ? ast.text(terminal) : undefined;
+    if (text === undefined || !["Array", "Map", "Set", "WeakMap", "WeakSet"].includes(text)) return false;
+    const declaration = symbol(name);
+    if (declaration !== undefined && checker(node).getSymbolDeclarations(declaration).length > 0) return false;
+    return text !== "Array" || !readonlySequence(node);
+  };
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
     if (module === undefined && file.startsWith("packages/"))
@@ -225,7 +253,7 @@ export const inspectHostStructure = input => {
         const reference = symbol(current);
         if (ast.is.IsIdentifier(current) && reference !== undefined && rawSymbols.has(reference)) raw = true;
         if (ast.is.IsIdentifier(current) && reference !== undefined && productionSymbols.has(reference)) production = true;
-        if (productionMember(current)) production = true;
+        if (productionMember(current) || mutableData(current)) production = true;
         ast.forEachChild(current, visit);
       };
       const type = ast.typeNode(node);
@@ -270,12 +298,13 @@ export const inspectHostStructure = input => {
         "KindModuleDeclaration", "KindImportEqualsDeclaration", "KindExportAssignment"].includes(kind))
         add("strict-source", file, current, "Host implementation requires strict narrowing, not assertions or runtime-shape shortcuts.");
       const reference = ast.is.IsIdentifier(current) ? symbol(current) : undefined;
-      if (ast.is.IsIdentifier(current) && (ast.is.IsTypeReferenceNode(ast.parent(current)) || ast.is.IsQualifiedName(ast.parent(current)) ||
-        ast.is.IsExpressionWithTypeArguments(ast.parent(current))) &&
+      const parent = ast.parent(current);
+      const typeReference = parent !== undefined && (ast.is.IsTypeReferenceNode(parent) || ast.is.IsQualifiedName(parent) ||
+        ast.is.IsExpressionWithTypeArguments(parent) || ast.is.IsImportTypeNode(parent));
+      if (ast.is.IsIdentifier(current) && typeReference &&
         reference !== undefined && rawSymbols.has(reference) && !rawAllowed)
         add("ingress-checker", file, current, "Raw checker capability, including an alias, is confined to Ingress implementation.");
-      if (publication && reference !== undefined && productionSymbols.has(reference) &&
-        (ast.is.IsTypeReferenceNode(ast.parent(current)) || ast.is.IsExpressionWithTypeArguments(ast.parent(current))))
+      if (publication && reference !== undefined && productionSymbols.has(reference) && typeReference)
         add("read-only-publication", file, current, "Publication cannot reach production authority through an imported or aliased contract.");
       const name = ast.name(current);
       if (name !== undefined && (ast.is.IsPropertySignatureDeclaration(current) || ast.is.IsMethodSignatureDeclaration(current) ||
@@ -283,24 +312,17 @@ export const inspectHostStructure = input => {
         const text = memberName(name);
         if (text !== undefined && retiredMembers.includes(text)) add("retired-api", file, current, "A retired handler or semantic accessor cannot be reintroduced.");
         if (publication && productionMember(current)) add("read-only-publication", file, current, "Publication exposes answers, never production or mutable program authority.");
-        if (isContract && ast.is.IsPropertySignatureDeclaration(current)) {
-          if (!ast.hasModifierKind(current, "readonly"))
-            add("contract-closure", file, current, "Contract data properties must be explicitly immutable.");
-        }
+      }
+      if (isContract && mutableData(current)) {
+        add("contract-closure", file, current, "Every reachable contract data member and collection must be immutable.");
+        if (publication)
+          add("read-only-publication", file, current, "Publication cannot expose mutable data through a readonly binding.");
       }
       if (isContract && ast.is.IsTypeReferenceNode(current)) {
         const selected = ast.as.AsTypeReferenceNode(current);
         if (selected?.TypeName !== undefined && ast.is.IsIdentifier(selected.TypeName) &&
           ["ReturnType", "Parameters", "InstanceType"].includes(ast.text(selected.TypeName)))
           add("contract-closure", file, current, "Factory-derived contract types expose an implementation rather than explicit closed data.");
-        if (selected?.TypeName !== undefined && ast.is.IsIdentifier(selected.TypeName) &&
-          ["Map", "Set", "WeakMap", "WeakSet"].includes(ast.text(selected.TypeName))) {
-          const declaration = symbol(selected.TypeName);
-          if (declaration === undefined || checker(current).getSymbolDeclarations(declaration).length === 0) {
-            add("contract-closure", file, current, "Contract data cannot expose a mutable platform collection.");
-            if (publication) add("read-only-publication", file, current, "Publication cannot expose a platform collection's mutator authority.");
-          }
-        }
       }
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);

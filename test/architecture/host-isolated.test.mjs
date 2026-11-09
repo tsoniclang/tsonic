@@ -137,6 +137,77 @@ test("a target-neutral external consumer typechecks against only the real fresh 
   });
 });
 
+test("real typed readonly Publication data rejects mutation while mutable aliases are valid TypeScript but fail the gate", async () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  const files = new Map([
+    [model, `
+      export type Values = readonly number[];
+      export type Tuple = readonly [head: number, ...tail: string[]];
+      export interface Row { readonly values: Values; }
+    `],
+    [publication, `
+      import type { Values, Tuple, Row } from "../model/contract.js";
+      export interface Published {
+        readonly values: Values; readonly tuple: Tuple; readonly nested: ReadonlyArray<Row>;
+        read(): Values;
+        calculate(values: Values, operation: (value: number) => number): number;
+      }
+    `],
+  ]);
+  await fixture(files, async input => {
+    const request = { ...input, module: "publication", sourceFiles: [publication], dependencyContracts: [model] };
+    const result = await compileHostModuleInIsolation(request);
+    assert.equal(result.kind, "passed", result.log.slice(0, 4096));
+    const consumer = resolve(input.root, "consumer.ts");
+    writeFileSync(resolve(input.root, "tsconfig.json"), JSON.stringify({ compilerOptions: {
+      strict: true, skipLibCheck: false, noEmit: true, types: [], target: "es2022", module: "nodenext",
+    }, files: [model, publication, "consumer.ts"] }));
+    const check = () => {
+      const compiled = spawnSync(process.execPath, [compiler, "--project", resolve(input.root, "tsconfig.json")],
+      { cwd: input.root, encoding: "utf8", maxBuffer: 1_048_576, timeout: 60_000 });
+      if (compiled.error !== undefined) throw compiled.error;
+      return { status: compiled.status, log: `${compiled.stdout}${compiled.stderr}` };
+    };
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function read(view: Published): number {
+        return view.values.length + view.tuple[0] + view.nested.length + view.read().length +
+          view.calculate(view.values, value => value + 1);
+      }
+    `);
+    const valid = check();
+    assert.equal(valid.status, 0, valid.log.slice(0, 4096));
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function mutate(view: Published): void {
+        view.values.push(1);
+        view.tuple[0] = 2;
+        view.nested[0] = { values: [] };
+        view.read().splice(0);
+      }
+    `);
+    const immutable = check();
+    assert.deepEqual([...immutable.log.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])), [2339, 2540, 2542, 2339],
+      immutable.log.slice(0, 4096));
+    assert.equal(immutable.status, 1, immutable.log.slice(0, 4096));
+    writeFileSync(resolve(input.root, model), "export type Values = number[]; export type Indirect = Values;");
+    writeFileSync(resolve(input.root, publication), `
+      import type { Indirect } from "../model/contract.js";
+      export interface Published { readonly values: Indirect; }
+    `);
+    writeFileSync(consumer, `
+      import type { Published } from "./packages/host/src/publication/contract.js";
+      export function mutate(view: Published): void { view.values.push(1); view.values[0] = 2; }
+    `);
+    const mutable = check();
+    assert.equal(mutable.status, 0, mutable.log.slice(0, 4096));
+    const rejected = await compileHostModuleInIsolation(request);
+    assert.equal(rejected.kind, "failed");
+    assert.match(rejected.log, /contract-closure/u);
+    assert.match(rejected.log, /read-only-publication/u);
+  });
+});
+
 test("fresh contract emission rejects private declaration leaks and never trusts a stale declaration", async () => {
   const files = new Map(lawful);
   files.set(model, 'export type Fact = import("./private.js").Private;');

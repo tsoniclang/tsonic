@@ -180,6 +180,65 @@ test("Publication exposes immutable answers, not builders, seeds or program back
   expect([["packages/host/src/publication/contract.ts", "export interface View { readonly values: ReadonlyMap<string, number>; }"]], []);
 });
 
+test("readonly properties cannot expose mutable arrays, tuples or nested sequence elements", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  for (const type of ["number[]", "[number, string?]", "Array<number>", "globalThis.Array<number>",
+    "Array<readonly number[]>", "ReadonlyArray<number[]>", "readonly [number[]]",
+    "readonly (number[])[]", "readonly [...number[][]]"])
+    expect([[publication, `export interface View { readonly values: ${type}; }`]],
+      ["contract-closure", "read-only-publication"]);
+  expect([[publication, "export interface View extends Array<number> {}"]], ["contract-closure", "read-only-publication"]);
+  expect([[publication, "export interface View extends globalThis.Array<number> {}"]], ["contract-closure", "read-only-publication"]);
+  expect([[publication, "export interface View { readonly nested: { values: number; }; }"]],
+    ["contract-closure", "read-only-publication"]);
+  expect([[publication, "export interface View { [index: number]: number; }"]], ["contract-closure", "read-only-publication"]);
+  expect([[model, "export interface Facts { readonly values: number[]; }"]], ["contract-closure"]);
+});
+
+test("the same readonly closure follows imported, generic, inline, inherited and local aliases", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  const declarations = `
+    export type Mutable = Array<number>;
+    export type Indirect = Mutable;
+    export interface Container { readonly values: Indirect; }
+    export interface Wrapped<Value> { readonly value: Value; }
+  `;
+  for (const text of [
+    'import type { Mutable } from "../model/contract.js"; export interface View { readonly values: Mutable; }',
+    'import type { Container } from "../model/contract.js"; export interface View extends Container {}',
+    'import type { Wrapped, Mutable } from "../model/contract.js"; export interface View { readonly values: Wrapped<Mutable>; }',
+    'import type * as Data from "../model/contract.js"; export interface View { readonly values: Data.Indirect; }',
+    'export interface View { readonly values: import("../model/contract.js").Mutable; }',
+  ]) expect([[model, declarations], [publication, text]], ["contract-closure", "read-only-publication"]);
+  expect([[publication, "export type Values = [number]; export type Indirect = Values; export interface View { readonly values: Indirect; }"]],
+    ["contract-closure", "read-only-publication", "read-only-publication", "read-only-publication"]);
+  expect([[model, "export interface Mutable { value: number; }"],
+    [publication, 'import type { Mutable } from "../model/contract.js"; export interface View { readonly data: Mutable; }']],
+  ["contract-closure", "read-only-publication"]);
+});
+
+test("deep readonly aliases, tuple repetitions, query methods and pure calculation signatures remain legitimate", () => {
+  const declarations = `
+    export type Values = readonly number[];
+    export type Tuple = readonly [head: number, ...tail: string[]];
+    export type Repeated = readonly [number, ...Array<string>];
+    export interface Nested { readonly rows: ReadonlyArray<Values>; readonly tuple: Tuple; }
+    export interface Indexed { readonly [index: number]: Nested; }
+  `;
+  expect([[model, declarations], ["packages/host/src/publication/contract.ts", `
+    import type { Values, Tuple, Repeated, Nested, Indexed } from "../model/contract.js";
+    export interface View {
+      readonly values: Values; readonly tuple: Tuple; readonly repeated: Repeated;
+      readonly nested: Nested; readonly indexed: Indexed;
+      readonly mapping: ReadonlyMap<string, Values>;
+      readonly 0: number; readonly "one": string; readonly ["two"]: boolean;
+      read(key: string): ReadonlyArray<Nested>;
+      readonly calculate: (values: Values, operation: (value: number) => number) => number;
+    }
+  `]], []);
+  expect([[model, "export interface Array<Value> { readonly value: Value; } export interface Facts { readonly values: Array<number>; }"]], []);
+});
+
 test("retired package entries and semantic accessors are rejected rather than aliased", () => {
   for (const name of ["@tsonic/target-api", "@tsonic/target-api/source", "@tsonic/source-core/facts", "@tsonic/js-source-profile"])
     expect([["packages/host/src/objects/value.ts", `import type { Facts } from "${name}";`]], ["retired-api"]);
