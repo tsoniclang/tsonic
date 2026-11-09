@@ -3,7 +3,7 @@ import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts
 import { test } from "node:test";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryLayout, tsonicMemoryLayoutFactKey } from "../../public/facts.js";
 import type { TsonicArrayMemoryLayoutFact, TsonicMemoryLayoutFact } from "../../public/facts.js";
-import { maximumMemoryLayoutDepth } from "../facts.js";
+import { maximumMemoryLayoutDepth } from "../../host-input/memory-layout-facts.js";
 import { memoryCall, valueMemoryLayout } from "./fixtures.js";
 import { arrayLayoutAt, arrayMemoryLayout, cleanArraySession } from "./fixed-array-fixtures.js";
 

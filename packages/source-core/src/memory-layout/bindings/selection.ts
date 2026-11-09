@@ -1,9 +1,9 @@
 import type { AstReader, ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { isFinalizedMemoryLayout, isFinalizedMemoryLayoutFacts, readTsonicMemoryFieldLayout, readTsonicMemoryLayout } from "../readers.js";
-import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "../facts.js";
-import { readTsonicMemoryType } from "../type-contract/facts.js";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./facts.js";
-import type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "./facts.js";
+import { isFinalizedMemoryLayout, isFinalizedMemoryLayoutFacts, readTsonicMemoryFieldLayout, readTsonicMemoryLayout } from "../../host-input/memory-readers.js";
+import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "../../host-input/memory-layout-facts.js";
+import { readTsonicMemoryType } from "../../host-input/memory-type-facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../host-input/memory-binding-facts.js";
+import type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "../../host-input/memory-binding-facts.js";
 
 export type TsonicMemoryBindingSelection<T> =
   | { readonly kind: "resolved"; readonly operation: T }

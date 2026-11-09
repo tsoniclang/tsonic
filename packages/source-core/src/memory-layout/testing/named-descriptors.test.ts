@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { memoryOperationDeclarations, tsonicMemorySignatureIds } from "../declarations.js";
 import { memoryDescriptorDeclarations } from "../descriptor-declarations.js";
-import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
-import { readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../../host-input/memory-layout-facts.js";
+import { readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
 import { cleanMemorySession, memoryCall, memoryCalls, memoryDescriptorProperty, memorySession, memoryTestPrelude, valueMemoryLayout } from "./fixtures.js";
 
 const recordDescriptor = "{ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] }";

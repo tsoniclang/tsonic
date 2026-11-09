@@ -3,7 +3,7 @@ import type { CheckedSourceProgram, Node, SourceCallMarkerKind, SourceFileQuerie
 import type { SourceInputSafetyQueries, SourceInputSafetyReceipt } from "@tsonic/target-api/host";
 import type { SourcePresence } from "@tsonic/target-api/source";
 import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
-import { selectInlineSourceMember } from "../analysis/selected-source-member.js";
+import { selectInlineSourceMember } from "./selected-source-member.js";
 import { selectedProviderCallMatches, unwrapParenthesizedExpression } from "../analysis/source-call.js";
 import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
 import { tsonicCoreSourceSemanticsModules } from "../extension/source-modules.js";

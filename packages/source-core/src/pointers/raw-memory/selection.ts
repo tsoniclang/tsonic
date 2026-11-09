@@ -1,9 +1,9 @@
 import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { TsonicRawMemoryOperationFact } from "./facts.js";
-import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
-import { isFinalizedMemoryLayout, isFinalizedMemoryLayoutFacts, readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../../memory-layout/readers.js";
-import { readTsonicMemoryType } from "../../memory-layout/type-contract/facts.js";
-import type { TsonicMemoryTypeIdentity } from "../../memory-layout/type-contract/facts.js";
+import type { TsonicRawMemoryOperationFact } from "../../host-input/raw-memory-facts.js";
+import type { TsonicMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
+import { isFinalizedMemoryLayout, isFinalizedMemoryLayoutFacts, readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../../host-input/memory-readers.js";
+import { readTsonicMemoryType } from "../../host-input/memory-type-facts.js";
+import type { TsonicMemoryTypeIdentity } from "../../host-input/memory-type-facts.js";
 
 export type TsonicRawLocationFactsSelection =
   | { readonly kind: "rejected"; readonly reason: string }

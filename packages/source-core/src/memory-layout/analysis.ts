@@ -3,22 +3,21 @@ import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import { forEachSelectedProviderSourceCall, selectedProviderCallMatches } from "../analysis/source-call.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreVirtualModulesProviderId } from "../identity.js";
 import { analyzeRawMemoryCall } from "../pointers/raw-memory/analysis.js";
-import { tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";
 import { memoryDiagnostic } from "./analysis-context.js";
-import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 import type { MemorySourceCall } from "./analysis-model.js";
 import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
 import { analyzeMemoryArrayLayout } from "./array-builder.js";
 import { tsonicMemorySignatureIds } from "./declarations.js";
-import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./facts.js";
-import type { TsonicDataLayoutFact } from "./facts.js";
+import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../host-input/memory-layout-facts.js";
+import type { TsonicDataLayoutFact } from "../host-input/memory-layout-facts.js";
 import { immutableValueOrigin } from "./source-values.js";
 import { createMemoryTypeContracts } from "./type-contract/analysis.js";
 import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./bindings/analysis.js";
-import { tsonicMemoryFieldBindingFactKey } from "./bindings/facts.js";
+import { tsonicMemoryFieldBindingFactKey } from "../host-input/memory-binding-facts.js";
 import { analyzeTsonicPointerView } from "../pointers/views/analysis.js";
-import { resolveTsonicMemoryLayoutObservation } from "./readers.js";
+import { resolveTsonicMemoryLayoutObservation } from "../host-input/memory-readers.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -93,9 +92,6 @@ export function analyzeTsonicMemoryOperations(
           analyzeMemoryLayoutQuery(call, analysis); break;
         default: analyzeRawMemoryCall(call, analysis); break;
       }
-    } catch (failure) {
-      if (!(failure instanceof TargetCompilerResourceLimitFailure)) throw failure;
-      memoryDiagnostic(call, "COMPILER_RESOURCE_LIMIT", failure.diagnostic.message);
     } finally {
       pending.delete(node);
     }

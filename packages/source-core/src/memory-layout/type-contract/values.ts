@@ -5,7 +5,7 @@ import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
 import type { MemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./model.js";
-import { tsonicPointerViewFactKey } from "../../pointers/views/facts.js";
+import { tsonicPointerViewFactKey } from "../../host-input/pointer-view-facts.js";
 
 interface ValueFrame {
   readonly call: SelectedProviderSourceCall["selection"];

@@ -1,10 +1,10 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, Symbol as SourceSymbol, Type } from "@tsonic/tsts";
-import { tsonicCoreSourceExtensionId } from "../../identity.js";
-import { exactRecord, opaqueSubject, recordsEqual } from "../snapshots.js";
-import { fixedArrayFactsEqual, snapshotFixedArrayFact } from "../../fixed-arrays/facts.js";
-import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
-import { assertMemorySource, memorySourceType, type MemoryTypePublicationSources } from "./provenance.js";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
+import { exactRecord, opaqueSubject, recordsEqual } from "../memory-layout/snapshots.js";
+import { fixedArrayFactsEqual, snapshotFixedArrayFact } from "./fixed-array-facts.js";
+import type { TsonicFixedArrayFact } from "./fixed-array-facts.js";
+import { assertMemorySource, memorySourceType, type MemoryTypePublicationSources } from "./memory-provenance.js";
 
 const identityBrand = Symbol("memory type identity");
 interface MemoryArrayType {

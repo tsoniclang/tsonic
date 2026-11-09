@@ -1,6 +1,6 @@
 import type { AstReader, ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { tsonicPointerViewFactKey } from "./facts.js";
-import type { TsonicPointerViewFact } from "./facts.js";
+import { tsonicPointerViewFactKey } from "../../host-input/pointer-view-facts.js";
+import type { TsonicPointerViewFact } from "../../host-input/pointer-view-facts.js";
 
 export type TsonicPointerViewSelection =
   | { readonly kind: "resolved"; readonly operation: TsonicPointerViewFact }

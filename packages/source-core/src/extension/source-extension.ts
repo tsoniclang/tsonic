@@ -4,7 +4,7 @@ import { analyzeTsonicCompileTimeOperations } from "../compile-time/analysis.js"
 
 import { analyzeTsonicAttributeBuilders } from "../attributes/analysis.js";
 import { tsonicCoreNativePointerProviderNames } from "../pointers/provider-declarations.js";
-import { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
+import { tsonicNativePointerOperationFactKey } from "../host-input/native-pointer-facts.js";
 import { analyzeNativePointerOperations } from "../pointers/operations.js";
 import { analyzeTsonicFixedArrayTypes } from "../fixed-arrays/analysis.js";
 import { analyzeTsonicSourceMarkerEvidence } from "../analysis/marker-evidence.js";

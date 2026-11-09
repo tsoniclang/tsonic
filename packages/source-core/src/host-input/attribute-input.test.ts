@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { CompilerSession, ExtensionFactSubject, Node } from "@tsonic/tsts";
 import { createSourceNodeInventory } from "@tsonic/target-api/host";
 import { createSourceCoreAttributeInput } from "./attribute-input.js";
-import { tsonicAttributeBuilderFactKey } from "../attributes/facts.js";
+import { tsonicAttributeBuilderFactKey } from "./attribute-facts.js";
 import { checkSource, createCleanSourceCoreSession, propertyCallExpression } from "../extension/source-extension.fixtures.js";
 
 function factualFixture(session: CompilerSession) {

@@ -1,6 +1,6 @@
 import { sourceMarkerFactKey } from "@tsonic/tsts";
 import type { ExtensionEvidence, Node, SourceAnalysisContext } from "@tsonic/tsts";
-import { tsonicFixedArrayFactKey } from "./facts.js";
+import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { forEachTsonicSourceFile } from "../analysis/context.js";
 import { readSourceFact, visitPostOrder } from "../analysis/source-call.js";

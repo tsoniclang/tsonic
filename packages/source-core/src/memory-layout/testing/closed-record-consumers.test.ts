@@ -4,9 +4,9 @@ import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { createTsonicPointerBackingDemands } from "../../pointers/backing/demands.js";
 import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../bindings/selection.js";
-import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
-import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
-import { tsonicMemoryTypeFactKey } from "../type-contract/facts.js";
+import { readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
+import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
+import { tsonicMemoryTypeFactKey } from "../../host-input/memory-type-facts.js";
 import { checkedRecords, recordIdentity, recordLayouts, recordPrelude } from "./closed-record-fixtures.js";
 import { memoryCall, memoryCalls, valueMemoryLayout } from "./fixtures.js";
 

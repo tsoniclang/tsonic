@@ -17,7 +17,7 @@ import type {
 } from "@tsonic/tsts";
 import {
   tsonicNativePointerOperationFactKey,
-} from "../pointers/facts.js";
+} from "../host-input/native-pointer-facts.js";
 import {
   tsonicCoreLangModule,
   tsonicCoreTypesModule,

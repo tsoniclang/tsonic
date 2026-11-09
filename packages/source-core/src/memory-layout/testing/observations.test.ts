@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
-import { tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
+import { resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
+import { tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
 import { cleanMemorySession, memoryCall } from "./fixtures.js";
 
 test("layout observations retain exact dimensions and field declaration identity", () => {

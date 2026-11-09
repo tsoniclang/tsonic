@@ -1,8 +1,8 @@
-import { selectInlineSourceMember } from "../analysis/selected-source-member.js";
+import { selectInlineSourceMember } from "../host-input/selected-source-member.js";
 import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 import type { MemorySourceCall } from "./analysis-model.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../host-input/memory-layout-facts.js";
 import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
 import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";

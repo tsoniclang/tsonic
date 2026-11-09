@@ -1,11 +1,11 @@
 import type { ExtensionFactKey, Node } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
-import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
-import type { TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
+import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
+import type { TsonicRawMemoryOperationFact } from "../host-input/raw-memory-facts.js";
 import type { MemorySourceCall, MemoryTypeContracts } from "./analysis-model.js";
-import type { TsonicMemoryFieldBindingFact } from "./bindings/facts.js";
-import type { resolveTsonicMemoryLayoutObservation } from "./readers.js";
+import type { TsonicMemoryFieldBindingFact } from "../host-input/memory-binding-facts.js";
+import type { resolveTsonicMemoryLayoutObservation } from "../host-input/memory-readers.js";
 
 export interface MemorySourceAnalysis {
   readonly types: MemoryTypeContracts;

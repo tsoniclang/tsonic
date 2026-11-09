@@ -3,9 +3,9 @@ import { TargetCompilerResourceLimitFailure } from "@tsonic/target-api/artifacts
 import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
-import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
-import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { memoryLayoutCaptureLimitsError, maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../../host-input/memory-layout-facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
 import { cleanMemorySession, memoryCall, memoryDescriptorProperty, memorySession, memoryTestPrelude, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 

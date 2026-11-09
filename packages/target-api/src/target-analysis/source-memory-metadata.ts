@@ -10,10 +10,22 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
   const { source, view, assertNode, original, bindingKey, equivalent } = context;
   const layouts = new WeakMap<SourceInputLayoutIdentity, Map<string, SourceMemoryLayout>>();
   const fields = new WeakMap<SourceInputMemoryFieldIdentity, Map<string, SourceMemoryField>>();
+  const appliedLayouts = new WeakMap<SourceInputLayoutIdentity, Map<string, SourceMemoryLayout>>();
+  const appliedFields = new WeakMap<SourceInputMemoryFieldIdentity, Map<string, SourceMemoryField>>();
+  const metadataValues = new WeakMap<SourceMemoryLayout | SourceMemoryField, SourceMemoryMetadata>();
+  const identities = new WeakMap<object, number>();
+  let nextIdentity = 0;
   const active = new WeakMap<object, Set<string>>();
   const none = Object.freeze({ kind: "none" } as const);
   const resolved = <Value>(value: Value): SourceMemorySelection<Value> => Object.freeze({ kind: "resolved", value });
   const unresolved = (reason: string) => Object.freeze({ kind: "unresolved" as const, reason });
+  function identityKey(value: object): number {
+    const previous = identities.get(value);
+    if (previous !== undefined) return previous;
+    const result = nextIdentity++;
+    identities.set(value, result);
+    return result;
+  }
   function enter(identity: object, key: string): () => void {
     let selected = active.get(identity);
     if (selected?.has(key)) throw new Error("A finalized memory value cannot recursively contain its physical layout.");
@@ -60,6 +72,13 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
         }
         result = Object.freeze({ ...base, kind: "value", fields: Object.freeze(selectedFields) });
       }
+      const appliedKey = [identityKey(value), ...(result.kind === "array" ? [identityKey(result.element)]
+        : result.fields.map(identityKey))].join(",");
+      let applied = appliedLayouts.get(identity);
+      if (applied === undefined) { applied = new Map(); appliedLayouts.set(identity, applied); }
+      const canonical = applied.get(appliedKey);
+      if (canonical !== undefined) result = canonical;
+      else applied.set(appliedKey, result);
       let retained = layouts.get(identity);
       if (retained === undefined) { retained = new Map(); layouts.set(identity, retained); }
       retained.set(key, result);
@@ -103,10 +122,14 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
       if (!equivalent(value.value.value, child.value.source))
         return unresolved("A memory field requires its exact Source child and finalized layout.");
       const { receiver, readType, writeType, ...identityMember } = member;
-      const result: SourceMemoryField = Object.freeze({ occurrence: identity.occurrence, owner: owner.value.value,
+      const appliedKey = [owner.value.value, value.value.value, child.value].map(identityKey).join(",");
+      let applied = appliedFields.get(identity);
+      if (applied === undefined) { applied = new Map(); appliedFields.set(identity, applied); }
+      const result: SourceMemoryField = applied.get(appliedKey) ?? Object.freeze({ occurrence: identity.occurrence, owner: owner.value.value,
         selector: originalField.selector, selection: originalField.selection, member: Object.freeze(identityMember),
         primary: originalField.primary, selectedDeclarations: originalField.selectedDeclarations,
         value: value.value.value, layout: child.value, byteOffset: originalField.byteOffset, byteAlignment: originalField.byteAlignment });
+      applied.set(appliedKey, result);
       let retained = fields.get(identity);
       if (retained === undefined) { retained = new Map(); fields.set(identity, retained); }
       retained.set(key, result);
@@ -123,12 +146,22 @@ export function createSourceMemoryMetadataProduction(context: SourceMemoryContex
       if (metadata.kind === "data-layout") return resolved(Object.freeze({ kind: "present", value: metadata }));
       if (metadata.kind === "memory-layout") {
         const result = layout(metadata.identity, bindings);
-        return result.kind !== "resolved" ? result : resolved(Object.freeze({ kind: "present",
-          value: Object.freeze({ kind: "memory-layout", layout: result.value }) }));
+        if (result.kind !== "resolved") return result;
+        let value = metadataValues.get(result.value);
+        if (value === undefined) {
+          value = Object.freeze({ kind: "memory-layout", layout: result.value });
+          metadataValues.set(result.value, value);
+        }
+        return resolved(Object.freeze({ kind: "present", value }));
       }
       const result = field(metadata.identity, bindings);
-      return result.kind !== "resolved" ? result : resolved(Object.freeze({ kind: "present",
-        value: Object.freeze({ kind: "memory-field", field: result.value }) }));
+      if (result.kind !== "resolved") return result;
+      let value = metadataValues.get(result.value);
+      if (value === undefined) {
+        value = Object.freeze({ kind: "memory-field", field: result.value });
+        metadataValues.set(result.value, value);
+      }
+      return resolved(Object.freeze({ kind: "present", value }));
     }
     return resolved(none);
   }

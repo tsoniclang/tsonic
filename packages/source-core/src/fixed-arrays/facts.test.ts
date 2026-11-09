@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, Type } from "@tsonic/tsts";
-import { fixedArrayFactsEqual, snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "./facts.js";
-import type { TsonicFixedArrayFact } from "./facts.js";
+import { fixedArrayFactsEqual, snapshotFixedArrayFact, tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
+import type { TsonicFixedArrayFact } from "../host-input/fixed-array-facts.js";
 
 function fact(): TsonicFixedArrayFact {
   return {

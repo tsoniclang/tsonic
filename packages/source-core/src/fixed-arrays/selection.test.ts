@@ -4,7 +4,7 @@ import { providerVirtualDeclarationFactKey, sourcePrimitiveFactKey } from "@tson
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { selectTsonicFixedArray } from "../public/host.js";
 import { callExpression, checkSource, createCleanSourceCoreSession, createSourceCoreSession, definedDiagnostics, getSourceFact, sourceFacts, typeAliasType, typeReferenceName, variableInitializer } from "../extension/source-extension.fixtures.js";
-import { fixedArrayFactsEqual, tsonicFixedArrayFactKey } from "./facts.js";
+import { fixedArrayFactsEqual, tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
 
 test("fixed-array analysis and resolved selection share exact counts and source length runtime bases", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`

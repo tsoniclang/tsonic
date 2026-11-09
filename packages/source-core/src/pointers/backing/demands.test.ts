@@ -4,8 +4,8 @@ import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixtures.js";
 import { createTsonicPointerBackingDemands } from "./demands.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
-import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
-import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
+import { tsonicDataLayoutFactKey } from "../../host-input/memory-layout-facts.js";
 
 function collect(text: string) {
   const checked = cleanMemorySession('import { allocateptr, addressof } from "@tsonic/core/lang.js";\n' + text);

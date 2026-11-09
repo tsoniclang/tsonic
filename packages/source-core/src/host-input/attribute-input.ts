@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { SourceInputCoreQueries } from "@tsonic/target-api/host";
 import type { SourceAttributeBuilderFact, SourcePresence } from "@tsonic/target-api/source";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
-import { tsonicAttributeBuilderFactKey } from "../attributes/facts.js";
+import { tsonicAttributeBuilderFactKey } from "./attribute-facts.js";
 
 export function createSourceCoreAttributeInput(input: {
   readonly checked: CheckedSourceProgram;

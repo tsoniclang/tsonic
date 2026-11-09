@@ -1,7 +1,7 @@
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
-import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
-import { dataLayoutsEqual } from "../../memory-layout/facts.js";
-import { readMemoryTypeMember, readTsonicMemoryType } from "../../memory-layout/type-contract/facts.js";
+import type { TsonicMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
+import { dataLayoutsEqual } from "../../host-input/memory-layout-facts.js";
+import { readMemoryTypeMember, readTsonicMemoryType } from "../../host-input/memory-type-facts.js";
 
 export function sameBackingLayout(facts: ReadonlySourceFactResolver, left: TsonicMemoryLayoutFact, right: TsonicMemoryLayoutFact): boolean {
   const pending: [TsonicMemoryLayoutFact, TsonicMemoryLayoutFact][] = [[left, right]];

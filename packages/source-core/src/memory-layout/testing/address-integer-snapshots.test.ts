@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, Type } from "@tsonic/tsts";
-import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
-import type { TsonicRawMemoryOperationFact } from "../../pointers/raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
+import type { TsonicRawMemoryOperationFact } from "../../host-input/raw-memory-facts.js";
 
 for (const operation of ["raw-to-address-integer", "address-integer-to-raw"] as const) {
   test(`${operation} snapshots require and freeze one coherent address domain`, () => {

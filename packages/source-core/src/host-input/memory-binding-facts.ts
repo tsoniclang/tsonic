@@ -1,9 +1,9 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { Node, Type } from "@tsonic/tsts";
-import { tsonicCoreSourceExtensionId } from "../../identity.js";
-import { memoryLayoutsEqual, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey } from "../facts.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
-import { exactRecord, opaqueSubject, recordsEqual, snapshotDataArray } from "../snapshots.js";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
+import { memoryLayoutsEqual, snapshotMemoryField, snapshotMemoryLayout, tsonicMemoryFieldLayoutFactKey } from "./memory-layout-facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicValueMemoryLayoutFact } from "./memory-layout-facts.js";
+import { exactRecord, opaqueSubject, recordsEqual, snapshotDataArray } from "../memory-layout/snapshots.js";
 
 export interface TsonicMemoryFieldBindingFact {
   readonly call: Node;

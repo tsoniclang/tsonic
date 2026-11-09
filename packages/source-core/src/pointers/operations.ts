@@ -8,7 +8,7 @@ import {
 } from "./provider-declarations.js";
 import type {
   TsonicNativePointerOperationFact,
-} from "./facts.js";
+} from "../host-input/native-pointer-facts.js";
 import type {
   TsonicSourceFileAnalysisContext,
 } from "../analysis/context.js";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
-import { readTsonicMemoryType } from "../type-contract/facts.js";
+import { readTsonicMemoryType } from "../../host-input/memory-type-facts.js";
 import { assertMemoryDiagnostics, memorySession } from "./fixtures.js";
 
 export const recordPrelude = `

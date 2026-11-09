@@ -5,8 +5,8 @@ import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import { readSourceFact, type SelectedProviderSourceCall } from "../analysis/source-call.js";
 import { readSourcePrimitiveAnnotation } from "../analysis/source-primitive.js";
 import { dataLayoutIdentityKey } from "./registrations.js";
-import { tsonicDataLayoutFactKey } from "./facts.js";
-import type { TsonicDataLayoutFact } from "./facts.js";
+import { tsonicDataLayoutFactKey } from "../host-input/memory-layout-facts.js";
+import type { TsonicDataLayoutFact } from "../host-input/memory-layout-facts.js";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 
 export type SelectedMemoryValue = SelectedProviderSourceCall["selection"]["selection"]["argumentValues"][number];

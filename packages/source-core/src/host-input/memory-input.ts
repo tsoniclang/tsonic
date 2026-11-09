@@ -5,15 +5,15 @@ import type { SourceInputApplication, SourceInputComponent, SourceInputLayoutIde
   SourceInputMemoryLayout, SourceInputMemoryMetadata, SourceInputMemoryQueries,
   SourceInputMemoryRecordBinding, SourceInputMemorySelection, SourceInputMemorySource } from "@tsonic/target-api/host";
 import type { SourcePresence } from "@tsonic/target-api/source";
-import { selectInlineSourceMember } from "../analysis/selected-source-member.js";
-import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "../memory-layout/facts.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../memory-layout/facts.js";
+import { selectInlineSourceMember } from "./selected-source-member.js";
+import { memoryLayoutsEqual, tsonicMemoryFieldLayoutFactKey } from "./memory-layout-facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./memory-layout-facts.js";
 import { isFinalizedMemoryLayoutFacts, readTsonicDataLayout, readTsonicMemoryFieldLayout,
-  readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "../memory-layout/readers.js";
-import { memoryTypePublicationSources, readTsonicMemoryType } from "../memory-layout/type-contract/facts.js";
-import type { MemorySourceProvenance, MemoryTypePublicationSources } from "../memory-layout/type-contract/provenance.js";
+  readTsonicMemoryLayout, readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./memory-readers.js";
+import { memoryTypePublicationSources, readTsonicMemoryType } from "./memory-type-facts.js";
+import type { MemorySourceProvenance, MemoryTypePublicationSources } from "./memory-provenance.js";
 import { selectTsonicMemoryFieldBindingFacts, selectTsonicMemoryRecordBindingFacts } from "../memory-layout/bindings/selection.js";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../memory-layout/bindings/facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./memory-binding-facts.js";
 
 export interface SourceCoreOriginalCallInput {
   originalApplication(application: ResolvedCallApplicationEvidence): SourceInputApplication;

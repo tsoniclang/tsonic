@@ -3,7 +3,7 @@ import type { MemorySourceCall } from "../../memory-layout/analysis-model.js";
 import { memoryDiagnostic, publishMemoryFact } from "../../memory-layout/analysis-context.js";
 import { selectedDataLayout } from "../../memory-layout/source-values.js";
 import { selectedAddressIntegerDomain } from "./address-integers.js";
-import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./facts.js";
+import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
 import { selectedRawOffsetInteger } from "./integers.js";
 
 export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {

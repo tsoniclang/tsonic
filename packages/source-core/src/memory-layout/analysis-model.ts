@@ -2,8 +2,8 @@ import type { Node } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
 import type { tsonicMemorySignatureIds } from "./declarations.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "./facts.js";
-import type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
+import type { TsonicFixedArrayFact } from "../host-input/fixed-array-facts.js";
 
 export interface MemorySourceCall {
   readonly selected: SelectedProviderSourceCall;

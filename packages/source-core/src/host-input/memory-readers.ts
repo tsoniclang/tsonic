@@ -1,9 +1,9 @@
 import type { ExtensionFactSubject, ReadonlySourceFactResolver, Symbol } from "@tsonic/tsts";
-import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
-import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
-import type { TsonicMemoryLayoutFact } from "./facts.js";
-import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readMemoryTypeMember, readTsonicMemoryType } from "./type-contract/facts.js";
-import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
+import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
+import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./memory-layout-facts.js";
+import type { TsonicMemoryLayoutFact } from "./memory-layout-facts.js";
+import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readMemoryTypeMember, readTsonicMemoryType } from "./memory-type-facts.js";
+import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "./fixed-array-facts.js";
 
 type MemoryFactReader = Pick<ReadonlySourceFactResolver, "getFact">;
 

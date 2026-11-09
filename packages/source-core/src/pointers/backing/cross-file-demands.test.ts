@@ -4,8 +4,8 @@ import { formatDiagnostics } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { assertMemoryDiagnostics, memoryCalls, memorySession, valueMemoryLayout } from "../../memory-layout/testing/fixtures.js";
-import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../../memory-layout/type-contract/facts.js";
-import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
+import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../../host-input/memory-type-facts.js";
+import { tsonicDataLayoutFactKey } from "../../host-input/memory-layout-facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingDemands } from "./demands.js";
 

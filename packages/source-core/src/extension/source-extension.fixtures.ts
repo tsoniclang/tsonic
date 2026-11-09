@@ -3,8 +3,8 @@ import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, cre
 import type { AstReader, CheckedSourceProgram, CompilerSession, ExtensionDiagnostic, ExtensionFactKey, ExtensionFactSubject, Node, ProviderDeclarationModel, ProviderModuleResolution, ReadonlySourceFactResolver, SourcePrimitiveFact, SourceFile } from "@tsonic/tsts";
 import { tsonicCoreLangModule, tsonicCoreTypesModule } from "../identity.js";
 import { createTsonicCoreSourceExtension } from "./source-extension.js";
-import { tsonicAttributeBuilderFactKey } from "../attributes/facts.js";
-import { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
+import { tsonicAttributeBuilderFactKey } from "../host-input/attribute-facts.js";
+import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
 import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
 

@@ -4,8 +4,8 @@ import type { Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
 import { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding, tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryTypeFactKey, tsonicDataLayoutFactKey } from "../../../public/facts.js";
 import { memoryCall } from "../../testing/fixtures.js";
 import { bindingSession, boundRecordSource } from "./fixtures.js";
-import { maximumMemoryLayoutDepth, snapshotMemoryLayout } from "../../facts.js";
-import type { TsonicValueMemoryLayoutFact } from "../../facts.js";
+import { maximumMemoryLayoutDepth, snapshotMemoryLayout } from "../../../host-input/memory-layout-facts.js";
+import type { TsonicValueMemoryLayoutFact } from "../../../host-input/memory-layout-facts.js";
 
 test("memory binding snapshots freeze exact relationships without freezing compiler handles", () => {
   const checked = bindingSession(boundRecordSource);

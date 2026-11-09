@@ -3,10 +3,10 @@ import type { Node, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicDataLayoutDescriptor, TsonicDataLayoutIdentity } from "@tsonic/target-api/provider";
 import { failTargetCompilerResourceLimit } from "@tsonic/target-api/artifacts";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
-import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
-import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
-import { snapshotFixedArrayFact, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
-import type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
+import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "../memory-layout/snapshots.js";
+import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "../memory-layout/dimensions.js";
+import { snapshotFixedArrayFact, fixedArrayFactsEqual } from "./fixed-array-facts.js";
+import type { TsonicFixedArrayFact } from "./fixed-array-facts.js";
 
 export interface TsonicDataLayoutFact extends TsonicDataLayoutDescriptor {
   readonly providerDeclaration: TsonicDataLayoutIdentity;

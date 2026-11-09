@@ -4,6 +4,7 @@ import type { SourceMemoryBindingInventory, SourceMemoryFieldBinding, SourceMemo
   SourceMemorySelection } from "../source-model/memory.js";
 import type { SourceStorageQueries } from "../source-model/program.js";
 import type { SourceStorageBindings } from "../source-model/storage.js";
+import { sourceLiteralKeyIdentity } from "../source-model/literals/key.js";
 import type { SourceMemoryContext } from "./source-memory-context.js";
 import type { SourceMemoryMetadataProduction } from "./source-memory-metadata.js";
 import type { SourceMemoryEnvironments } from "./source-storage/model/memory-environments.js";
@@ -86,6 +87,33 @@ export function createSourceMemoryBindingQueries(input: {
     if (layout.kind !== "resolved") return layout;
     if (layout.value.kind !== "value" || !equivalent(owner.value.value, layout.value.source))
       return unresolved("A memory record binding requires its exact closed Source record layout.");
+    if (source.facts.descriptors.freeParameters(owner.value.value).length !== 0)
+      return unresolved("A memory record binding requires its complete instantiated Source binder environment.");
+    const definition = source.facts.descriptors.definition(owner.value.value);
+    if (definition.kind === "refused") return definition;
+    if (definition.value.sum !== undefined || definition.value.type.kind !== "shape" ||
+      definition.value.type.calls.length !== 0 || definition.value.type.constructs.length !== 0)
+      return unresolved("A memory record binding requires a closed data record rather than a callable or unresolved Source domain.");
+    const inventory = source.facts.objects.correspondence(owner.value.value, owner.value.value, "read");
+    if (inventory.kind === "refused") return inventory;
+    if (inventory.value.kind !== "available" || inventory.value.indexes.length !== 0 ||
+      inventory.value.members.length !== layout.value.fields.length)
+      return unresolved("A memory record binding requires the complete canonical Source field inventory without open indexes.");
+    const declaredFields = new Map(layout.value.fields.map(field => [sourceLiteralKeyIdentity(field.member.key), field]));
+    if (declaredFields.size !== layout.value.fields.length)
+      return unresolved("A memory record layout cannot repeat one canonical Source field.");
+    for (const pair of inventory.value.members) {
+      if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+      if (pair.kind !== "present" || pair.source.optional || pair.source.read !== "property" ||
+        pair.source.readType === undefined || source.facts.descriptors.freeParameters(pair.source.readType).length !== 0)
+        return unresolved("A memory record binding retains every present closed physical Source field.");
+      const key = sourceLiteralKeyIdentity(pair.source.key);
+      const field = declaredFields.get(key);
+      if (field === undefined || !equivalent(pair.source.readType, field.value) ||
+        !field.selectedDeclarations.every(declaration => pair.source.declarations.includes(declaration)))
+        return unresolved("A memory record binding retains all original declarations of each canonical physical field.");
+      declaredFields.delete(key);
+    }
     const remaining = new Map(layout.value.fields.map(field => [field.occurrence, field]));
     if (remaining.size !== layout.value.fields.length || originalRecord.fields.length !== remaining.size)
       return unresolved("A memory record binding requires its complete independent original field inventory.");

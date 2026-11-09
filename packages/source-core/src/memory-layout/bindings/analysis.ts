@@ -1,8 +1,8 @@
 import type { MemorySourceAnalysis } from "../analysis-context.js";
 import type { MemorySourceCall } from "../analysis-model.js";
 import { memoryDiagnostic, publishMemoryFact } from "../analysis-context.js";
-import { tsonicMemoryFieldLayoutFactKey } from "../facts.js";
-import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./facts.js";
+import { tsonicMemoryFieldLayoutFactKey } from "../../host-input/memory-layout-facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../../host-input/memory-binding-facts.js";
 
 export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;

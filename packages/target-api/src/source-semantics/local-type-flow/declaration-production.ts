@@ -18,7 +18,9 @@ export function produceSourceDeclaredSlot(production: SourceDeclarationProductio
   input.assertNode(declaration);
   const annotation = ast.typeNode(declaration);
   let value: SourceProductionResult<SourceTypeEvidence>;
-  if (production.navigation.callableRoles(declaration).body && !ast.is.IsGetAccessorDeclaration(declaration) &&
+  if (ast.is.IsTypeParameterDeclaration(declaration)) {
+    value = reader.describeSyntax(declaration, bindings);
+  } else if (production.navigation.callableRoles(declaration).body && !ast.is.IsGetAccessorDeclaration(declaration) &&
     !ast.is.IsSetAccessorDeclaration(declaration) && production.navigation.callableRoles(declaration).signature) {
     value = production.callableHead(declaration, "body", bindings);
   } else if (ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) || ast.is.IsArrowFunction(declaration) ||

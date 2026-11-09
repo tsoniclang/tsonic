@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceCompilerComposition } from "../../../packages/host/dist/target/extensions.js";
 import { createSourceSemanticsVirtualModuleProvider } from "@tsonic/source-core/extension";
-import { tsonicMemoryLayoutFactKey } from "@tsonic/source-core/facts";
+import { tsonicMemoryLayoutFactKey } from "../../../packages/source-core/dist/host-input/memory-layout-facts.js";
 
 function registration(moduleSpecifier, addressWidth = 64) {
   return {

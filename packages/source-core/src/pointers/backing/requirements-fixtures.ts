@@ -6,7 +6,7 @@ import { createTsonicPointerBackingQueries } from "./requirements.js";
 
 import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixtures.js";
 
-import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
 
 const imports = `
 import { allocateptr, addressof, projectptr } from "@tsonic/core/lang.js";

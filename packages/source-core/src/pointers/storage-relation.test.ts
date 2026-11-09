@@ -3,7 +3,7 @@ import test from "node:test";
 import { createSourceStorageQuery } from "@tsonic/target-api/analysis";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { cleanMemorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
-import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";
 import { createTsonicPointerStorageRelation } from "./storage-relation.js";
 
 function fixture(text: string) {

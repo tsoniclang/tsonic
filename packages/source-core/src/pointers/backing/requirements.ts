@@ -1,8 +1,8 @@
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
-import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
-import type { TsonicRawMemoryOperationFact } from "../raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
+import type { TsonicRawMemoryOperationFact } from "../../host-input/raw-memory-facts.js";
 import { createPointerContainerQueries } from "./containers.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./source-forms.js";
 

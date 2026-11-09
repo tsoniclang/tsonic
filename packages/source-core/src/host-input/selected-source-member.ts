@@ -1,5 +1,5 @@
 import type { Node, SourceFileQueries, Symbol } from "@tsonic/tsts";
-import { unwrapParenthesizedExpression } from "./source-call.js";
+import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
 
 type SourceMemberSelectionInput = Pick<SourceFileQueries, "ast" | "checker">;
 

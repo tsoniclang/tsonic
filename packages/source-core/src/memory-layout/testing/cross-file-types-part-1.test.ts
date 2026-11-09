@@ -6,7 +6,7 @@ import { createTargetSourceProgram } from "@tsonic/target-api/source";
 
 import { readTsonicMemoryLayout, readTsonicMemoryType, selectTsonicRawLocationFacts, selectTsonicRawLocationOperation } from "../../public/facts.js";
 
-import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { resolveTsonicMemoryLayoutObservation } from "../../host-input/memory-readers.js";
 
 import { assertMemoryDiagnostics, memoryCall, memoryCalls, memorySession } from "./fixtures.js";
 

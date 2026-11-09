@@ -1,10 +1,10 @@
-import { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
+import { tsonicFixedArrayFactKey } from "../host-input/fixed-array-facts.js";
 import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
 import type { MemorySourceAnalysis } from "./analysis-context.js";
 import type { MemorySourceCall } from "./analysis-model.js";
 import { memoryLayoutDimensionsError } from "./dimensions.js";
-import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "./facts.js";
-import type { TsonicArrayMemoryLayoutFact } from "./facts.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "../host-input/memory-layout-facts.js";
+import type { TsonicArrayMemoryLayoutFact } from "../host-input/memory-layout-facts.js";
 import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryDescriptorKeys } from "./descriptor-declarations.js";
 import { readMemoryDescriptor } from "./descriptors.js";

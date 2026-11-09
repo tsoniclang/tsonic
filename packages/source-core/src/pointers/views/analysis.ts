@@ -3,7 +3,7 @@ import { selectedProviderCallMatches } from "../../analysis/source-call.js";
 import type { SelectedProviderSourceCall } from "../../analysis/source-call.js";
 import { tsonicCoreLangModule, tsonicCoreProviderVersion, tsonicCoreSourceExtensionId, tsonicCoreVirtualModulesProviderId } from "../../identity.js";
 import { tsonicPointerViewSignatureIds } from "./declarations.js";
-import { tsonicPointerViewFactKey } from "./facts.js";
+import { tsonicPointerViewFactKey } from "../../host-input/pointer-view-facts.js";
 
 export function analyzeTsonicPointerView(selected: SelectedProviderSourceCall, context: TsonicSourceFileAnalysisContext): void {
   const overload = (["required", "optional"] as const).find(kind => selectedProviderCallMatches(selected, {

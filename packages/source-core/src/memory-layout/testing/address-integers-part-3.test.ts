@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { test } from "node:test";
 
-import { readTsonicRawMemoryOperation } from "../readers.js";
+import { readTsonicRawMemoryOperation } from "../../host-input/memory-readers.js";
 
 import { memoryCall, memoryCalls, memorySession, memoryTestPrelude } from "./fixtures.js";
 

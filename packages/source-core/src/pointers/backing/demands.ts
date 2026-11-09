@@ -1,6 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
-import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
+import type { TsonicMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingQueries } from "./requirements.js";
 import type { TsonicPointerBackingIssue, TsonicPointerBackingOrigin } from "./requirements.js";

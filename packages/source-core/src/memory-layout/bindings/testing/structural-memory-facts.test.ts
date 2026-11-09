@@ -4,8 +4,8 @@ import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { createTsonicMemoryBindingFactsIndex, selectTsonicMemoryFieldBindingFacts,
   selectTsonicMemoryRecordBindingFacts, selectTsonicRawLocationFacts } from "../../../public/facts.js";
-import { tsonicRawMemoryOperationFactKey } from "../../../pointers/raw-memory/facts.js";
-import { tsonicMemoryTypeFactKey } from "../../type-contract/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../../host-input/raw-memory-facts.js";
+import { tsonicMemoryTypeFactKey } from "../../../host-input/memory-type-facts.js";
 import { memoryCall, memoryCalls } from "../../testing/fixtures.js";
 import { bindingSession, boundRecordSource } from "./fixtures.js";
 

@@ -4,7 +4,7 @@ import { createSourceStorageQuery } from "@tsonic/target-api/analysis";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { cleanMemorySession, memoryCalls } from "../memory-layout/testing/fixtures.js";
 import { createTsonicPointerStorageRelation } from "./storage-relation.js";
-import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";
 
 for (const [form, ending] of [["implicit fallthrough", ""], ["explicit bare return", "return;"]] as const) {
   test(`pointer storage preserves ${form} absence for both declaration and actual call`, () => {

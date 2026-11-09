@@ -9,7 +9,7 @@ import type {
 } from "@tsonic/target-api/analysis";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TsonicPointerBackingOrigin } from "./backing/requirements.js";
-import { tsonicRawMemoryOperationFactKey } from "./raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../host-input/raw-memory-facts.js";
 
 export type TsonicPointerStorageOperation = TsonicPointerBackingOrigin |
   Extract<PointerOperationFact, { readonly operation: "bind-pointer" | "project-pointer" }>;

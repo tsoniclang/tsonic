@@ -4,7 +4,7 @@ import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js"
 import { readSourceFact } from "../../analysis/source-call.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import { memoryProviderFieldType } from "./provider-fields.js";
-import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
+import { tsonicFixedArrayFactKey } from "../../host-input/fixed-array-facts.js";
 import { createMemoryDomainRelation } from "./relations.js";
 import type { DomainPart, MemoryRecordMember, MemoryRecordShape, MemoryTypeDomain } from "./model.js";
 

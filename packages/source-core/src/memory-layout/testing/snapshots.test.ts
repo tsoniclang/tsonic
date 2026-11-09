@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Node, Type } from "@tsonic/tsts";
-import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
-import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
-import type { TsonicValueMemoryLayoutFact } from "../facts.js";
+import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
+import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../../host-input/memory-layout-facts.js";
+import type { TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { captureDataLayoutRegistrations } from "../registrations.js";
 import { memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 

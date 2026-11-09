@@ -4,19 +4,19 @@ import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js"
 import { readSourceFact, type SelectedProviderSourceCall } from "../../analysis/source-call.js";
 import type { MemorySourceCall, MemoryTypeContracts } from "../analysis-model.js";
 import { publishMemoryFact } from "../analysis-context.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 import { isMemoryFieldDeclaration } from "../selectors.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./model.js";
-import type { MemorySourceProvenance } from "./provenance.js";
+import type { MemorySourceProvenance } from "../../host-input/memory-provenance.js";
 import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypePublicationSources, bindMemoryTypeMember, createMemoryTypeIdentity,
-  memoryTypeMember, tsonicMemoryTypeFactKey } from "./facts.js";
-import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "./facts.js";
+  memoryTypeMember, tsonicMemoryTypeFactKey } from "../../host-input/memory-type-facts.js";
+import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "../../host-input/memory-type-facts.js";
 import { createMemoryValueDomains } from "./values.js";
-import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
+import { tsonicRawMemoryOperationFactKey } from "../../host-input/raw-memory-facts.js";
 import { selectTsonicFixedArray } from "../../host-input/fixed-array-selection.js";
-import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
-import { tsonicMemoryRecordBindingFactKey } from "../bindings/facts.js";
+import type { TsonicFixedArrayFact } from "../../host-input/fixed-array-facts.js";
+import { tsonicMemoryRecordBindingFactKey } from "../../host-input/memory-binding-facts.js";
 
 interface MemoryTypeSelection {
   readonly type: Type;

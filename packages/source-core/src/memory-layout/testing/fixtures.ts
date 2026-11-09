@@ -5,7 +5,7 @@ import { createSourceSemanticsVirtualModuleProvider } from "../../extension/sema
 import { createTsonicCoreSourceExtension } from "../../extension/source-extension.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import type { TsonicDataLayoutRegistration } from "@tsonic/target-api/provider";
-import type { TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
+import type { TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../../host-input/memory-layout-facts.js";
 
 export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freeze({
   providerDeclaration: Object.freeze({

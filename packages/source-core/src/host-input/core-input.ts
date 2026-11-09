@@ -5,10 +5,10 @@ import type { SourceInputComponent, SourceInputCoreQueries,
   SourceInputOriginalSubjects, SourceInputPointerOperation, SourceInputPointerType } from "@tsonic/target-api/host";
 import type { TargetSourceSafetyProvider } from "@tsonic/target-api/provider";
 import { tsonicCoreProviderVersion, tsonicCoreTypesModule, tsonicCoreVirtualModulesProviderId } from "../identity.js";
-import { tsonicNativePointerOperationFactKey } from "../pointers/facts.js";
-import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
+import { tsonicNativePointerOperationFactKey } from "./native-pointer-facts.js";
+import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./raw-memory-facts.js";
 import { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
-import { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
+import { tsonicPointerViewFactKey } from "./pointer-view-facts.js";
 import { createSourceCoreMarkerInput, sourceCoreMarkerFacts } from "./marker-facts.js";
 import { createSourceCoreSafetyInput } from "./safety-input.js";
 import { createSourceCoreAttributeInput } from "./attribute-input.js";

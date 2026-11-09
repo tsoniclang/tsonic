@@ -1,7 +1,7 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
 import type { Node, Type } from "@tsonic/tsts";
-import { tsonicCoreSourceExtensionId } from "../../identity.js";
-import { exactRecord, opaqueSubject, recordsEqual } from "../../memory-layout/snapshots.js";
+import { tsonicCoreSourceExtensionId } from "../identity.js";
+import { exactRecord, opaqueSubject, recordsEqual } from "../memory-layout/snapshots.js";
 
 interface RawMemoryBase {
   readonly call: Node;
