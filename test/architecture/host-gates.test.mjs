@@ -484,6 +484,34 @@ test("mapped readonly inheritance uses actual aliased and generic inputs without
     });
 });
 
+test("named and inline imports share the complete mapped readonly decision matrix", () => {
+  const publication = "packages/host/src/publication/contract.ts";
+  const cases = [
+    { name: "readonly mapping over mutable input", modifier: "readonly", input: "{ value: number }", gates: [] },
+    { name: "readonly mapping over readonly input", modifier: "readonly", input: "{ readonly value: number }", gates: [] },
+    { name: "unmodified mapping over mutable input", modifier: "", input: "{ value: number }",
+      gates: ["contract-closure", "read-only-publication"] },
+    { name: "unmodified mapping over readonly input", modifier: "", input: "{ readonly value: number }", gates: [] },
+    { name: "readonly removal over readonly input", modifier: "-readonly", input: "{ readonly value: number }",
+      gates: ["contract-closure", "read-only-publication"] },
+    { name: "readonly removal over mutable input", modifier: "-readonly", input: "{ value: number }",
+      gates: ["contract-closure", "read-only-publication"] },
+  ];
+  assert.deepEqual(cases.map(row => row.name), ["readonly mapping over mutable input", "readonly mapping over readonly input",
+    "unmodified mapping over mutable input", "unmodified mapping over readonly input", "readonly removal over readonly input",
+    "readonly removal over mutable input"]);
+  for (const row of cases) {
+    const declaration = `export type Mapping<Value> = { ${row.modifier} [Key in keyof Value]: Value[Key] };`;
+    expect([[model, declaration], [publication, `
+      import type { Mapping } from "../model/contract.js";
+      export interface View { readonly data: Mapping<${row.input}>; }
+    `]], row.gates);
+    expect([[model, declaration], [publication, `
+      export interface View { readonly data: import("../model/contract.js").Mapping<${row.input}>; }
+    `]], row.modifier === "-readonly" ? ["contract-closure", "contract-closure", "read-only-publication", "read-only-publication"] : row.gates);
+  }
+});
+
 test("ordinary generic unknown and object constraints are type bounds rather than opaque contract payloads", () => {
   expect([[model, `
     export interface UnknownBound<Value extends unknown> { readonly value: Value; }

@@ -218,10 +218,12 @@ export const inspectHostStructure = input => {
   /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Node, import("../../../packages/tsts/dist/src/index.js").Node | undefined>} */
   const mappedDeclarations = new Map();
   /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
+  const argumentBearingType = node => ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node);
+  /** @param {import("../../../packages/tsts/dist/src/index.js").Node} node */
   const mappedDeclaration = node => {
     if (mappedDeclarations.has(node)) return mappedDeclarations.get(node);
     if (ast.is.IsMappedTypeNode(node)) return node;
-    if (!ast.is.IsTypeReferenceNode(node) && !ast.is.IsImportTypeNode(node)) return undefined;
+    if (!argumentBearingType(node)) return undefined;
     const queries = checker(node);
     const type = typeShape(node).getTypeFromTypeNode(node);
     const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
@@ -240,7 +242,7 @@ export const inspectHostStructure = input => {
     let child = node;
     let parent = ast.parent(child);
     while (parent !== undefined) {
-      if (ast.is.IsTypeReferenceNode(parent) && ast.typeArguments(parent).includes(child) && mappedDeclaration(parent) !== undefined) {
+      if (argumentBearingType(parent) && ast.typeArguments(parent).includes(child) && mappedDeclaration(parent) !== undefined) {
         let operand = child;
         while (ast.is.IsParenthesizedTypeNode(operand)) {
           const inner = ast.as.AsParenthesizedTypeNode(operand)?.Type;
@@ -290,9 +292,8 @@ export const inspectHostStructure = input => {
     const parameter = type => queries.getSymbolDeclarations(queries.getTypeSymbol(type))
       .some(declaration => declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration));
     const input = ast.is.IsMappedTypeNode(node) ? mappedKeySource(node) : undefined;
-    const argumentBearing = ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node);
     if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)) ||
-      argumentBearing && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
+      argumentBearingType(node) && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
     /** @type {Set<import("../../../packages/tsts/dist/src/index.js").Type>} */
     const active = new Set();
     /** @type {Map<import("../../../packages/tsts/dist/src/index.js").Type, boolean>} */
