@@ -49,6 +49,8 @@ test("shared Tsonic product imports conform to the declared architecture", () =>
   ));
   const classification = classifyFiles(sourceFiles.keys(), sharedLayerRules);
   const moduleAnalysis = buildTypeScriptModuleAnalysis(sourceFiles);
+  assert.equal(moduleAnalysis.modules.length, sourceFiles.size,
+    "the canonical graph inspects the complete selected live structural domain without product outputs");
   const architecture = evaluateArchitecture({
     sourceFiles,
     edges: moduleAnalysis.edges,
