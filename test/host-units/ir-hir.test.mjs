@@ -474,6 +474,10 @@ function fixtureChildren(node) {
     case "PropertySignature": case "PropertyDeclaration": return [...(node.modifiers?.nodes ?? []), node.name,
       ...(node.postfixToken === null ? [] : [node.postfixToken]), ...(node.type === null ? [] : [node.type]),
       ...(node.initializer === null ? [] : [node.initializer])];
+    case "ArrayBindingPattern": case "ObjectBindingPattern": return node.elements.nodes;
+    case "BindingElement": return [...(node.dotDotDotToken === null ? [] : [node.dotDotDotToken]),
+      ...(node.propertyName === null ? [] : [node.propertyName]), ...(node.name === null ? [] : [node.name]),
+      ...(node.initializer === null ? [] : [node.initializer])];
     case "ExpressionStatement": case "AwaitExpression": case "SpreadElement": case "ParenthesizedExpression":
     case "DeleteExpression": case "TypeOfExpression": case "VoidExpression": return [node.expression];
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": return [node.operand];
@@ -1602,6 +1606,40 @@ test("HIR checker diagnostic root keeps its full original code, evidence, relate
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
 });
 
+test("HIR diagnostic data preserves every closed code, severity, site and complete ordered payload rather than rendering or selecting messages", () => {
+  const codes = [{ kind: "host", name: "HOST_TEST_RECORD", rendered: "HOST_TEST_RECORD" },
+    { kind: "checker", number: 2345, rendered: "TS2345" },
+    { kind: "extension", number: 9901180, extensionCode: "SOURCE_CORE_MEMORY_TEST_RECORD", rendered: "TSEXT9901180" }];
+  const origin = { module: moduleIdentity, start: 0, length: 1, derived: [{ kind: "lowering", pass: "front" }] };
+  const sites = [{ kind: "source", origin }, { kind: "file", path: "/project/main.ts" }, { kind: "none" }];
+  const argumentsAll = [{ kind: "text", value: "original\ud800text" }, { kind: "integer", value: 18446744073709551617n },
+    { kind: "number", value: -0 }, { kind: "origin", value: origin }];
+  for (const code of codes) for (const severity of ["error", "warning", "suggestion"]) for (const site of sites)
+    for (const [count, reversed] of [[0, false], [1, false], [3, false], [3, true]]) {
+      const related = Array.from({ length: count }, (_, ordinal) => ({ site: sites[ordinal], code: codes[ordinal], message: `original related ${ordinal}` }));
+      const edits = Array.from({ length: count }, (_, ordinal) => ({ origin: { ...origin, start: ordinal }, replacement: `replacement${ordinal}` }));
+      const evidence = Array.from({ length: count }, (_, ordinal) => `evidence${ordinal}`);
+      if (reversed) { related.reverse(); edits.reverse(); evidence.reverse(); }
+      const value = moduleWith();
+      value.checkerDiagnostics = [{ code, severity, site, source: count === 0 ? null : "original source", evidence,
+        message: "exact original message", arguments: count === 0 ? [] : count === 1 ? [argumentsAll[0]] : argumentsAll,
+        related, fix: count === 0 ? null : { description: "original fix", edits } }];
+      const decoded = roundtrip(immutableTree(value), `diagnostic/${code.kind}/${severity}/${site.kind}/${count}/${reversed}`);
+      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+    }
+});
+
+test("HIR candidate conditional failures retain absent, unavailable and complete original diagnostic outcomes separately", () => {
+  const diagnostic = sourceDiagnostic(2, 1);
+  diagnostic.arguments = [{ kind: "text", value: "original conditional failure" }];
+  for (const conditionalFailure of [available(null), available(diagnostic), unavailable(), unavailable("checker-error"), unavailable("parameter-dependent")]) {
+    const value = moduleWith();
+    value.bodies[0].candidateLists = [{ id: 0, candidates: [candidate(7, { conditionalFailure })] }];
+    const decoded = roundtrip(immutableTree(value), `conditional/${conditionalFailure.kind}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+  }
+});
+
 for (const [name, mutate, expected] of [
   ["diagnostic-reference", value => { value.obligations[0].diagnostic = 1; }, "diagnostic root must name one existing diagnostic"],
   ["diagnostic-root-owner", value => { value.checkerDiagnostics[0].site.origin.length = 101; }, "diagnostic source range must be inside its exact root"],
@@ -2099,6 +2137,35 @@ test("HIR initializer write-fit keeps the actual separate default-argument value
     violation("obligation-complete", nodeSite(parameter.id), "write-fit obligation must retain its actual value and destination"),
     violation("obligation-complete", nodeSite(parameter.id), "root must retain each syntactically required obligation"),
   ]);
+});
+
+test("HIR a genuine nested binding default captures earlier parameters in the callable lexical environment", () => {
+  const { value, body, parameters } = functionModule(["required", "required"]);
+  const declaration = `D[${moduleIdentity};fn/p1/second]`;
+  const initializerBody = `B[${declaration};default-argument;0]`;
+  const initializer = nameExpression("first");
+  initializer.tsonic.resolution = { kind: "local", local: { body: body.body, local: 0 } };
+  const element = syntax("BindingElement", 0, { dotDotDotToken: null, propertyName: null,
+    name: syntax("Identifier", 0, { text: "second", tsonic: { core: absentCore(), role: "declaration-name",
+      declaration: { kind: "definition", definition: declaration } } }), initializer,
+    tsonic: { core: absentCore(), declaration: { kind: "definition", definition: declaration }, declaredType: available(0) } });
+  const omission = syntax("BindingElement", 0, { dotDotDotToken: null, propertyName: null, name: null, initializer: null,
+    tsonic: { core: absentCore(), declaration: null, declaredType: available(null) } });
+  parameters[1].name = syntax("ArrayBindingPattern", 0, { elements: nodeList([omission, element]),
+    tsonic: { core: absentCore(), declaration: null, declaredType: available(null) } });
+  numberSyntaxFixture(value.tree);
+  value.items.push({ definition: declaration, node: element.id });
+  value.items.sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
+  body.locals[0].declaration = bodySource(parameters[0].id);
+  body.locals[1].declaration = bodySource(parameters[1].id);
+  body.locals.push({ id: 2, declaration: bodySource(element.id), name: "second", role: "binding", checkerSlot: available(0), capturedFrom: null, mutable: false });
+  value.bodies.push({ body: initializerBody, owner: declaration, params: [], locals: [{ id: 0, declaration: bodySource(parameters[0].id), name: "p0",
+    role: "capture", checkerSlot: available(0), capturedFrom: { body: body.body, local: 0 }, mutable: false }], root: initializer,
+  captures: [{ body: body.body, local: 0 }], scopes: [], asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] });
+  value.bodies.find(candidate => candidate.body === bodyIdentity).nestedBodies = [initializerBody, body.body];
+  value.bodies.sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
+  const decoded = roundtrip(immutableTree(value), "nested binding default lexical capture and SDK-style omission");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
 });
 
 test("HIR complete diagnostic-root syntax coverage stops at genuine nested bodies and refuses substituted sibling obligations", () => {

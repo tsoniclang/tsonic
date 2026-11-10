@@ -154,17 +154,29 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
   }
   const parents = new Map<HirBody, HirBody | null>();
   for (const body of module.bodies) parents.set(body, inventory.bodyParents.get(body) ?? null);
+  const parameterOwners = new Map<HirNode, HirBody>();
   for (const body of module.bodies) for (const parameter of body.params) {
-    if (parameter.initializer === null) continue;
-    const initializer = inventory.bodies.get(parameter.initializer);
     const node = declarations.get(parameter.declaration);
-    if (initializer === undefined || initializer.owner !== parameter.declaration || node?.kind !== "Parameter" ||
-      node.initializer !== initializer.root || node.tsonic.initializer !== parameter.initializer || node.tsonic.parent !== body.owner) continue;
+    if (node?.kind !== "Parameter" || node.tsonic.parent !== body.owner) continue;
     const declaration = inventory.parents.get(node);
-    const identity = decodeBodyId(initializer.body);
-    if (identity.kind === "decoded" && identity.value.role === "default-argument" && declaration !== undefined &&
-      declaration !== null && declaration.tsonic !== null && "body" in declaration.tsonic && declaration.tsonic.body === body.body)
-      parents.set(initializer, body);
+    if (declaration !== undefined && declaration !== null && declaration.tsonic !== null && "body" in declaration.tsonic &&
+      declaration.tsonic.body === body.body) parameterOwners.set(node, body);
+  }
+  const parameterEnvironments = new Map<HirNode, HirBody>();
+  for (const node of inventory.nodes) {
+    const parent = inventory.parents.get(node);
+    const environment = parameterOwners.get(node) ?? (parent === undefined || parent === null ? undefined : parameterEnvironments.get(parent));
+    if (environment !== undefined) parameterEnvironments.set(node, environment);
+  }
+  for (const body of module.bodies) {
+    const identity = decodeBodyId(body.body);
+    if (identity.kind !== "decoded" || identity.value.role !== "default-argument") continue;
+    const node = inventory.parents.get(body.root);
+    if (node === undefined || node === null || declarations.get(body.owner) !== node ||
+      (node.kind !== "Parameter" && node.kind !== "BindingElement") || node.initializer !== body.root) continue;
+    if (node.kind === "Parameter" && node.tsonic.initializer !== body.body) continue;
+    const environment = parameterEnvironments.get(node);
+    if (environment !== undefined) parents.set(body, environment);
   }
   const children = new Map<HirBody | null, HirBody[]>();
   for (const [body, parent] of parents) {
