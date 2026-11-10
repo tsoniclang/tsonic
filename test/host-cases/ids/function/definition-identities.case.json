@@ -1,0 +1,1 @@
+{"name":"definition-identities","level":"function","rule":"Complete definition path, escaped names and nonzero sibling ordinals","input":"test/host-cases/ids/function/definition-identities.input.json","expected":"test/host-cases/ids/function/definition-identities.expected.json"}

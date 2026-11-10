@@ -1,0 +1,1 @@
+{"name":"deep-key","level":"function","rule":"One hundred thousand levels use an explicit key worklist, no host-stack recursion","input":"test/host-cases/ids/function/deep-key.input.json","expected":"test/host-cases/ids/function/deep-key.expected.json"}

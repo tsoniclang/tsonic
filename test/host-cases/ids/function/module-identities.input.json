@@ -1,0 +1,1 @@
+{"operation":"encode","values":[{"type":"module","input":{"root":"/p","path":"a/b.ts"}},{"type":"module","input":{"root":"/q","path":"a/b.ts"}},{"type":"module","input":{"root":"","path":""}},{"type":"module","input":{"root":"r","path":"%[];#/😀\ud800"}}]}
