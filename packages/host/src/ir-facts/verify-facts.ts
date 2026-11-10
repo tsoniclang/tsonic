@@ -1,5 +1,5 @@
 import type { Violation } from "../diag/contract.js";
-import type { DefId, NodeId, NodeRef } from "../ids/contract.js";
+import type { NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";

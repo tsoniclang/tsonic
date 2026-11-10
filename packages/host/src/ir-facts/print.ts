@@ -519,7 +519,7 @@ const callComponent = (writer: Writer, value: CallComponent): void => record(wri
 ]);
 const callEdge = (writer: Writer, value: CallEdge): void => record(writer, value.kind, [
   ["caller", () => identity(writer, "def", value.caller)], ["at", () => nodeRef(writer, value.at)],
-  ["callee", () => callCallee(writer, value.callee)], ["bindings", () => artifact(writer, value.bindings)],
+  ["callee", () => callCallee(writer, value)], ["bindings", () => artifact(writer, value.bindings)],
 ]);
 const callGraph = (writer: Writer, value: CallGraph): void => record(writer, "CallGraph", [
   ["definitions", () => sequence(writer, value.definitions, item => identity(writer, "def", item))], ["edges", () => sequence(writer, value.edges, item => callEdge(writer, item))],
@@ -614,9 +614,11 @@ const effectPaths = (writer: Writer, value: EffectPaths): void => {
 };
 const parameterSlot = (writer: Writer, value: ParameterSlot): void => record(writer, value.kind,
   value.kind === "receiver" ? [] : [["index", () => scalar(writer, value.index)]]);
-const callCallee = (writer: Writer, value: CallEdge["callee"]): void => record(writer, value.kind,
-  value.kind === "definition" ? [["definition", () => identity(writer, "def", value.definition)]]
+const callCallee = (writer: Writer, edge: CallEdge): void => {
+  const value = edge.callee;
+  record(writer, value.kind, value.kind === "definition" ? [["definition", () => identity(writer, "def", value.definition)]]
     : [["boundary", () => boundaryRef(writer, value.boundary)]]);
+};
 
 export const printFacts: PrintFacts = facts => finish(facts, bodyFacts);
 export const printSummary: PrintSummary = value => finish(value, summary);

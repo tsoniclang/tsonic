@@ -781,9 +781,16 @@ const callEdge: Decode<CallEdge> = (state, input) => then(label(state, input, ["
   then(fields(state, input, kind, ["caller","at","callee","bindings"]), values =>
     then(definition(state, values[0]), callerValue =>
     then(nodeRef(state, values[1]), atValue =>
-    then(callCallee(state, values[2]), calleeValue =>
-    then(artifact(state, values[3]), bindingsValue =>
-      accept<CallEdge>({ kind: kind, caller: callerValue, at: atValue, callee: calleeValue, bindings: bindingsValue })))))));
+    then(label(state, values[2], ["definition","open"]), calleeKind => {
+      if (calleeKind === "definition") return then(fields(state, values[2], "definition", ["definition"]), callee =>
+        then(definition(state, callee[0]), definitionValue =>
+        then(artifact(state, values[3]), bindingsValue =>
+          accept<CallEdge>({ kind, caller: callerValue, at: atValue, callee: { kind: "definition", definition: definitionValue }, bindings: bindingsValue }))));
+      return then(fields(state, values[2], "open", ["boundary"]), callee =>
+        then(boundaryRef(state, callee[0]), boundaryValue =>
+        then(artifact(state, values[3]), bindingsValue =>
+          accept<CallEdge>({ kind, caller: callerValue, at: atValue, callee: { kind: "open", boundary: boundaryValue }, bindings: bindingsValue }))));
+    })))));
 const callGraph: Decode<CallGraph> = (state, input) => then(fields(state, input, "CallGraph", ["definitions","edges","components"]), values =>
     then(sequence(state, values[0], definition), definitionsValue =>
     then(sequence(state, values[1], callEdge), edgesValue =>
@@ -827,7 +834,7 @@ const selfBinding: Decode<SelfBinding> = (state, input) => then(label(state, inp
 });
 const artifact: Decode<ArtifactBindings> = (state, input) => then(label(state, input, ["parametric","instantiated"]), kind => {
   switch (kind) {
-    case "parametric": return then(fields(state, input, "parametric", []), values =>
+    case "parametric": return then(fields(state, input, "parametric", []), () =>
       accept<ArtifactBindings>({ kind: "parametric" }));
     case "instantiated": return then(fields(state, input, "instantiated", ["bindings"]), values =>
     then(bindings(state, values[0]), bindingsValue =>
@@ -891,12 +898,12 @@ const projection: Decode<Projection> = (state, input) => then(label(state, input
     case "method-value": return then(fields(state, input, "method-value", ["member"]), values =>
     then(memberSelection(state, values[0]), memberValue =>
       accept<Projection>({ kind: "method-value", member: memberValue })));
-    case "element": return then(fields(state, input, "element", []), values =>
+    case "element": return then(fields(state, input, "element", []), () =>
       accept<Projection>({ kind: "element" }));
     case "index": return then(fields(state, input, "index", ["constant"]), values =>
     then(scalarBigint(state, values[0]), constantValue =>
       accept<Projection>({ kind: "index", constant: constantValue })));
-    case "deref": return then(fields(state, input, "deref", []), values =>
+    case "deref": return then(fields(state, input, "deref", []), () =>
       accept<Projection>({ kind: "deref" }));
   }
 });
@@ -936,17 +943,13 @@ const producer: Decode<Producer> = (state, input) => then(label(state, input, ["
     then(producerIdentity(state, values[0]), idValue =>
     then(nullable(state, values[1], path), pathValue =>
     then(nodeRef(state, values[2]), atValue =>
-    then(producerCallee(state, values[3]), calleeValue =>
-      accept<Producer>({ kind: "call-result", id: idValue, path: pathValue, at: atValue, callee: calleeValue }))))));
-  }
-});
-const producerCallee: Decode<Extract<Producer, { readonly kind: "call-result" }>["callee"]> = (state, input) => then(label(state, input, ["direct","indirect"]), kind => {
-  switch (kind) {
-    case "direct": return then(fields(state, input, "direct", ["definition"]), values =>
-    then(definition(state, values[0]), definitionValue =>
-      accept<Extract<Producer, { readonly kind: "call-result" }>["callee"]>({ kind: "direct", definition: definitionValue })));
-    case "indirect": return then(fields(state, input, "indirect", []), values =>
-      accept<Extract<Producer, { readonly kind: "call-result" }>["callee"]>({ kind: "indirect" }));
+    then(label(state, values[3], ["direct","indirect"]), calleeKind => {
+      if (calleeKind === "direct") return then(fields(state, values[3], "direct", ["definition"]), callee =>
+        then(definition(state, callee[0]), definitionValue =>
+          accept<Producer>({ kind: "call-result", id: idValue, path: pathValue, at: atValue, callee: { kind: "direct", definition: definitionValue } })));
+      return then(fields(state, values[3], "indirect", []), () =>
+        accept<Producer>({ kind: "call-result", id: idValue, path: pathValue, at: atValue, callee: { kind: "indirect" } }));
+    })))));
   }
 });
 const origins: Decode<Origins> = (state, input) => then(label(state, input, ["complete","open"]), kind => {
@@ -989,9 +992,9 @@ const refinementFact: Decode<RefinementFact> = (state, input) => then(label(stat
 });
 const escapeTarget: Decode<EscapeTarget> = (state, input) => then(label(state, input, ["return","throw","shared","parameter","receiver","capture","callback","suspension","external"]), kind => {
   switch (kind) {
-    case "return": return then(fields(state, input, "return", []), values =>
+    case "return": return then(fields(state, input, "return", []), () =>
       accept<EscapeTarget>({ kind: "return" }));
-    case "throw": return then(fields(state, input, "throw", []), values =>
+    case "throw": return then(fields(state, input, "throw", []), () =>
       accept<EscapeTarget>({ kind: "throw" }));
     case "shared": return then(fields(state, input, "shared", ["definition","path"]), values =>
     then(definition(state, values[0]), definitionValue =>
@@ -1038,7 +1041,7 @@ const errorReason: Decode<ErrorInvalidationReason> = (state, input) => then(labe
     case "incomplete-origins": return then(fields(state, input, "incomplete-origins", ["affected"]), values =>
     then(originsIdentity(state, values[0]), affectedValue =>
       accept<ErrorInvalidationReason>({ kind: "incomplete-origins", affected: affectedValue })));
-    case "inexact-accessor-footprint": return then(fields(state, input, "inexact-accessor-footprint", []), values =>
+    case "inexact-accessor-footprint": return then(fields(state, input, "inexact-accessor-footprint", []), () =>
       accept<ErrorInvalidationReason>({ kind: "inexact-accessor-footprint" }));
     case "open-constructor-domain": return then(fields(state, input, "open-constructor-domain", ["constructor"]), values =>
     then(originsIdentity(state, values[0]), constructorValue =>
@@ -1179,21 +1182,11 @@ const effectPaths: Decode<EffectPaths> = (state, input) => then(label(state, inp
 });
 const parameterSlot: Decode<ParameterSlot> = (state, input) => then(label(state, input, ["receiver","parameter"]), kind => {
   switch (kind) {
-    case "receiver": return then(fields(state, input, "receiver", []), values =>
+    case "receiver": return then(fields(state, input, "receiver", []), () =>
       accept<ParameterSlot>({ kind: "receiver" }));
     case "parameter": return then(fields(state, input, "parameter", ["index"]), values =>
     then(scalarNumber(state, values[0]), indexValue =>
       accept<ParameterSlot>({ kind: "parameter", index: indexValue })));
-  }
-});
-const callCallee: Decode<CallEdge["callee"]> = (state, input) => then(label(state, input, ["definition","open"]), kind => {
-  switch (kind) {
-    case "definition": return then(fields(state, input, "definition", ["definition"]), values =>
-    then(definition(state, values[0]), definitionValue =>
-      accept<CallEdge["callee"]>({ kind: "definition", definition: definitionValue })));
-    case "open": return then(fields(state, input, "open", ["boundary"]), values =>
-    then(boundaryRef(state, values[0]), boundaryValue =>
-      accept<CallEdge["callee"]>({ kind: "open", boundary: boundaryValue })));
   }
 });
 const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(state, input, ["argument","default","omitted","rest"]), kind => {

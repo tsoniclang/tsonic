@@ -194,6 +194,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyFacts(facts, supplied.mir, supplied.context), [], "complete no-vector body");
     equal(product.verifySummary(retained, supplied.context), [], "complete no-vector summary");
     equal(product.verifyMetadata(abi(64), supplied.context), [], "complete no-vector metadata");
+    for (const target of [{ kind: "body", instance: facts.instance }, { kind: "summary", summary: retained.key }, { kind: "metadata", metadata: abi(64).key }]) {
+      supplyScopes(supplied, target, null);
+    }
+    const message = "The complete binding-scope occurrence inventory must resolve for this exact verification root.";
+    equal(product.verifyFacts(facts, supplied.mir, supplied.context), [violation("bindings-complete", bodySite(), message)], "unresolved body inventory is not known empty");
+    equal(product.verifySummary(retained, supplied.context), [violation("bindings-complete", { kind: "summary", summary: retained.key }, message)], "unresolved summary inventory is not known empty");
+    equal(product.verifyMetadata(abi(64), supplied.context), [violation("bindings-complete", { kind: "metadata", metadata: abi(64).key }, message)], "unresolved metadata inventory is not known empty");
   });
   const malformed = (parse, text, offset, expected, found, label, line = 1, column = offset + 1) => {
     equal(parse(text), { kind: "invalid-text", offset, line, column, expected, found }, label);
@@ -440,6 +447,31 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A live interval contains ordered actual statement or terminator positions in its own block."],
   ];
   for (const [rule, amend, site, message] of basicCases) await factOpposite(rule, unchanged, amend, [violation(rule, site, message)]);
+  for (const [field, rule, message] of [["producer", "producer-resolves", "A bound alternative must reference an actual producer in its own relational arena."],
+    ["context", "context-resolves", "A bound alternative must retain its actual value context in the same arena."]]) {
+    await factOpposite(`a bound alternative retains its actual ${field} reference`, unchanged,
+      input => { input.arena.boundProducers[0][field] = 99; }, [
+        violation(rule, arenaSite("bound-producer", "producer", 0), message),
+        violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 0), "Producer, complete type bindings and value context remain one canonical correlated alternative."),
+      ]);
+  }
+  await factOpposite("a value context retains its actual receiver origin", unchanged,
+    input => { input.arena.contexts[0].receiver = 99; }, [
+      violation("origins-resolves", arenaSite("context", "context", 0), "A receiver origin must resolve in its own relational arena."),
+      violation("context-arguments-total", arenaSite("context", "context", 0), "A value context retains every actual parameter and the actual receiver slot."),
+    ]);
+  await factOpposite("a value context retains its actual parameter origins", unchanged,
+    input => { input.arena.contexts[0].arguments = [99]; }, [
+      violation("origins-resolves", arenaSite("context", "context", 0), "Every parameter-ordered argument must reference origins in its own arena."),
+      violation("context-arguments-total", arenaSite("context", "context", 0), "A value context retains every actual parameter and the actual receiver slot."),
+    ]);
+  for (const field of ["subject", "owner"]) await factOpposite(`a boundary retains its actual ${field} producer`, unchanged,
+    input => { input.arena.boundaries[0][field] = 99; },
+    [violation("producer-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer.")]);
+  await factOpposite("an open origin retains its actual nonempty boundary reference", input => {
+    input.arena.origins[1] = { ...input.arena.origins[1], kind: "open", boundaries: [0] };
+  }, input => { input.arena.origins[1].boundaries = [99]; },
+  [violation("boundary-resolves", arenaSite("origins", "origins", 1), "Every open-origin boundary must resolve in its own arena.")]);
   for (const field of ["mir", "tir"]) await factOpposite(`body-instance-exact ${field} identity`, unchanged,
     (input, supplied) => { supplied[field].body = otherBody; }, [violation("body-instance-exact", bodySite(), "Facts, TIR and MIR retain one exact body and complete binding environment.")]);
   await factOpposite("actual checked body declaration must exist", unchanged, (input, supplied) => { supplied.context.definitionExists = selected => selected !== definitions.f; },
@@ -592,7 +624,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     implementation: definitions.f, body: instance(), regions: [] }]; };
   await factOpposite("constructor body cannot borrow another complete artifact environment", actualConstruction,
     input => { input.origins.constructions[0].body.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
-    [violation("cross-owner-qualified", nodeSite(1), "A construction retains its actual selected body, implementation owner and complete artifact environment.")]);
+    [violation("cross-owner-qualified", nodeSite(1), "A construction retains its actual selected body, implementation owner and complete artifact environment."),
+      violation("bindings-complete", nodeSite(1), "Every inline binding-vector occurrence retains its actual canonical scope in declared field order.")]);
   await factOpposite("constructor implementation retains the actual selected body owner", actualConstruction,
     input => { input.origins.constructions[0].implementation = definitions.other; },
     [violation("cross-owner-qualified", nodeSite(1), "A construction retains its actual selected body, implementation owner and complete artifact environment.")]);
@@ -911,7 +944,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   await factOpposite("activation validates but never replaces the canonical API environment", actualDependentActivation,
     input => { input.origins.invocations[0].alternatives[0].resolution.activation = { body: ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 }), bindings: parametric() }; },
-    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment."),
+      violation("bindings-complete", bodySite(), "The canonical binding-scope inventory has no extra inline vector occurrence.")]);
   await factOpposite("activation retains the actual selected body identity", actualDependentActivation,
     (input, supplied) => { supplied.bodyRows.get(input.origins.invocations[0].alternatives[0].resolution.activation.body).body = otherBody; },
     [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
@@ -1349,6 +1383,16 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     (input, supplied) => { const scopes = clone(supplied.scopeRows.body); scopes[2] = scopedMember().scope;
       supplyScopes(supplied, { kind: "body", instance: input.instance }, scopes); },
     [violation("bindings-complete", nodeSite(1), bindingMessage)]);
+  await factOpposite("callback activation and construction artifacts retain every nested occurrence", (input, supplied) => {
+    actualDependentActivation(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0]; const argument = alternative.arguments[0];
+    input.origins.callbacks = [{ node: 2, argument: clone(argument), timing: "synchronous", rejection: null, inputs: [] }];
+    input.origins.activations = [{ node: 3, definition: definitions.callee, context: 0, caller: 0, entry: clone(argument) }];
+    input.origins.constructions = [{ node: 4, root: nodeRef(4), allocation: nodeRef(3), implementation: definitions.callee,
+      body: clone(alternative.resolution.activation), regions: [] }];
+    const scope = supplied.scopeRows.body[3]; supplied.scopeRows.body.push(scope, scope, scope);
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body.slice(0, -1)); },
+  [violation("bindings-complete", nodeSite(4), missingScopeMessage)]);
   await metadataOpposite("the selected field root has its own complete scope inventory", (input, supplied) => {
     withField(input, supplied); input.kind = "memory-field"; input.root = 0;
   }, input => { input.root = 99; },
@@ -1686,11 +1730,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await arenaTextCase("item-owned mapped member with genuine absent primary and read/write slots", "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
   }
-  for (const accessor of ["getter", "setter"]) {
-    const selected = member(); selected.decision[accessor] = { declaration: definitions.callee, role: "api-signature", signature: 1, body };
+  for (const accessor of ["getter", "setter"]) for (const role of ["advertised", "api-signature", "api-body"]) {
+    const selected = member(); selected.decision[accessor] = { declaration: definitions.callee, role, signature: 1, body };
     const expected = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`])
-      .replace(`${accessor}=null`, `${accessor}=HirCallableEndpoint(declaration=def:"${definitions.callee}", role="api-signature", signature=sig:1, body=body:"${body}")`);
-    await arenaTextCase(`member ${accessor} endpoint retains its actual body identity`, "projections", [{ id: 0, parent: null, projection: { kind: "method-value", member: selected } }],
+      .replace(`${accessor}=null`, `${accessor}=HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=body:"${body}")`);
+    await arenaTextCase(`member ${accessor}/${role} endpoint retains its actual body identity`, "projections", [{ id: 0, parent: null, projection: { kind: "method-value", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=method-value(member=${expected}))`]);
   }
   for (const timing of ["synchronous", "deferred"]) {
