@@ -94,7 +94,7 @@ export const calleeData = (callee: ResolvedCallee | null): KeyData => callee ===
     callee.decision.completion.yielded, callee.decision.completion.sent],
   callee.decision.result,
   callee.activation === null ? null : [callee.activation.body, artifactData(callee.activation.bindings)],
-  callee.captures.map(capture => [capture.body, capture.local]),
+  Array.from(callee.captures, capture => capture === undefined ? null : [capture.body, capture.local]),
 ];
 
 const memberKeyData = (key: MemberKey): KeyData => {

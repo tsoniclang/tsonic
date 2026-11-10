@@ -2618,8 +2618,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
             ? "An escape retains its actual declaration parameter index." : "A receiver escape retains an actual receiver slot.")]);
     }
   }
-  await factOpposite("a fact type cannot resolve to an in-range missing term", input => {
+  await factOpposite("a fact type cannot resolve to an in-range missing term", (input, supplied) => {
     input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: { metadata: metadata().key, layout: 0 }, context: 0, bindings: emptyBindings() }];
+    supplied.scopeRows.body.push(emptyScope());
   }, (input, supplied) => { supplied.types.terms = new Array(1); },
   [violation("type-resolves", nodeSite(1), "A fact type resolves in the actual supplied type table.")]);
   for (const field of ["read", "write", "result", "completion", "yielded", "sent", "omitted"]) {
@@ -2888,6 +2889,34 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
           "A selected accessor retains its actual captured storage locations.")] : []),
           violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage)]);
     }
+    for (const missing of [0, 1]) await factOpposite(`selected ${kind} missing capture slot${missing} in actual ${reversed ? "reverse" : "forward"} order`,
+      (input, supplied) => capturedAccessor(kind, reversed, input, supplied), input => {
+        delete input.arena.projections[2].projection.member[kind].captures[missing];
+      }, [violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
+        violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage)]);
+    await factOpposite(`selected field ${kind} missing capture vector in actual ${reversed ? "reverse" : "forward"} order`,
+      (input, supplied) => {
+        capturedAccessor(kind, reversed, input, supplied); input.arena.projections[2].projection.kind = "field";
+      }, input => { input.arena.projections[2].projection.member[kind].captures = new Array(2); }, [
+        violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
+        violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
+        violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage),
+      ]);
+    for (const target of ["input", "canonical"]) await metadataOpposite(`selected field ${kind} missing ${target} capture vector in actual ${reversed ? "reverse" : "forward"} order`,
+      (input, supplied) => {
+        withField(input, supplied); const selected = bodyFacts(); capturedAccessor(kind, reversed, selected, supplied);
+        input.fields[0].member = clone(selected.arena.projections[2].projection.member);
+        supplied.scopeRows.metadata = [emptyScope(), emptyScope(), emptyScope()];
+      }, (input, supplied) => {
+        const selected = target === "input" ? input : supplied.metadataRows.get(definitions.layout);
+        selected.fields[0].member[kind].captures = new Array(2);
+      }, [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+        ...(target === "input" ? [
+          violation("member-correspondence-exact", metadataSite(), "A selected accessor retains its actual captured storage locations."),
+          violation("member-correspondence-exact", metadataSite(), "A selected accessor retains its actual captured storage locations."),
+          violation("member-correspondence-exact", metadataSite(), accessorCaptureMessage),
+        ] : []),
+      ]);
   }
 
   await suite.test("every numeric identity decoder rejects a different prefix, string payload and bare scalar at its actual field", () => {
