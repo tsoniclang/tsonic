@@ -77,6 +77,7 @@ export interface IsolationDeps {
   readonly discard: (directory: string) => void;
   readonly enumerate: (directory: string) => readonly string[];
   readonly inspect: (root: string, files: readonly string[]) => readonly GateFinding[];
+  readonly graph: (files: ReadonlyMap<string, string>) => readonly ImportEdge[];
   readonly run: (directory: string, config: string) => CompilerResult;
 }
 
@@ -84,6 +85,7 @@ export interface IsolationInputs {
   readonly root: string;
   readonly sourceFiles: readonly string[];
   readonly interfaceSources: readonly string[];
+  readonly declarationSources: readonly string[];
   readonly outputDirectory: string;
 }
 
@@ -101,6 +103,7 @@ export interface IsolationReport {
   readonly expectedInventory: readonly string[];
   readonly loadedInventory: readonly string[];
   readonly provenance: readonly DeclarationProvenance[];
+  readonly sourceInventory: readonly { readonly path: string; readonly hash: string }[];
 }
 
 export type CompileIsolated = (deps: IsolationDeps, module: HostModule, inputs: IsolationInputs) => Promise<IsolationReport>;

@@ -49,7 +49,8 @@ export function checkCoverage(deps, productFiles, rawV8) {
       if ((ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) ||
         ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) || ast.is.IsSetAccessorDeclaration(node)) && ast.body(node) !== undefined) {
         const range = ast.authoredRange(node);
-        if (range.kind === "authored") functions.push(range);
+        const body = ast.authoredRange(ast.body(node));
+        if (range.kind === "authored" && body.kind === "authored") functions.push({ ...range, body: body.start });
       }
       ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
     };
@@ -66,7 +67,11 @@ export function checkCoverage(deps, productFiles, rawV8) {
       script.functions.every(fn => fn.ranges.length > 0 && (fn.isBlockCoverage || fn.ranges[0].count === 0) && fn.ranges.every(range =>
         Number.isSafeInteger(range.startOffset) && Number.isSafeInteger(range.endOffset) && Number.isSafeInteger(range.count) &&
         range.count >= 0 && range.startOffset >= 0 && range.endOffset > range.startOffset && range.endOffset <= projection.text.length)));
-    if (!valid || functions.some(fn => !projected.some(({ script }) => script.functions.some(actual => actual.ranges[0].endOffset === fn.end)))) {
+    const entry = (fn, index) => index === 0 && fn.functionName === "" && fn.ranges[0]?.startOffset === 0 && fn.ranges[0]?.endOffset === text.length;
+    const runtime = valid ? projected.flatMap(({ script }) => script.functions.filter((fn, index) => !entry(fn, index))) : [];
+    const matches = (fn, actual) => actual.ranges[0].endOffset === fn.end &&
+      actual.ranges[0].startOffset >= fn.start && actual.ranges[0].startOffset <= fn.body;
+    if (!valid || functions.some(fn => !runtime.some(actual => matches(fn, actual)))) {
       add("coverage-empty");
       reports.push(Object.freeze({ path: canonical, sourceHash: hash, status: "missing", lines: 0, branches: 0, functions: 0 }));
       continue;
@@ -78,10 +83,19 @@ export function checkCoverage(deps, productFiles, rawV8) {
     });
     const branches = new Map();
     const endpoints = new Set();
+    const roots = new Map();
     for (const { script } of projected) for (const fn of script.functions) {
       for (const range of fn.ranges) { endpoints.add(range.startOffset); endpoints.add(range.endOffset); }
       for (const range of fn.ranges.slice(1)) branches.set(`${range.startOffset}:${range.endOffset}`, range);
     }
+    for (const actual of runtime) {
+      const range = actual.ranges[0];
+      const key = `${range.startOffset}:${range.endOffset}:${actual.functionName}`;
+      const authored = functions.find(fn => matches(fn, actual));
+      const previous = roots.get(key);
+      roots.set(key, { start: authored?.start ?? range.startOffset, covered: previous?.covered === true || range.count > 0 });
+    }
+    if (projected.every(({ script }) => !script.functions.some((fn, index) => entry(fn, index) && fn.ranges[0].count > 0))) add("coverage-line");
     let missingBranches = 0;
     for (const range of branches.values()) if ([...endpoints].some(offset => offset >= range.startOffset && offset < range.endOffset && !executedAt(offset))) {
       missingBranches += 1;
@@ -95,15 +109,12 @@ export function checkCoverage(deps, productFiles, rawV8) {
       if (!executedAt(statement.start)) { missingLines.add(line); add("coverage-line", statement.start); }
     }
     let missingFunctions = 0;
-    for (const fn of functions) {
-      const entries = projected.flatMap(({ script }) => script.functions.filter(actual => actual.ranges[0].endOffset === fn.end));
-      if (!entries.some(entry => entry.ranges[0].count > 0)) { missingFunctions += 1; add("coverage-function", fn.start); }
-    }
+    for (const fn of roots.values()) if (!fn.covered) { missingFunctions += 1; add("coverage-function", fn.start); }
     const own = findings.filter(finding => finding.path === canonical);
     reports.push(Object.freeze({ path: canonical, sourceHash: hash, status: own.length === 0 ? "covered" : "uncovered",
       lines: lines.size === 0 ? 100 : 100 * (lines.size - missingLines.size) / lines.size,
       branches: branches.size === 0 ? 100 : 100 * (branches.size - missingBranches) / branches.size,
-      functions: functions.length === 0 ? 100 : 100 * (functions.length - missingFunctions) / functions.length }));
+      functions: roots.size === 0 ? 100 : 100 * (roots.size - missingFunctions) / roots.size }));
   }
   if (productFiles.length === 0) findings.push(Object.freeze({ code: "coverage-empty", path: "", line: 1, column: 1 }));
   return Object.freeze({ status: findings.length === 0 ? "passed" : "failed", files: Object.freeze(reports),

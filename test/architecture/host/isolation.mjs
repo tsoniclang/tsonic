@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { hostCatalogue, publicEntry, sourceOwner } from "./catalogue.mjs";
 import { createInspectionDeps, inspectHost } from "./inspect.mjs";
+import { parseSources, readImportGraph } from "./import-graph.mjs";
 
 export function isolationDeps(toolingRoot, quarantineRoots) {
   const inspectionDeps = createInspectionDeps(quarantineRoots);
@@ -31,6 +32,7 @@ export function isolationDeps(toolingRoot, quarantineRoots) {
     writeText: (path, text) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text, { flag: "wx" }); },
     fresh: directory => { mkdirSync(directory, { recursive: true }); return mkdtempSync(resolve(directory, "module-")); },
     discard: directory => rmSync(directory, { recursive: true }), enumerate,
+    graph: files => readImportGraph(parseSources(files), files),
     inspect: (root, files) => inspectHost(inspectionDeps, { root, files, catalogue: hostCatalogue, loadedFiles: [], configurations: [] }),
     run: (directory, config) => {
       const result = spawnSync(process.execPath, [compiler, "--project", config, "--listFiles", "--pretty", "false"], {
@@ -74,16 +76,27 @@ export async function compileIsolated(deps, module, inputs) {
       !inputs.interfaceSources.includes(dependency.contract)) throw new Error("Only original permitted public interface sources are admitted.");
     original(path);
   }
+  const production = [...inputs.declarationSources].sort();
+  if (new Set(production).size !== production.length || inputs.interfaceSources.some(path => !production.includes(path)))
+    throw new Error("Distinct complete explicit declaration-production sources are required.");
+  for (const path of production) {
+    const dependency = sourceOwner(hostCatalogue, path);
+    if (dependency === undefined || dependency === module || !permitted.has(dependency.name) || !/\.ts$/u.test(path) || path.endsWith(".d.ts"))
+      throw new Error("Declaration production uses only original permitted dependency-owner sources.");
+    original(path);
+  }
   if (!inputs.outputDirectory.startsWith(".temp/") || inputs.outputDirectory.split("/").some(part => ["", ".", ".."].includes(part)))
     throw new Error("Isolation stages belong in an owned .temp directory.");
   const output = resolve(root, inputs.outputDirectory);
   const stage = deps.fresh(output);
   if (!deps.canonical(stage).startsWith(`${root}${sep}`)) throw new Error("Isolation stage escaped its source root.");
   const diagnostics = [];
-  const sourceText = new Map([...sources, ...inputs.interfaceSources].map(path => [path, deps.readText(original(path))]));
+  const sourceText = new Map([...sources, ...production].map(path => [path, deps.readText(original(path))]));
   const expectedInventory = new Set();
   const loadedInventory = new Set();
   const provenance = [];
+  const sourceInventory = Object.freeze([...sourceText].map(([path, text]) => Object.freeze({ path: original(path),
+    hash: createHash("sha256").update(text).digest("hex") })));
   const findings = [];
   const sdk = module.name === "front" || inputs.interfaceSources.includes(hostCatalogue.find(candidate => candidate.name === "front").contract);
   const platform = [...deps.platform.language,
@@ -91,7 +104,7 @@ export async function compileIsolated(deps, module, inputs) {
     ...(sdk ? deps.platform.sdk : [])];
   const report = status => Object.freeze({ status, diagnostics: Object.freeze(diagnostics), findings: Object.freeze(findings),
     expectedInventory: Object.freeze([...expectedInventory].sort()), loadedInventory: Object.freeze([...loadedInventory].sort()),
-    provenance: Object.freeze(provenance) });
+    provenance: Object.freeze(provenance), sourceInventory });
   const compile = (directory, files, outDir) => {
     const config = resolve(directory, "tsconfig.json");
     const node = sdk || ["driver", "orchestration", "cli"].includes(module.kind);
@@ -118,17 +131,31 @@ export async function compileIsolated(deps, module, inputs) {
     return result.status === 0 && findings.length === 0;
   };
   try {
-    const originalFindings = deps.inspect(root, [...sources, ...inputs.interfaceSources]);
+    const originalFindings = deps.inspect(root, [...sources, ...production]);
     findings.push(...originalFindings);
+    if (findings.length > 0) return report("failed");
+    const originalGraph = deps.graph(sourceText);
+    for (const edge of originalGraph) if (sources.includes(edge.source) && edge.target !== null &&
+      !sources.includes(edge.target) && !inputs.interfaceSources.includes(edge.target))
+      findings.push(Object.freeze({ code: "forbidden-import", path: edge.source, line: edge.line, column: edge.column }));
     if (findings.length > 0) return report("failed");
     const interfaces = resolve(stage, "interface-source");
     const emitted = resolve(stage, "interface-declarations");
     const staged = resolve(stage, "isolated");
-    for (const path of inputs.interfaceSources) deps.writeText(resolve(interfaces, path), sourceText.get(path));
+    const reachable = (roots, graph) => {
+      const closure = new Set(roots);
+      for (const path of closure) for (const edge of graph) if (edge.source === path && edge.target !== null) closure.add(edge.target);
+      return [...closure].sort();
+    };
+    const productionGraph = originalGraph.filter(edge => production.includes(edge.source));
+    if (JSON.stringify(reachable(inputs.interfaceSources, productionGraph)) !== JSON.stringify(production))
+      throw new Error("Declaration-production inventory must equal the explicit public roots' actual implementation closure.");
+    for (const path of production) deps.writeText(resolve(interfaces, path), sourceText.get(path));
+    let publicDeclarations = [];
     if (inputs.interfaceSources.length > 0) {
-      if (!compile(interfaces, inputs.interfaceSources, emitted)) return report("failed");
+      if (!compile(interfaces, production, emitted)) return report("failed");
       const actual = deps.enumerate(emitted).map(path => relative(emitted, path).split(sep).join("/")).sort();
-      const expected = inputs.interfaceSources.map(path => path.replace(/\.ts$/u, ".d.ts")).sort();
+      const expected = production.map(path => path.replace(/\.ts$/u, ".d.ts")).sort();
       if (JSON.stringify(actual) !== JSON.stringify(expected)) {
         findings.push(Object.freeze({ code: "loaded-source-escape", path: emitted, line: 1, column: 1 }));
         return report("failed");
@@ -136,10 +163,12 @@ export async function compileIsolated(deps, module, inputs) {
       const declarationFindings = deps.inspect(emitted, actual);
       findings.push(...declarationFindings);
       if (findings.length > 0) return report("failed");
+      const declarations = new Map(actual.map(path => [path, deps.readText(resolve(emitted, path))]));
+      publicDeclarations = reachable(inputs.interfaceSources.map(path => path.replace(/\.ts$/u, ".d.ts")), deps.graph(declarations));
     }
     const declarations = [];
-    for (const path of inputs.interfaceSources) {
-      const declaration = path.replace(/\.ts$/u, ".d.ts");
+    for (const declaration of publicDeclarations) {
+      const path = declaration.replace(/\.d\.ts$/u, ".ts");
       const bytes = deps.readText(resolve(emitted, declaration));
       deps.writeText(resolve(staged, declaration), bytes);
       declarations.push(declaration);

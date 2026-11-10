@@ -1,13 +1,13 @@
-import { SymbolFlagsAlias } from "../../../packages/tsts/dist/src/index.js";
 import { sourceOwner } from "./catalogue.mjs";
-import { quarantineReference } from "./import-graph.mjs";
+import { publicCallables, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = Object.freeze(["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = Object.freeze(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
 const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
-const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral", "RawImportPreparation"]);
+const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
 const sdkPayloads = Object.freeze({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
+  const publicValues = publicCallables(source, files, catalogue);
   const owner = path => sourceOwner(catalogue, path);
   const findings = [];
   const add = (code, path, node) => {
@@ -86,19 +86,45 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (file === undefined) throw new Error("An architecture reference requires its original source file.");
     return source.getSourceFileQueries(file).checker;
   };
-  const symbol = node => {
-    if (node === undefined) return undefined;
-    const queries = checker(node);
-    let selected = queries.getSymbolAtLocation(node);
-    const active = new Set();
-    while (selected !== undefined && (selected.Flags & SymbolFlagsAlias) !== 0) {
-      if (active.has(selected)) throw new Error("An architecture alias chain cannot cycle.");
-      active.add(selected);
-      const original = queries.getAliasedSymbol(selected);
-      if (original === undefined || !queries.getSymbolDeclarations(original).some(node => node !== undefined)) break;
-      selected = original;
-    }
-    return selected;
+  const symbol = node => sourceSymbol(source, node);
+  const canonicalSyntax = node => {
+    const file = ast.getSourceFile(node);
+    const path = file === undefined ? "" : ast.getFileName(file).slice("/host-gate/".length);
+    const module = owner(path);
+    return module?.name === "ir-hir" && [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path);
+  };
+  const phaseDeclaration = node => node !== undefined && canonicalSyntax(node) && ast.is.IsInterfaceDeclaration(node) &&
+    ast.text(ast.name(node)) === "Phase" && ast.typeParameters(node).length === 0 && ast.heritageElements(node, "extends").length === 0 &&
+    ast.members(node).every(member => ast.is.IsPropertySignatureDeclaration(member) && ast.hasModifierKind(member, "readonly") &&
+      ast.questionToken(member) === undefined && memberName(ast.name(member)) !== undefined);
+  const phaseSlotObject = node => {
+    const union = ast.parent(node);
+    const slot = ast.parent(union);
+    const phase = ast.parent(slot);
+    if (!phaseDeclaration(phase) || !ast.is.IsUnionTypeNode(union) || !ast.is.IsPropertySignatureDeclaration(slot) ||
+      !ast.hasModifierKind(slot, "readonly") || ast.typeNode(slot) !== union || memberName(ast.name(slot)) === undefined) return false;
+    const arms = ast.children(union);
+    return arms.length === 2 && arms.includes(node) && arms.some(arm => ast.is.IsLiteralTypeNode(arm) &&
+      ast.kindName(ast.as.AsLiteralTypeNode(arm).Literal) === "KindNullKeyword");
+  };
+  const phaseSlotSelection = node => {
+    const slot = ast.parent(node);
+    const record = ast.parent(slot);
+    if (!canonicalSyntax(node) || !ast.is.IsPropertySignatureDeclaration(slot) || !ast.hasModifierKind(slot, "readonly") ||
+      ast.questionToken(slot) !== undefined || memberName(ast.name(slot)) !== "tsonic" ||
+      ast.typeNode(slot) !== node || !ast.is.IsInterfaceDeclaration(record)) return false;
+    const access = ast.as.AsIndexedAccessTypeNode(node);
+    if (!ast.is.IsTypeReferenceNode(access.ObjectType) || ast.typeArguments(access.ObjectType).length !== 0 || !ast.is.IsLiteralTypeNode(access.IndexType)) return false;
+    const key = ast.as.AsLiteralTypeNode(access.IndexType).Literal;
+    if (!ast.is.IsStringLiteral(key) || ast.text(key) !== ast.text(ast.name(record))) return false;
+    const parameter = ast.typeParameters(record).find(candidate => symbol(ast.name(candidate)) === symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName));
+    const constraint = parameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(parameter).Constraint;
+    if (constraint === undefined || !ast.is.IsTypeReferenceNode(constraint)) return false;
+    const declarations = checker(node).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(constraint).TypeName));
+    if (declarations.length !== 1 || !phaseDeclaration(declarations[0]) ||
+      !ast.members(declarations[0]).some(member => ast.is.IsPropertySignatureDeclaration(member) &&
+        ast.hasModifierKind(member, "readonly") && memberName(ast.name(member)) === ast.text(key))) return false;
+    return ast.members(record).some(member => memberName(ast.name(member)) === "kind");
   };
   const typeShape = node => {
     const file = ast.getSourceFile(node);
@@ -265,7 +291,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         gather(current);
         if (count === 0) add("forbidden-import", file, current);
       }
-      if (module.kind === "library" && file === module.entry && ast.is.IsVariableDeclaration(current)) {
+      if (module.kind === "library" && publicValues.has(current) && ast.is.IsVariableDeclaration(current)) {
         const annotation = ast.typeNode(current);
         const selected = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
         if (selected !== undefined) libraryFunctionTypes.add(selected);
@@ -411,26 +437,26 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           if (argument === undefined || !literalUnion(shape.getTypeFromTypeNode(argument))) add("contract-shape", file, current);
         }
       }
-      if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current)))
+      if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) ||
+        ast.is.IsIndexedAccessTypeNode(current) && !phaseSlotSelection(current)))
         add("contract-shape", file, current);
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);
         const condition = ast.is.IsConditionalTypeNode(parent) ? ast.as.AsConditionalTypeNode(parent) : undefined;
         const parameter = ast.is.IsTypeParameterDeclaration(parent) ? ast.as.AsTypeParameterDeclaration(parent) : undefined;
         if (condition?.CheckType !== current && condition?.ExtendsType !== current && parameter?.Constraint !== current &&
-          !(kind === "KindObjectKeyword" && opaqueBrand(current, module, file)))
+          !(kind === "KindObjectKeyword" && (opaqueBrand(current, module, file) || phaseSlotObject(current))))
           add("contract-shape", file, current);
       }
-      if (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) {
-        const parent = ast.parent(current);
-        const declaration = ast.is.IsVariableDeclaration(parent) ? parent : current;
-        let exported = ast.hasModifierKind(current, "export");
-        for (let ancestor = declaration; ancestor !== undefined && ancestor !== node; ancestor = ast.parent(ancestor)) {
-          if (ast.hasModifierKind(ancestor, "export")) exported = true;
-          if (ancestor !== declaration && scopedOwners.includes(ast.kindName(ancestor))) break;
-        }
-        if (exported && module.kind === "component") {
-          const parameters = ast.parameters(current);
+      const publicValue = publicValues.get(current);
+      if (publicValue !== undefined) {
+        const declaration = current;
+        const implementation = ast.is.IsVariableDeclaration(declaration) ? ast.as.AsVariableDeclaration(declaration).Initializer : declaration;
+        const signatures = new Set(publicValue.signatures);
+        if (implementation !== undefined && (ast.is.IsFunctionDeclaration(implementation) ||
+          ast.is.IsArrowFunction(implementation) || ast.is.IsFunctionExpression(implementation))) signatures.add(implementation);
+        if (module.kind === "component") for (const signature of signatures) {
+          const parameters = ast.parameters(signature);
           const typed = ast.is.IsVariableDeclaration(declaration) && ast.typeNode(declaration) !== undefined;
           if (parameters.length < 2 || ast.text(ast.name(parameters[0])) !== "deps" ||
             !typed && parameters.some(parameter => ast.typeNode(parameter) === undefined))
@@ -444,7 +470,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           };
           for (const parameter of parameters) immutable(ast.typeNode(parameter));
         }
-        if (exported && module.kind === "library" && file === module.entry) {
+        if (module.kind === "library") {
           const annotation = ast.typeNode(declaration);
           const reference = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
           const declarations = reference === undefined ? [] : checker(current).getSymbolDeclarations(reference);

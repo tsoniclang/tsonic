@@ -1,10 +1,13 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { SymbolFlagsAlias } from "../../../packages/tsts/dist/src/index.js";
 import { hostCatalogue, publicEntry, sourceOwner, testOwner } from "./catalogue.mjs";
-import { cyclicSources, parseSources, quarantineReference, readImportGraph } from "./import-graph.mjs";
+import { cyclicSources, parseSources, quarantineReference, readImportGraph, sourceSymbol } from "./import-graph.mjs";
 import { sourceFindings } from "./source-rules.mjs";
+
+const limitOwners = Object.freeze({ NavigationCaptureLimits: "front", LiteralCaptureLimits: "front", InferenceLimits: "infer",
+  EvaluatorLimits: "evaluate", DataflowLimits: "dataflow", SummaryLimits: "summaries", MetadataLimits: "metadata",
+  TypeExpansionLimits: "ir-types", QueryLimits: "query", InstantiationLimits: "ir-program" });
 
 export function createInspectionDeps(quarantineRoots) {
   if (quarantineRoots.length === 0 || quarantineRoots.some(root => typeof root !== "string" || root.split("/").some(part => ["", ".", ".."].includes(part))))
@@ -39,6 +42,23 @@ export function inspectHost(deps, inputs) {
   for (const path of files.keys()) if (sourceOwner(catalogue, path) === undefined && testOwner(catalogue, path) === undefined) add("unknown-module", path);
   const source = deps.parse(files);
   const graph = deps.graph(source, files);
+  const componentDeps = new Set();
+  for (const file of source.sourceFiles) {
+    if (file === undefined) continue;
+    const path = source.ast.getFileName(file).slice("/host-gate/".length);
+    const module = sourceOwner(catalogue, path);
+    if (module?.kind !== "component" || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
+    for (const declaration of source.ast.statements(file)) {
+      const type = source.ast.typeNode(declaration);
+      if (type === undefined || !source.ast.is.IsFunctionTypeNode(type)) continue;
+      const parameter = source.ast.parameters(type)[0];
+      const annotation = source.ast.typeNode(parameter);
+      if (source.ast.text(source.ast.name(parameter)) === "deps" && annotation !== undefined && source.ast.is.IsTypeReferenceNode(annotation)) {
+        const selected = sourceSymbol(source, source.ast.as.AsTypeReferenceNode(annotation).TypeName);
+        if (selected !== undefined) componentDeps.add(selected);
+      }
+    }
+  }
   const compositionPort = (edge, from, to) => {
     if (![from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) ||
       ![to.contract, to.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.target)) return false;
@@ -64,11 +84,7 @@ export function inspectHost(deps, inputs) {
       const selected = ast.is.IsImportSpecifier(binding) ? ast.as.AsImportSpecifier(binding) : ast.as.AsExportSpecifier(binding);
       if (!typeOnly && !selected.IsTypeOnly) return false;
       const name = ast.text(selected.PropertyName ?? ast.name(binding));
-      let identity = queries.getSymbolAtLocation(ast.name(binding));
-      const active = new Set();
-      while (identity !== undefined && (identity.Flags & SymbolFlagsAlias) !== 0 && !active.has(identity)) {
-        active.add(identity); identity = queries.getAliasedSymbol(identity);
-      }
+      const identity = sourceSymbol(source, ast.name(binding));
       const declarations = identity === undefined ? [] : queries.getSymbolDeclarations(identity);
       const brand = name === "CheckerExtensions" && declarations.length === 1 && declarations.every(declaration =>
         sourceOwner(catalogue, ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length))?.name === "front" &&
@@ -80,8 +96,11 @@ export function inspectHost(deps, inputs) {
           ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}`);
       return from.kind === "pipeline" && to.kind === "component" && declarations.length > 0 && declarations.every(declaration => {
         const type = ast.typeNode(declaration);
-        return ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}` &&
-          type !== undefined && ast.is.IsFunctionTypeNode(type) && ast.text(ast.name(ast.parameters(type)[0])) === "deps";
+        if (ast.getFileName(ast.getSourceFile(declaration)) !== `/host-gate/${edge.target}`) return false;
+        const name = ast.text(ast.name(declaration));
+        return type !== undefined && ast.is.IsFunctionTypeNode(type) && ast.text(ast.name(ast.parameters(type)[0])) === "deps" ||
+          name.endsWith("Deps") && componentDeps.has(identity) || limitOwners[name] === to.name ||
+          name === "AnalysisLimits" && to.name.startsWith("analyses/");
       });
     });
   };

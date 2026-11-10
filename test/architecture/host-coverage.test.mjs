@@ -11,8 +11,9 @@ import { parseSources } from "./host/import-graph.mjs";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const branchSource = "export function choose(value) {\n  return value ? 1 : 0;\n}\n";
 const multilineSource = "export function choose(value) {\n  if (value) return 1;\n  return 0;\n}\n";
+const choose = values => exports => { for (const value of values) exports.choose(value); };
 
-async function capture(sourceText, calls, action) {
+async function capture(sourceText, exercise, action) {
   const parent = resolve(repository, ".temp/host-s1-coverage");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(resolve(parent, "case-"));
@@ -28,7 +29,7 @@ async function capture(sourceText, calls, action) {
     await post("Profiler.enable");
     await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
     const exports = await import(pathToFileURL(file).href);
-    for (const value of calls) exports.choose(value);
+    exercise(exports);
     const raw = await post("Profiler.takePreciseCoverage");
     const result = raw.result.filter(script => script.url === pathToFileURL(file).href);
     const sources = [];
@@ -46,7 +47,7 @@ async function capture(sourceText, calls, action) {
 }
 
 test("actual nonempty V8 ranges and original source identity earn per-file 100 with no exclusions", async () => {
-  await capture(branchSource, [true, false], async ({ file, deps, raw }) => {
+  await capture(branchSource, choose([true, false]), async ({ file, deps, raw }) => {
     assert.equal(raw.result.length, 1);
     assert.equal(raw.result[0].functions.length > 1, true, "entry-only evidence is not the function proof");
     const report = checkCoverage(deps, [file], [raw]);
@@ -61,9 +62,8 @@ test("actual nonempty V8 ranges and original source identity earn per-file 100 w
     assert.equal(Object.isFrozen(report), true);
   });
 });
-
 test("one real uncovered same-line branch fails branches, not already executed statement lines", async () => {
-  await capture(branchSource, [true], async ({ file, deps, raw }) => {
+  await capture(branchSource, choose([true]), async ({ file, deps, raw }) => {
     const offset = branchSource.indexOf(": 0;");
     const line = branchSource.slice(0, offset).split("\n");
     const expected = [{ code: "coverage-branch", path: file, line: 2, column: line[1].length + 1 }];
@@ -77,13 +77,13 @@ test("one real uncovered same-line branch fails branches, not already executed s
 });
 
 test("real unexecuted statements and uncalled functions fail their own line and function gates", async () => {
-  await capture(multilineSource, [true], async ({ file, deps, raw }) => {
+  await capture(multilineSource, choose([true]), async ({ file, deps, raw }) => {
     const report = checkCoverage(deps, [file], [raw]);
     assert.equal(report.findings.some(finding => finding.code === "coverage-line" && finding.line === 3 && finding.column === 3), true);
     assert.equal(report.findings.some(finding => finding.code === "coverage-branch"), true);
     assert.equal(report.findings.some(finding => finding.code === "coverage-function"), false);
   });
-  await capture(multilineSource, [], async ({ file, deps, raw }) => {
+  await capture(multilineSource, choose([]), async ({ file, deps, raw }) => {
     const report = checkCoverage(deps, [file], [raw]);
     assert.equal(report.findings.some(finding => finding.code === "coverage-function" && finding.line === 1 && finding.column === 1), true);
     assert.equal(report.findings.some(finding => finding.code === "coverage-line"), true);
@@ -92,7 +92,7 @@ test("real unexecuted statements and uncalled functions fail their own line and 
 });
 
 test("empty, missing, entry-only, wrong source identity and malformed ranges cannot fabricate coverage", async () => {
-  await capture(branchSource, [true, false], async ({ file, deps, raw, root }) => {
+  await capture(branchSource, choose([true, false]), async ({ file, deps, raw, root }) => {
     const opposites = [[], [{ result: [], sources: [] }], [{ ...raw, sources: [] }],
       [{ ...raw, sources: raw.sources.map(source => ({ ...source, text: `${source.text}\n` })) }],
       [{ ...raw, result: raw.result.map(script => ({ ...script, functions: script.functions.slice(0, 1) })) }],
@@ -114,12 +114,38 @@ test("empty, missing, entry-only, wrong source identity and malformed ranges can
 });
 
 test("types-only contracts are explicitly N/A, never invented runtime 100 percent", async () => {
-  await capture(branchSource, [true, false], async ({ root, deps }) => {
+  await capture(branchSource, choose([true, false]), async ({ root, deps }) => {
     const file = resolve(root, "contract.ts");
     writeFileSync(file, "export interface Data { readonly values: readonly number[]; }\nexport type Read = (input: Data) => number;\n");
     const report = checkCoverage(deps, [file], []);
     assert.equal(report.status, "passed");
     assert.equal(report.files[0].status, "not-applicable");
     assert.equal(report.files[0].lines === null && report.files[0].branches === null && report.files[0].functions === null, true);
+  });
+});
+
+test("a genuine module-entry record cannot replace the authored function at the same no-newline end", async () => {
+  const text = "export function choose(value) { return value ? 1 : 0; }";
+  await capture(text, choose([true, false]), async ({ file, deps, raw }) => {
+    const expected = [{ code: "coverage-empty", path: file, line: 1, column: 1 }];
+    const entryOnly = { ...raw, result: raw.result.map(script => ({ ...script, functions: script.functions.slice(0, 1) })) };
+    assert.equal(JSON.stringify(checkCoverage(deps, [file], [entryOnly]).findings), JSON.stringify(expected));
+    const complete = checkCoverage(deps, [file], [raw]);
+    assert.equal(complete.status, "passed", JSON.stringify(complete.findings));
+    assert.equal(complete.files[0].functions, 100);
+  });
+  const helper = "export function choose() { return 1; }";
+  await capture(helper, choose([]), async ({ file, deps, raw }) => {
+    const report = checkCoverage(deps, [file], [raw]);
+    assert.equal(report.status, "failed");
+    assert.equal(report.findings.some(finding => finding.code === "coverage-function" && finding.line === 1 && finding.column === 1), true);
+    assert.equal(report.findings.some(finding => finding.code === "coverage-empty"), false);
+    const entryOnly = { ...raw, result: raw.result.map(script => ({ ...script, functions: script.functions.slice(0, 1) })) };
+    assert.equal(JSON.stringify(checkCoverage(deps, [file], [entryOnly]).findings), JSON.stringify([{ code: "coverage-empty", path: file, line: 1, column: 1 }]));
+  });
+  await capture(helper, exports => { exports.choose(); }, async ({ file, deps, raw }) => {
+    const report = checkCoverage(deps, [file], [raw]);
+    assert.equal(report.status, "passed", JSON.stringify(report.findings));
+    assert.equal(report.files[0].lines === 100 && report.files[0].branches === 100 && report.files[0].functions === 100, true);
   });
 });

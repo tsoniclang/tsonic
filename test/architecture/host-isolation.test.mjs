@@ -40,7 +40,7 @@ async function fixture(entries, action) {
   finally { rmSync(root, { recursive: true }); }
 }
 
-const inferInput = root => ({ root, sourceFiles: [inferContract, inferEntry], interfaceSources: [contract, entry], outputDirectory: ".temp/isolation" });
+const inferInput = root => ({ root, sourceFiles: [inferContract, inferEntry], interfaceSources: [contract, entry], declarationSources: [contract, entry], outputDirectory: ".temp/isolation" });
 const label = report => `${JSON.stringify(report.findings).slice(0, 2000)}\n${report.diagnostics.join("\n").slice(-5000)}`;
 
 test("real infer imports actual contract-typed substitute through fresh strict public value declarations", async () => {
@@ -62,13 +62,44 @@ test("real infer imports actual contract-typed substitute through fresh strict p
   });
 });
 
+test("genuine public declaration production includes its explicit private implementation closure only in the producer stage", async () => {
+  const helper = path("ir-types", "private.ts");
+  for (const forwarding of [false, true]) {
+    const contractText = "export type Substitute = (input: number) => number;";
+    const privateText = forwarding
+      ? 'import type { Substitute } from "./contract.js"; export const substitute: Substitute = input => input + 1;'
+      : 'export function adjust(input: number): number { return input + 1; }';
+    const entryText = forwarding ? 'export { substitute } from "./private.js";'
+      : 'import type { Substitute } from "./contract.js"; import { adjust } from "./private.js"; export const substitute: Substitute = input => adjust(input);';
+    await fixture([[contract, contractText], [entry, entryText], [helper, privateText],
+      [inferContract, 'export interface InferDeps { readonly bias: number; } export type Infer = (deps: InferDeps, input: number) => number;'],
+      [inferEntry, 'import type { Infer } from "./contract.js"; import { substitute } from "../ir-types/index.js"; export const infer: Infer = (deps, input) => substitute(input) + deps.bias;']], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper] });
+      assert.equal(report.status, "passed", label(report));
+      assert.equal(report.loadedInventory.some(file => file.endsWith(`/interface-source/${helper}`)), true);
+      assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/private.ts")), false);
+      assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/ir-types/private.d.ts")), forwarding);
+      assert.equal(report.sourceInventory.some(source => source.path === resolve(root, helper) && source.hash === createHash("sha256").update(privateText).digest("hex")), true);
+      assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
+      await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper, helper] }), /Distinct complete explicit/u);
+      const missing = await compileIsolated(deps, module("infer"), inferInput(root));
+      assert.equal(missing.status, "failed");
+      assert.equal(missing.findings.some(finding => finding.code === "forbidden-import"), true);
+      const orphan = path("ir-types", "unused.ts");
+      mkdirSync(dirname(resolve(root, orphan)), { recursive: true });
+      writeFileSync(resolve(root, orphan), "export const unused = 1;");
+      await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper, orphan] }), /actual implementation closure/u);
+    });
+  }
+});
+
 for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "ir-facts", "ir-program", "dataflow", "query", "libraries", "snapshot"]) {
   test(`whole library ${name} compiles in strict isolation with its actual owned function signature`, async () => {
     const contract = path(name);
     const entry = path(name, "index.ts");
     await fixture([[contract, "export type Read = (input: number) => number;"],
       [entry, 'import type { Read } from "./contract.js"; export const read: Read = input => input + 1;']], async ({ root, deps }) => {
-      const report = await compileIsolated(deps, module(name), { root, sourceFiles: [contract, entry], interfaceSources: [], outputDirectory: ".temp/isolation" });
+      const report = await compileIsolated(deps, module(name), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
       assert.equal(report.status, "passed", label(report));
       assert.equal(report.loadedInventory.length > 1, true, "real compiler language declarations loaded");
       assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
@@ -81,9 +112,20 @@ test("real Node platform declarations remain available only to the explicitly al
   const entry = path("project", "paths.ts");
   await fixture([[contract, "export interface Path { readonly value: string; }"],
     [entry, 'import { isAbsolute } from "node:path"; export function absolute(input: string): boolean { return isAbsolute(input); }']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("project"), { root, sourceFiles: [contract, entry], interfaceSources: [], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("project"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/@types/node/")), true);
+  });
+});
+
+test("canonical generic phase-slot records retain real strict isolated compilation", async () => {
+  const contract = path("ir-hir");
+  const entry = path("ir-hir", "index.ts");
+  const text = 'export interface Phase { readonly ForInOrOfStatement: object | null; readonly Token: object | null; }\nexport interface SyntaxPhase extends Phase { readonly ForInOrOfStatement: null; readonly Token: null; }\nexport interface ForInOrOfStatement<P extends Phase> { readonly kind: "ForInStatement" | "ForOfStatement"; readonly tsonic: P["ForInOrOfStatement"]; }\nexport interface Token<P extends Phase, K extends string> { readonly kind: K; readonly tsonic: P["Token"]; }\nexport type Read = (input: ForInOrOfStatement<SyntaxPhase> | Token<SyntaxPhase, "Identifier">) => string;';
+  await fixture([[contract, text], [entry, 'import type { Read } from "./contract.js"; export const read: Read = input => input.kind;']], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("ir-hir"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+    assert.equal(report.status, "passed", label(report));
+    assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
   });
 });
 
@@ -94,7 +136,7 @@ test("front uses actual pinned SDK declarations and the sole closed ExtensionOf 
   const entry = path("front", "capture.ts");
   await fixture([[contract, sdkContract],
     [entry, 'import type { Type } from "@tsonic/tsts"; export function flags(deps: { readonly type: Type }, input: number): number { return deps.type.flags + input; }']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/packages/tsts/dist/")), true);
   });
@@ -106,7 +148,7 @@ test("real pipeline isolation emits only permitted component query types and the
   await fixture([[path("front"), sdkContract], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
     [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
     [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], declarationSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.provenance.length, 2);
     assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/front/contract.d.ts")), true);
@@ -140,7 +182,7 @@ test("actual ambient-ancestor compiler loads are rejected against the entire exa
   await fixture([[contract, '/// <reference types="ambient-peer" />\nexport interface Data { readonly value: number; }'],
     ["node_modules/ambient-peer/package.json", '{"name":"ambient-peer","types":"index.d.ts"}'],
     ["node_modules/ambient-peer/index.d.ts", "interface HiddenPeer { readonly value: number; }"]], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("ids"), { root, sourceFiles: [contract], interfaceSources: [], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("ids"), { root, sourceFiles: [contract], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "failed");
     assert.equal(report.loadedInventory.some(file => file.endsWith("/ambient-peer/index.d.ts")), true, label(report));
     assert.equal(report.findings.some(finding => finding.code === "loaded-source-escape"), true);
@@ -152,7 +194,7 @@ test("real strict readonly reads pass and the original four mutation diagnostics
   const consumer = path("ids", "consumer.ts");
   const declaration = "export interface Data { readonly values: readonly number[]; readonly tuple: readonly [number, ...string[]]; readonly nested: ReadonlyArray<readonly number[]>; }";
   await fixture([[contract, declaration], [consumer, 'import type { Data } from "./contract.js"; export function read(view: Data): number { return view.values.length + view.tuple[0] + view.nested.length; }']], async ({ root, deps, write }) => {
-    const input = { root, sourceFiles: [contract, consumer], interfaceSources: [], outputDirectory: ".temp/isolation" };
+    const input = { root, sourceFiles: [contract, consumer], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" };
     const read = await compileIsolated(deps, module("ids"), input);
     assert.equal(read.status, "passed", label(read));
     write(consumer, 'import type { Data } from "./contract.js"; export function mutate(view: Data): void {\nview.values.push(1);\nview.tuple[0] = 2;\nview.nested[0] = [];\nview.values.splice(0);\n}');

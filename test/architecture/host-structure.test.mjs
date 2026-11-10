@@ -163,6 +163,77 @@ test("allowed callers directly use contract-typed library values but never deep 
     [at("impure-component", file("infer", "contract.ts"), 2)]);
 });
 
+test("real public value identities retain stage and library rules through export aliases and forwarding", () => {
+  const component = file("infer", "index.ts");
+  for (const suffix of ["export { run };", "export { run as analyze };"])
+    expect([[component, `const run = (input: number): number => input;\n${suffix}`]], [at("impure-component", component)]);
+  expect([[component, 'const run = (deps: { readonly bias: number }, input: number): number => deps.bias + input;\nexport { run as analyze };']], []);
+  const stageContract = [file("infer", "contract.ts"), 'export type Run = (deps: { readonly bias: number }, input: number) => number;'];
+  expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = (other, input) => other.bias + input;\nexport { run };']], [at("impure-component", component, 2)]);
+  expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = (deps, input) => deps.bias + input;\nexport { run };']], []);
+  const contract = [file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"];
+  const entry = file("ir-types", "index.ts");
+  expect([contract, [entry, 'const substitute = (input: number): number => input;\nexport { substitute };']], [at("contract-shape", entry)]);
+  expect([contract, [entry, 'import type { Substitute } from "./contract.js";\nconst substitute: Substitute = input => input;\nexport { substitute as replace };']], []);
+  const privatePath = file("ir-types", "private.ts");
+  for (const forwarding of ['export { substitute } from "./private.js";', 'export * from "./private.js";']) {
+    expect([contract, [entry, forwarding], [privatePath, 'export const substitute = (input: number): number => input;']], [at("contract-shape", privatePath)]);
+    expect([contract, [entry, forwarding], [privatePath, 'import type { Substitute } from "./contract.js";\nexport const substitute: Substitute = input => input;']], []);
+  }
+  expect([[component, 'const original = (input: number): number => input;\nconst run = original;\nexport { run };']], [at("impure-component", component, 2)]);
+  const privateStage = file("infer", "private.ts");
+  expect([[component, 'export { run as analyze } from "./private.js";'],
+    [privateStage, 'export function run(input: number): number { return input; }']], [at("impure-component", privateStage)]);
+});
+
+test("Node-created loaders use actual imported declaration and alias provenance, never identifier spelling", () => {
+  const path = file("project");
+  const target = [file("front", "index.ts"), 'export function front(deps: { readonly bias: number }, input: number): number { return deps.bias + input; }'];
+  for (const setup of ['import { createRequire } from "node:module";\nconst load = createRequire(import.meta.url);',
+    'import { createRequire as make } from "module";\nconst factory = make; const original = factory(import.meta.url); const load = original;',
+    'import * as modules from "node:module";\nconst factory = modules.createRequire; const load = factory(import.meta.url);']) {
+    const [statement, local] = setup.split("\n");
+    const prefix = `${statement}\nexport function run(input: string): boolean { ${local} return typeof `;
+    const forbidden = `${prefix}load("../front/index.js") === "function"; }`;
+    expect([[path, forbidden], target], [at("forbidden-import", path, 2, forbidden.split("\n")[1].indexOf('load("../front') + 1)]);
+    const allowed = `${prefix}load("node:fs") === "object"; }`;
+    expect([[path, allowed]], []);
+    const dynamic = `${prefix}load(input) === "object"; }`;
+    expect([[path, dynamic]], [at("unsafe-type-escape", path, 2, dynamic.split("\n")[1].indexOf("load(input)") + 1)]);
+  }
+  expect([[path, 'export function run(input: string): boolean { function require(name: string): string { return name; } const load = require; return typeof load(input) === "string"; }']], []);
+  const direct = 'import { createRequire as make } from "node:module";\nexport function run(input: string): boolean { return typeof make(import.meta.url)(input) === "object"; }';
+  expect([[path, direct]], [at("unsafe-type-escape", path, 2, direct.split("\n")[1].indexOf("make(import.meta.url)(input)") + 1)]);
+  expect([[path, 'import { createRequire as make } from "node:module";\nexport function run(input: string): string { function local(value: string): string { return value; } const make = local; return make(input); }']], []);
+});
+
+test("pipeline admits only genuine clean component Deps and exact owner limits beside function types", () => {
+  const pipeline = file("pipeline", "contract.ts");
+  for (const [owner, limit] of [["front", "NavigationCaptureLimits"], ["front", "LiteralCaptureLimits"], ["infer", "InferenceLimits"],
+    ["evaluate", "EvaluatorLimits"], ["summaries", "SummaryLimits"], ["metadata", "MetadataLimits"], ["analyses/liveness", "AnalysisLimits"]]) {
+    const contract = file(owner, "contract.ts");
+    const prefix = posix.relative(posix.dirname(pipeline), contract).replace(/\.ts$/u, ".js");
+    const source = `export interface ${limit} { readonly maximum: number; }\nexport interface StageDeps { readonly limit: ${limit}; }\nexport type Stage = (deps: StageDeps, input: number) => number;\nexport interface OtherDeps { readonly maximum: number; }\nexport interface OtherData { readonly maximum: number; }`;
+    expect([[contract, source], [pipeline, `import type { StageDeps, ${limit} } from "${prefix}";\nexport interface Limits { readonly deps: StageDeps; readonly limit: ${limit}; }`]], []);
+    for (const forbidden of ["OtherDeps", "OtherData"])
+      expect([[contract, source], [pipeline, `import type { ${forbidden} } from "${prefix}";`]], [at("forbidden-import", pipeline)]);
+  }
+  expect([[file("infer", "contract.ts"), 'export interface NavigationCaptureLimits { readonly maximum: number; }'],
+    [pipeline, 'import type { NavigationCaptureLimits } from "../infer/contract.js";']], [at("forbidden-import", pipeline)]);
+  for (const [owner, limit] of [["dataflow", "DataflowLimits"], ["ir-types", "TypeExpansionLimits"], ["query", "QueryLimits"], ["ir-program", "InstantiationLimits"]])
+    expect([[file(owner, "contract.ts"), `export interface ${limit} { readonly maximum: number; }`],
+      [pipeline, `import type { ${limit} } from "../${owner}/contract.js"; export interface CompilerLimits { readonly owner: ${limit}; }`]], []);
+  const front = file("front", "contract.ts");
+  const raw = 'export interface RawModule { readonly text: string; }\nexport interface LowerDeps { readonly raw: RawModule; }\nexport type LowerModule = (deps: LowerDeps, input: number) => number;\nexport type CaptureModule = (deps: { readonly limit: number }, input: number) => RawModule;';
+  expect([[front, raw], [file("pipeline"), 'import type { LowerDeps, LowerModule, CaptureModule } from "../front/contract.js"; export interface Wiring { readonly deps: LowerDeps; readonly lower: LowerModule; readonly capture: CaptureModule; }']], []);
+  for (const name of ["LowerDeps", "LowerModule", "CaptureModule"])
+    expect([[front, raw], [pipeline, `import type { ${name} } from "../front/contract.js";\nexport interface Wiring { readonly port: ${name}; }`]],
+      [at("forbidden-import", pipeline), at("forbidden-import", pipeline, 2)]);
+  expect([[file("snapshot", "contract.ts"), 'export interface ImportPreparation { readonly specifiers: readonly string[]; }'],
+    [front, 'import type { ImportPreparation } from "../snapshot/contract.js"; export type Capture = (deps: { readonly limit: number }, input: ImportPreparation) => number;'],
+    [pipeline, 'import type { ImportPreparation } from "../snapshot/contract.js"; export type PrepareImports = (input: string) => ImportPreparation;']], []);
+});
+
 test("composition contracts preserve the one front brand and only named genuine component function types", () => {
   const front = [file("front", "contract.ts"), 'export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };'];
   const pipeline = [file("pipeline", "contract.ts"), 'export type { CheckerExtensions } from "../front/contract.js";'];
@@ -290,6 +361,29 @@ test("contract records are declared by named arms, never derived by record opera
     'Exclude<{ readonly value: number }, { readonly kind: "other" }>', '{ readonly [Key in "value"]: number }',
     'number extends string ? { readonly value: number } : { readonly other: string }', '{ readonly value: number }["value"]'])
     expect([[path, `export type Derived = ${expression};`]], [at("contract-shape", path)]);
+});
+
+test("A1 r2 admits only literal canonical record phase slots on their declared tsonic property", () => {
+  const path = file("ir-hir", "contract.ts");
+  const phase = 'export interface Phase { readonly BinaryExpression: object | null; readonly ForInOrOfStatement: object | null; readonly Token: object | null; }';
+  const binary = 'export interface BinaryExpression<P extends Phase> { readonly kind: "BinaryExpression"; readonly tsonic: P["BinaryExpression"]; }';
+  const shared = 'export interface ForInOrOfStatement<P extends Phase> { readonly kind: "ForInStatement" | "ForOfStatement"; readonly tsonic: P["ForInOrOfStatement"]; }';
+  const token = 'export interface Token<P extends Phase, K extends string> { readonly kind: K; readonly tsonic: P["Token"]; }';
+  const list = 'export interface NodeList<T> { readonly Loc: { readonly pos: number; readonly end: number }; readonly Nodes: readonly T[]; }';
+  expect([[path, `${phase}\n${binary}\n${shared}\n${token}\n${list}`]], []);
+  for (const record of [binary.replace('P["BinaryExpression"]', 'P["Token"]'),
+    binary.replace('readonly tsonic:', 'readonly other:'), binary.replace('readonly tsonic:', 'readonly tsonic?:'),
+    binary.replace('P extends Phase', 'P extends object'),
+    binary.replace('P extends Phase', 'P extends OtherPhase'), binary.replace('P["BinaryExpression"]', 'Phase["BinaryExpression"]'),
+    binary.replace('P["BinaryExpression"]', '{ readonly selected: P["BinaryExpression"] }'),
+    token.replace('P["Token"]', 'P[K]'), shared.replace('P["ForInOrOfStatement"]', 'P["ForInStatement"]'),
+    'export type Selection<P extends Phase> = P["BinaryExpression"];']) {
+    const result = inspect([[path, `${phase}\nexport interface OtherPhase { readonly BinaryExpression: null; }\n${record}`]]);
+    assert.equal(result.some(finding => finding.code === "contract-shape" && finding.line === 3), true, record);
+  }
+  expect([[path, phase.replace('object | null', 'object')]], [at("contract-shape", path)]);
+  expect([[file("ir-tir", "contract.ts"), `${phase}\n${binary}`]],
+    [at("contract-shape", file("ir-tir", "contract.ts")), at("contract-shape", file("ir-tir", "contract.ts"), 2)]);
 });
 
 const compositionCases = Object.freeze([
