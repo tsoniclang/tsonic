@@ -1,5 +1,6 @@
 import type { SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite } from "./contract.js";
+import type { HirBindingRequest } from "./verify-bindings.js";
 import type { HirField, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirArray, hirChoice, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, resolveHirShape, walkHirData, checkHirShape } from "./verify-syntax.js";
@@ -395,19 +396,20 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, ca
   if (observation.layout.kind === "available") {
     const layout = readers.nodeOf(observation.layout.value);
     const captured = layout === null ? undefined : captures.get(layout);
-    if (!readers.nodeExists(observation.layout.value) || captured !== undefined &&
+    if (!readers.nodeExists(observation.layout.value) || layout !== null && captured === undefined || captured !== undefined &&
       captured.value.kind !== "value" && captured.value.kind !== "array")
       report("memory-capture-reference", site, "observation layout must name a value or array descriptor");
   }
   if (observation.field.kind === "available" && observation.field.value !== null) {
     const field = readers.nodeOf(observation.field.value);
     const captured = field === null ? undefined : captures.get(field);
-    if (!readers.nodeExists(observation.field.value) || captured !== undefined && captured.value.kind !== "field")
+    if (!readers.nodeExists(observation.field.value) || field !== null && captured === undefined || captured !== undefined && captured.value.kind !== "field")
       report("memory-capture-reference", site, "observation field must name a field descriptor");
   }
 }
 
-export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCaptureReaders, report: HirReport, hirSchema: HirSchema): void {
+export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCaptureReaders, report: HirReport,
+  hirSchema: HirSchema, bindings: HirBindingRequest[]): void {
   const entries: CaptureEntry[] = [];
   const captures = new Map<HirNode, CaptureEntry>();
   const seen = new Set<MemoryCapture>();
@@ -423,6 +425,8 @@ export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCapture
       seen.add(capture);
       const entry: CaptureEntry = { value: capture, site };
       entries.push(entry);
+      if (capture.bindings.kind === "available")
+        bindings.push({ kind: "occurrence", occurrence: capture.occurrence, vector: capture.bindings.value, site });
       const occurrence = readers.nodeOf(capture.occurrence);
       if (occurrence === null || !readers.nodeExists(capture.occurrence))
         report("memory-capture-owner", site, "capture occurrence must exist in this module");
@@ -437,8 +441,11 @@ export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCapture
         report("memory-capture-reference", site, "primary field declaration must belong to its selected declaration group");
     }
     const observation = "observation" in value ? value.observation : null;
-    if (observation !== null && observation.kind === "available" && observation.value !== null)
+    if (observation !== null && observation.kind === "available" && observation.value !== null) {
       observations.push({ value: observation.value, node, site });
+      if (observation.value.bindings.kind === "available") bindings.push({ kind: "occurrence",
+        occurrence: { kind: "body", value: observation.value.occurrence }, vector: observation.value.bindings.value, site });
+    }
     if (!("core" in metadata)) continue;
     const coreCapture = metadata.core;
     walkHirData({ value: coreCapture, shape: "HirCoreCapture", node, body: null, site }, hirSchema, data => {

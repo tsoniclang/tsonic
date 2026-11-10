@@ -82,7 +82,8 @@ export function containsHirNode(outer: HirNode, inner: HirNode, inventory: HirIn
 }
 
 function validRange(start: number, end: number): boolean {
-  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && !Object.is(start, -0) && end >= start;
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 &&
+    !Object.is(start, -0) && !Object.is(end, -0) && end >= start;
 }
 
 function syntaxViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
@@ -90,7 +91,7 @@ function syntaxViolations(module: HirModule, inventory: HirInventory, report: Hi
     const site = nodeSite(node, inventory, module);
     if (!Object.is(node.id, ordinal)) report("node-dense-preorder", site, "id must equal module preorder position");
     const parent = inventory.parents.get(node);
-    if (node.parent !== (parent?.id ?? null)) report("lexical-parent", site, "parent must be the actual syntactic parent");
+    if (!Object.is(node.parent, parent?.id ?? null)) report("lexical-parent", site, "parent must be the actual syntactic parent");
     if (node.origin.module !== module.module) report("module-owner", site, "origin must name this module");
     if (!validRange(node.loc.pos, node.loc.end)) report("origin-range", site, "invalid syntax range");
     if (!validRange(node.origin.start, node.origin.start + node.origin.length) || node.origin.length < 0 || Object.is(node.origin.length, -0))
@@ -270,7 +271,7 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
     for (const list of body.candidateLists) for (const candidate of list.candidates) {
       const scope = context.bindingScopeOf(candidate.declaration);
       if (candidate.bindings.kind === "available")
-        requests.push({ definition: candidate.declaration, vector: candidate.bindings.value, site });
+        requests.push({ kind: "definition", definition: candidate.declaration, vector: candidate.bindings.value, site });
       if (candidate.appliedSignature.kind === "available") {
         const signature = validHirIndex(candidate.appliedSignature.value)
           ? context.types.signatures[candidate.appliedSignature.value] : undefined;
@@ -317,6 +318,10 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
         node.kind === "YieldExpression" ? node.asteriskToken === null ? "yield" : "delegate" :
           node.kind === "ForOfStatement" || node.kind === "ForInStatement" ? "iterate" : null;
       if (protocol.kind !== expected) report("protocol-kind", site, "protocol must match its syntactic operation");
+      if ((node.kind === "AwaitExpression" || node.kind === "SpreadElement" || node.kind === "YieldExpression" ||
+        node.kind === "ForOfStatement" || node.kind === "ForInStatement") && "subject" in protocol &&
+        !Object.is(protocol.subject, node.expression?.id ?? null))
+        report("protocol-kind", site, "protocol subject must be the actual syntactic operand");
       if ((protocol.kind === "iterate" || protocol.kind === "spread") && node.kind === "ForOfStatement" &&
         protocol.asynchronous !== (node.awaitModifier !== null))
         report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
@@ -366,22 +371,32 @@ function operationOf(node: HirNode): HirOperation | null {
 function requiresWriteFit(node: HirNode): boolean {
   return node.kind === "BinaryExpression" && node.tsonic.role === "assignment" ||
     (node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") && node.tsonic.role === "update" ||
-    (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "PropertyDeclaration" || node.kind === "EnumMember") && node.initializer !== null;
+    (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "PropertyDeclaration" ||
+      node.kind === "EnumMember" || node.kind === "BindingElement") && node.initializer !== null;
 }
 
 function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
   const moduleSite: HirSite = { kind: "module", module: module.module };
   const seen = new Set<number>();
   const operations: (HirOperation | null)[] = [];
-  const required = inventory.nodes.map(node => {
+  const counts = inventory.nodes.map<[number, number, number]>(node => {
     const operation = operationOf(node);
     operations.push(operation);
-    return [requiresWriteFit(node), operation !== null, node.kind === "ElementAccessExpression"];
+    return [Number(requiresWriteFit(node)), Number(operation !== null), Number(node.kind === "ElementAccessExpression")];
   });
-  const counts: number[][] = [[0, 0, 0]];
-  for (const row of required) {
-    const previous = counts[counts.length - 1];
-    if (previous !== undefined) counts.push(row.map((value, column) => (previous[column] ?? 0) + Number(value)));
+  for (let ordinal = inventory.nodes.length - 1; ordinal >= 0; ordinal -= 1) {
+    const node = inventory.nodes[ordinal];
+    const row = counts[ordinal];
+    if (node === undefined || row === undefined) continue;
+    const parent = inventory.parents.get(node);
+    if (parent === undefined || parent === null || inventory.owners.get(parent) !== inventory.owners.get(node)) continue;
+    const position = inventory.starts.get(parent);
+    const target = position === undefined ? undefined : counts[position];
+    if (target !== undefined) {
+      target[0] += row[0];
+      target[1] += row[1];
+      target[2] += row[2];
+    }
   }
   for (const root of module.obligations) {
     const site: HirSite = { kind: "node", node: root.owner };
@@ -397,13 +412,13 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
         diagnostic.site.origin.start + diagnostic.site.origin.length > owner.loc.end))
       report("diagnostic-root-owner", site, "diagnostic source range must be inside its exact root");
     if (root.obligations.length === 0) report("obligation-complete", site, "a discharge root requires its complete nonempty obligations");
-    const present = [new Set<HirNode>(), new Set<HirNode>(), new Set<HirNode>()];
+    const present: readonly [Set<HirNode>, Set<HirNode>, Set<HirNode>] = [new Set(), new Set(), new Set()];
     root.obligations.forEach((obligation, ordinal) => {
       if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
       const occurrence = inventory.nodesById.get(obligation.occurrence.node);
       const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
       if (!sourceNodeExists(reference, module, inventory, context) || owner === undefined || occurrence === undefined ||
-        !containsHirNode(owner, occurrence, inventory))
+        !containsHirNode(owner, occurrence, inventory) || inventory.owners.get(owner) !== inventory.owners.get(occurrence))
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
       if (obligation.kind === "operator" && occurrence !== undefined) {
         const position = inventory.starts.get(occurrence);
@@ -412,22 +427,20 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
           obligation.operands.length !== operation.operands.length || obligation.operands.some((operand, index) =>
             operand.body !== obligation.occurrence.body || operand.node !== operation.operands[index]))
           report("obligation-complete", site, "operator obligation must retain all actual operands in order");
-        else present[1]?.add(occurrence);
+        else present[1].add(occurrence);
       } else if (obligation.kind === "index" && occurrence !== undefined) {
         if (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
           obligation.key.node !== occurrence.argumentExpression.id || obligation.receiver.body !== obligation.occurrence.body ||
           obligation.key.body !== obligation.occurrence.body)
           report("obligation-complete", site, "index obligation must retain the actual receiver and key");
-        else present[2]?.add(occurrence);
-      } else if (obligation.kind === "write-fit" && occurrence !== undefined && requiresWriteFit(occurrence)) present[0]?.add(occurrence);
+        else present[2].add(occurrence);
+      } else if (obligation.kind === "write-fit" && occurrence !== undefined && requiresWriteFit(occurrence)) present[0].add(occurrence);
     });
     if (owner !== undefined && root.obligations.length > 0) {
       const start = inventory.starts.get(owner);
-      const end = inventory.ends.get(owner);
-      if (start !== undefined && end !== undefined) {
-        const before = counts[start];
-        const after = counts[end];
-        if (before !== undefined && after !== undefined && present.some((values, column) => values.size < (after[column] ?? 0) - (before[column] ?? 0)))
+      if (start !== undefined) {
+        const required = counts[start];
+        if (required !== undefined && present.some((values, column) => values.size < (required[column] ?? 0)))
           report("obligation-complete", site, "root must retain each syntactically required obligation");
       }
     }
@@ -557,7 +570,7 @@ export const verifyHir: VerifyHir = (module, context) => {
     nodeOf: reference => localSourceNode(reference, module, inventory),
     nodeExists: reference => sourceNodeExists(reference, module, inventory, context),
     referenceOf: node => hirNodeSource(node, inventory, module),
-  }, report, hirSchema);
+  }, report, hirSchema, requests);
   violations.push(...verifyBindingVectors(requests, context));
   return Object.freeze(violations);
 };

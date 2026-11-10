@@ -448,8 +448,24 @@ function fixtureChildren(node) {
   switch (node.kind) {
     case "SourceFile": return [...node.statements.nodes, node.endOfFileToken];
     case "Block": return node.statements.nodes;
-    case "ExpressionStatement": case "AwaitExpression": case "SpreadElement": case "ParenthesizedExpression": return [node.expression];
+    case "ExpressionStatement": case "AwaitExpression": case "SpreadElement": case "ParenthesizedExpression":
+    case "DeleteExpression": case "TypeOfExpression": case "VoidExpression": return [node.expression];
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": return [node.operand];
+    case "YieldExpression": return [...(node.asteriskToken === null ? [] : [node.asteriskToken]), ...(node.expression === null ? [] : [node.expression])];
+    case "ForInStatement": case "ForOfStatement": return [...(node.awaitModifier === null ? [] : [node.awaitModifier]), node.initializer, node.expression, node.statement];
+    case "VariableStatement": return [...(node.modifiers?.nodes ?? []), node.declarationList];
+    case "VariableDeclarationList": return node.declarations.nodes;
+    case "VariableDeclaration": return [node.name, ...(node.exclamationToken === null ? [] : [node.exclamationToken]),
+      ...(node.type === null ? [] : [node.type]), ...(node.initializer === null ? [] : [node.initializer])];
+    case "Parameter": return [...(node.modifiers?.nodes ?? []), ...(node.dotDotDotToken === null ? [] : [node.dotDotDotToken]), node.name,
+      ...(node.questionToken === null ? [] : [node.questionToken]), ...(node.type === null ? [] : [node.type]), ...(node.initializer === null ? [] : [node.initializer])];
+    case "FunctionDeclaration": case "FunctionExpression": return [...(node.modifiers?.nodes ?? []), ...(node.asteriskToken === null ? [] : [node.asteriskToken]),
+      ...(node.name === null ? [] : [node.name]), ...(node.typeParameters?.nodes ?? []), ...node.parameters.nodes,
+      ...(node.type === null ? [] : [node.type]), ...(node.fullSignature === null ? [] : [node.fullSignature]), ...(node.body === null ? [] : [node.body])];
+    case "ArrayLiteralExpression": return node.elements.nodes;
+    case "ObjectLiteralExpression": return node.properties.nodes;
+    case "ExpressionWithTypeArguments": return [node.expression, ...(node.typeArguments?.nodes ?? [])];
+    case "PropertyAccessExpression": return [node.expression, ...(node.questionDotToken === null ? [] : [node.questionDotToken]), node.name];
     case "BinaryExpression": return [node.left, node.operatorToken, node.right];
     case "CallExpression": return [node.expression, ...(node.questionDotToken === null ? [] : [node.questionDotToken]),
       ...(node.typeArguments?.nodes ?? []), ...node.arguments.nodes];
@@ -458,14 +474,32 @@ function fixtureChildren(node) {
     case "ElementAccessExpression": return [node.expression, ...(node.questionDotToken === null ? [] : [node.questionDotToken]), node.argumentExpression];
     case "Identifier": case "EndOfFile": case "EmptyStatement": case "NumericLiteral": case "BigIntLiteral":
     case "StringLiteral": case "NoSubstitutionTemplateLiteral": case "PlusToken": case "AnyKeyword": return [];
-    default: assert.fail(`fixture requires its independently authored child order: ${node.kind}`);
+    default:
+      if (/(?:Keyword|Token)$/u.test(node.kind)) return [];
+      assert.fail(`fixture requires its independently authored child order: ${node.kind}`);
   }
 }
 
 function contextFor(value, additions = {}) {
   const declarations = new Set([value.tree.tsonic.definition, ...value.items.map(item => item.definition)]);
+  const lexicalScopes = new Map();
+  const bodyRoots = new Map(value.bodies.map(body => [body.root, body.body]));
+  const itemRoots = new Map(value.items.map(item => [item.node, item.definition]));
+  const pending = [{ node: value.tree, body: null, definition: value.tree.tsonic.definition }];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const frame = pending.pop();
+    if (visited.has(frame.node)) continue;
+    visited.add(frame.node);
+    const body = bodyRoots.get(frame.node) ?? frame.body;
+    const definition = itemRoots.get(frame.node.id) ?? frame.definition;
+    const reference = body === null ? { kind: "item", value: { owner: definition, node: frame.node.id } } : bodySource(frame.node.id, body);
+    lexicalScopes.set(JSON.stringify(reference), emptyScope());
+    for (const node of fixtureChildren(frame.node)) pending.push({ node, body, definition });
+  }
   return { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [] },
     bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
+    bindingScopeAt: reference => lexicalScopes.get(JSON.stringify(reference)) ?? null,
     nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
     nodeExists: reference => { assert.fail(`unexpected external node lookup: ${JSON.stringify(reference)}`); },
     localExists: reference => { assert.fail(`unexpected external local lookup: ${JSON.stringify(reference)}`); }, ...additions };
@@ -916,6 +950,7 @@ return { text: print(module), decoded: parse(print(module)), violations: verify(
     ["mutable-capture.ts", 'import type { HirCoreCapture } from "./ir-hir/contract.js"; export function bad(value:HirCoreCapture){ value.flowState={kind:"available",value:null}; }', 2540],
     ["mutable-range.ts", 'import type { TextRange } from "./ir-hir/contract.js"; export function bad(value:TextRange){ value.pos=0; }', 2540],
     ["missing-context.ts", 'import { verifyHir } from "./ir-hir/index.js"; import type { HirModule } from "./ir-hir/contract.js"; export function bad(value:HirModule){ return verifyHir(value); }', 2554],
+    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2741],
     ["missing-child.ts", 'import type { SyntaxList, SyntaxPhase } from "./ir-hir/contract.js"; export const incomplete:SyntaxList<SyntaxPhase>={kind:"SyntaxList"};', 2740],
     ["unknown-kind.ts", 'import type { HirNode } from "./ir-hir/contract.js"; export function bad(value:HirNode){ value.kind="InventedNode"; }', 2540],
     ["private-helper.ts", 'import { createHirSchema } from "./ir-hir/index.js"; export const helper=createHirSchema;', 2305],
@@ -968,6 +1003,33 @@ for (const operation of ["size", "alignment", "stride", "field-offset"]) test(`H
   expression.tsonic.observation = available(observationCapture(operation));
   const decoded = roundtrip(immutableTree(value), operation);
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+});
+
+test("HIR empty and exact large memory geometry remain factual data, not a duplicated native layout decision", () => {
+  for (const size of [0n, 9007199254740993n, 340282366920938463463374607431768211455n]) {
+    const expression = callExpression();
+    const value = expressionModule(expression);
+    const capture = layoutCapture("value");
+    capture.geometry.byteSize = available(size);
+    capture.geometry.stride = available(size);
+    capture.geometry.byteAlignment = available(1n);
+    expression.tsonic.memory = available(capture);
+    const decoded = roundtrip(immutableTree(value), `exact memory geometry/${size}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+  }
+});
+
+test("HIR observation references must name actual local captured descriptors, not merely existing bare syntax", () => {
+  for (const operation of ["size", "field-offset"]) {
+    const expression = callExpression();
+    const observation = observationCapture(operation);
+    if (operation === "size") observation.layout = available(bodySource(3));
+    else observation.field = available(bodySource(3));
+    expression.tsonic.observation = available(observation);
+    const value = immutableTree(expressionModule(expression));
+    const expected = operation === "size" ? "observation layout must name a value or array descriptor" : "observation field must name a field descriptor";
+    assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), [violation("memory-capture-reference", nodeSite(2), expected)]);
+  }
 });
 
 test("HIR memory-capture-owner rejects one nonexistent original occurrence without manufacturing a replacement", () => {
@@ -1033,6 +1095,85 @@ test("HIR actual await protocol and minimally wrong closed arm have independent 
   const invalid = immutableTree(expressionModule(wrong));
   assert.deepStrictEqual(product.verifyHir(invalid, contextFor(invalid)), [
     violation("protocol-kind", nodeSite(2), "protocol must match its syntactic operation"),
+  ]);
+  const wrongSubject = syntax("AwaitExpression", 0, { expression: nameExpression(), tsonic: { ...expressionMetadata(),
+    protocol: available({ kind: "await", subject: 2, completion: 0 }) } });
+  const wrongSubjectModule = immutableTree(expressionModule(wrongSubject));
+  assert.deepStrictEqual(product.verifyHir(wrongSubjectModule, contextFor(wrongSubjectModule)), [
+    violation("protocol-kind", nodeSite(2), "protocol subject must be the actual syntactic operand"),
+  ]);
+});
+
+function iterationProtocol(kind, subject, asynchronous = false, nullableEndpoints = false) {
+  return { kind, asynchronous, subject, iterator: 0, element: 0, completion: 0, sent: 0,
+    next: 0, finish: nullableEndpoints ? null : 0, fail: nullableEndpoints ? null : 0 };
+}
+
+test("HIR iteration, spread, yield and delegation retain their exact syntax, async mode and complete endpoints", () => {
+  const rows = [];
+  for (const asynchronous of [false, true]) for (const nullableEndpoints of [false, true]) {
+    const spread = syntax("SpreadElement", 0, { expression: nameExpression(), tsonic: { ...expressionMetadata(), protocol: unavailable() } });
+    const spreadModule = expressionModule(spread);
+    spread.tsonic.protocol = available(iterationProtocol("spread", spread.expression.id, asynchronous, nullableEndpoints));
+    rows.push([spreadModule, `spread/${asynchronous}/${nullableEndpoints}`]);
+    const loop = syntax("ForOfStatement", 0, { awaitModifier: asynchronous ? syntax("AwaitKeyword", 0) : null,
+      initializer: nameExpression("target"), expression: nameExpression("iterable"), statement: syntax("EmptyStatement", 0),
+      tsonic: { core: absentCore(), protocol: unavailable() } });
+    const loopModule = moduleWith([loop]);
+    loop.tsonic.protocol = available(iterationProtocol("iterate", loop.expression.id, asynchronous, nullableEndpoints));
+    rows.push([loopModule, `for-of/${asynchronous}/${nullableEndpoints}`]);
+  }
+  const enumeration = syntax("ForInStatement", 0, { awaitModifier: null, initializer: nameExpression("key"), expression: nameExpression("object"),
+    statement: syntax("EmptyStatement", 0), tsonic: { core: absentCore(), protocol: unavailable() } });
+  const enumerationModule = moduleWith([enumeration]);
+  enumeration.tsonic.protocol = available(iterationProtocol("iterate", enumeration.expression.id));
+  rows.push([enumerationModule, "for-in"]);
+  for (const kind of ["yield", "delegate"]) for (const present of [false, true]) {
+    const expression = syntax("YieldExpression", 0, { asteriskToken: kind === "delegate" ? syntax("AsteriskToken", 0) : null,
+      expression: present ? nameExpression() : null, tsonic: { ...expressionMetadata(), protocol: unavailable() } });
+    const value = expressionModule(expression);
+    expression.tsonic.protocol = available({ kind, subject: expression.expression?.id ?? null, yielded: 0, sent: 0, completion: 0 });
+    rows.push([value, `${kind}/${present}`]);
+  }
+  for (const [value, name] of rows) {
+    const decoded = roundtrip(immutableTree(value), name);
+    const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: null })] } });
+    assert.deepStrictEqual(product.verifyHir(decoded.value, context), [], name);
+  }
+  const wrong = syntax("ForOfStatement", 0, { awaitModifier: syntax("AwaitKeyword", 0), initializer: nameExpression("target"), expression: nameExpression("iterable"),
+    statement: syntax("EmptyStatement", 0), tsonic: { core: absentCore(), protocol: available(iterationProtocol("iterate", 4, false, true)) } });
+  const wrongModule = immutableTree(moduleWith([wrong]));
+  assert.deepStrictEqual(product.verifyHir(wrongModule, contextFor(wrongModule, {
+    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: null })] },
+  })), [violation("protocol-kind", nodeSite(1), "iteration protocol must retain authored asynchronous mode")]);
+});
+
+function variableModule() {
+  const definition = `D[${moduleIdentity};value]`;
+  const declaration = syntax("VariableDeclaration", 0, { name: syntax("Identifier", 0, { text: "value",
+    tsonic: { core: absentCore(), role: "declaration-name", declaration: { kind: "definition", definition } } }),
+  exclamationToken: null, type: null, initializer: null, tsonic: { core: absentCore(), parent: definitionIdentity, attributes: [],
+    memory: available(null), declaration: { kind: "definition", definition }, declaredType: available(0), initializer: null } });
+  const list = syntax("VariableDeclarationList", 0, { declarations: nodeList([declaration]), tsonic: { core: absentCore(), disposal: [] } });
+  const value = moduleWith([syntax("VariableStatement", 0, { modifiers: null, declarationList: list })]);
+  value.items = [{ definition, node: declaration.id }];
+  return { value, list, declaration };
+}
+
+test("HIR resource disposal facts retain empty, one and several ordered sync/async protocols without inventing a producer", () => {
+  for (const [count, reverse] of [[0, false], [1, false], [3, false], [3, true]]) {
+    const { value, list, declaration } = variableModule();
+    const facts = Array.from({ length: count }, (_, ordinal) => available({ kind: "dispose", subject: declaration.id, asynchronous: ordinal % 2 === 1, signature: 0 }));
+    list.tsonic.disposal = reverse ? facts.reverse() : facts;
+    const decoded = roundtrip(immutableTree(value), `disposal/${count}/${reverse}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, {
+      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: null })] },
+    })), []);
+  }
+  const { value, list, declaration } = variableModule();
+  list.tsonic.disposal = [available({ kind: "await", subject: declaration.id, completion: 0 })];
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [
+    violation("protocol-kind", nodeSite(list.id), "disposal list must contain disposal protocols"),
   ]);
 });
 
@@ -1129,6 +1270,55 @@ test("HIR complete candidate binding scope uses the real type verifier and unkno
     return null;
   } })), [{ rule: "binding-vector-complete", site: { kind: "body", body: bodyIdentity },
     detail: [{ kind: "text", value: "bindingScopeOf" }, { kind: "text", value: definitionIdentity }] }]);
+});
+
+for (const kind of ["data-layout", "value", "array", "field", "observation"]) test(`HIR ${kind} binding scope is the actual lexical occurrence scope including every environment family`, () => {
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  const capture = kind === "observation" ? observationCapture() : layoutCapture(kind);
+  const owners = ["Class", "method", "captured"].map(name => `D[${moduleIdentity};${name}]`);
+  const identities = owners.map(owner => ({ owner, index: 0 }));
+  const scope = { classParameters: [identities[0]], methodParameters: [identities[1]], capturedParameters: [identities[2]], selfOwners: [owners[0]] };
+  const vector = { classBindings: [{ kind: "bound", parameter: identities[0], type: 0 }],
+    methodBindings: [{ kind: "rigid", parameter: identities[1] }], capturedBindings: [{ kind: "bound", parameter: identities[2], type: 0 }],
+    selfBindings: [{ kind: "rigid", owner: owners[0] }] };
+  capture.bindings = available(vector);
+  expression.tsonic[kind === "observation" ? "observation" : "memory"] = available(capture);
+  const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()])]);
+  const context = contextFor(value, {
+    bindingScopeOf: definition => declarations.get(definition) ?? null,
+    bindingScopeAt: reference => {
+      assert.deepStrictEqual(reference, bodySource(2), "scope is requested at the actual occurrence, not a capture target or vector parameter");
+      return scope;
+    },
+  });
+  const decoded = roundtrip(immutableTree(value), `${kind}/lexical bindings`);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, context), []);
+  const unknown = { ...context, bindingScopeAt: reference => {
+    assert.deepStrictEqual(reference, bodySource(2));
+    return null;
+  } };
+  assert.deepStrictEqual(product.verifyHir(decoded.value, unknown), [{ rule: "binding-vector-complete", site: nodeSite(2),
+    detail: [{ kind: "text", value: "bindingScopeAt" }, { kind: "text", value: "body" },
+      { kind: "text", value: bodyIdentity }, { kind: "number", value: 2 }] }]);
+});
+
+test("HIR item-qualified capture scope keeps its actual owner and unknown occurrence rather than a guessed body", () => {
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  const occurrence = { kind: "item", value: { owner: definitionIdentity, node: 2 } };
+  const capture = layoutCapture("value", occurrence);
+  capture.bindings = available(emptyBindings());
+  expression.tsonic.memory = available(capture);
+  const decoded = roundtrip(immutableTree(value), "item-qualified bindings");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: reference => {
+    assert.deepStrictEqual(reference, occurrence);
+    return emptyScope();
+  } })), []);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: () => null })), [
+    { rule: "binding-vector-complete", site: nodeSite(2), detail: [{ kind: "text", value: "bindingScopeAt" },
+      { kind: "text", value: "item" }, { kind: "text", value: definitionIdentity }, { kind: "number", value: 2 }] },
+  ]);
 });
 
 test("HIR body-owner reports a malformed owner correlation without silently replacing the retained root", () => {
@@ -1245,6 +1435,13 @@ function coreArmInputs() {
   for (const contract of ["requires-unsafe", "safe"]) add("safety", contract, { occurrence: bodySource(2), provider: definitionIdentity,
     family: "safety", operation: "apply", predecessor: bodySource(6), contract });
   for (const value of [null, "moved", "borrowed-shared", "borrowed-mut"]) add("flowState", String(value), value);
+  add("provider", "actual provider definition", definitionIdentity);
+  for (const field of ["provider", "markers", "pointerType", "pointerOperation", "attribute", "safety", "argumentPassing", "flowState"])
+    for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
+      rows.push({ field, name: `${field}/${reason}`, captured: unavailable(reason) });
+  for (const kind of ["builder-state", "application"]) add("attribute", `${kind}/no selection`, { occurrence: bodySource(2), applicationTarget: bodySource(6),
+    selectedMember: null, applicationMemberKind: null, applicationPlacement: null, applicationParameterName: null, applicationTargetSpecifier: null,
+    kind, ...(kind === "application" ? { invocation: bodySource(2) } : {}) });
   for (const mode of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"])
     add("argumentPassing", mode, { role: "argument", mode, storageExpression: bodySource(6) });
   return rows;
@@ -1253,8 +1450,143 @@ function coreArmInputs() {
 test("HIR complete Core capture arm bank preserves every closed factual family and its own fields", () => {
   for (const row of coreArmInputs()) {
     const { module, call } = coreCarrier();
-    call.tsonic.core[row.field] = available(row.value);
+    call.tsonic.core[row.field] = row.captured ?? available(row.value);
     const decoded = roundtrip(immutableTree(module), `${row.field}/${row.name}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [], `${row.field}/${row.name}`);
+  }
+});
+
+const rootPlace = () => ({ base: { kind: "root", resolution: { kind: "definition", definition: definitionIdentity, aliases: [] } },
+  step: null, read: available(0), write: available(0) });
+const projectTarget = () => ({ target: "project", module: moduleIdentity });
+const libraryTarget = () => ({ target: "library", module: { providerId: "authored-provider", providerVersion: "1", packageName: null,
+  moduleSpecifier: "authored:module", providerModuleId: "module" } });
+const memberOrigins = () => [{ kind: "declared", declaration: definitionIdentity }, { kind: "class-prototype", owner: definitionIdentity },
+  { kind: "mapped", owner: bodySource(0), key: { kind: "text", value: "field" } }];
+
+function checkedRoleInputs() {
+  const rows = [];
+  const add = (name, node, expected = []) => rows.push({ name, node, expected });
+  for (const [role, fields] of [
+    ["value", { value: emptyValue(), resolution: { kind: "definition", definition: definitionIdentity, aliases: [definitionIdentity] } }],
+    ["assignment-target", { resolution: { kind: "definition", definition: definitionIdentity, aliases: [] }, views: emptyViews(), place: available(rootPlace()), access: "write" }],
+    ["declaration-name", { declaration: { kind: "definition", definition: definitionIdentity } }],
+    ["property-name", { key: available({ kind: "text", value: "field" }), origins: available(memberOrigins()) }],
+    ["type-name", { resolution: { kind: "module", target: projectTarget() } }],
+    ["label", { target: null }],
+    ["private-name", { declaration: definitionIdentity }],
+    ["shorthand-value", { value: emptyValue(), resolution: { kind: "unresolved", checkerDiagnostic: null }, key: available({ kind: "symbol", declaration: definitionIdentity }) }],
+  ]) add(`name/${role}`, syntax("Identifier", 0, { text: "name", tsonic: { core: absentCore(), role, ...fields } }));
+  add("name/read-write", syntax("Identifier", 0, { text: "target", tsonic: { core: absentCore(), role: "assignment-target",
+    resolution: { kind: "module", target: libraryTarget() }, views: emptyViews(), place: available(rootPlace()), access: "read-write" } }));
+  for (const [role, fields] of [
+    ["value", { value: emptyValue(), literal: { kind: "string", value: "text" } }],
+    ["property-name", { key: available({ kind: "text", value: "text" }), origins: available(memberOrigins()) }],
+    ["declaration-name", { declaration: { kind: "definition", definition: definitionIdentity } }],
+    ["type-literal", { type: available(0), literal: { kind: "string", value: "text" } }],
+    ["module-specifier", { target: available(libraryTarget()) }],
+    ["export-name", { definition: available(definitionIdentity) }],
+    ["attribute-value", { literal: { kind: "string", value: "text" } }],
+  ]) add(`literal/${role}`, syntax("StringLiteral", 0, { text: "text", tokenFlags: [], tsonic: { core: absentCore(), role, ...fields } }));
+  add("literal/unique-symbol category opposite", syntax("StringLiteral", 0, { text: "text", tokenFlags: [], tsonic: { core: absentCore(),
+    role: "type-literal", type: available(0), literal: { kind: "unique-symbol", declaration: definitionIdentity } } }), [
+    violation("literal-exact", nodeSite(2), "literal category and value must match its syntax"),
+  ]);
+  for (const [kind, literal] of [["TrueKeyword", { kind: "boolean", value: true }], ["FalseKeyword", { kind: "boolean", value: false }], ["NullKeyword", { kind: "absence" }]]) {
+    add(`keyword/value/${kind}`, syntax(kind, 0, { tsonic: { core: absentCore(), role: "value", value: emptyValue() } }));
+    add(`keyword/type-literal/${kind}`, syntax(kind, 0, { tsonic: { core: absentCore(), role: "type-literal", type: available(0), literal } }));
+  }
+  for (const [role, token] of [["arithmetic", "PlusToken"], ["comparison", "EqualsEqualsToken"], ["short-circuit", "AmpersandAmpersandToken"],
+    ["sequence", "CommaToken"], ["assignment", "EqualsToken"]]) add(`binary/${role}`, syntax("BinaryExpression", 0, { modifiers: null,
+    left: nameExpression("left"), type: null, operatorToken: syntax(token, 0), right: nameExpression("right"),
+    tsonic: { core: absentCore(), role, value: emptyValue(), ...(role === "assignment" ? { target: available(rootPlace()) } : {}) } }));
+  add("unary/value", syntax("PrefixUnaryExpression", 0, { operator: "ExclamationToken", operand: nameExpression(), tsonic: { core: absentCore(), role: "value", value: emptyValue() } }));
+  for (const kind of ["PrefixUnaryExpression", "PostfixUnaryExpression"]) add(`${kind}/update`, syntax(kind, 0, { operator: "PlusPlusToken", operand: nameExpression(),
+    tsonic: { core: absentCore(), role: "update", value: emptyValue(), target: available(rootPlace()) } }));
+  for (const role of ["value", "heritage"]) add(`instantiation/${role}`, syntax("ExpressionWithTypeArguments", 0, { expression: nameExpression(), typeArguments: null,
+    tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { type: available(0), definition: available(definitionIdentity) }) } }));
+  for (const kind of ["ArrayLiteralExpression", "ObjectLiteralExpression"]) for (const role of ["value", "assignment-pattern"])
+    add(`${kind}/${role}`, syntax(kind, 0, { ...(kind === "ArrayLiteralExpression" ? { elements: nodeList([]) } : { properties: nodeList([]) }), multiLine: false,
+      tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { views: emptyViews() }) } }));
+  for (const role of ["value", "assignment-target"]) add(`member/${role}`, syntax("ElementAccessExpression", 0, {
+    expression: nameExpression("receiver"), questionDotToken: null, argumentExpression: nameExpression("key"),
+    tsonic: { core: absentCore(), role, ...(role === "value" ? { value: emptyValue() } : { views: emptyViews(), place: available(rootPlace()), access: "read-write" }),
+      origins: available(memberOrigins()), accessor: available(null) } }));
+  return rows;
+}
+
+test("HIR closed checked-name, literal, binary, unary, keyword, instantiation, aggregate and member roles retain complete values", () => {
+  for (const row of checkedRoleInputs()) {
+    const value = immutableTree(expressionModule(row.node));
+    const decoded = roundtrip(value, row.name);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), row.expected, row.name);
+  }
+});
+
+function selectorInputs() {
+  const selectors = [
+    { kind: "class-value" }, { kind: "construction-argument", definition: { occurrence: { body: bodyIdentity, node: 6 }, captures: [{ body: bodyIdentity, local: 0 }] }, index: 0 },
+    { kind: "optional-value" }, { kind: "array-element" }, { kind: "tuple-element", index: 0 },
+    ...["union-member", "argument-place", "parameter-place", "intersection-member"].map(kind => ({ kind, index: 0 })),
+    { kind: "intersection-result" }, ...["argument-tail", "parameter-tail"].map(kind => ({ kind, start: 0 })),
+    ...memberOrigins().map(origin => ({ kind: "member", origin })),
+    ...["index-key", "index-value"].map(kind => ({ kind, declaration: definitionIdentity })), { kind: "projection-source" },
+    { kind: "parameter", signature: 0, index: 0 }, { kind: "receiver", signature: 0 },
+    { kind: "signature-tail", signature: 0, start: 0, readonly: true }, { kind: "tuple-slice", start: 0, endCount: 1, readonly: false },
+    { kind: "result", signature: 0 }, { kind: "type-argument", declaration: definitionIdentity, index: 0 }, { kind: "awaited" },
+  ];
+  for (const origin of ["authored", "inferred"]) selectors.push({ kind: "sum-arm", family: { origin,
+    component: { root: bodySource(6), path: [] }, parameters: [{ owner: definitionIdentity, index: 0 }],
+    roles: [{ authoredIndex: 0, component: bodySource(6), member: 0 }] }, index: 0 });
+  return selectors;
+}
+
+test("HIR Core type components retain every closed selector arm, qualified construction capture and ordered path", () => {
+  const selectors = selectorInputs();
+  const paths = [[], ...selectors.map(selector => [selector]), selectors, [...selectors].reverse()];
+  for (const path of paths) {
+    const { module, call } = coreCarrier();
+    module.bodies[0].locals = [{ id: 0, declaration: bodySource(6), name: "captured", role: "binding", checkerSlot: available(0), capturedFrom: null, mutable: false }];
+    call.tsonic.core.pointerType = available({ kind: "typed-location", pointee: { type: available(0), component: { root: bodySource(6), path } }, mutability: "readonly" });
+    const decoded = roundtrip(immutableTree(module), `component path/${path.map(selector => selector.kind).join("/")}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(module, {
+      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature()] },
+    })), []);
+  }
+});
+
+test("HIR numeric member keys preserve exact normalized rationals and their complete normalization opposite", () => {
+  for (const [rational, expected] of [
+    [{ numerator: 9007199254740993n, denominator: 2n, negativeZero: false }, []],
+    [{ numerator: 0n, denominator: 1n, negativeZero: true }, []],
+    [{ numerator: 2n, denominator: 4n, negativeZero: false }, [violation("literal-exact", nodeSite(2), "numeric member key must retain a normalized exact rational")]],
+  ]) {
+    const node = nameExpression("key");
+    node.tsonic = { core: absentCore(), role: "property-name", key: available({ kind: "number", value: rational }), origins: available([]) };
+    const value = immutableTree(expressionModule(node));
+    const decoded = roundtrip(value, "exact member key");
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), expected);
+  }
+});
+
+test("HIR signed zero parent and implicit definition ordinals inside foreign body identities retain their own exact rules", () => {
+  const signed = moduleWith();
+  signed.tree.endOfFileToken.parent = -0;
+  assert.deepStrictEqual(product.verifyHir(immutableTree(signed), contextFor(signed)), [
+    violation("lexical-parent", nodeSite(1), "parent must be the actual syntactic parent"),
+    violation("node-reference", nodeSite(1), "node must exist in the module arena"),
+  ]);
+  for (const ordinal of [-1, -0, 0.5, NaN, Infinity, -Infinity]) {
+    const module = "M[P[%002Fproject];foreign.ts]";
+    const definition = ids.encodeDefId({ module, segments: [{ name: "owner", ordinal }] });
+    const body = ids.encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
+    const local = { body, local: 0 };
+    const node = nameExpression("foreignLocal");
+    node.tsonic.resolution = { kind: "local", local };
+    const value = immutableTree(expressionModule(node));
+    assert.deepStrictEqual(product.verifyHir(value, contextFor(value, { localExists: reference => {
+      assert.deepStrictEqual(reference, local, "only the actual supplied foreign local is read");
+      return true;
+    } })), [violation("ordinal-domain", nodeSite(2), "definition segment ordinal must be a nonnegative safe integer other than negative zero")]);
   }
 });

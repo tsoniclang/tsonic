@@ -7,11 +7,13 @@ import type { HirModule, HirNode, HirRule, HirSite, HirVerificationContext } fro
 import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, isHirObject, walkHirData } from "./verify-syntax.js";
 
-export interface HirBindingRequest {
-  readonly definition: DefId;
+export type HirBindingRequest = {
   readonly vector: BindingVector;
   readonly site: HirSite;
-}
+} & (
+  | { readonly kind: "definition"; readonly definition: DefId }
+  | { readonly kind: "occurrence"; readonly occurrence: SourceNodeRef }
+);
 
 interface BindingFailure {
   readonly rule: TypeRule;
@@ -37,10 +39,14 @@ export function verifyBindingVectors(
   const inputs: BindingVerificationInput[] = [];
   const results = new Map<HirBindingRequest, Violation<HirRule, HirSite>[]>();
   for (const request of requests) {
-    const scope = context.bindingScopeOf(request.definition);
+    const scope = request.kind === "definition" ? context.bindingScopeOf(request.definition) : context.bindingScopeAt(request.occurrence);
     if (scope === null) {
-      results.set(request, [{ rule: "binding-vector-complete", site: request.site,
-        detail: [{ kind: "text", value: "bindingScopeOf" }, { kind: "text", value: request.definition }] }]);
+      const detail: Violation<HirRule, HirSite>["detail"] = request.kind === "definition"
+        ? [{ kind: "text", value: "bindingScopeOf" }, { kind: "text", value: request.definition }]
+        : [{ kind: "text", value: "bindingScopeAt" }, { kind: "text", value: request.occurrence.kind },
+          { kind: "text", value: request.occurrence.kind === "body" ? request.occurrence.value.body : request.occurrence.value.owner },
+          { kind: "number", value: request.occurrence.value.node }];
+      results.set(request, [{ rule: "binding-vector-complete", site: request.site, detail }]);
     } else {
       selected.push(request);
       inputs.push({ vector: request.vector, scope });
@@ -188,6 +194,11 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
           if (!validHirIndex(path.value.ordinal))
             report("ordinal-domain", data.site, "body ordinal must be a nonnegative safe integer other than negative zero");
           const owner = decodeDefId(path.value.owner);
+          if (owner.kind === "decoded" && !checkedDefinitions.has(path.value.owner)) {
+            checkedDefinitions.add(path.value.owner);
+            for (const segment of owner.value.segments) if (!validHirIndex(segment.ordinal))
+              report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
+          }
           if (owner.kind === "decoded" && owner.value.module === module.module && !inventory.bodies.has(encodeBodyId(path.value)))
             report("body-owner", data.site, "body reference must exist in its owning module");
         }
