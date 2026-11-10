@@ -39,7 +39,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     for (const violation of verifyFactBindings([
       { vector: metadata.key.bindings.bindings, definition: metadata.key.definition, site },
     ], context)) {
-      violations.push({ rule: "bindings-complete", site, detail: violation.detail });
+      violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves" : "bindings-complete", site, detail: violation.detail });
     }
   }
   if (metadata.kind === "data-layout") {
@@ -65,18 +65,18 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     report("cross-owner-qualified", "The metadata kind must belong to the same declaration and complete binding environment.");
   }
   const layoutAt = (id: number): MemoryLayout | undefined => {
-    const selected = Number.isSafeInteger(id) && id >= 0 ? layouts[id] : undefined;
+    const selected = validIndex(id, layouts.length) ? layouts[id] : undefined;
     return selected?.id === id ? selected : undefined;
   };
   const fieldAt = (id: number): MemoryField | undefined => {
-    const selected = Number.isSafeInteger(id) && id >= 0 ? fields[id] : undefined;
+    const selected = validIndex(id, fields.length) ? fields[id] : undefined;
     return selected?.id === id ? selected : undefined;
   };
   const dataLayouts = new Map<DefId, { readonly width: 32 | 64; readonly maximum: bigint } | null>();
   for (let index = 0; index < layouts.length; index += 1) {
     const layout = layouts[index];
     if (layout === undefined) continue;
-    if (layout.id !== index) report("layout-id-dense", "Layout IDs must equal their dense arena positions.");
+    if (layout.id !== index || !validIndex(layout.id, layouts.length)) report("layout-id-dense", "Layout IDs must equal their dense arena positions.");
     if (!validIndex(layout.source, context.types.terms.length)) {
       report("type-resolves", "A layout source type must exist in the supplied canonical type table.");
     }
@@ -185,7 +185,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index];
     if (field === undefined) continue;
-    if (field.id !== index) report("field-id-dense", "Memory-field IDs must equal their dense arena positions.");
+    if (field.id !== index || !validIndex(field.id, fields.length)) report("field-id-dense", "Memory-field IDs must equal their dense arena positions.");
     if (!validIndex(field.owner, context.types.terms.length) || !validIndex(field.value, context.types.terms.length)) {
       report("type-resolves", "A field owner and value must resolve in the supplied canonical type table.");
     }

@@ -61,6 +61,12 @@ const lex = (state: State): Decoded<readonly Token[]> => {
     if (unit === 32 || unit === 9 || unit === 10 || unit === 13) { offset += 1; continue; }
     const start = offset;
     const character = state.text.charAt(offset);
+    const special = state.text.startsWith("NaN", offset) ? { text: "NaN", value: NaN }
+      : state.text.startsWith("+Infinity", offset) ? { text: "+Infinity", value: Infinity }
+        : state.text.startsWith("-Infinity", offset) ? { text: "-Infinity", value: -Infinity } : null;
+    if (special !== null) {
+      tokens.push({ kind: "scalar", text: special.text, offset, value: special.value }); offset += special.text.length; continue;
+    }
     if ("()[]=,:".includes(character)) {
       tokens.push({ kind: "punctuation", text: character, offset }); offset += 1; continue;
     }
@@ -234,24 +240,38 @@ const nonempty = <Value>(state: State, input: SyntaxValue | undefined, decode: D
     return accept(Object.freeze(result));
   });
 };
+type NumericToken<Identity extends number> = { readonly kind: "identity"; readonly offset: number; readonly prefix: string; readonly value: Identity };
 const numeric = <Identity extends number>(state: State, input: SyntaxValue | undefined, prefix: string,
-  validate: (value: number) => value is Identity): Decoded<Identity> =>
-  input?.kind === "identity" && input.prefix === prefix && typeof input.value === "number" && validate(input.value)
-    ? accept(input.value) : fail(state, input, [prefix + ":integer"]);
-const block: Decode<BlockId> = (state, input) => numeric(state, input, "b", (value): value is BlockId => Number.isInteger(value));
-const bound: Decode<BoundProducerId> = (state, input) => numeric(state, input, "bound", (value): value is BoundProducerId => Number.isInteger(value));
-const layout: Decode<LayoutId> = (state, input) => numeric(state, input, "layout", (value): value is LayoutId => Number.isInteger(value));
-const local: Decode<LocalId> = (state, input) => numeric(state, input, "l", (value): value is LocalId => Number.isInteger(value));
-const field: Decode<MemoryFieldId> = (state, input) => numeric(state, input, "field", (value): value is MemoryFieldId => Number.isInteger(value));
-const node: Decode<NodeId> = (state, input) => numeric(state, input, "n", (value): value is NodeId => Number.isInteger(value));
-const boundary: Decode<OpenBoundaryId> = (state, input) => numeric(state, input, "boundary", (value): value is OpenBoundaryId => Number.isInteger(value));
-const originsIdentity: Decode<OriginsId> = (state, input) => numeric(state, input, "origins", (value): value is OriginsId => Number.isInteger(value));
-const place: Decode<PlaceId> = (state, input) => numeric(state, input, "p", (value): value is PlaceId => Number.isInteger(value));
-const producerIdentity: Decode<ProducerId> = (state, input) => numeric(state, input, "producer", (value): value is ProducerId => Number.isInteger(value));
-const path: Decode<ProjectionPathId> = (state, input) => numeric(state, input, "path", (value): value is ProjectionPathId => Number.isInteger(value));
-const signature: Decode<SigId> = (state, input) => numeric(state, input, "sig", (value): value is SigId => Number.isInteger(value));
-const typeIdentity: Decode<TyId> = (state, input) => numeric(state, input, "t", (value): value is TyId => Number.isInteger(value));
-const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state, input, "context", (value): value is ValueContextId => Number.isInteger(value));
+  validate: (value: SyntaxValue) => value is NumericToken<Identity>): Decoded<Identity> =>
+  input !== undefined && validate(input) ? accept(input.value) : fail(state, input, [prefix + ":number"]);
+const block: Decode<BlockId> = (state, input) => numeric(state, input, "b",
+  (value): value is NumericToken<BlockId> => value.kind === "identity" && value.prefix === "b" && typeof value.value === "number");
+const bound: Decode<BoundProducerId> = (state, input) => numeric(state, input, "bound",
+  (value): value is NumericToken<BoundProducerId> => value.kind === "identity" && value.prefix === "bound" && typeof value.value === "number");
+const layout: Decode<LayoutId> = (state, input) => numeric(state, input, "layout",
+  (value): value is NumericToken<LayoutId> => value.kind === "identity" && value.prefix === "layout" && typeof value.value === "number");
+const local: Decode<LocalId> = (state, input) => numeric(state, input, "l",
+  (value): value is NumericToken<LocalId> => value.kind === "identity" && value.prefix === "l" && typeof value.value === "number");
+const field: Decode<MemoryFieldId> = (state, input) => numeric(state, input, "field",
+  (value): value is NumericToken<MemoryFieldId> => value.kind === "identity" && value.prefix === "field" && typeof value.value === "number");
+const node: Decode<NodeId> = (state, input) => numeric(state, input, "n",
+  (value): value is NumericToken<NodeId> => value.kind === "identity" && value.prefix === "n" && typeof value.value === "number");
+const boundary: Decode<OpenBoundaryId> = (state, input) => numeric(state, input, "boundary",
+  (value): value is NumericToken<OpenBoundaryId> => value.kind === "identity" && value.prefix === "boundary" && typeof value.value === "number");
+const originsIdentity: Decode<OriginsId> = (state, input) => numeric(state, input, "origins",
+  (value): value is NumericToken<OriginsId> => value.kind === "identity" && value.prefix === "origins" && typeof value.value === "number");
+const place: Decode<PlaceId> = (state, input) => numeric(state, input, "p",
+  (value): value is NumericToken<PlaceId> => value.kind === "identity" && value.prefix === "p" && typeof value.value === "number");
+const producerIdentity: Decode<ProducerId> = (state, input) => numeric(state, input, "producer",
+  (value): value is NumericToken<ProducerId> => value.kind === "identity" && value.prefix === "producer" && typeof value.value === "number");
+const path: Decode<ProjectionPathId> = (state, input) => numeric(state, input, "path",
+  (value): value is NumericToken<ProjectionPathId> => value.kind === "identity" && value.prefix === "path" && typeof value.value === "number");
+const signature: Decode<SigId> = (state, input) => numeric(state, input, "sig",
+  (value): value is NumericToken<SigId> => value.kind === "identity" && value.prefix === "sig" && typeof value.value === "number");
+const typeIdentity: Decode<TyId> = (state, input) => numeric(state, input, "t",
+  (value): value is NumericToken<TyId> => value.kind === "identity" && value.prefix === "t" && typeof value.value === "number");
+const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state, input, "context",
+  (value): value is NumericToken<ValueContextId> => value.kind === "identity" && value.prefix === "context" && typeof value.value === "number");
 const definition: Decode<DefId> = (state, input) => {
   if (input?.kind !== "identity" || input.prefix !== "def" || typeof input.value !== "string") return fail(state, input, ["def:string"]);
   const decoded = decodeDefId(input.value);
@@ -1242,7 +1262,10 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
   let line = 1;
   let column = 1;
   for (let offset = 0; offset < failure.offset; offset += 1) {
-    if (text.charCodeAt(offset) === 10) { line += 1; column = 1; } else column += 1;
+    const unit = text.charCodeAt(offset);
+    if (unit === 13 || unit === 0x2028 || unit === 0x2029) { line += 1; column = 1; }
+    else if (unit === 10) { if (text.charCodeAt(offset - 1) !== 13) line += 1; column = 1; }
+    else column += 1;
   }
   let found: string | null = failure.offset >= text.length ? null : text.charAt(failure.offset);
   if (tokens.kind === "value") for (const token of tokens.value) if (token.offset === failure.offset) { found = token.text; break; }

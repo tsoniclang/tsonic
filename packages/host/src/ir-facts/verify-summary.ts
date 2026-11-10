@@ -2,18 +2,9 @@ import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Signature } from "../ir-types/contract.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
-import { relationalSiteData, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
+import { escapeData, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
 
-const targetKey = (target: EscapeTarget): string => {
-  switch (target.kind) {
-    case "return": case "throw": return encodeKey([target.kind]);
-    case "receiver": return encodeKey([target.kind, target.path]);
-    case "parameter": case "capture": return encodeKey([target.kind, target.index, target.path]);
-    case "shared": return encodeKey([target.kind, target.definition, target.path]);
-    case "callback": case "suspension": return encodeKey([target.kind, relationalSiteData(target.at)]);
-    case "external": return encodeKey([target.kind, target.boundary]);
-  }
-};
+const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
 export const verifySummary: VerifySummary = (summary, context) => {
   const violations: Violation<SummaryRule, FactsSite>[] = [];

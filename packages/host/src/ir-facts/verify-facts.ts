@@ -9,7 +9,7 @@ import type {
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  declarationOf, instanceKey, sameBindings, validIndex,
+  declarationOf, escapeData, instanceKey, sameBindings, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 import type { FactBindingInput } from "./verify-relations.js";
@@ -47,15 +47,19 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
   const nodes = new Map<NodeId, TirNode>();
   const valueNodes = new Set<NodeId>();
+  const nestedBodies = new Set(tir.nestedBodies);
   const pending: TirNode[] = [tir.root];
   while (pending.length !== 0) {
     const node = pending.pop(); if (node === undefined || nodes.has(node.id)) continue;
     nodes.set(node.id, node);
     const annotation = node.tsonic;
     if (annotation !== null && "convertedType" in annotation) valueNodes.add(node.id);
-    if (annotation !== null && ("callable" in annotation && annotation.callable.template !== null && annotation.callable.template.body !== tir.body ||
-      "template" in annotation && annotation.template !== null && annotation.template.body !== tir.body)) continue;
-    for (const child of childrenOfSyntax<TypedPhase>(node)) pending.push(child);
+    const template = annotation !== null && "callable" in annotation ? annotation.callable.template
+      : annotation !== null && "template" in annotation ? annotation.template : null;
+    const bodyRoot = template !== null && nestedBodies.has(template.body) && "body" in node && node.body !== null ? node.body.id : null;
+    const initializerRoot = annotation !== null && "initializer" in annotation && annotation.initializer !== null &&
+      nestedBodies.has(annotation.initializer) && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
+    for (const child of childrenOfSyntax<TypedPhase>(node)) if (child.id !== bodyRoot && child.id !== initializerRoot) pending.push(child);
   }
   const nodeRef = (reference: NodeRef, site: FactsSite, local = true): void => {
     if (!context.nodeExists({ kind: "body", value: reference }) || local && !nodes.has(reference.node)) {
@@ -212,7 +216,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     for (const value of write.values) { if (value.source !== null) nodeRef(value.source, site); origins(value.origins, site); }
     for (const id of write.boundaries) boundary(id, site);
   }
-  ordered(facts.origins.escapes, "escapes-order", row => [row.node, row.producer, encodeKey(row.target)], row => at(row.node));
+  ordered(facts.origins.escapes, "escapes-order", row => [row.node, row.producer, encodeKey(escapeData(row.target))], row => at(row.node));
   for (const escape of facts.origins.escapes) { node(escape.node); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node)); }
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
     origins(argument.actual, site); path(argument.projection, site);
@@ -220,6 +224,10 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
     else if (!validIndex(argument.formal.producer, foreign.producers.length) || foreign.producers[argument.formal.producer]?.id !== argument.formal.producer) {
       report("producer-resolves", site, "The actual formal producer resolves in its declared foreign arena.");
+    } else {
+      const formal = foreign.producers[argument.formal.producer];
+      if (formal?.kind !== "parameter" || formal.index !== argument.parameterIndex) report("argument-transports-total", site,
+        "A transport's formal producer retains its actual declaration parameter position.");
     }
     if (!context.definitionExists(argument.parameter)) report("argument-transports-total", site, "A transport retains its actual parameter declaration.");
   };

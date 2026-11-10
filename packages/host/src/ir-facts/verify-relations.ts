@@ -9,7 +9,7 @@ import type {
 } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type {
-  FactsRule, FactsSite, FactsVerificationContext, RelationalArena, RelationalOwner, RelationalSite,
+  EscapeTarget, FactsRule, FactsSite, FactsVerificationContext, RelationalArena, RelationalOwner, RelationalSite,
 } from "./contract.js";
 
 export const validIndex = (index: number, length: number): boolean =>
@@ -94,6 +94,17 @@ export const relationalSiteData = (site: RelationalSite): KeyData => site.kind =
     site.identity.module.moduleSpecifier, site.identity.module.providerModuleId,
     site.identity.exportId, site.identity.memberId, site.identity.signatureId, site.site];
 
+export const escapeData = (target: EscapeTarget): KeyData => {
+  switch (target.kind) {
+    case "return": case "throw": return [target.kind];
+    case "receiver": return [target.kind, target.path];
+    case "parameter": case "capture": return [target.kind, target.index, target.path];
+    case "shared": return [target.kind, target.definition, target.path];
+    case "callback": case "suspension": return [target.kind, relationalSiteData(target.at)];
+    case "external": return [target.kind, target.boundary];
+  }
+};
+
 export const relationalSite = (owner: RelationalOwner, at: RelationalSite): FactsSite => at.kind === "node"
   ? { kind: "node", at: at.node } : { kind: "declared-site", owner, identity: at.identity, site: at.site };
 
@@ -126,6 +137,11 @@ export const verifyFactBindings = (
   const sites: FactsSite[] = [];
   const violations: Violation<FactsRule, FactsSite>[] = [];
   for (const entry of entries) {
+    const bindings = [...entry.vector.classBindings, ...entry.vector.methodBindings, ...entry.vector.capturedBindings, ...entry.vector.selfBindings];
+    if (bindings.some(binding => binding.kind === "bound" && !validIndex(binding.type, context.types.terms.length))) {
+      violations.push({ rule: "type-resolves", site: entry.site,
+        detail: [{ kind: "text", value: "Every bound type resolves in the actual supplied canonical type table." }] });
+    }
     const scope = context.bindingScopeOf(entry.definition);
     if (scope === null) {
       violations.push({ rule: "bindings-complete", site: entry.site,
@@ -136,11 +152,17 @@ export const verifyFactBindings = (
     }
   }
   if (inputs.length !== 0) {
-    const checked = verifyTypes({ table: context.types, bindings: inputs, evidence: [] });
+    const checked = verifyTypes({ table: context.types, bindings: inputs, evidence: [],
+      nominalOf: context.nominalOf, nodeExists: context.nodeExists, localExists: context.localExists });
+    const reported = new Set<number>();
     for (const violation of checked) {
-      if (violation.site.kind !== "binding") continue;
+      if (violation.site.kind !== "binding" || violation.rule === "type-reference" || reported.has(violation.site.vector)) continue;
       const site = sites[violation.site.vector];
-      if (site !== undefined) violations.push({ rule: "bindings-complete", site, detail: violation.detail });
+      if (site !== undefined) {
+        violations.push({ rule: "bindings-complete", site, detail: [{ kind: "text",
+          value: "A binding vector retains every expected class, method, captured and self binding in canonical owner order." }] });
+        reported.add(violation.site.vector);
+      }
     }
   }
   return Object.freeze(violations);
@@ -180,7 +202,7 @@ export const verifyRelationalArena = (
     const path = arena.projections[index];
     if (path === undefined) continue;
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
-    if (path.id !== index) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
+    if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
     if (path.parent !== null && !validIndex(path.parent, index)) {
       report("projection-parent-precedes", site, "A projection parent must reference an earlier row of the same arena.");
     }
@@ -197,7 +219,7 @@ export const verifyRelationalArena = (
     const producer = arena.producers[index];
     if (producer === undefined) continue;
     const site: FactsSite = { kind: "producer", owner, producer: producer.id };
-    if (producer.id !== index) report("producer-id-dense", site, "Producer IDs must equal their dense arena positions.");
+    if (producer.id !== index || !validIndex(producer.id, arena.producers.length)) report("producer-id-dense", site, "Producer IDs must equal their dense arena positions.");
     if (producer.path !== null && !validIndex(producer.path, arena.projections.length)) {
       report("producer-resolves", site, "A producer projection must resolve in its own relational arena.");
     }
@@ -205,7 +227,12 @@ export const verifyRelationalArena = (
     switch (producer.kind) {
       case "allocation": checkSite(producer.at); identity = relationalSiteData(producer.at); break;
       case "parameter":
-      case "capture": identity = producer.index; break;
+      case "capture":
+        identity = producer.index;
+        if (!Number.isSafeInteger(producer.index) || producer.index < 0 || Object.is(producer.index, -0)) {
+          report("producer-resolves", site, "A formal or captured producer retains its actual nonnegative index.");
+        }
+        break;
       case "receiver": identity = null; break;
       case "shared":
         identity = producer.definition;
@@ -238,7 +265,7 @@ export const verifyRelationalArena = (
     const value = arena.contexts[index];
     if (value === undefined) continue;
     const site: FactsSite = { kind: "context", owner, context: value.id };
-    if (value.id !== index) report("context-id-dense", site, "Value-context IDs must equal their dense arena positions.");
+    if (value.id !== index || !validIndex(value.id, arena.contexts.length)) report("context-id-dense", site, "Value-context IDs must equal their dense arena positions.");
     if (value.receiver !== null && !validIndex(value.receiver, arena.origins.length)) {
       report("origins-resolves", site, "A receiver origin must resolve in its own relational arena.");
     }
@@ -276,7 +303,7 @@ export const verifyRelationalArena = (
     const bound = arena.boundProducers[index];
     if (bound === undefined) continue;
     const site: FactsSite = { kind: "bound-producer", owner, producer: bound.id };
-    if (bound.id !== index) report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions.");
+    if (bound.id !== index || !validIndex(bound.id, arena.boundProducers.length)) report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions.");
     if (!validIndex(bound.producer, arena.producers.length)) {
       report("producer-resolves", site, "A bound alternative must reference an actual producer in its own arena.");
     }
@@ -299,7 +326,7 @@ export const verifyRelationalArena = (
     const origins = arena.origins[index];
     if (origins === undefined) continue;
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
-    if (origins.id !== index) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
+    if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
     let previous = -1;
     for (const bound of origins.producers) {
       if (!validIndex(bound, arena.boundProducers.length)) {
@@ -322,7 +349,7 @@ export const verifyRelationalArena = (
     const boundary = arena.boundaries[index];
     if (boundary === undefined) continue;
     const site: FactsSite = { kind: "boundary", owner, boundary: boundary.id };
-    if (boundary.id !== index) report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions.");
+    if (boundary.id !== index || !validIndex(boundary.id, arena.boundaries.length)) report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions.");
     checkSite(boundary.at);
     if (!validIndex(boundary.subject, arena.producers.length) ||
       boundary.owner !== null && !validIndex(boundary.owner, arena.producers.length)) {

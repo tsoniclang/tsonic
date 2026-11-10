@@ -57,8 +57,7 @@ const scalar = (writer: Writer, value: string | number | bigint | boolean | null
   if (typeof value === "string") writer.parts.push(quoted(value));
   else if (typeof value === "bigint") writer.parts.push(value.toString(), "n");
   else if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("IR count and index values must be finite.");
-    writer.parts.push(Object.is(value, -0) ? "-0" : String(value));
+    writer.parts.push(Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value));
   } else writer.parts.push(String(value));
 };
 
