@@ -772,8 +772,15 @@ test("HIR deep checked block syntax prints, parses and verifies 100000 levels wi
   assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), []);
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
   const nodes = indexSyntaxTree(decoded.value.tree);
-  assert.equal(nodes.length, 100_002);
-  assert.equal(nodes.every((node, ordinal) => node.id === ordinal), true, "every declared node retains the complete deep preorder");
+  const expected = [decoded.value.tree];
+  let expectedBlock = decoded.value.tree.statements.nodes[0];
+  while (true) {
+    expected.push(expectedBlock);
+    if (expectedBlock.statements.nodes.length === 0) break;
+    expectedBlock = expectedBlock.statements.nodes[0];
+  }
+  expected.push(decoded.value.tree.endOfFileToken);
+  assertNodes(nodes, expected, "every deep preorder entry is the actual declared object in order");
 });
 
 test("HIR authored whole-module text and verifier case has an independent complete expected value", async () => {
@@ -1046,6 +1053,44 @@ test("HIR actual local resolution keeps its body qualifier and rejects a missing
   ]);
 });
 
+test("HIR one genuine identity qualification boundary refuses malformed definitions and body owners without a fallback reader", () => {
+  const cases = [
+    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "definition", definition: "not-a-definition", aliases: [] } }, [
+      violation("definition-reference", nodeSite(2), "invalid definition identity"),
+    ]],
+    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "local", local: { body: "not-a-body", local: 0 } } }, [
+      violation("local-reference", nodeSite(2), "qualified local must exist in its named body"),
+      violation("body-owner", nodeSite(2), "invalid body identity"),
+    ]],
+    [{ core: absentCore(), role: "label", target: { body: "not-a-body", node: 0 } }, [
+      violation("cross-owner-qualified", nodeSite(2), "qualified body node must exist in its named owner"),
+      violation("body-owner", nodeSite(2), "invalid body identity"),
+    ]],
+  ];
+  for (const [metadata, expected] of cases) {
+    const node = nameExpression("qualified");
+    node.tsonic = metadata;
+    const value = expressionModule(node);
+    const decoded = roundtrip(immutableTree(value), `invalid identity/${metadata.role}/${metadata.resolution?.kind ?? "label"}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
+      nodeOf: () => assert.fail("malformed identities never enter the canonical foreign-node reader"),
+      localExists: () => assert.fail("malformed identities never enter the canonical foreign-local reader"),
+    })), expected);
+  }
+  const { module: value, call } = coreCarrier();
+  call.tsonic.core.markers = available({ struct: null, field: { name: "field",
+    typeNode: { kind: "item", value: { owner: "not-a-definition", node: 0 } }, type: unavailable(), readonly: true },
+  defaultValue: null, jsString: false });
+  const decoded = roundtrip(immutableTree(value), "invalid qualified item owner");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
+    nodeOf: () => assert.fail("invalid item ownership has no foreign-node fallback"),
+  })), [
+    violation("cross-owner-qualified", nodeSite(2), "qualified item node must exist in its named owner"),
+    violation("definition-reference", nodeSite(2), "invalid definition identity"),
+    violation("core-capture-reference", nodeSite(2), "Core capture reference must retain an existing qualified source node"),
+  ]);
+});
+
 test("HIR place-base-acyclic rejects an actual place-reference cycle without using numeric node order", () => {
   const expression = nameExpression();
   expression.tsonic.value.place = available({ base: { kind: "place", node: 2 }, step: null, read: available(0), write: available(null) });
@@ -1114,7 +1159,8 @@ test("HIR place reference refuses missing nodes and retains the whole coupled re
 test("HIR exact literal metadata keeps authored radix, separators, exponents, signs and arbitrary integer precision", () => {
   const numeric = [
     ["1", 1n, 1n, false], ["1.", 1n, 1n, false], ["1.0", 1n, 1n, false], ["1.e0", 1n, 1n, false],
-    [".5", 1n, 2n, false], ["1_2.3_4E+0_2", 1234n, 1n, false], ["0xF_F", 255n, 1n, false],
+    [".5", 1n, 2n, false], ["+.5", 1n, 2n, false], ["-1.25e-1", -1n, 8n, false],
+    ["1_2.3_4E+0_2", 1234n, 1n, false], ["0xF_F", 255n, 1n, false], ["-0xF", -15n, 1n, false],
     ["0b10_01", 9n, 1n, false], ["0o7_1", 57n, 1n, false], ["9007199254740993", 9007199254740993n, 1n, false],
     ["1.0000000000000000000000000000000000000001", 10000000000000000000000000000000000000001n, 10000000000000000000000000000000000000000n, false],
     ["0e9999999999999999999999999", 0n, 1n, false], ["-0.0e-999999999999999999999999", 0n, 1n, true],
@@ -1140,6 +1186,10 @@ for (const [token, rational] of [
   ["1e99999999999999999999999999", { numerator: 1n, denominator: 1n, negativeZero: false }],
   ["1e-99999999999999999999999999", { numerator: 1n, denominator: 1n, negativeZero: false }],
   ["1__0", { numerator: 10n, denominator: 1n, negativeZero: false }],
+  ["0x_1", { numerator: 1n, denominator: 1n, negativeZero: false }],
+  ["1e_1", { numerator: 10n, denominator: 1n, negativeZero: false }],
+  [".", { numerator: 0n, denominator: 1n, negativeZero: false }],
+  ["1e", { numerator: 1n, denominator: 1n, negativeZero: false }],
   ["1", { numerator: 2n, denominator: 2n, negativeZero: false }],
   ["1", { numerator: 1n, denominator: -1n, negativeZero: false }],
   ["1", { numerator: 1n, denominator: 1n, negativeZero: true }],
@@ -1980,6 +2030,87 @@ test("HIR complete candidate binding scope uses the real type verifier and unkno
     detail: [{ kind: "text", value: "bindingScopeOf" }, { kind: "text", value: definitionIdentity }] }]);
 });
 
+test("HIR delegates actual binding vectors without relabelling an unrelated shared type-table violation as a HIR binding", () => {
+  const value = moduleWith();
+  value.bodies[0].candidateLists = [{ id: 0, candidates: [candidate(0, { bindings: available(emptyBindings()) })] }];
+  const decoded = roundtrip(immutableTree(value), "complete empty binding with unrelated type-table order error");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
+    types: { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "union", members: [0, 0] }], signatures: [] },
+  })), []);
+});
+
+test("HIR genuine binding producer outcomes preserve every family, position, detail and original occurrence order", () => {
+  const foreign = "M[P[%002Fproject];bindings.ts]";
+  const outer = `D[${foreign};Outer]`;
+  const inner = `D[${foreign};Outer/Inner]`;
+  const method = `D[${foreign};Outer/Inner/method]`;
+  const outerParameter = { owner: outer, index: 0 };
+  const innerParameter = { owner: inner, index: 0 };
+  const methodParameter = { owner: method, index: 0 };
+  const scopes = new Map([
+    [outer, { classParameters: [outerParameter], methodParameters: [], capturedParameters: [], selfOwners: [outer] }],
+    [inner, { classParameters: [innerParameter], methodParameters: [], capturedParameters: [outerParameter], selfOwners: [outer, inner] }],
+    [method, { classParameters: [innerParameter], methodParameters: [methodParameter], capturedParameters: [outerParameter], selfOwners: [outer, inner] }],
+  ]);
+  const original = { classBindings: [{ kind: "rigid", parameter: innerParameter }],
+    methodBindings: [{ kind: "rigid", parameter: methodParameter }], capturedBindings: [{ kind: "rigid", parameter: outerParameter }],
+    selfBindings: [{ kind: "rigid", owner: outer }, { kind: "rigid", owner: inner }] };
+  const site = { kind: "body", body: bodyIdentity };
+  const forwarded = (rule, family, position, detail) => ({ rule, site, detail: [{ kind: "text", value: family },
+    { kind: "text", value: position === null ? "complete" : String(position) }, ...detail] });
+  const cases = [[original, [], "complete rigid bindings"]];
+  const bound = structuredClone(original);
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"])
+    bound[family] = bound[family].map(binding => ({ ...binding, kind: "bound", type: 0 }));
+  cases.push([bound, [], "complete bound bindings"]);
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const vector = structuredClone(original);
+    vector[family] = [];
+    cases.push([vector, [forwarded("binding-vector-complete", family, null,
+      [{ kind: "text", value: "length" }, { kind: "number", value: 0 }])], `${family}/missing`]);
+  }
+  for (const family of ["classBindings", "methodBindings", "capturedBindings"]) {
+    const vector = structuredClone(original);
+    vector[family][0].parameter.index = 1;
+    cases.push([vector, [forwarded("binding-vector-complete", family, 0, [{ kind: "text", value: "parameter" }])], `${family}/parameter`]);
+  }
+  for (const type of [-1, -0, 0.5, NaN, Infinity, -Infinity, 999]) {
+    const vector = structuredClone(original);
+    vector.classBindings[0] = { kind: "bound", parameter: innerParameter, type };
+    cases.push([vector, [violation("type-reference", site, "type must exist in the supplied table"),
+      forwarded("type-reference", "classBindings", 0, [{ kind: "text", value: "type" }, { kind: "number", value: type }])], `type/${type}`]);
+  }
+  const wrongOwner = structuredClone(original);
+  wrongOwner.selfBindings[1].owner = method;
+  cases.push([wrongOwner, [forwarded("binding-vector-complete", "selfBindings", 1, [{ kind: "text", value: "owner" }]),
+    forwarded("binding-vector-complete", "selfBindings", 1, [{ kind: "text", value: "owner" }])], "self owner and order"]);
+  const wrongOrder = structuredClone(original);
+  wrongOrder.selfBindings.reverse();
+  cases.push([wrongOrder, [forwarded("binding-vector-complete", "selfBindings", 0, [{ kind: "text", value: "owner" }]),
+    forwarded("binding-vector-complete", "selfBindings", 1, [{ kind: "text", value: "owner" }])], "self order"]);
+  for (const [vector, expected, name] of cases) {
+    const value = moduleWith();
+    value.bodies[0].candidateLists = [{ id: 0, candidates: [candidate(0, { declaration: method, bindings: available(vector) })] }];
+    const decoded = roundtrip(immutableTree(value), `actual binding producer/${name}`);
+    const base = contextFor(decoded.value);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, { ...base,
+      bindingScopeOf: definition => scopes.get(definition) ?? base.bindingScopeOf(definition) }), expected, name);
+  }
+  const first = structuredClone(original);
+  first.classBindings = [];
+  const value = moduleWith();
+  value.bodies[0].candidateLists = [{ id: 0, candidates: [candidate(0, { declaration: method, bindings: available(first) }),
+    candidate(1, { declaration: method, bindings: available(wrongOrder) })] }];
+  const decoded = roundtrip(immutableTree(value), "ordered actual binding occurrences");
+  const base = contextFor(decoded.value);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, { ...base,
+    bindingScopeOf: definition => scopes.get(definition) ?? base.bindingScopeOf(definition) }), [
+    forwarded("binding-vector-complete", "classBindings", null, [{ kind: "text", value: "length" }, { kind: "number", value: 0 }]),
+    forwarded("binding-vector-complete", "selfBindings", 0, [{ kind: "text", value: "owner" }]),
+    forwarded("binding-vector-complete", "selfBindings", 1, [{ kind: "text", value: "owner" }]),
+  ]);
+});
+
 for (const kind of ["data-layout", "value", "array", "field", "observation"]) test(`HIR ${kind} binding scope is the actual lexical occurrence scope including every environment family`, () => {
   const expression = callExpression();
   const value = expressionModule(expression);
@@ -2817,6 +2948,23 @@ test("HIR parameter, default initializer and nested capture bodies retain real d
         body.root.statements.nodes[0].body] : [])], "complete original function subtree");
       for (const initializer of initializers) assert.equal(body.root === initializer.root, false, "a default initializer remains outside the body block");
     }
+});
+
+test("HIR captures name each actual enclosing local once and never fabricate an unknown owner range", () => {
+  const { value, inner } = functionModule(["required", "optional"], true);
+  const innerBody = value.bodies.find(body => body.body === inner.tsonic.body);
+  innerBody.captures.push({ ...innerBody.captures[0] });
+  const decoded = roundtrip(immutableTree(value), "duplicate actual enclosing capture");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
+    violation("capture-owner", { kind: "body", body: innerBody.body }, "capture must name one distinct enclosing body's local"),
+  ]);
+  const missing = moduleWith();
+  missing.bodies[0].captures = [{ body: "B[D[M[P[%002Fproject];foreign.ts];missing];function;0]", local: 0 }];
+  const absent = roundtrip(immutableTree(missing), "unknown capture owner");
+  assert.deepStrictEqual(product.verifyHir(absent.value, contextFor(absent.value)), [
+    violation("capture-owner", { kind: "body", body: bodyIdentity }, "capture must name one distinct enclosing body's local"),
+    violation("local-reference", { kind: "body", body: bodyIdentity }, "qualified local must exist in its named body"),
+  ]);
 });
 
 test("HIR initializer write-fit keeps the actual separate default-argument value body and declaration occurrence", () => {

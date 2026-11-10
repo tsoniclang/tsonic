@@ -1,7 +1,7 @@
 import type { Violation } from "../diag/contract.js";
-import type { DefId, LocalRef, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, BodyPath, DefId, DefinitionPath, LocalRef, SourceNodeRef } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
-import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
+import type { BindingVector, BindingVerificationInput, TypeRule, TypeSite } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
@@ -17,23 +17,12 @@ export type HirBindingRequest = {
 
 interface BindingFailure {
   readonly rule: TypeRule;
-  readonly family: string;
-  readonly position: number | null;
+  readonly site: Extract<TypeSite, { readonly kind: "binding" }>;
   readonly detail: Violation<TypeRule, never>["detail"];
 }
 
 function bindingRule(rule: TypeRule): HirRule {
-  switch (rule) {
-    case "type-reference": return "type-reference";
-    case "signature-reference": return "signature-reference";
-    case "cross-owner-qualified": return "cross-owner-qualified";
-    case "nominal-definition": case "union-order": case "intersection-order": case "member-order":
-    case "member-origins": case "index-order": case "signature-order": case "parameter-order":
-    case "parameter-identity": case "binding-vector-complete": case "tuple-rest-order":
-    case "rational-normalized": case "literal-value-exact": case "extent-exact":
-    case "construction-captures-qualified": case "self-owner": case "self-binding-order":
-    case "projection-owner": case "sum-arm-order": case "evidence-type": return "binding-vector-complete";
-  }
+  return rule === "type-reference" ? "type-reference" : "binding-vector-complete";
 }
 
 export function verifyBindingVectors(
@@ -65,8 +54,7 @@ export function verifyBindingVectors(
     for (const violation of verifyTypes({ table: context.types, bindings: inputs, evidence: [],
       nominalOf: context.nominalOf, nodeExists: reference => nodeOf(reference) !== null, localExists: context.localExists })) {
       if (violation.site.kind !== "binding") continue;
-      const failure: BindingFailure = { rule: violation.rule, family: violation.site.family,
-        position: violation.site.position, detail: violation.detail };
+      const failure: BindingFailure = { rule: violation.rule, site: violation.site, detail: violation.detail };
       const previous = grouped.get(violation.site.vector);
       if (previous === undefined) grouped.set(violation.site.vector, [failure]);
       else previous.push(failure);
@@ -74,8 +62,8 @@ export function verifyBindingVectors(
     selected.forEach((request, ordinal) => {
       for (const violation of grouped.get(ordinal) ?? []) {
         request.violations.push({ rule: bindingRule(violation.rule), site: request.site,
-          detail: [{ kind: "text", value: violation.family },
-            { kind: "text", value: violation.position === null ? "complete" : String(violation.position) },
+          detail: [{ kind: "text", value: String(violation.site.family) },
+            { kind: "text", value: violation.site.position === null ? "complete" : String(violation.site.position) },
             ...violation.detail] });
       }
     });
@@ -87,6 +75,23 @@ export function validHirIndex(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 }
 
+type HirOwnerInput = { readonly kind: "body"; readonly identity: BodyId } |
+  { readonly kind: "definition"; readonly identity: DefId };
+interface HirDefinitionOwner { readonly definition: DefId; readonly path: DefinitionPath }
+interface HirBodyOwner extends HirDefinitionOwner { readonly body: BodyPath }
+
+export function hirOwnerOf(input: { readonly kind: "body"; readonly identity: BodyId }): HirBodyOwner | null;
+export function hirOwnerOf(input: { readonly kind: "definition"; readonly identity: DefId }): HirDefinitionOwner | null;
+export function hirOwnerOf(input: HirOwnerInput): HirDefinitionOwner | null;
+export function hirOwnerOf(input: HirOwnerInput): HirBodyOwner | HirDefinitionOwner | null {
+  const body = input.kind === "body" ? decodeBodyId(input.identity) : null;
+  const definition = input.kind === "definition" ? input.identity : body?.kind === "decoded" ? body.value.owner : null;
+  if (definition === null) return null;
+  const path = decodeDefId(definition);
+  if (path.kind === "invalid") return null;
+  return body?.kind === "decoded" ? { definition, path: path.value, body: body.value } : { definition, path: path.value };
+}
+
 export function sourceNodeExists(reference: SourceNodeRef, module: HirModule,
   inventory: HirInventory, context: HirVerificationContext): boolean {
   return sourceNodeOf(reference, module, inventory, context) !== null;
@@ -95,22 +100,18 @@ export function sourceNodeExists(reference: SourceNodeRef, module: HirModule,
 export function sourceNodeOf(reference: SourceNodeRef, module: HirModule,
   inventory: HirInventory, context: HirVerificationContext): HirNode | null {
   if (!validHirIndex(reference.value.node)) return null;
-  const body = reference.kind === "body" ? decodeBodyId(reference.value.body) : null;
-  const definition = reference.kind === "item" ? reference.value.owner : body?.kind === "decoded" ? body.value.owner : null;
-  if (definition === null) return null;
-  const owner = decodeDefId(definition);
-  if (owner.kind === "invalid") return null;
-  return owner.value.module === module.module ? localSourceNode(reference, module, inventory) : context.nodeOf(reference);
+  const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
+    { kind: "definition", identity: reference.value.owner });
+  if (owner === null) return null;
+  return owner.path.module === module.module ? localSourceNode(reference, module, inventory) : context.nodeOf(reference);
 }
 
 export function localExists(reference: LocalRef, module: HirModule,
   inventory: HirInventory, context: HirVerificationContext): boolean {
   if (!validHirIndex(reference.local)) return false;
-  const path = decodeBodyId(reference.body);
-  if (path.kind === "invalid") return false;
-  const owner = decodeDefId(path.value.owner);
-  if (owner.kind === "invalid") return false;
-  if (owner.value.module !== module.module) return context.localExists(reference);
+  const owner = hirOwnerOf({ kind: "body", identity: reference.body });
+  if (owner === null) return false;
+  if (owner.path.module !== module.module) return context.localExists(reference);
   return inventory.bodies.get(reference.body)?.locals[reference.local] !== undefined;
 }
 
@@ -120,11 +121,9 @@ export function localSourceNode(reference: SourceNodeRef, module: HirModule, inv
 }
 
 export function localSourceEntry(reference: SourceNodeRef, module: HirModule, inventory: HirInventory): HirNodeEntry | null {
-  const body = reference.kind === "body" ? decodeBodyId(reference.value.body) : null;
-  const definition = reference.kind === "item" ? reference.value.owner : body?.kind === "decoded" ? body.value.owner : null;
-  if (definition === null) return null;
-  const path = decodeDefId(definition);
-  if (path.kind === "invalid" || path.value.module !== module.module || !validHirIndex(reference.value.node)) return null;
+  const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
+    { kind: "definition", identity: reference.value.owner });
+  if (owner === null || owner.path.module !== module.module || !validHirIndex(reference.value.node)) return null;
   const entry = inventory.entriesById.get(reference.value.node);
   if (entry === undefined) return null;
   if (reference.kind === "body") {
@@ -261,17 +260,17 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         break;
       case "DefId": {
         const value = reference.value;
-        const path = decodeDefId(value);
-        if (path.kind === "invalid") report("definition-reference", data.site, "invalid definition identity");
+        const owner = hirOwnerOf({ kind: "definition", identity: value });
+        if (owner === null) report("definition-reference", data.site, "invalid definition identity");
         else {
           if (!checkedDefinitions.has(value)) {
             checkedDefinitions.add(value);
-            for (const segment of path.value.segments) if (!validHirIndex(segment.ordinal))
+            for (const segment of owner.path.segments) if (!validHirIndex(segment.ordinal))
               report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
           }
           if (!definitions.has(value)) {
             let exists = scopeExists.get(value);
-            if (exists === undefined) { exists = context.bindingScopeOf(encodeDefId(path.value)) !== null; scopeExists.set(value, exists); }
+            if (exists === undefined) { exists = context.bindingScopeOf(encodeDefId(owner.path)) !== null; scopeExists.set(value, exists); }
             if (!exists) report("definition-reference", data.site, "definition must exist in the canonical declaration inventory");
           }
         }
@@ -281,18 +280,17 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         const value = reference.value;
         if (checkedBodies.has(value)) break;
         checkedBodies.add(value);
-        const path = decodeBodyId(value);
-        if (path.kind === "invalid") report("body-owner", data.site, "invalid body identity");
+        const owner = hirOwnerOf({ kind: "body", identity: value });
+        if (owner === null) report("body-owner", data.site, "invalid body identity");
         else {
-          if (!validHirIndex(path.value.ordinal))
+          if (!validHirIndex(owner.body.ordinal))
             report("ordinal-domain", data.site, "body ordinal must be a nonnegative safe integer other than negative zero");
-          const owner = decodeDefId(path.value.owner);
-          if (owner.kind === "decoded" && !checkedDefinitions.has(path.value.owner)) {
-            checkedDefinitions.add(path.value.owner);
-            for (const segment of owner.value.segments) if (!validHirIndex(segment.ordinal))
+          if (!checkedDefinitions.has(owner.definition)) {
+            checkedDefinitions.add(owner.definition);
+            for (const segment of owner.path.segments) if (!validHirIndex(segment.ordinal))
               report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
           }
-          if (owner.kind === "decoded" && owner.value.module === module.module && !inventory.bodies.has(encodeBodyId(path.value)))
+          if (owner.path.module === module.module && !inventory.bodies.has(encodeBodyId(owner.body)))
             report("body-owner", data.site, "body must exist in this module");
         }
       }

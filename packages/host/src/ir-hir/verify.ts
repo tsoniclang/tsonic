@@ -542,19 +542,20 @@ interface DecimalToken {
 }
 
 function numericToken(text: string): DecimalToken | null {
-  const radix = /^([+-]?)(0(?:[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|[oO][0-7](?:_?[0-7])*|[bB][01](?:_?[01])*))$/u.exec(text);
-  if (radix !== null) {
-    const digits = radix[2];
-    if (digits === undefined) return null;
-    return { coefficient: BigInt(digits.replace(/_/gu, "")), exponent: 0n, negative: radix[1] === "-" };
-  }
+  const negative = text.startsWith("-");
+  const signLength = negative || text.startsWith("+") ? 1 : 0;
+  const unsigned = text.slice(signLength);
+  if (/^0(?:[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|[oO][0-7](?:_?[0-7])*|[bB][01](?:_?[01])*)$/u.test(unsigned))
+    return { coefficient: BigInt(unsigned.replace(/_/gu, "")), exponent: 0n, negative };
   if (!/^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$/u.test(text)) return null;
-  const normalized = text.replace(/_/gu, "");
-  const parsed = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
-  if (parsed === null) return null;
-  const fraction = parsed[3] ?? parsed[4] ?? "";
-  return { coefficient: BigInt((parsed[2] ?? "0") + fraction),
-    exponent: BigInt(parsed[5] ?? "0") - BigInt(fraction.length), negative: parsed[1] === "-" };
+  const normalized = unsigned.replace(/_/gu, "");
+  const exponentAt = normalized.search(/[eE]/u);
+  const mantissa = exponentAt < 0 ? normalized : normalized.slice(0, exponentAt);
+  const exponent = exponentAt < 0 ? 0n : BigInt(normalized.slice(exponentAt + 1));
+  const pointAt = mantissa.indexOf(".");
+  const fractionLength = pointAt < 0 ? 0 : mantissa.length - pointAt - 1;
+  const coefficient = BigInt(pointAt < 0 ? mantissa : mantissa.slice(0, pointAt) + mantissa.slice(pointAt + 1));
+  return { coefficient, exponent: exponent - BigInt(fractionLength), negative };
 }
 
 function tokenMatchesRational(token: DecimalToken, value: ExactRational): boolean {

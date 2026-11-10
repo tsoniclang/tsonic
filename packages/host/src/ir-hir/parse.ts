@@ -432,6 +432,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const accept = declaration !== null ? (): void => { needSeparator = true; } :
       frame === undefined ? put : (value: unknown): void => { attach(frame, value); };
     if (token === "[") {
+      if (frame === undefined) { fail(reader, ["record"], offset); return false; }
       let element: HirShape | null = null;
       for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "array")
         element = element === null || element === leaf.element ? leaf.element : hirChoice(element, leaf.element);
