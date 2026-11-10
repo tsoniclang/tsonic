@@ -1,22 +1,27 @@
-import type { HirNode, HirModule } from "./contract.js";
+import type { HirModule } from "./contract.js";
 
 export type HirShape = string
+  | { readonly kind: "identity"; readonly prefix: string; readonly value: "string" | "number" }
   | { readonly kind: "literal"; readonly values: readonly (string | number | boolean | null)[] }
-  | { readonly kind: "array"; readonly element: HirShape; readonly nonempty: boolean }
+  | { readonly kind: "array"; readonly element: HirShape }
   | { readonly kind: "choice"; readonly alternatives: readonly HirShape[] }
-  | { readonly kind: "record"; readonly label: string; readonly fields: readonly HirField[] }
+  | { readonly kind: "record"; readonly label: string; readonly fields: readonly HirField[]; readonly syntax: boolean }
   | { readonly kind: "dictionary"; readonly label: string; readonly element: HirShape };
 
 export type HirField = readonly [string, HirShape];
 export interface HirObject { readonly [field: string]: unknown }
 export interface HirSchema { readonly [name: string]: HirShape }
 
+export function hirIdentity(prefix: string, value: "string" | "number"): HirShape {
+  return Object.freeze({ kind: "identity", prefix, value });
+}
+
 export function hirLiteral(...values: readonly (string | number | boolean | null)[]): HirShape {
   return Object.freeze({ kind: "literal", values: Object.freeze(values) });
 }
 
-export function hirArray(element: HirShape, nonempty = false): HirShape {
-  return Object.freeze({ kind: "array", element, nonempty });
+export function hirArray(element: HirShape): HirShape {
+  return Object.freeze({ kind: "array", element });
 }
 
 export function hirChoice(...alternatives: readonly HirShape[]): HirShape {
@@ -28,7 +33,7 @@ export function hirNullable(value: HirShape): HirShape {
 }
 
 export function hirRecord(label: string, fields: readonly HirField[]): HirShape {
-  return Object.freeze({ kind: "record", label, fields: Object.freeze(fields) });
+  return Object.freeze({ kind: "record", label, fields: Object.freeze(fields), syntax: false });
 }
 
 export function hirVariant(kind: string, fields: readonly HirField[]): HirShape {
@@ -45,7 +50,8 @@ const header: readonly HirField[] = Object.freeze([
 ]);
 
 function node(kind: string, metadata: HirShape, fields: readonly HirField[] = []): HirShape {
-  return hirVariant(kind, [...header, ...fields, ["tsonic", metadata]]);
+  return Object.freeze({ kind: "record", label: kind, syntax: true,
+    fields: Object.freeze<HirField[]>([["kind", hirLiteral(kind)], ...header, ...fields, ["tsonic", metadata]]) });
 }
 
 const modifiers = hirNullable("ModifierList");
@@ -277,3 +283,246 @@ export const syntaxShapes: HirSchema = Object.freeze({
   JSDocParameterTag: node("JSDocParameterTag", "null", [...tag, ["name", "EntityName"], ["isBracketed", "boolean"], ["typeExpression", annotation], ["isNameFirst", "boolean"]]),
   JSDocPropertyTag: node("JSDocPropertyTag", "null", [...tag, ["name", "EntityName"], ["isBracketed", "boolean"], ["typeExpression", annotation], ["isNameFirst", "boolean"]]),
 });
+
+const keywordExpressions: readonly string[] = Object.freeze([
+  "NullKeyword", "TrueKeyword", "FalseKeyword", "ThisKeyword", "SuperKeyword", "ImportKeyword",
+]);
+const keywordTypes: readonly string[] = Object.freeze([
+  "AnyKeyword", "BigIntKeyword", "BooleanKeyword", "IntrinsicKeyword", "NeverKeyword", "NumberKeyword",
+  "ObjectKeyword", "StringKeyword", "SymbolKeyword", "UndefinedKeyword", "UnknownKeyword", "VoidKeyword",
+]);
+const punctuation: readonly string[] = Object.freeze([
+  "OpenBraceToken", "CloseBraceToken", "OpenParenToken", "CloseParenToken", "OpenBracketToken", "CloseBracketToken",
+  "DotToken", "DotDotDotToken", "SemicolonToken", "CommaToken", "QuestionDotToken", "LessThanToken", "LessThanSlashToken",
+  "GreaterThanToken", "LessThanEqualsToken", "GreaterThanEqualsToken", "EqualsEqualsToken", "ExclamationEqualsToken",
+  "EqualsEqualsEqualsToken", "ExclamationEqualsEqualsToken", "EqualsGreaterThanToken", "PlusToken", "MinusToken",
+  "AsteriskToken", "AsteriskAsteriskToken", "SlashToken", "PercentToken", "PlusPlusToken", "MinusMinusToken",
+  "LessThanLessThanToken", "GreaterThanGreaterThanToken", "GreaterThanGreaterThanGreaterThanToken", "AmpersandToken",
+  "BarToken", "CaretToken", "ExclamationToken", "TildeToken", "AmpersandAmpersandToken", "BarBarToken", "QuestionToken",
+  "ColonToken", "AtToken", "QuestionQuestionToken", "BacktickToken", "HashToken", "EqualsToken", "PlusEqualsToken",
+  "MinusEqualsToken", "AsteriskEqualsToken", "AsteriskAsteriskEqualsToken", "SlashEqualsToken", "PercentEqualsToken",
+  "LessThanLessThanEqualsToken", "GreaterThanGreaterThanEqualsToken", "GreaterThanGreaterThanGreaterThanEqualsToken",
+  "AmpersandEqualsToken", "BarEqualsToken", "BarBarEqualsToken", "AmpersandAmpersandEqualsToken",
+  "QuestionQuestionEqualsToken", "CaretEqualsToken",
+]);
+const tokenKeywords: readonly string[] = Object.freeze([
+  "BreakKeyword", "CaseKeyword", "CatchKeyword", "ClassKeyword", "ConstKeyword", "ContinueKeyword", "DebuggerKeyword",
+  "DefaultKeyword", "DeleteKeyword", "DoKeyword", "ElseKeyword", "EnumKeyword", "ExportKeyword", "ExtendsKeyword",
+  "FinallyKeyword", "ForKeyword", "FunctionKeyword", "IfKeyword", "InKeyword", "InstanceOfKeyword", "NewKeyword",
+  "ReturnKeyword", "SwitchKeyword", "ThrowKeyword", "TryKeyword", "TypeOfKeyword", "VarKeyword", "WhileKeyword",
+  "WithKeyword", "ImplementsKeyword", "InterfaceKeyword", "LetKeyword", "PackageKeyword", "PrivateKeyword",
+  "ProtectedKeyword", "PublicKeyword", "StaticKeyword", "YieldKeyword", "AbstractKeyword", "AccessorKeyword", "AsKeyword",
+  "AssertsKeyword", "AssertKeyword", "AsyncKeyword", "AwaitKeyword", "ConstructorKeyword", "DeclareKeyword", "GetKeyword",
+  "ImmediateKeyword", "InferKeyword", "IsKeyword", "KeyOfKeyword", "ModuleKeyword", "NamespaceKeyword", "OutKeyword",
+  "ReadonlyKeyword", "RequireKeyword", "SatisfiesKeyword", "SetKeyword", "TypeKeyword", "UniqueKeyword", "UsingKeyword",
+  "FromKeyword", "GlobalKeyword", "OverrideKeyword", "OfKeyword", "DeferKeyword",
+]);
+const plainTokens: readonly string[] = Object.freeze([
+  "Unknown", "EndOfFile", "SingleLineCommentTrivia", "MultiLineCommentTrivia", "NewLineTrivia", "WhitespaceTrivia",
+  "ConflictMarkerTrivia", "NonTextFileMarkerTrivia", "JsxTextAllWhiteSpaces", "JSDocCommentTextToken",
+  ...punctuation, ...tokenKeywords,
+]);
+const expressions: readonly HirShape[] = Object.freeze([
+  "Identifier", "PrivateIdentifier", "ClassExpression", "OmittedExpression", "KeywordExpression", "StringLiteral",
+  "NumericLiteral", "BigIntLiteral", "RegularExpressionLiteral", "NoSubstitutionTemplateLiteral", "BinaryExpression",
+  "PrefixUnaryExpression", "PostfixUnaryExpression", "YieldExpression", "ArrowFunction", "FunctionExpression",
+  "AsExpression", "SatisfiesExpression", "ConditionalExpression", "PropertyAccessExpression", "ElementAccessExpression",
+  "CallExpression", "NewExpression", "MetaProperty", "NonNullExpression", "SpreadElement", "TemplateExpression",
+  "TaggedTemplateExpression", "ParenthesizedExpression", "ArrayLiteralExpression", "ObjectLiteralExpression",
+  "DeleteExpression", "TypeOfExpression", "VoidExpression", "AwaitExpression", "TypeAssertionExpression",
+  "ExpressionWithTypeArguments", "PartiallyEmittedExpression", "JsxElement", "JsxAttributes", "JsxNamespacedName",
+  "JsxOpeningElement", "JsxSelfClosingElement", "JsxFragment", "JsxOpeningFragment", "JsxClosingFragment",
+  "JsxExpression", "JsxText", "SyntheticReferenceExpression",
+]);
+
+export const syntaxAliases: HirSchema = Object.freeze({
+  ...Object.fromEntries(plainTokens.map(kind => [kind, node(kind, "null")])),
+  ...Object.fromEntries(keywordExpressions.map(kind => [kind, node(kind, "CheckedKeyword")])),
+  ...Object.fromEntries(keywordTypes.map(kind => [kind, node(kind, "CheckedType")])),
+  Token: hirChoice(...plainTokens),
+  KeywordExpression: hirChoice(...keywordExpressions),
+  KeywordTypeNode: hirChoice(...keywordTypes),
+  Expression: hirChoice(...expressions),
+  Statement: hirChoice("EmptyStatement", "IfStatement", "DoStatement", "WhileStatement", "ForStatement",
+    "ForInStatement", "ForOfStatement", "BreakStatement", "ContinueStatement", "ReturnStatement", "WithStatement",
+    "SwitchStatement", "ThrowStatement", "TryStatement", "DebuggerStatement", "LabeledStatement", "ExpressionStatement",
+    "Block", "VariableStatement", "MissingDeclaration", "FunctionDeclaration", "ClassDeclaration", "InterfaceDeclaration",
+    "TypeAliasDeclaration", "JSTypeAliasDeclaration", "EnumDeclaration", "ModuleBlock", "NotEmittedStatement",
+    "ImportDeclaration", "JSImportDeclaration", "ExportAssignment", "NamespaceExportDeclaration", "ModuleDeclaration",
+    "ImportEqualsDeclaration", "ExportDeclaration"),
+  TypeNode: hirChoice("KeywordTypeNode", "UnionType", "IntersectionType", "ConditionalType", "TypeOperator", "InferType",
+    "ArrayType", "IndexedAccessType", "TypeReference", "LiteralType", "ThisType", "TypePredicate", "TypeQuery", "MappedType",
+    "TypeLiteral", "TupleType", "NamedTupleMember", "OptionalType", "RestType", "ParenthesizedType", "FunctionType",
+    "ConstructorType", "TemplateLiteralType", "TemplateLiteralTypeSpan", "JSDocTypeExpression", "JSDocNonNullableType",
+    "JSDocNullableType", "JSDocAllType", "JSDocVariadicType", "JSDocOptionalType", "JSDocSignature", "JSDocNameReference",
+    "ImportType", "JSDocTypeLiteral"),
+  BlockOrExpression: hirChoice("Block", "Expression"),
+  BodyRoot: hirChoice("SourceFile", "Block", "Expression"),
+  NodeBody: hirChoice("Block", "Expression", "ModuleBlock", "ModuleDeclaration"),
+  ForInitializer: hirChoice("Expression", "MissingDeclaration", "VariableDeclarationList"),
+  CaseOrDefaultClause: hirChoice("CaseClause", "DefaultClause"),
+  BindingPattern: hirChoice("ObjectBindingPattern", "ArrayBindingPattern"),
+  BindingName: hirChoice("Identifier", "BindingPattern"),
+  PropertyName: hirChoice("Identifier", "StringLiteral", "NoSubstitutionTemplateLiteral", "NumericLiteral",
+    "ComputedPropertyName", "PrivateIdentifier", "BigIntLiteral"),
+  EntityName: hirChoice("Identifier", "QualifiedName"),
+  MemberName: hirChoice("Identifier", "PrivateIdentifier"),
+  ModuleName: hirChoice("Identifier", "StringLiteral"),
+  ModuleExportName: hirChoice("Identifier", "StringLiteral"),
+  JSDocFullName: hirChoice("Identifier", "ModuleDeclaration"),
+  ModuleReference: hirChoice("Identifier", "QualifiedName", "ExternalModuleReference"),
+  NamedImportBindings: hirChoice("NamespaceImport", "NamedImports"),
+  NamedExportBindings: hirChoice("NamespaceExport", "NamedExports"),
+  ModifierList: hirRecord("ModifierList", [["loc", "TextRange"], ["nodes", hirArray(hirChoice("AbstractKeyword",
+    "AccessorKeyword", "AsyncKeyword", "ConstKeyword", "DeclareKeyword", "DefaultKeyword", "ExportKeyword", "InKeyword",
+    "PrivateKeyword", "ProtectedKeyword", "PublicKeyword", "ReadonlyKeyword", "OutKeyword", "OverrideKeyword", "StaticKeyword", "Decorator"))]]),
+  ClassElement: hirChoice("Constructor", "GetAccessor", "SetAccessor", "IndexSignature", "MethodDeclaration",
+    "PropertyDeclaration", "SemicolonClassElement", "ClassStaticBlockDeclaration"),
+  TypeElement: hirChoice("NotEmittedTypeElement", "CallSignature", "ConstructSignature", "GetAccessor", "SetAccessor",
+    "IndexSignature", "MethodSignature", "PropertySignature"),
+  ObjectLiteralElementLike: hirChoice("GetAccessor", "SetAccessor", "MethodDeclaration", "SpreadAssignment",
+    "PropertyAssignment", "ShorthandPropertyAssignment"),
+  LeftHandSideExpression: hirChoice("Identifier", "PrivateIdentifier", "ClassExpression", "StringLiteral", "NumericLiteral",
+    "BigIntLiteral", "RegularExpressionLiteral", "FunctionExpression", "PropertyAccessExpression", "ElementAccessExpression",
+    "CallExpression", "NewExpression", "MetaProperty", "NonNullExpression", "TemplateExpression", "TaggedTemplateExpression",
+    "ParenthesizedExpression", "ArrayLiteralExpression", "ObjectLiteralExpression", "ExpressionWithTypeArguments",
+    "PartiallyEmittedExpression", "JsxElement", "JsxAttributes", "JsxSelfClosingElement", "JsxFragment"),
+  LiteralTypeChild: hirChoice("StringLiteral", "NumericLiteral", "BigIntLiteral", "NoSubstitutionTemplateLiteral",
+    "TrueKeyword", "FalseKeyword", "NullKeyword", "PrefixUnaryExpression"),
+  BinaryOperatorToken: hirChoice("QuestionQuestionToken", "AsteriskAsteriskToken", "AsteriskToken", "SlashToken",
+    "PercentToken", "PlusToken", "MinusToken", "LessThanLessThanToken", "GreaterThanGreaterThanToken",
+    "GreaterThanGreaterThanGreaterThanToken", "LessThanToken", "LessThanEqualsToken", "GreaterThanToken",
+    "GreaterThanEqualsToken", "InstanceOfKeyword", "InKeyword", "EqualsEqualsToken", "EqualsEqualsEqualsToken",
+    "ExclamationEqualsEqualsToken", "ExclamationEqualsToken", "AmpersandToken", "BarToken", "CaretToken",
+    "AmpersandAmpersandToken", "BarBarToken", "EqualsToken", "PlusEqualsToken", "MinusEqualsToken", "AsteriskAsteriskEqualsToken",
+    "AsteriskEqualsToken", "SlashEqualsToken", "PercentEqualsToken", "AmpersandEqualsToken", "BarEqualsToken", "CaretEqualsToken",
+    "LessThanLessThanEqualsToken", "GreaterThanGreaterThanGreaterThanEqualsToken", "GreaterThanGreaterThanEqualsToken",
+    "BarBarEqualsToken", "AmpersandAmpersandEqualsToken", "QuestionQuestionEqualsToken", "CommaToken"),
+  TemplateMiddleOrTail: hirChoice("TemplateMiddle", "TemplateTail"),
+  TemplateLiteral: hirChoice("TemplateExpression", "NoSubstitutionTemplateLiteral"),
+  TypePredicateParameterName: hirChoice("Identifier", "ThisType"),
+  ImportAttributeName: hirChoice("Identifier", "StringLiteral"),
+  JsxChild: hirChoice("JsxText", "JsxExpression", "JsxElement", "JsxSelfClosingElement", "JsxFragment"),
+  JsxAttributeLike: hirChoice("JsxAttribute", "JsxSpreadAttribute"),
+  JsxAttributeName: hirChoice("Identifier", "JsxNamespacedName"),
+  JsxAttributeValue: hirChoice("StringLiteral", "JsxExpression", "JsxElement", "JsxSelfClosingElement", "JsxFragment"),
+  JsxTagNameExpression: hirChoice("Identifier", "KeywordExpression", "PropertyAccessExpression", "JsxNamespacedName"),
+  JSDocComment: hirChoice("JSDocText", "JSDocLink", "JSDocLinkCode", "JSDocLinkPlain"),
+  JSDocTag: hirChoice("JSDocTypeTag", "JSDocUnknownTag", "JSDocTemplateTag", "JSDocReturnTag", "JSDocPublicTag",
+    "JSDocPrivateTag", "JSDocProtectedTag", "JSDocReadonlyTag", "JSDocOverrideTag", "JSDocDeprecatedTag", "JSDocSeeTag",
+    "JSDocImplementsTag", "JSDocAugmentsTag", "JSDocSatisfiesTag", "JSDocThrowsTag", "JSDocThisTag", "JSDocImportTag",
+    "JSDocCallbackTag", "JSDocOverloadTag", "JSDocTypedefTag", "JSDocParameterTag", "JSDocPropertyTag"),
+  SyntaxFlag: hirLiteral("Let", "Const", "Using", "OptionalChain", "DisallowInContext", "YieldContext", "DecoratorContext",
+    "AwaitContext", "DisallowConditionalTypesContext", "ThisNodeHasError", "JavaScriptFile", "ThisNodeOrAnySubNodesHasError",
+    "HasJSDoc", "JSDoc", "Ambient", "InWithStatement", "JsonFile", "IdentifierHasExtendedUnicodeEscape",
+    "IdentifierIsInJSDocNamespace", "NestedNamespace", "AwaitUsing"),
+  TokenFlag: hirLiteral("PrecedingLineBreak", "PrecedingJSDocComment", "Unterminated", "ExtendedUnicodeEscape", "Scientific",
+    "Octal", "HexSpecifier", "BinarySpecifier", "OctalSpecifier", "ContainsSeparator", "UnicodeEscape", "ContainsInvalidEscape",
+    "HexEscape", "ContainsLeadingZero", "ContainsInvalidSeparator", "PrecedingJSDocLeadingAsterisks", "SingleQuote",
+    "PrecedingJSDocWithDeprecated", "PrecedingJSDocWithSeeOrLink"),
+});
+
+export function isHirObject(value: unknown): value is HirObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function isHirArray(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+interface PendingShape { readonly shape: HirShape; readonly next: PendingShape | null }
+
+export function resolveHirShape(input: HirShape, value: unknown, schema: HirSchema): HirShape | null {
+  let pending: PendingShape | null = { shape: input, next: null };
+  while (pending !== null) {
+    const shape = pending.shape;
+    pending = pending.next;
+    if (typeof shape === "string") {
+      switch (shape) {
+        case "string": if (typeof value === "string") return shape; break;
+        case "number": if (typeof value === "number") return shape; break;
+        case "bigint": if (typeof value === "bigint") return shape; break;
+        case "boolean": if (typeof value === "boolean") return shape; break;
+        case "null": if (value === null) return shape; break;
+        case "SyntaxNode": {
+          if (isHirObject(value) && typeof value.kind === "string") {
+            const selected = schema[value.kind];
+            if (selected !== undefined && typeof selected !== "string" && selected.kind === "record" && selected.syntax)
+              pending = { shape: selected, next: pending };
+          }
+          break;
+        }
+        default: {
+          const selected = schema[shape];
+          if (selected !== undefined) pending = { shape: selected, next: pending };
+        }
+      }
+    } else {
+      switch (shape.kind) {
+        case "literal": if (shape.values.some(candidate => Object.is(candidate, value))) return shape; break;
+        case "identity": if (typeof value === shape.value) return shape; break;
+        case "array": if (isHirArray(value)) return shape; break;
+        case "dictionary": if (isHirObject(value)) return shape; break;
+        case "record":
+          if (isHirObject(value) && shape.fields.every(([field, fieldShape]) => typeof fieldShape === "string" ||
+            fieldShape.kind !== "literal" || fieldShape.values.some(candidate => Object.is(candidate, value[field])))) return shape;
+          break;
+        case "choice":
+          pending = shape.alternatives.reduceRight<PendingShape | null>((next, alternative) => ({ shape: alternative, next }), pending);
+      }
+    }
+  }
+  return null;
+}
+
+export interface HirShapeVisit {
+  readonly value: unknown;
+  readonly shape: HirShape;
+  readonly parent: object | null;
+  readonly field: string | number | null;
+}
+
+interface PendingVisit { readonly visit: HirShapeVisit; readonly next: PendingVisit | null }
+
+export function checkHirShape(value: unknown, root: HirShape, schema: HirSchema,
+  reject?: (visit: HirShapeVisit) => void): boolean {
+  let pending: PendingVisit | null = { visit: { value, shape: root, parent: null, field: null }, next: null };
+  const seen = new Map<object, Set<HirShape>>();
+  while (pending !== null) {
+    const next = pending.visit;
+    pending = pending.next;
+    const shape = resolveHirShape(next.shape, next.value, schema);
+    if (shape === null) {
+      reject?.(next);
+      return false;
+    }
+    const data = next.value;
+    if (data !== null && typeof data === "object") {
+      const previous = seen.get(data);
+      if (previous?.has(shape)) continue;
+      if (previous === undefined) seen.set(data, new Set([shape]));
+      else previous.add(shape);
+    }
+    if (typeof shape !== "string") {
+      if (shape.kind === "array" && isHirArray(data)) {
+        pending = data.reduceRight<PendingVisit | null>((following, element, ordinal) => ({
+          visit: { value: element, shape: shape.element, parent: data, field: ordinal }, next: following,
+        }), pending);
+      } else if (shape.kind === "record" && isHirObject(data)) {
+        pending = shape.fields.reduceRight<PendingVisit | null>((following, [field, fieldShape]) => ({
+          visit: { value: data[field], shape: fieldShape, parent: data, field }, next: following,
+        }), pending);
+      } else if (shape.kind === "dictionary" && isHirObject(data)) {
+        pending = Object.keys(data).reduceRight<PendingVisit | null>((following, field) => ({
+          visit: { value: data[field], shape: shape.element, parent: data, field }, next: following,
+        }), pending);
+      }
+    }
+  }
+  return true;
+}
+
+export function isHirModuleValue(value: unknown, schema: HirSchema,
+  reject?: (visit: HirShapeVisit) => void): value is HirModule {
+  return checkHirShape(value, "HirModule", schema, reject);
+}

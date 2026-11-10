@@ -1,4 +1,8 @@
 import type { TextParseResult } from "../diag/contract.js";
+import type { ParseHir } from "./contract.js";
+import type { HirShape, HirShapeVisit } from "./verify-syntax.js";
+import { isHirModuleValue, resolveHirShape } from "./verify-syntax.js";
+import { hirSchema } from "./verify-captures.js";
 
 export interface TextScalar {
   readonly kind: "scalar";
@@ -22,6 +26,7 @@ export interface TextField {
 export interface TextRecord {
   readonly kind: "record";
   readonly offset: number;
+  readonly end: number;
   readonly label: string;
   readonly fields: readonly TextField[];
 }
@@ -29,6 +34,7 @@ export interface TextRecord {
 export interface TextArray {
   readonly kind: "array";
   readonly offset: number;
+  readonly end: number;
   readonly values: readonly TextValue[];
 }
 
@@ -148,6 +154,12 @@ function quoted(reader: TextReader): string | null {
 }
 
 function numeric(reader: TextReader, offset: number): TextScalar | null {
+  for (const [token, value] of [["NaN", Number.NaN], ["+Infinity", Number.POSITIVE_INFINITY], ["-Infinity", Number.NEGATIVE_INFINITY]]) {
+    if (typeof token === "string" && typeof value === "number" && reader.text.startsWith(token, reader.cursor)) {
+      reader.cursor += token.length;
+      return { kind: "scalar", offset, value };
+    }
+  }
   while (/[0-9eE+.-]/u.test(reader.text.charAt(reader.cursor))) reader.cursor += 1;
   if (reader.text.charAt(reader.cursor) === "n") {
     reader.cursor += 1;
@@ -171,7 +183,7 @@ function attach(frame: RecordFrame | ArrayFrame, value: TextValue): void {
   frame.phase = "delimiter";
 }
 
-export function readHirText(text: string): TextParseResult<readonly TextRecord[]> {
+export function readHirText(text: string): TextParseResult<readonly [TextRecord, ...TextRecord[]]> {
   const reader: TextReader = { text, cursor: 0, failed: false,
     failure: { kind: "invalid-text", offset: 0, line: 1, column: 1, expected: ["record"],
       found: text.length === 0 ? null : text.slice(0, 1) } };
@@ -181,8 +193,12 @@ export function readHirText(text: string): TextParseResult<readonly TextRecord[]
   while (!reader.failed) {
     const newline = whitespace(reader);
     if (pending === null && reader.cursor === text.length) {
-      if (records.length === 0) fail(reader, ["record"]);
-      else return { kind: "parsed", value: Object.freeze(records) };
+      const [first, ...rest] = records;
+      if (first === undefined) fail(reader, ["record"]);
+      else {
+        const complete: readonly [TextRecord, ...TextRecord[]] = [first, ...rest];
+        return { kind: "parsed", value: Object.freeze(complete) };
+      }
       break;
     }
     if (pending === null && needSeparator && !newline) {
@@ -195,8 +211,8 @@ export function readHirText(text: string): TextParseResult<readonly TextRecord[]
       const closing = frame.kind === "record" ? ")" : "]";
       if (character === closing) {
         const value: TextRecord | TextArray = frame.kind === "record"
-          ? { kind: "record", offset: frame.offset, label: frame.label, fields: Object.freeze(frame.fields) }
-          : { kind: "array", offset: frame.offset, values: Object.freeze(frame.values) };
+          ? { kind: "record", offset: frame.offset, end: reader.cursor, label: frame.label, fields: Object.freeze(frame.fields) }
+          : { kind: "array", offset: frame.offset, end: reader.cursor, values: Object.freeze(frame.values) };
         reader.cursor += 1;
         pending = pending.next;
         if (pending === null) {
@@ -244,7 +260,7 @@ export function readHirText(text: string): TextParseResult<readonly TextRecord[]
     if (character === "\"") {
       const content = quoted(reader);
       if (content !== null) value = { kind: "scalar", offset, value: content };
-    } else if (/[0-9-]/u.test(character)) {
+    } else if (/[0-9+-]/u.test(character) || text.startsWith("NaN", reader.cursor)) {
       value = numeric(reader, offset);
     } else {
       const label = word(reader);
@@ -268,9 +284,9 @@ export function readHirText(text: string): TextParseResult<readonly TextRecord[]
         } else {
           const start = reader.cursor;
           const content = numeric(reader, start);
-          if (content !== null && typeof content.value === "number" && Number.isInteger(content.value))
+          if (content !== null && typeof content.value === "number")
             value = { kind: "identity", offset, prefix: label, value: content.value };
-          else if (!reader.failed) fail(reader, ["integer identity"], start);
+          else if (!reader.failed) fail(reader, ["number identity"], start);
         }
       }
     }
@@ -280,3 +296,132 @@ export function readHirText(text: string): TextParseResult<readonly TextRecord[]
   }
   return reader.failure;
 }
+
+interface MutableRecord { [field: string]: unknown }
+interface DecodeTask {
+  readonly wire: TextValue;
+  readonly shape: HirShape;
+  readonly target: MutableRecord | null;
+  readonly put: (value: unknown) => void;
+}
+
+function invalidText(text: string, offset: number, expected: readonly string[]): InvalidText {
+  let line = 1;
+  let column = 1;
+  for (let cursor = 0; cursor < offset; cursor += 1) {
+    if (text.charCodeAt(cursor) === 10) { line += 1; column = 1; }
+    else column += 1;
+  }
+  return { kind: "invalid-text", offset, line, column, expected,
+    found: offset === text.length ? null : text.slice(offset, offset + 1) };
+}
+
+function textView(wire: TextRecord): MutableRecord {
+  const view: MutableRecord = { kind: wire.label };
+  for (const field of wire.fields) {
+    if (field.name === "kind") continue;
+    const value = field.value;
+    Object.defineProperty(view, field.name, { value: value.kind === "scalar" || value.kind === "identity" ? value.value : value,
+      configurable: true, enumerable: true, writable: true });
+  }
+  return view;
+}
+
+export const parseHir: ParseHir = text => {
+  const lexical = readHirText(text);
+  if (lexical.kind === "invalid-text") return lexical;
+  const [header, ...declarations] = lexical.value;
+  const arena = new Map<number, MutableRecord>();
+  const locations = new Map<object, Map<string | number, number>>();
+  const containers: object[] = [];
+  const pending: DecodeTask[] = [];
+  let decoded: unknown;
+  let failure: InvalidText | null = null;
+  const reject = (offset: number, expected: readonly string[]): void => { failure = invalidText(text, offset, expected); };
+  const schedule = (wire: TextValue, shape: HirShape, parent: MutableRecord | unknown[], field: string | number): void => {
+    let positions = locations.get(parent);
+    if (positions === undefined) { positions = new Map(); locations.set(parent, positions); }
+    positions.set(field, wire.offset);
+    pending.push({ wire, shape, target: null, put: value => {
+      Object.defineProperty(parent, field, { value, configurable: true, enumerable: true, writable: true });
+    } });
+  };
+  for (const wire of declarations) {
+    const selected = resolveHirShape("SyntaxNode", { kind: wire.label }, hirSchema);
+    if (selected === null) return invalidText(text, wire.offset, ["syntax node declaration"]);
+    const field = wire.fields.find(candidate => candidate.name === "id");
+    if (field === undefined) return invalidText(text, wire.end, ["id"]);
+    const identity = field.value;
+    if (identity.kind !== "identity" || identity.prefix !== "n" || typeof identity.value !== "number")
+      return invalidText(text, identity.offset, ["n:number"]);
+    if (arena.has(identity.value)) return invalidText(text, identity.offset, ["distinct node declaration"]);
+    const object: MutableRecord = { kind: wire.label };
+    arena.set(identity.value, object);
+    pending.push({ wire, shape: "SyntaxNode", target: object, put: () => {} });
+  }
+  pending.push({ wire: header, shape: "HirModule", target: null, put: value => { decoded = value; } });
+  for (const task of pending) {
+    if (failure !== null) break;
+    const wire = task.wire;
+    if (wire.kind === "scalar") {
+      const selected = resolveHirShape(task.shape, wire.value, hirSchema);
+      if (selected !== null && typeof selected !== "string" && selected.kind === "identity")
+        reject(wire.offset, [`${selected.prefix}:identity`]);
+      else task.put(wire.value);
+      continue;
+    }
+    if (wire.kind === "identity") {
+      const scalar = resolveHirShape(task.shape, wire.value, hirSchema);
+      if (scalar !== null && typeof scalar !== "string" && scalar.kind === "identity" && scalar.prefix === wire.prefix) {
+        task.put(wire.value);
+      } else {
+        const target = wire.prefix === "n" && typeof wire.value === "number" ? arena.get(wire.value) : undefined;
+        const shape = target === undefined ? null : resolveHirShape(task.shape, target, hirSchema);
+        if (shape !== null && typeof shape !== "string" && shape.kind === "record" && shape.syntax) task.put(target);
+        else reject(wire.offset, [typeof task.shape === "string" ? task.shape : "declared identity"]);
+      }
+      continue;
+    }
+    if (wire.kind === "array") {
+      const shape = resolveHirShape(task.shape, [], hirSchema);
+      if (shape === null || typeof shape === "string" || shape.kind !== "array") { reject(wire.offset, ["declared array"]); continue; }
+      const values: unknown[] = [];
+      containers.push(values);
+      task.put(values);
+      wire.values.forEach((element, ordinal) => schedule(element, shape.element, values, ordinal));
+      continue;
+    }
+    const shape = resolveHirShape(task.shape, textView(wire), hirSchema);
+    if (shape === null || typeof shape === "string" || (shape.kind !== "record" && shape.kind !== "dictionary") || shape.label !== wire.label) {
+      reject(wire.offset, [typeof task.shape === "string" ? task.shape : "declared record"]);
+      continue;
+    }
+    const object = task.target ?? {};
+    containers.push(object);
+    task.put(object);
+    if (shape.kind === "dictionary") {
+      for (const field of wire.fields) schedule(field.value, shape.element, object, field.name);
+    } else {
+      const fields = shape.fields.filter(([field]) => field !== "kind");
+      if (shape.fields.some(([field]) => field === "kind")) object.kind = wire.label;
+      let ordinal = 0;
+      for (const [name, fieldShape] of fields) {
+        const field = wire.fields[ordinal];
+        ordinal += 1;
+        if (field === undefined) { reject(wire.end, [name]); break; }
+        if (field.name !== name) { reject(field.offset, [name]); break; }
+        schedule(field.value, fieldShape, object, name);
+      }
+      for (const extra of wire.fields.slice(fields.length)) { reject(extra.offset, [")"]); break; }
+    }
+  }
+  if (failure !== null) return failure;
+  const fault = { offset: header.offset, expected: "HirModule" };
+  const shapeFailure = (visit: HirShapeVisit): void => {
+    fault.offset = visit.parent === null || visit.field === null ? header.offset : locations.get(visit.parent)?.get(visit.field) ?? header.offset;
+    fault.expected = typeof visit.shape === "string" ? visit.shape : "declared field value";
+  };
+  if (!isHirModuleValue(decoded, hirSchema, shapeFailure)) return invalidText(text, fault.offset, [fault.expected]);
+  for (const container of containers) Object.freeze(container);
+  return { kind: "parsed", value: decoded };
+};

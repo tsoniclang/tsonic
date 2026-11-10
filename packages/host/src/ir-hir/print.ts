@@ -1,4 +1,9 @@
 import type { TextRecord, TextValue } from "./parse.js";
+import type { HirModule, PrintHir } from "./contract.js";
+import type { HirShape } from "./verify-syntax.js";
+import { isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
+import { hirSchema } from "./verify-captures.js";
+import { indexSyntaxTree } from "./walk.js";
 
 interface TextTask {
   readonly kind: "text";
@@ -50,8 +55,7 @@ function scalarText(value: string | number | bigint | boolean | null): string {
   switch (typeof value) {
     case "string": return quoteHirText(value);
     case "number":
-      if (!Number.isFinite(value)) throw new Error("HIR text requires finite host numbers.");
-      return Object.is(value, -0) ? "-0" : String(value);
+      return Object.is(value, -0) ? "-0" : value === Number.POSITIVE_INFINITY ? "+Infinity" : String(value);
     case "bigint": return `${value}n`;
     case "boolean": return value ? "true" : "false";
     default: return "null";
@@ -112,3 +116,65 @@ export function printHirRecords(records: readonly TextRecord[]): string {
   }
   return pieces.join("");
 }
+
+interface EncodeValue {
+  readonly value: unknown;
+  readonly shape: HirShape;
+  readonly put: (value: TextValue) => void;
+}
+
+function encodeHirRecord(value: unknown, expected: HirShape): TextRecord {
+  const shape = resolveHirShape(expected, value, hirSchema);
+  if (shape === null || typeof shape === "string" || shape.kind !== "record" || !isHirObject(value))
+    throw new Error("HIR text requires the declared record shape.");
+  const fields: { name: string; offset: number; value: TextValue }[] = [];
+  const root: TextRecord = { kind: "record", offset: 0, end: 0, label: shape.label, fields };
+  const pending: EncodeValue[] = [];
+  for (const [field, fieldShape] of shape.fields) {
+    if (field === "kind") continue;
+    pending.push({ value: value[field], shape: fieldShape,
+      put: wire => { fields.push({ name: field, offset: 0, value: wire }); } });
+  }
+  for (const task of pending) {
+    const selected = resolveHirShape(task.shape, task.value, hirSchema);
+    if (selected === null) throw new Error("HIR text requires the declared field shape.");
+    const data = task.value;
+    if (typeof selected === "string" || selected.kind === "literal") {
+      if (data === null || typeof data === "string" || typeof data === "number" || typeof data === "bigint" || typeof data === "boolean")
+        task.put({ kind: "scalar", offset: 0, value: data });
+    } else if (selected.kind === "identity") {
+      if (typeof data === "string" || typeof data === "number")
+        task.put({ kind: "identity", offset: 0, prefix: selected.prefix, value: data });
+    } else if (selected.kind === "array" && isHirArray(data)) {
+      const values: TextValue[] = [];
+      task.put({ kind: "array", offset: 0, end: 0, values });
+      for (const element of data) pending.push({ value: element, shape: selected.element,
+        put: wire => { values.push(wire); } });
+    } else if (selected.kind === "record" && isHirObject(data)) {
+      if (selected.syntax) {
+        if (typeof data.id !== "number") throw new Error("HIR syntax requires a numeric node identity.");
+        task.put({ kind: "identity", offset: 0, prefix: "n", value: data.id });
+      } else {
+        const content: { name: string; offset: number; value: TextValue }[] = [];
+        task.put({ kind: "record", offset: 0, end: 0, label: selected.label, fields: content });
+        for (const [field, fieldShape] of selected.fields) {
+          if (field === "kind") continue;
+          pending.push({ value: data[field], shape: fieldShape,
+            put: wire => { content.push({ name: field, offset: 0, value: wire }); } });
+        }
+      }
+    } else if (selected.kind === "dictionary" && isHirObject(data)) {
+      const content: { name: string; offset: number; value: TextValue }[] = [];
+      task.put({ kind: "record", offset: 0, end: 0, label: selected.label, fields: content });
+      for (const field of Object.keys(data)) pending.push({ value: data[field], shape: selected.element,
+        put: wire => { content.push({ name: field, offset: 0, value: wire }); } });
+    }
+  }
+  return root;
+}
+
+export const printHir: PrintHir = (module: HirModule): string => {
+  const records: TextRecord[] = [encodeHirRecord(module, "HirModule")];
+  for (const node of indexSyntaxTree(module.tree)) records.push(encodeHirRecord(node, "SyntaxNode"));
+  return printHirRecords(records);
+};
