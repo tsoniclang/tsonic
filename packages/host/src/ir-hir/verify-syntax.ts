@@ -533,7 +533,7 @@ export function checkHirShape(value: unknown, root: HirShape, schema: HirSchema,
           visit: { value: data[field], shape: fieldShape, parent: data, field }, next: following,
         }), pending);
       } else if (shape.kind === "dictionary" && isHirObject(data)) {
-        pending = Object.keys(data).reduceRight<PendingVisit | null>((following, field) => ({
+        pending = Object.keys(data).sort().reduceRight<PendingVisit | null>((following, field) => ({
           visit: { value: data[field], shape: shape.element, parent: data, field }, next: following,
         }), pending);
       }
@@ -616,7 +616,7 @@ export function walkHirData(root: HirDataRoot, schema: HirSchema, visit: (data: 
         path: { parent: frame.path, field }, leave: false, next,
       }), pending);
     } else if (selected.kind === "dictionary" && isHirObject(data)) {
-      pending = Object.keys(data).reduceRight<PendingData | null>((next, field) => ({
+      pending = Object.keys(data).sort().reduceRight<PendingData | null>((next, field) => ({
         root: { ...frame.root, value: data[field], shape: selected.element }, parent: data, field,
         path: { parent: frame.path, field }, leave: false, next,
       }), pending);

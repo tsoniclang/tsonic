@@ -339,8 +339,12 @@ export function verifyHirPlaces(inventory: HirInventory, readers: HirCaptureRead
   }
   const edges = new Map<HirNode, Set<HirNode>>();
   for (const entry of entries) {
-    if (entry.place.base.kind === "root") continue;
     const site: HirSite = { kind: "node", node: readers.referenceOf(entry.node) };
+    if (entry.place.base.kind === "root") {
+      if (entry.node.kind === "PropertyAccessExpression" || entry.node.kind === "ElementAccessExpression")
+        report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
+      continue;
+    }
     const target = inventory.nodesById.get(entry.place.base.node);
     const owner = inventory.owners.get(entry.node);
     if (target === undefined || !known.has(target) || owner === undefined || inventory.owners.get(target) !== owner) {
@@ -386,8 +390,14 @@ interface CaptureEntry {
   readonly site: HirSite;
 }
 
+interface MemoryVertex {
+  readonly site: HirSite;
+  readonly targets: Set<MemoryVertex>;
+  kind: MemoryCapture["kind"] | null;
+}
+
 interface MemoryVisit {
-  readonly node: HirNode;
+  readonly node: MemoryVertex;
   readonly leaving: boolean;
   readonly next: MemoryVisit | null;
 }
@@ -422,19 +432,22 @@ function memoryEdges(capture: MemoryCapture): readonly SourceNodeRef[] {
 function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCaptureReaders, report: HirReport): void {
   const pendingEntries = [...entries];
   const readNodes = new Set<HirNode>();
-  const edges = new Map<HirNode, Set<HirNode>>();
-  const kinds = new Map<HirNode, MemoryCapture["kind"]>();
-  const sites = new Map<HirNode, HirSite>();
+  const vertices = new Map<HirNode, MemoryVertex>();
+  const vertexOf = (node: HirNode, site: HirSite): MemoryVertex => {
+    let vertex = vertices.get(node);
+    if (vertex === undefined) {
+      vertex = { site, targets: new Set(), kind: null };
+      vertices.set(node, vertex);
+    }
+    return vertex;
+  };
   for (const entry of pendingEntries) {
     const owner = readers.nodeOf(entry.value.occurrence);
     if (owner === null) continue;
-    const previous = kinds.get(owner);
-    if (previous !== undefined && previous !== entry.value.kind)
+    const vertex = vertexOf(owner, entry.site);
+    if (vertex.kind !== null && vertex.kind !== entry.value.kind)
       report("memory-capture-owner", entry.site, "one occurrence cannot own incompatible descriptor kinds");
-    if (previous === undefined) kinds.set(owner, entry.value.kind);
-    if (!sites.has(owner)) sites.set(owner, entry.site);
-    let targets = edges.get(owner);
-    if (targets === undefined) { targets = new Set(); edges.set(owner, targets); }
+    if (vertex.kind === null) vertex.kind = entry.value.kind;
     for (const reference of memoryEdges(entry.value)) {
       const node = readers.nodeOf(reference);
       const captured = node === null ? null : memoryAt(node);
@@ -442,15 +455,16 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
       if (captured === null || occurrence === null || (entry.value.kind === "value" ? captured.kind !== "field" :
         captured.kind !== "value" && captured.kind !== "array"))
         report("memory-capture-reference", entry.site, "layout edge must name the required captured descriptor kind");
-      if (occurrence !== null) targets.add(occurrence);
+      if (occurrence !== null && captured !== null)
+        vertex.targets.add(vertexOf(occurrence, { kind: "node", node: captured.occurrence }));
       if (node !== null && captured !== null && !readNodes.has(node)) {
         readNodes.add(node);
         pendingEntries.push({ value: captured, site: { kind: "node", node: captured.occurrence } });
       }
     }
   }
-  const colors = new Map<HirNode, "active" | "complete">();
-  for (const root of edges.keys()) {
+  const colors = new Map<MemoryVertex, "active" | "complete">();
+  for (const root of vertices.values()) {
     if (colors.has(root)) continue;
     let pending: MemoryVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
@@ -460,17 +474,12 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
       const previous = colors.get(frame.node);
       if (previous === "complete") continue;
       if (previous === "active") {
-        const site = sites.get(frame.node);
-        if (site !== undefined) report("memory-layout-acyclic", site, "captured layout graph must be acyclic");
+        report("memory-layout-acyclic", frame.node.site, "captured layout graph must be acyclic");
         continue;
       }
       colors.set(frame.node, "active");
       pending = { node: frame.node, leaving: true, next: pending };
-      const targets = [...(edges.get(frame.node) ?? [])];
-      for (let ordinal = targets.length - 1; ordinal >= 0; ordinal -= 1) {
-        const node = targets[ordinal];
-        if (node !== undefined) pending = { node, leaving: false, next: pending };
-      }
+      pending = [...frame.node.targets].reduceRight<MemoryVisit | null>((next, node) => ({ node, leaving: false, next }), pending);
     }
   }
 }

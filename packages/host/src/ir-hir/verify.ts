@@ -67,7 +67,9 @@ export function createHirInventory(module: HirModule): HirInventory {
 export function hirNodeSource(node: HirNode, inventory: HirInventory, module: HirModule): SourceNodeRef {
   const body = inventory.owners.get(node);
   if (body !== undefined) return { kind: "body", value: { body: body.body, node: node.id } };
-  return { kind: "item", value: { owner: inventory.itemOwners.get(node) ?? module.tree.tsonic.definition, node: node.id } };
+  const owner = inventory.itemOwners.get(node);
+  if (owner === undefined) throw new TypeError(`Node ${String(node.id)} is not in the syntax inventory of ${module.module}.`);
+  return { kind: "item", value: { owner, node: node.id } };
 }
 
 function nodeSite(node: HirNode, inventory: HirInventory, module: HirModule): HirSite {

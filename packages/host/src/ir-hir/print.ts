@@ -186,7 +186,7 @@ function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyM
     } else if (selected.kind === "dictionary" && isHirObject(data)) {
       const content: { name: string; offset: number; value: TextValue }[] = [];
       task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
-      pending = Object.keys(data).reduceRight<PendingEncode | null>((next, field) => ({
+      pending = Object.keys(data).sort().reduceRight<PendingEncode | null>((next, field) => ({
         task: { kind: "value", value: data[field], shape: selected.element, path: { parent: task.path, field },
           put: wire => { content.push({ name: field, offset: 0, value: wire }); } }, next,
       }), pending);

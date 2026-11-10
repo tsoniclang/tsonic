@@ -36,10 +36,12 @@ export function verifyBindingVectors(
   context: HirVerificationContext,
   nodeOf: (reference: SourceNodeRef) => HirNode | null,
 ): readonly Violation<HirRule, HirSite>[] {
-  const selected: HirBindingRequest[] = [];
+  const selected: { readonly site: HirSite; readonly violations: Violation<HirRule, HirSite>[] }[] = [];
   const inputs: BindingVerificationInput[] = [];
-  const results = new Map<HirBindingRequest, Violation<HirRule, HirSite>[]>();
+  const results: Violation<HirRule, HirSite>[][] = [];
   for (const request of requests) {
+    const violations: Violation<HirRule, HirSite>[] = [];
+    results.push(violations);
     const scope = request.kind === "definition" ? context.bindingScopeOf(request.definition) : context.bindingScopeAt(request.occurrence);
     if (scope === null) {
       const detail: Violation<HirRule, HirSite>["detail"] = request.kind === "definition"
@@ -47,9 +49,9 @@ export function verifyBindingVectors(
         : [{ kind: "text", value: "bindingScopeAt" }, { kind: "text", value: request.occurrence.kind },
           { kind: "text", value: request.occurrence.kind === "body" ? request.occurrence.value.body : request.occurrence.value.owner },
           { kind: "number", value: request.occurrence.value.node }];
-      results.set(request, [{ rule: "binding-vector-complete", site: request.site, detail }]);
+      violations.push({ rule: "binding-vector-complete", site: request.site, detail });
     } else {
-      selected.push(request);
+      selected.push({ site: request.site, violations });
       inputs.push({ vector: request.vector, scope });
     }
   }
@@ -65,17 +67,15 @@ export function verifyBindingVectors(
       else previous.push(failure);
     }
     selected.forEach((request, ordinal) => {
-      const violations: Violation<HirRule, HirSite>[] = [];
       for (const violation of grouped.get(ordinal) ?? []) {
-        violations.push({ rule: bindingRule(violation.rule), site: request.site,
+        request.violations.push({ rule: bindingRule(violation.rule), site: request.site,
           detail: [{ kind: "text", value: violation.family },
             { kind: "text", value: violation.position === null ? "complete" : String(violation.position) },
             ...violation.detail] });
       }
-      results.set(request, violations);
     });
   }
-  return Object.freeze(requests.flatMap(request => results.get(request) ?? []));
+  return Object.freeze(results.flat());
 }
 
 export function isSourceNodeRef(value: unknown, hirSchema: HirSchema): value is SourceNodeRef {
