@@ -1431,6 +1431,35 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
     violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
   ]);
+  await summaryOpposite("two callback parameters share the same complete signature set under opposite input orders", (input, supplied) => {
+    formalCallback(input, supplied);
+    supplied.types.signatures.push(signature(2, [parameter(definitions.capture)], null, definitions.other));
+    supplied.types.terms.push({ kind: "callable", calls: [1, 2], constructs: [] });
+    supplied.types.signatures[0].parameters = [parameter(definitions.parameter, 4), parameter(definitions.capture, 4)];
+    input.parameters.push({ slot: { kind: "parameter", index: 1 }, reads: completePaths(), writes: completePaths() });
+    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 2]);
+    supplied.callbackSignatures.set(arenaKey([input.key, 1]), [2, 1]);
+    input.callbacks = [0, 1].map(parameterIndex => ({ parameterIndex, timing: "synchronous", rejection: 0,
+      inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: parameterIndex }] }));
+  }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); }, [
+    violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
+    violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
+    violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
+    violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
+  ]);
+  await summaryOpposite("two equal-arity callback parameters retain distinct complete signature sets", (input, supplied) => {
+    formalCallback(input, supplied);
+    supplied.types.signatures.push(signature(2, [parameter(definitions.capture)], null, definitions.other));
+    supplied.types.terms.push({ kind: "callable", calls: [2], constructs: [] });
+    supplied.types.signatures[0].parameters.push(parameter(definitions.capture, 4));
+    input.parameters.push({ slot: { kind: "parameter", index: 1 }, reads: completePaths(), writes: completePaths() });
+    supplied.callbackSignatures.set(arenaKey([input.key, 1]), [2]);
+    input.callbacks = [0, 1].map(parameterIndex => ({ parameterIndex, timing: "synchronous", rejection: 0,
+      inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: parameterIndex }] }));
+  }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); }, [
+    violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
+    violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
+  ]);
   for (const channel of ["input", "rejection"]) await summaryOpposite(`negative-zero ${channel} does not alias a cached actual callable formal`,
     (input, supplied) => {
       formalCallback(input, supplied);

@@ -127,6 +127,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
   }
   let previousCallback = -1;
   const callbackFormals = new Map<number, CallbackFormals | null>();
+  const callbackFormalSets = new Map<string, CallbackFormals>();
   for (const callback of summary.callbacks) {
     if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
@@ -141,9 +142,9 @@ export const verifySummary: VerifySummary = (summary, context) => {
       else {
         const signatures = context.callbackSignaturesOf(summary.key, callback.parameterIndex);
         let calls: Signature[] | null = null;
+        const seen = new Set<number>();
         if (signatures !== null && signatures.length !== 0) {
           calls = [];
-          const seen = new Set<number>();
           for (const id of signatures) {
             const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
             if (call === undefined || call.id !== id) { calls = null; break; }
@@ -152,7 +153,15 @@ export const verifySummary: VerifySummary = (summary, context) => {
             calls.push(call);
           }
         }
-        formals = calls === null ? null : { signatures: calls, slots: new Map<number, boolean>() };
+        if (calls !== null) {
+          const key = encodeKey([...seen].sort((left, right) => left - right));
+          const shared = callbackFormalSets.get(key);
+          if (shared !== undefined) formals = shared;
+          else {
+            formals = { signatures: calls, slots: new Map<number, boolean>() };
+            callbackFormalSets.set(key, formals);
+          }
+        }
         callbackFormals.set(callback.parameterIndex, formals);
       }
     }
