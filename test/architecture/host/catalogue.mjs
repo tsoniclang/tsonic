@@ -1,8 +1,9 @@
 const root = "packages/host/src";
 
-const row = (name, kind, imports, directory = `${root}/${name}`) => Object.freeze({
+const row = (name, kind, imports, directory = `${root}/${name}`, effects = []) => Object.freeze({
   name, kind, directory, contract: `${directory}/contract.ts`,
   entry: `${directory}/index.ts`, imports: Object.freeze(imports),
+  effects: Object.freeze(effects.map(effect => Object.freeze({ ...effect }))),
   implementationOwners: Object.freeze(kind === "component" ? [name, "pipeline"] : [name]),
 });
 

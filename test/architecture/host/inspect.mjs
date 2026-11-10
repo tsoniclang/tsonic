@@ -12,7 +12,7 @@ const limitOwners = Object.freeze({ NavigationCaptureLimits: "front", LiteralCap
 export function createInspectionDeps(quarantineRoots) {
   if (quarantineRoots.length === 0 || quarantineRoots.some(root => typeof root !== "string" || root.split("/").some(part => ["", ".", ".."].includes(part))))
     throw new Error("The explicit admitted quarantine area roots are required.");
-  return Object.freeze({ readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
+  return Object.freeze({ catalogue: hostCatalogue, readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
     parse: parseSources, graph: readImportGraph, quarantineRoots: Object.freeze([...quarantineRoots]) });
 }
 
@@ -21,8 +21,8 @@ export function inspectHost(deps, inputs) {
   const root = deps.canonical(inputs.root);
   if (new Set(inputs.files).size !== inputs.files.length) throw new Error("Distinct complete source inventory required.");
   const catalogue = inputs.catalogue;
-  if (catalogue.length !== hostCatalogue.length || catalogue.some((module, index) =>
-    JSON.stringify(module) !== JSON.stringify(hostCatalogue[index]))) throw new Error("The exact agreed Host catalogue is required.");
+  if (catalogue.length !== deps.catalogue.length || catalogue.some((module, index) =>
+    JSON.stringify(module) !== JSON.stringify(deps.catalogue[index]))) throw new Error("The exact agreed Host catalogue is required.");
   const findings = [];
   const add = (code, path, line = 1, column = 1) => {
     if (!findings.some(finding => finding.code === code && finding.path === path && finding.line === line && finding.column === column))
@@ -105,17 +105,20 @@ export function inspectHost(deps, inputs) {
     });
   };
   for (const edge of graph) {
-    if (edge.specifier === null) { add("unsafe-type-escape", edge.source, edge.line, edge.column); continue; }
     const ownTest = testOwner(catalogue, edge.source);
     const from = sourceOwner(catalogue, edge.source) ?? ownTest;
     const to = edge.target === null ? undefined : sourceOwner(catalogue, edge.target);
+    const effect = from?.effects.find(entry => entry.path === edge.source);
+    const pluginLoading = from?.name === "plugins" && effect?.role === "plugin-loading";
+    if (pluginLoading && (edge.kind === "loader" || edge.specifier === null)) continue;
+    if (edge.specifier === null) { add("unsafe-type-escape", edge.source, edge.line, edge.column); continue; }
     let allowed = false;
     if (from !== undefined) {
       if (quarantineReference(edge.specifier, deps.quarantineRoots)) allowed = false;
       else if (!edge.specifier.startsWith(".")) {
         allowed = edge.specifier === "@tsonic/tsts" && from.name === "front" ||
-          isBuiltin(edge.specifier) && (ownTest !== undefined || ["front", "project", "packages", "plugins", "artifacts", "orchestration", "cli", "create-tsonic"].includes(from.name))
-            && edge.source !== from.contract;
+          isBuiltin(edge.specifier) && (ownTest !== undefined || ["driver", "orchestration"].includes(from.kind) &&
+            effect !== undefined && (!["module", "node:module"].includes(edge.specifier) || pluginLoading));
       } else if (to !== undefined && from.name === to.name) allowed = true;
       else if (to !== undefined && from.imports.includes(to.name)) {
         allowed = to.kind === "library" ? publicEntry(to, edge.target)
@@ -127,8 +130,10 @@ export function inspectHost(deps, inputs) {
     }
     if (!allowed) add("forbidden-import", edge.source, edge.line, edge.column);
   }
-  const cycles = cyclicSources(graph);
-  for (const edge of graph) if (cycles.has(edge.source) && cycles.get(edge.source) === cycles.get(edge.target)) add("source-cycle", edge.source, edge.line, edge.column);
+  const moduleEdges = graph.filter(edge => edge.kind !== "loader" || !sourceOwner(catalogue, edge.source)?.effects.some(effect =>
+    sourceOwner(catalogue, edge.source)?.name === "plugins" && effect.path === edge.source && effect.role === "plugin-loading"));
+  const cycles = cyclicSources(moduleEdges);
+  for (const edge of moduleEdges) if (cycles.has(edge.source) && cycles.get(edge.source) === cycles.get(edge.target)) add("source-cycle", edge.source, edge.line, edge.column);
   for (const finding of sourceFindings(source, files, catalogue, graph, deps.quarantineRoots)) add(finding.code, finding.path, finding.line, finding.column);
   const expected = new Set(inputs.files.map(path => deps.canonical(resolve(root, path))));
   for (const loaded of inputs.loadedFiles) if (!expected.has(deps.canonical(loaded))) add("loaded-source-escape", loaded);

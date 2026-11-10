@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { hostCatalogue } from "./host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "./host/isolation.mjs";
+import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -26,7 +27,7 @@ const substituteSources = Object.freeze([
   [inferEntry, 'import type { Infer } from "./contract.js";\nimport { substitute } from "../ir-types/index.js";\nexport const infer: Infer = (deps, input) => substitute(input, deps.bindings);'],
 ]);
 
-async function fixture(entries, action) {
+async function fixture(entries, action, catalogue = hostCatalogue) {
   const parent = resolve(repository, ".temp/host-s1-isolation");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(resolve(parent, "case-"));
@@ -35,7 +36,9 @@ async function fixture(entries, action) {
     writeFileSync(resolve(root, file), text);
   };
   for (const [file, text] of entries) write(file, text);
-  const deps = isolationDeps(tooling, quarantineRoots);
+  const inspection = { ...createInspectionDeps(quarantineRoots), catalogue };
+  const deps = { ...isolationDeps(tooling, quarantineRoots), inspect: (root, files) => inspectHost(inspection,
+    { root, files, catalogue, loadedFiles: [], configurations: [] }) };
   try { await action({ root, deps, write }); }
   finally { rmSync(root, { recursive: true }); }
 }
@@ -109,13 +112,28 @@ for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "
 
 test("real Node platform declarations remain available only to the explicitly allowed effect owner", async () => {
   const contract = path("project");
-  const entry = path("project", "paths.ts");
+  const entry = path("project", "effects.ts");
+  const catalogue = hostCatalogue.map(module => module.name === "project" ? { ...module, effects: [{ path: entry, role: "effects" }] } : module);
   await fixture([[contract, "export interface Path { readonly value: string; }"],
     [entry, 'import { isAbsolute } from "node:path"; export function absolute(input: string): boolean { return isAbsolute(input); }']], async ({ root, deps }) => {
     const report = await compileIsolated(deps, module("project"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/@types/node/")), true);
-  });
+  }, catalogue);
+});
+
+test("strict contract typing accepts implementation parameter spelling, parentheses and const aliases", async () => {
+  for (const implementation of ['export const infer: Infer = (other, input) => substitute(input, other.bindings);',
+    'export const infer: Infer = ((other, input) => substitute(input, other.bindings));',
+    'const original = (other: InferDeps, input: Term): Term => substitute(input, other.bindings); export const infer: Infer = original;']) {
+    const text = `import type { Infer, InferDeps } from "./contract.js"; import type { Term } from "../ir-types/contract.js"; import { substitute } from "../ir-types/index.js"; ${implementation}`;
+    const imports = implementation.includes("original") ? text : text.replace("Infer, InferDeps", "Infer").replace('import type { Term } from "../ir-types/contract.js"; ', "");
+    await fixture(substituteSources.map(([path, source]) => [path, path === inferEntry ? imports : source]), async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module("infer"), inferInput(root));
+      assert.equal(report.status, "passed", label(report));
+      assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
+    });
+  }
 });
 
 test("canonical generic phase-slot records retain real strict isolated compilation", async () => {

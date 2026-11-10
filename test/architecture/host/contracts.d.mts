@@ -24,10 +24,12 @@ export interface HostModule {
   readonly contract: string;
   readonly entry: string;
   readonly imports: readonly ModuleName[];
+  readonly effects: readonly { readonly path: string; readonly role: "effects" | "plugin-loading" }[];
   readonly implementationOwners: readonly ModuleName[];
 }
 
 export interface ImportEdge {
+  readonly kind: "import" | "loader";
   readonly source: string;
   readonly specifier: string | null;
   readonly target: string | null;
@@ -37,6 +39,7 @@ export interface ImportEdge {
 }
 
 export interface InspectionDeps {
+  readonly catalogue: readonly HostModule[];
   readonly quarantineRoots: readonly string[];
   readonly readText: (path: string) => string;
   readonly canonical: (path: string) => string;

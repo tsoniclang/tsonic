@@ -1,5 +1,5 @@
 import { sourceOwner } from "./catalogue.mjs";
-import { publicCallables, quarantineReference, sourceSymbol } from "./import-graph.mjs";
+import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = Object.freeze(["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = Object.freeze(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
 const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
@@ -7,7 +7,7 @@ const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId",
 const sdkPayloads = Object.freeze({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
-  const publicValues = publicCallables(source, files, catalogue);
+  const publicValues = publicDeclarations(source, files, catalogue);
   const owner = path => sourceOwner(catalogue, path);
   const findings = [];
   const add = (code, path, node) => {
@@ -87,6 +87,28 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     return source.getSourceFileQueries(file).checker;
   };
   const symbol = node => sourceSymbol(source, node);
+  const contractFunctions = new Map();
+  for (const [path, file] of sourceFiles) {
+    const module = owner(path);
+    if (module === undefined || path !== module.contract) continue;
+    const queries = checker(file);
+    const identity = symbol(file);
+    if (identity === undefined) continue;
+    const functions = new Set();
+    for (const exported of queries.getExportsOfModule(identity)) {
+      const selected = sourceSymbol(source, file, exported);
+      const declarations = queries.getSymbolDeclarations(selected);
+      if (declarations.length > 0 && declarations.every(declaration => ast.getSourceFile(declaration) === file &&
+        ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsFunctionTypeNode(ast.typeNode(declaration)))) functions.add(selected);
+    }
+    contractFunctions.set(module, functions);
+  }
+  const stageTypes = new Set();
+  for (const [declaration, module] of publicValues) {
+    const annotation = ast.is.IsVariableDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+    const selected = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+    if (module.kind === "component" && selected !== undefined && contractFunctions.get(module)?.has(selected)) stageTypes.add(selected);
+  }
   const canonicalSyntax = node => {
     const file = ast.getSourceFile(node);
     const path = file === undefined ? "" : ast.getFileName(file).slice("/host-gate/".length);
@@ -393,8 +415,11 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (module === undefined) continue;
     const isContract = closedFiles.has(file);
     const rawAllowed = module.name === "front" || module.name === "pipeline" && !isContract;
+    const pluginLoading = module.name === "plugins" && module.effects.some(effect => effect.path === file && effect.role === "plugin-loading");
     const visit = current => {
       const kind = ast.kindName(current);
+      if (!pluginLoading && (ast.is.IsIdentifier(current) && ["require", "process", "globalThis", "eval"].includes(ast.text(current)) ||
+        ast.is.IsNewExpression(current) && ast.text(ast.as.AsNewExpression(current).Expression) === "Function")) add("unsafe-type-escape", file, current);
       if (module.kind === "component" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
       if (module.kind === "component" && ast.is.IsPropertySignatureDeclaration(current)) {
         const annotation = ast.typeNode(current);
@@ -450,34 +475,20 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       }
       const publicValue = publicValues.get(current);
       if (publicValue !== undefined) {
-        const declaration = current;
-        const implementation = ast.is.IsVariableDeclaration(declaration) ? ast.as.AsVariableDeclaration(declaration).Initializer : declaration;
-        const signatures = new Set(publicValue.signatures);
-        if (implementation !== undefined && (ast.is.IsFunctionDeclaration(implementation) ||
-          ast.is.IsArrowFunction(implementation) || ast.is.IsFunctionExpression(implementation))) signatures.add(implementation);
-        if (module.kind === "component") for (const signature of signatures) {
-          const parameters = ast.parameters(signature);
-          const typed = ast.is.IsVariableDeclaration(declaration) && ast.typeNode(declaration) !== undefined;
-          if (parameters.length < 2 || ast.text(ast.name(parameters[0])) !== "deps" ||
-            !typed && parameters.some(parameter => ast.typeNode(parameter) === undefined))
-            add("impure-component", file, current);
-          const immutable = type => {
-            if (type === undefined) return;
-            const selected = ast.is.IsIdentifier(type) ? symbol(type) : undefined;
-            if (mutableData(type) || selected !== undefined && mutableSymbols.has(selected) && !mappedInput(type))
-              add("impure-component", file, current);
-            ast.forEachChild(type, child => { if (child !== undefined) immutable(child); });
-          };
-          for (const parameter of parameters) immutable(ast.typeNode(parameter));
-        }
-        if (module.kind === "library") {
-          const annotation = ast.typeNode(declaration);
-          const reference = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
-          const declarations = reference === undefined ? [] : checker(current).getSymbolDeclarations(reference);
-          if (declarations.length === 0 || !declarations.every(candidate =>
-            ast.getFileName(ast.getSourceFile(candidate)) === `/host-gate/${module.contract}`))
-            add("contract-shape", file, current);
-        }
+        const annotation = ast.is.IsVariableDeclaration(current) ? ast.typeNode(current) : undefined;
+        const reference = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+        if (reference === undefined || !contractFunctions.get(module)?.has(reference)) add("contract-shape", file, current);
+      }
+      if (ast.is.IsTypeAliasDeclaration(current) && stageTypes.has(symbol(ast.name(current)))) {
+        const parameters = ast.parameters(ast.typeNode(current));
+        const first = ast.typeNode(parameters[0]);
+        const identity = first !== undefined && ast.is.IsTypeReferenceNode(first) ? symbol(ast.as.AsTypeReferenceNode(first).TypeName) : undefined;
+        const declarations = checker(current).getSymbolDeclarations(identity);
+        if (parameters.length < 2 || declarations.length === 0 || !declarations.every(declaration =>
+          ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${module.contract}` &&
+          ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||
+            ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration)))))
+          add("impure-component", file, current);
       }
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind) &&
         quarantineReference(ast.text(current), quarantineRoots)) add("forbidden-import", file, current);

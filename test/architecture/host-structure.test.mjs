@@ -34,7 +34,10 @@ const expectedImports = Object.freeze([
   ["cli", ["orchestration", "diag", "snapshot"]], ["create-tsonic", ["orchestration", "diag", "snapshot"]],
 ]);
 
-function inspect(entries, extra = {}) {
+const effectsCatalogue = Object.freeze(hostCatalogue.map(module => ["driver", "orchestration"].includes(module.kind)
+  ? Object.freeze({ ...module, effects: Object.freeze([Object.freeze({ path: `${module.directory}/effects.ts`, role: module.name === "plugins" ? "plugin-loading" : "effects" })]) }) : module));
+
+function inspect(entries, extra = {}, authority = hostCatalogue) {
   const parent = resolve(repository, ".temp/host-s1-structure");
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(resolve(parent, "case-"));
@@ -43,13 +46,13 @@ function inspect(entries, extra = {}) {
       mkdirSync(dirname(resolve(root, path)), { recursive: true });
       writeFileSync(resolve(root, path), text);
     }
-    return inspectHost(inspectionDeps, { root, files: entries.map(([path]) => path), catalogue: hostCatalogue,
+    return inspectHost({ ...inspectionDeps, catalogue: authority }, { root, files: entries.map(([path]) => path), catalogue: authority,
       loadedFiles: [], configurations: [], ...extra });
   } finally { rmSync(root, { recursive: true }); }
 }
 
-function expect(entries, expected) {
-  const actual = inspect(entries);
+function expect(entries, expected, authority = hostCatalogue) {
+  const actual = inspect(entries, {}, authority);
   assert.equal(JSON.stringify(actual), JSON.stringify(expected), `${entries.map(([path]) => path).join(",")}: exact scalar findings ${JSON.stringify(actual)}`);
   assert.equal(Object.isFrozen(actual), true);
 }
@@ -60,6 +63,8 @@ test("the complete R6 catalogue and snapshot amendment have exactly one explicit
   assert.equal(hostCatalogue.length, 38);
   assert.equal(JSON.stringify(hostCatalogue.map(module => [module.name, module.imports])), JSON.stringify(expectedImports));
   assert.equal(hostCatalogue.every(module => Object.isFrozen(module) && Object.isFrozen(module.imports)), true);
+  assert.equal(hostCatalogue.every(module => Object.isFrozen(module.effects) && module.effects.every(effect => Object.isFrozen(effect))), true);
+  assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
   assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 13);
   assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 17);
 });
@@ -166,11 +171,16 @@ test("allowed callers directly use contract-typed library values but never deep 
 test("real public value identities retain stage and library rules through export aliases and forwarding", () => {
   const component = file("infer", "index.ts");
   for (const suffix of ["export { run };", "export { run as analyze };"])
-    expect([[component, `const run = (input: number): number => input;\n${suffix}`]], [at("impure-component", component)]);
-  expect([[component, 'const run = (deps: { readonly bias: number }, input: number): number => deps.bias + input;\nexport { run as analyze };']], []);
-  const stageContract = [file("infer", "contract.ts"), 'export type Run = (deps: { readonly bias: number }, input: number) => number;'];
-  expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = (other, input) => other.bias + input;\nexport { run };']], [at("impure-component", component, 2)]);
+    expect([[component, `const run = (input: number): number => input;\n${suffix}`]], [at("contract-shape", component)]);
+  const stageContract = [file("infer", "contract.ts"), 'export interface InferDeps { readonly bias: number; }\nexport type Run = (deps: InferDeps, input: number) => number;'];
+  expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = (other, input) => other.bias + input;\nexport { run };']], []);
   expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = (deps, input) => deps.bias + input;\nexport { run };']], []);
+  expect([stageContract, [component, 'import type { Run } from "./contract.js";\nconst run: Run = ((other, input) => other.bias + input);\nexport { run };']], []);
+  expect([stageContract, [component, 'import type { Run, InferDeps } from "./contract.js";\nconst original = (other: InferDeps, input: number): number => other.bias + input;\nconst run: Run = original;\nexport { run };']], []);
+  expect([stageContract, [component, 'import type { InferDeps } from "./contract.js";\nconst run: (deps: InferDeps, input: number) => number = (deps, input) => deps.bias + input;\nexport { run };']], [at("contract-shape", component, 2)]);
+  expect([stageContract, [component, 'const run: number = 1; export { run };']], [at("contract-shape", component)]);
+  expect([[stageContract[0], stageContract[1].replace("export type Run", "type Run")],
+    [component, 'import type { Run } from "./contract.js"; const run: Run = (deps, input) => deps.bias + input; export { run };']], [at("contract-shape", component)]);
   const contract = [file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"];
   const entry = file("ir-types", "index.ts");
   expect([contract, [entry, 'const substitute = (input: number): number => input;\nexport { substitute };']], [at("contract-shape", entry)]);
@@ -180,31 +190,66 @@ test("real public value identities retain stage and library rules through export
     expect([contract, [entry, forwarding], [privatePath, 'export const substitute = (input: number): number => input;']], [at("contract-shape", privatePath)]);
     expect([contract, [entry, forwarding], [privatePath, 'import type { Substitute } from "./contract.js";\nexport const substitute: Substitute = input => input;']], []);
   }
-  expect([[component, 'const original = (input: number): number => input;\nconst run = original;\nexport { run };']], [at("impure-component", component, 2)]);
+  expect([[component, 'const original = (input: number): number => input;\nconst run = original;\nexport { run };']], [at("contract-shape", component, 2)]);
   const privateStage = file("infer", "private.ts");
   expect([[component, 'export { run as analyze } from "./private.js";'],
-    [privateStage, 'export function run(input: number): number { return input; }']], [at("impure-component", privateStage)]);
+    [privateStage, 'export function run(input: number): number { return input; }']], [at("contract-shape", privateStage)]);
 });
 
-test("Node-created loaders use actual imported declaration and alias provenance, never identifier spelling", () => {
-  const path = file("project");
-  const target = [file("front", "index.ts"), 'export function front(deps: { readonly bias: number }, input: number): number { return deps.bias + input; }'];
+test("Node-created loader tracing remains bounded while only the catalogue plugin effect owns loading", () => {
+  const path = file("project", "effects.ts");
+  const target = [file("front"), 'export function front(deps: { readonly bias: number }, input: number): number { return deps.bias + input; }'];
   for (const setup of ['import { createRequire } from "node:module";\nconst load = createRequire(import.meta.url);',
     'import { createRequire as make } from "module";\nconst factory = make; const original = factory(import.meta.url); const load = original;',
     'import * as modules from "node:module";\nconst factory = modules.createRequire; const load = factory(import.meta.url);']) {
     const [statement, local] = setup.split("\n");
     const prefix = `${statement}\nexport function run(input: string): boolean { ${local} return typeof `;
-    const forbidden = `${prefix}load("../front/index.js") === "function"; }`;
-    expect([[path, forbidden], target], [at("forbidden-import", path, 2, forbidden.split("\n")[1].indexOf('load("../front') + 1)]);
+    const forbidden = `${prefix}load("../front/unit.js") === "function"; }`;
+    expect([[path, forbidden], target], [at("forbidden-import", path), at("forbidden-import", path, 2, forbidden.split("\n")[1].indexOf('load("../front') + 1)], effectsCatalogue);
     const allowed = `${prefix}load("node:fs") === "object"; }`;
-    expect([[path, allowed]], []);
+    expect([[path, allowed]], [at("forbidden-import", path)], effectsCatalogue);
     const dynamic = `${prefix}load(input) === "object"; }`;
-    expect([[path, dynamic]], [at("unsafe-type-escape", path, 2, dynamic.split("\n")[1].indexOf("load(input)") + 1)]);
+    expect([[path, dynamic]], [at("forbidden-import", path), at("unsafe-type-escape", path, 2, dynamic.split("\n")[1].indexOf("load(input)") + 1)], effectsCatalogue);
   }
-  expect([[path, 'export function run(input: string): boolean { function require(name: string): string { return name; } const load = require; return typeof load(input) === "string"; }']], []);
+  expect([[path, 'export function run(input: string): boolean { function require(name: string): string { return name; } const load = require; return typeof load(input) === "string"; }']], [at("unsafe-type-escape", path)], effectsCatalogue);
   const direct = 'import { createRequire as make } from "node:module";\nexport function run(input: string): boolean { return typeof make(import.meta.url)(input) === "object"; }';
-  expect([[path, direct]], [at("unsafe-type-escape", path, 2, direct.split("\n")[1].indexOf("make(import.meta.url)(input)") + 1)]);
-  expect([[path, 'import { createRequire as make } from "node:module";\nexport function run(input: string): string { function local(value: string): string { return value; } const make = local; return make(input); }']], []);
+  expect([[path, direct]], [at("forbidden-import", path), at("unsafe-type-escape", path, 2, direct.split("\n")[1].indexOf("make(import.meta.url)(input)") + 1)], effectsCatalogue);
+  expect([[path, 'import { createRequire as make } from "node:module";\nexport function run(input: string): string { function local(value: string): string { return value; } const make = local; return make(input); }']], [at("forbidden-import", path)], effectsCatalogue);
+  const plugin = file("plugins", "effects.ts");
+  expect([[plugin, 'import { createRequire } from "node:module"; export function load(input: string): boolean { const require = createRequire(import.meta.url); return typeof require(input) === "object"; }']], [], effectsCatalogue);
+  expect([[plugin, 'export function load(input: string): Promise<unknown> { return import(input); }']], [], effectsCatalogue);
+  const literal = 'export function load(): Promise<unknown> { return import("../front/unit.js"); }';
+  expect([[plugin, literal], target], [at("forbidden-import", plugin, 1, literal.indexOf("import(") + 1)], effectsCatalogue);
+});
+
+test("Node effects are catalogue-file permissions and pure modules cannot import ambient loaders", () => {
+  for (const owner of ["ids", "infer", "front"]) for (const text of ['import { createRequire } from "node:module";',
+    'import * as modules from "node:module";', 'export * from "node:module";', 'import type { Module } from "node:module";'])
+    expect([[file(owner), text]], [at("forbidden-import", file(owner))], effectsCatalogue);
+  for (const local of ['const { createRequire: make } = modules;', 'const make = modules["createRequire"];']) {
+    const text = `import * as modules from "node:module";\nexport function run(input: string): boolean { ${local} const load = make(import.meta.url); return typeof load(input) === "object"; }`;
+    expect([[file("infer"), text]], [at("forbidden-import", file("infer"))], effectsCatalogue);
+  }
+  for (const module of effectsCatalogue.filter(module => ["driver", "orchestration"].includes(module.kind))) {
+    const effect = module.effects[0].path;
+    expect([[effect, 'import { readFile } from "node:fs";']], [], effectsCatalogue);
+    expect([[`${module.directory}/unit.ts`, 'import { readFile } from "node:fs";']], [at("forbidden-import", `${module.directory}/unit.ts`)], effectsCatalogue);
+  }
+  expect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], [at("forbidden-import", file("plugins", "effects.ts"))]);
+  assert.throws(() => inspect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], { catalogue: effectsCatalogue }), /exact agreed/u);
+  expect([[file("infer"), 'import type { Input } from "some-package";']], [at("forbidden-import", file("infer"))], effectsCatalogue);
+});
+
+test("ambient execution escapes are refused outside the sole plugin-loading effect", () => {
+  for (const owner of ["infer", "front", "project", "plugins", "orchestration"]) {
+    const path = file(owner);
+    for (const expression of ['process.argv', 'globalThis.process', 'process.getBuiltinModule("fs")', 'require("fs")', 'eval("1")', 'new Function("return 1")'])
+      expect([[path, `export function read(): boolean { return typeof ${expression} === "object"; }`]], [at("unsafe-type-escape", path)], effectsCatalogue);
+  }
+  expect([[file("plugins", "effects.ts"), 'export function read(): boolean { return typeof process.getBuiltinModule("fs") === "object"; }']], [], effectsCatalogue);
+  const path = file("project", "effects.ts");
+  const dynamic = 'export function read(input: string): Promise<unknown> { return import(input); }';
+  expect([[path, dynamic]], [at("unsafe-type-escape", path, 1, dynamic.indexOf("import(") + 1)], effectsCatalogue);
 });
 
 test("pipeline admits only genuine clean component Deps and exact owner limits beside function types", () => {
@@ -265,11 +310,14 @@ test("quarantined code is never executable input; ordinary source and citation d
   assert.equal(JSON.stringify(disguised), JSON.stringify([at("forbidden-import", config)]));
 });
 
-test("pure stages require deps first, typed immutable inputs and no captured module state", () => {
-  for (const text of ["export function run(input: number): number { return input; }",
-    "export function run(input: number, deps: { readonly bias: number }): number { return input + deps.bias; }",
-    "export function run(deps: { bias: number }, input: number): number { return input + deps.bias; }",
-    "export function run(deps, input) { return input; }"]) expect([[file("infer"), text]], [at("impure-component", file("infer"))]);
+test("pure stage contracts require their genuine Deps first while state and try remain forbidden", () => {
+  const contract = file("infer", "contract.ts");
+  const entry = file("infer", "index.ts");
+  const implementation = [entry, 'import type { Run } from "./contract.js"; export const run: Run = (deps, input) => input;'];
+  for (const signature of ['(input: number) => number', '(input: number, deps: InferDeps) => number',
+    '(deps: { readonly bias: number }, input: number) => number', '(deps: number, input: number) => number'])
+    expect([[contract, `export interface InferDeps { readonly bias: number; }\nexport type Run = ${signature};`], implementation], [at("impure-component", contract, 2)]);
+  expect([[contract, 'export interface InferDeps { readonly bias: number; }\nexport type Run = (deps: InferDeps, input: number) => number;'], implementation], []);
   expect([[file("infer"), "let count = 0;\nexport function run(deps: { readonly bias: number }, input: number): number { count += 1; return input + deps.bias + count; }"]],
     [at("module-state", file("infer"))]);
   expect([[file("infer"), "export function run(deps: { readonly bias: number }, input: number): number { return input + deps.bias; }"]], []);
@@ -316,7 +364,8 @@ const mutableTypes = Object.freeze([
 test("immutable contracts retain readonly tuple repetitions and reject every mutable nested opposite", () => {
   const path = file("ids", "contract.ts");
   for (const type of immutableTypes) expect([[path, `export interface View { readonly values: ${type}; }`]], []);
-  for (const type of mutableTypes) expect([[path, `export interface View { readonly values: ${type}; }`]], [at("contract-shape", path)]);
+  for (const type of mutableTypes) expect([[path, `export interface View { readonly values: ${type}; }`]],
+    [at("contract-shape", path), ...(type.includes("globalThis") ? [at("unsafe-type-escape", path)] : [])]);
 });
 
 test("readonly, imported, generic, inherited, import-type and mapped forms share one transitive closure", () => {
@@ -333,7 +382,7 @@ test("readonly, imported, generic, inherited, import-type and mapped forms share
     ]) {
       const result = inspect([[origin, declaration], [consumer, text]]);
       assert.equal(result.some(finding => finding.path === consumer && finding.code === "contract-shape"), !allowed, `${type}: ${text}`);
-      assert.equal(result.every(finding => finding.code === "contract-shape"), true, `${type}: only immutable closure findings`);
+      assert.equal(result.every(finding => finding.code === "contract-shape" || type.includes("globalThis") && finding.code === "unsafe-type-escape" && finding.path === origin), true, `${type}: immutable closure and explicit ambient escape findings`);
     }
   }
   const mapped = `export type Copy<Value> = { [Key in keyof Value]: Value[Key] };

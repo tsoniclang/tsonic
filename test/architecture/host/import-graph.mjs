@@ -19,14 +19,13 @@ export function sourceSymbol(source, node, initial) {
   return selected;
 }
 
-export function publicCallables(source, files, catalogue) {
+export function publicDeclarations(source, files, catalogue) {
   const values = new Map();
   for (const file of source.sourceFiles) {
     if (file === undefined) continue;
     const path = source.ast.getFileName(file).slice("/host-gate/".length);
     const module = sourceOwner(catalogue, path);
-    if (!files.has(path) || module === undefined || !["component", "library"].includes(module.kind) ||
-      module.kind === "library" && path !== module.entry) continue;
+    if (!files.has(path) || module === undefined || !["component", "library"].includes(module.kind) || path !== module.entry) continue;
     const queries = source.getSourceFileQueries(file).checker;
     const identity = sourceSymbol(source, file);
     if (identity === undefined) continue;
@@ -36,9 +35,7 @@ export function publicCallables(source, files, catalogue) {
       if (declaration === undefined) continue;
       const declarationPath = source.ast.getFileName(source.ast.getSourceFile(declaration)).slice("/host-gate/".length);
       if (sourceOwner(catalogue, declarationPath) !== module) continue;
-      const signatures = queries.getCallSignaturesOfType(queries.getTypeOfSymbol(selected))
-        .map(signature => queries.getSignatureDeclaration(signature)).filter(node => node !== undefined);
-      if (signatures.length > 0) values.set(declaration, Object.freeze({ module, signatures: Object.freeze(signatures) }));
+      values.set(declaration, module);
     }
   }
   return values;
@@ -108,13 +105,13 @@ export function readImportGraph(source, files) {
     if (file === undefined) continue;
     const path = ast.getFileName(file).slice("/host-gate/".length);
     if (!files.has(path)) continue;
-    const reference = (node, literal) => {
+    const reference = (node, literal, kind = "import") => {
       literal = unwrapExpression(ast, literal);
       const specifier = ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(literal)) ? ast.text(literal) : null;
       const range = ast.authoredRange(node);
       if (range.kind !== "authored") throw new Error("Import edges require original authored source sites.");
       const before = files.get(path).slice(0, range.start).split("\n");
-      edges.push(Object.freeze({ source: path, specifier,
+      edges.push(Object.freeze({ source: path, specifier, kind,
         target: specifier !== null && specifier.startsWith(".") ? resolveImport(path, specifier, files) : null,
         line: before.length, column: before[before.length - 1].length + 1, start: range.start }));
     };
@@ -129,7 +126,7 @@ export function readImportGraph(source, files) {
       } else if (ast.is.IsCallExpression(node)) {
         const callee = unwrapExpression(ast, ast.as.AsCallExpression(node).Expression);
         if (loaders.has(sourceSymbol(source, callee)) || callee !== undefined && ast.is.IsCallExpression(callee) && factory(ast.as.AsCallExpression(callee).Expression))
-          reference(node, ast.arguments(node)[0]);
+          reference(node, ast.arguments(node)[0], "loader");
       }
       ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
     };
