@@ -2,17 +2,10 @@ export type CaseLevel = "function" | "pass" | "verifier" | "pipeline" | "corpus"
 export type CaseFormat = "json" | "ts" | "hir" | "tir" | "mir" | "facts" | "program";
 export type CaseValue = string | number | bigint | boolean | null | readonly CaseValue[] | { readonly [key: string]: CaseValue };
 
-export interface OldSource {
-  readonly area: "reference" | "modular";
-  readonly path: string;
-  readonly test: string;
-}
-
 export interface CaseDescriptor {
   readonly name: string;
   readonly level: CaseLevel;
   readonly rule: string;
-  readonly oldSource: OldSource | null;
   readonly input: string;
   readonly expected: string;
 }
@@ -47,7 +40,7 @@ export interface CaseDeps {
   readonly decode: (text: string, format: CaseFormat) => CaseOutcome | Promise<CaseOutcome>;
 }
 
-export type CaseFailureCode = "descriptor" | "citation" | "location" | "inventory" | "input" | "expected" | "adapter" | "outcome" | "mismatch";
+export type CaseFailureCode = "descriptor" | "location" | "inventory" | "input" | "expected" | "adapter" | "outcome" | "mismatch";
 
 export type CaseResult =
   | { readonly status: "passed"; readonly path: string; readonly outcome: CaseOutcome }

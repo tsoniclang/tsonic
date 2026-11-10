@@ -1,7 +1,7 @@
 {
   "name": "@tsonic/host",
   "version": "0.1.2",
-  "description": "Empty Tsonic Host skeleton; no runtime entrypoint",
+  "description": "Tsonic Host contracts; no runtime entrypoint",
   "private": true,
   "license": "MIT",
   "type": "module",

@@ -7,7 +7,6 @@ import { runCase } from "./case.mjs";
 import { compareCaseValues } from "./compare.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const quarantineData = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
 const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
 const diagnostic = Object.freeze({ code: "FIXTURE_REFUSED", message: "The fixture input is refused.", site: { path: "input", start: 2, length: 1 }, evidence: ["fixture"], related: [] });
 const accepted = Object.freeze({ kind: "accepted", value: { state: { scale: 3 }, output: 12 }, diagnostics: [] });
@@ -19,7 +18,7 @@ async function fixture(level, action, changes = {}) {
   const root = mkdtempSync(resolve(parent, "case-"));
   const directory = `test/host-cases/analyses/liveness/${level}`;
   const descriptorPath = `${directory}/fixture.case.json`;
-  const descriptor = { name: "fixture", level, rule: "harness-complete-result", oldSource: null,
+  const descriptor = { name: "fixture", level, rule: "harness-complete-result",
     input: `${directory}/fixture.input.json`, expected: `${directory}/fixture.expected.json`, ...changes };
   const write = (path, value) => {
     const destination = resolve(root, path);
@@ -62,11 +61,10 @@ for (const level of levels) {
   });
 }
 
-test("harness citations never become file reads and all closed formats retain their exact adjacent names", async () => {
+test("all closed formats retain their exact adjacent input and expected names", async () => {
   for (const format of ["json", "ts", "hir", "tir", "mir", "facts", "program"]) {
     await fixture("function", async ({ descriptor, descriptorPath, deps, root, write }) => {
-      const next = { ...descriptor, input: descriptor.input.replace(/json$/u, format), expected: descriptor.expected.replace(/json$/u, format),
-        oldSource: { area: "modular", path: `${quarantineData.oldRoots.tests.hostSpec}/runner/assertions.mjs`, test: "ordered domain" } };
+      const next = { ...descriptor, input: descriptor.input.replace(/json$/u, format), expected: descriptor.expected.replace(/json$/u, format) };
       if (format !== "json") {
         rmSync(resolve(root, descriptor.input));
         rmSync(resolve(root, descriptor.expected));
@@ -77,17 +75,15 @@ test("harness citations never become file reads and all closed formats retain th
       const reads = [];
       const result = await runCase({ ...deps, readText: path => { reads.push(path); return deps.readText(path); } }, descriptorPath);
       assert.equal(result.status, "passed", format);
-      assert.equal(reads.some(path => path.includes("runner")), false, "oldSource remains citation-only");
+      assert.equal(JSON.stringify(reads), JSON.stringify([descriptorPath, next.input, next.expected]), "only the three authored case files are read");
     });
   }
 });
 
 const descriptorOpposites = Object.freeze([
   [{ name: "" }, "descriptor"], [{ level: "rule" }, "descriptor"], [{ level: "schema" }, "descriptor"],
-  [{ rule: "" }, "descriptor"], [{ rule: null }, "descriptor"], [{ oldSource: {} }, "citation"],
-  [{ oldSource: { area: "elsewhere", path: "test/old.ts", test: "test" } }, "citation"],
-  [{ oldSource: { area: "reference", path: "../escape.ts", test: "test" } }, "citation"],
-  [{ oldSource: { area: "reference", path: "test/old.ts", test: "" } }, "citation"],
+  [{ rule: "" }, "descriptor"], [{ rule: null }, "descriptor"],
+  [{ extra: true }, "descriptor"], [{ expected: undefined }, "descriptor"],
   [{ input: "../escape.input.json" }, "location"], [{ input: "/escape.input.json" }, "location"],
   [{ input: "test/host-cases/other/function/fixture.input.json" }, "location"],
   [{ input: "test/host-cases/analyses/liveness/function/wrong.input.json" }, "location"],

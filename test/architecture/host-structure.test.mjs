@@ -131,16 +131,28 @@ test("pipeline imports real component implementations; components do not import 
 });
 
 test("front's sole SDK-value port is the complete tagged ExtensionOf return union", () => {
-  const imports = 'import type { CompilerExtension as Compiler, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";';
-  const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
+  const imports = 'import type { CompilerExtension as Compiler, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts"; import type { LibraryRoleEntry as Role } from "../snapshot/contract.js";';
+  const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly Role[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
+  const snapshot = [file("snapshot", "contract.ts"), 'export interface LibraryRoleEntry { readonly role: string; }'];
   const contract = file("front", "contract.ts");
-  expect([[contract, `${imports}\nexport type Payload = ${union};\nexport type ExtensionOf = (table: number, reference: number) => Payload;`]], []);
-  expect([[contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${union};`]], []);
+  expect([snapshot, [contract, `${imports}\nexport type Payload = ${union};\nexport type ExtensionOf = (table: number, reference: number) => Payload;`]], []);
+  expect([snapshot, [contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${union};`]], []);
   for (const changed of [union.replace('"semantics-module"', '"wrong"'), union.replace("SourceSemanticsModule", "number"), `${union} | null`]) {
-    const findings = inspect([[contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${changed};`]]);
+    const findings = inspect([snapshot, [contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${changed};`]]);
     assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.line === 2), true);
   }
-  expect([[contract, `${imports}\nexport type Exposed = Compiler;`]], [at("forbidden-import", contract, 2)]);
+  expect([snapshot, [contract, `${imports}\nexport type Exposed = Compiler;`]], [at("forbidden-import", contract, 2)]);
+  for (const [label, declaration, preamble] of [
+    ["missing", union.replace("; readonly roles: readonly Role[]", ""), imports],
+    ["mutable vector", union.replace("roles: readonly Role[]", "roles: Role[]"), imports],
+    ["mutable field", union.replace("readonly roles:", "roles:"), imports],
+    ["extra provider field", union.replace("readonly roles: readonly Role[]", "readonly roles: readonly Role[]; readonly extra: number"), imports],
+    ["extra other arm field", union.replace("readonly value: Compiler", "readonly value: Compiler; readonly roles: readonly Role[]"), imports],
+    ["wrong owner", union, imports.replace('import type { LibraryRoleEntry as Role } from "../snapshot/contract.js";', "interface Role { readonly role: string; }")],
+  ]) {
+    const findings = inspect([snapshot, [contract, `${preamble}\nexport type ExtensionOf = (table: number, reference: number) => ${declaration};`]]);
+    assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.path === contract && finding.line === 2), true, label);
+  }
 });
 
 test("raw capture provenance belongs to front; pipeline may store it only privately", () => {
@@ -300,19 +312,21 @@ test("composition contracts preserve the one front brand and only named genuine 
   expect([raw, [file("pipeline", "contract.ts"), 'export type { RawModule } from "../front/contract.js";']], [at("forbidden-import", file("pipeline", "contract.ts"))]);
 });
 
-test("quarantined code is never executable input; ordinary source and citation data remain ordinary data", () => {
+test("quarantined code is never executable input or an active configuration reference", () => {
   expect([[file("infer"), `import type { Data } from "../../../../${referenceRoot}/contract.js";`]], [at("forbidden-import", file("infer"))]);
   expect([[file("ids"), `export const path = "${referenceRoot}/source.ts";`]], [at("forbidden-import", file("ids"))]);
   expect([[file("ids"), 'export const text = "pending lease authenticate questionView";']], []);
   const config = "config.json";
   const result = inspect([[file("ids"), data], [config, JSON.stringify({ references: [`${referenceRoot}/program.ts`] })]], { files: [file("ids")], configurations: [config] });
   assert.equal(JSON.stringify(result), JSON.stringify([at("forbidden-import", config)]));
-  const citation = inspect([[file("ids"), data], [config, JSON.stringify({ oldSource: { area: "reference", path: `${referenceRoot}/program.ts`, test: "citation" } })]],
-    { files: [file("ids")], configurations: [config] });
-  assert.equal(citation.length, 0);
-  const disguised = inspect([[file("ids"), data], [config, JSON.stringify({ oldSource: { script: `${referenceRoot}/program.ts` } })]],
+  const disguised = inspect([[file("ids"), data], [config, JSON.stringify({ metadata: { script: `${referenceRoot}/program.ts` } })]],
     { files: [file("ids")], configurations: [config] });
   assert.equal(JSON.stringify(disguised), JSON.stringify([at("forbidden-import", config)]));
+});
+
+test("current Host inventory rejects a file outside the catalogue", () => {
+  const path = file("outside-catalogue", "contract.ts");
+  expect([[path, data]], [at("unknown-module", path)]);
 });
 
 test("pure stage contracts require their genuine Deps first while state and try remain forbidden", () => {

@@ -18,15 +18,11 @@ export async function runCase(deps, descriptorPath) {
   }
   catch { return failed("descriptor", "The authored descriptor is missing or invalid JSON."); }
   if (descriptor === null || typeof descriptor !== "object" || Array.isArray(descriptor) ||
-    Object.keys(descriptor).sort().join(",") !== "expected,input,level,name,oldSource,rule")
-    return failed("descriptor", "Exactly name, level, rule, oldSource, input and expected are required.");
-  const { name, level, rule, oldSource, input, expected } = descriptor;
+    Object.keys(descriptor).sort().join(",") !== "expected,input,level,name,rule")
+    return failed("descriptor", "Exactly name, level, rule, input and expected are required.");
+  const { name, level, rule, input, expected } = descriptor;
   if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(name) || !levels.includes(level) ||
     typeof rule !== "string" || rule.trim().length === 0) return failed("descriptor", "Case name, canonical level and named rule are required.");
-  if (oldSource !== null && (typeof oldSource !== "object" || Array.isArray(oldSource) ||
-    Object.keys(oldSource).sort().join(",") !== "area,path,test" || !["reference", "modular"].includes(oldSource.area) ||
-    !canonical(oldSource.path) || typeof oldSource.test !== "string" || oldSource.test.trim().length === 0))
-    return failed("citation", "An old source is citation-only area/path/test data.");
   const directory = posix.dirname(descriptorPath);
   const domain = directory.slice("test/host-cases/".length).split("/");
   const actualLevel = domain.pop();

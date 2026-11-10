@@ -384,6 +384,21 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     }
     return node;
   };
+  const providerRoles = member => {
+    const annotation = ast.typeNode(member);
+    if (annotation === undefined || !ast.is.IsTypeOperatorNode(annotation) || ast.operatorKindName(annotation) !== "KindReadonlyKeyword") return false;
+    const array = ast.as.AsTypeOperatorNode(annotation).Type;
+    if (!ast.is.IsArrayTypeNode(array)) return false;
+    const element = ast.as.AsArrayTypeNode(array).ElementType;
+    if (!ast.is.IsTypeReferenceNode(element) || ast.typeArguments(element).length !== 0) return false;
+    const declarations = checker(element).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(element).TypeName));
+    return declarations.length === 1 && declarations.every(declaration => {
+      const path = ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length);
+      const module = owner(path);
+      return module?.name === "snapshot" && [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path) &&
+        ast.is.IsInterfaceDeclaration(declaration) && ast.text(ast.name(declaration)) === "LibraryRoleEntry";
+    });
+  };
   for (const declaration of aliases.values()) {
     const path = ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length);
     const module = owner(path);
@@ -404,7 +419,11 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const name = payload !== undefined && ast.is.IsTypeReferenceNode(payload) ? ast.as.AsTypeReferenceNode(payload).TypeName : undefined;
       const imported = sdkSymbols.get(symbol(name));
       const literal = ast.typeNode(tag);
-      if (members.length !== 2 || !members.every(member => ast.hasModifierKind(member, "readonly")) || imported === undefined ||
+      const provider = imported === "SourceDeclarationProvider";
+      const roles = members.find(member => memberName(ast.name(member)) === "roles");
+      if (members.length !== (provider ? 3 : 2) || !members.every(member => ast.is.IsPropertySignatureDeclaration(member) &&
+        ast.hasModifierKind(member, "readonly") && ast.questionToken(member) === undefined) || imported === undefined ||
+        provider && !providerRoles(roles) ||
         literal === undefined || !ast.is.IsLiteralTypeNode(literal) || ast.text(ast.children(literal)[0]) !== sdkPayloads[imported] || seen.has(imported)) break;
       seen.add(imported); admitted.push(name);
     }

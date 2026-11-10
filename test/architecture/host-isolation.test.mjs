@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { hostCatalogue } from "./host/catalogue.mjs";
@@ -148,14 +148,15 @@ test("canonical generic phase-slot records retain real strict isolated compilati
   });
 });
 
-const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
+const sdkRoles = 'export interface LibraryRoleEntry { readonly role: string; }';
+const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nimport type { LibraryRoleEntry } from "../snapshot/contract.js";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly LibraryRoleEntry[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
 
 test("front uses actual pinned SDK declarations and the sole closed ExtensionOf contract value port", async () => {
   const contract = path("front");
   const entry = path("front", "capture.ts");
-  await fixture([[contract, sdkContract],
+  await fixture([[contract, sdkContract], [path("snapshot"), sdkRoles],
     [entry, 'import type { Type } from "@tsonic/tsts"; export function flags(deps: { readonly type: Type }, input: number): number { return deps.type.flags + input; }']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [path("snapshot")], declarationSources: [path("snapshot")], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/packages/tsts/dist/")), true);
   });
@@ -164,12 +165,12 @@ test("front uses actual pinned SDK declarations and the sole closed ExtensionOf 
 test("real pipeline isolation emits only permitted component query types and the identical front brand", async () => {
   const contract = path("pipeline");
   const entry = path("pipeline", "index.ts");
-  await fixture([[path("front"), sdkContract], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
+  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
     [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
     [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], declarationSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer")], declarationSources: [path("front"), path("snapshot"), path("infer")], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
-    assert.equal(report.provenance.length, 2);
+    assert.equal(report.provenance.length, 3);
     assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/front/contract.d.ts`)), true);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
@@ -239,6 +240,34 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
     assert.equal(fresh.diagnostics.join("\n").includes("TS"), true);
     symlinkSync(resolve(root, inferContract), resolve(root, path("infer", "alias.ts")));
     await assert.rejects(compileIsolated(deps, module("infer"), input), /symlinks/u);
+  });
+});
+
+test("the actual 36 Host contracts pass S1 inspection and fresh whole-module declaration isolation", async context => {
+  const modules = hostCatalogue.filter(module => module.directory.startsWith(`${host}/`));
+  assert.equal(modules.length, 36, "complete current contract owners");
+  const deps = isolationDeps(tooling, quarantineRoots);
+  const inventory = deps.enumerate(resolve(repository, host)).map(path => relative(repository, path)).sort();
+  const files = new Map(inventory.map(path => [path, readFileSync(resolve(repository, path), "utf8")]));
+  const inspection = inspectHost(createInspectionDeps(quarantineRoots), {
+    root: repository, files: [...files.keys()], catalogue: hostCatalogue, loadedFiles: [], configurations: ["packages/host/tsconfig.json"],
+  });
+  assert.equal(JSON.stringify(inspection), "[]", `actual contract findings: ${JSON.stringify(inspection).slice(0, 6000)}`);
+  assert.equal(JSON.stringify(inventory), JSON.stringify(modules.map(module => module.contract).sort()), "the complete actual current root equals the explicit reviewed inventory");
+  const graph = deps.graph(files);
+  for (const module of modules) await context.test(module.name, async () => {
+    const closure = new Set([module.contract]);
+    for (const source of closure) for (const edge of graph) if (edge.source === source && edge.target !== null) closure.add(edge.target);
+    const interfaces = [...closure].filter(path => path !== module.contract).sort();
+    const report = await compileIsolated(deps, module, {
+      root: repository, sourceFiles: [module.contract], interfaceSources: interfaces, declarationSources: interfaces,
+      outputDirectory: ".temp/host-contract-lock-isolation",
+    });
+    assert.equal(report.status, "passed", `${module.name}: ${label(report)}`);
+    assert.equal(report.loadedInventory.length > 0, true, "real compiler input inventory is nonempty");
+    assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true, "no undeclared compiler source");
+    assert.equal(report.provenance.length, interfaces.length, "every public dependency has genuine fresh declaration provenance");
+    assert.equal(report.sourceInventory.length, closure.size, "complete explicit original contract closure");
   });
 });
 

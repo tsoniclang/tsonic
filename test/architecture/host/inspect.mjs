@@ -139,15 +139,12 @@ export function inspectHost(deps, inputs) {
   for (const loaded of inputs.loadedFiles) if (!expected.has(deps.canonical(loaded))) add("loaded-source-escape", loaded);
   for (const path of inputs.configurations) {
     const data = JSON.parse(deps.readText(ownedPath(path)));
-    const visit = (value, key) => {
-      if (key === "oldSource" && value !== null && typeof value === "object" && !Array.isArray(value) &&
-        Object.keys(value).sort().join(",") === "area,path,test" && ["reference", "modular"].includes(value.area) &&
-        typeof value.path === "string" && typeof value.test === "string") return;
+    const visit = value => {
       if (typeof value === "string" && quarantineReference(value, deps.quarantineRoots)) add("forbidden-import", path);
-      else if (Array.isArray(value)) value.forEach(child => visit(child, ""));
-      else if (value !== null && typeof value === "object") for (const [name, child] of Object.entries(value)) visit(child, name);
+      else if (Array.isArray(value)) value.forEach(visit);
+      else if (value !== null && typeof value === "object") Object.values(value).forEach(visit);
     };
-    visit(data, "");
+    visit(data);
   }
   return Object.freeze(findings.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.code.localeCompare(right.code)));
 }
