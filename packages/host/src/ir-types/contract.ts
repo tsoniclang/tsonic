@@ -342,7 +342,19 @@ export type ReadType = (interner: TypeInterner, type: TyId) => TypeTerm;
 export type ReadSignature = (interner: TypeInterner, signature: SigId) => Signature;
 export type TypeOf = (type: TyId) => TypeTerm;
 export type SignatureOf = (signature: SigId) => Signature;
-export type ExportTypes = (interner: TypeInterner) => TypeTable;
+export interface TypePublication {
+  readonly table: TypeTable;
+  readonly types: readonly TyId[];
+  readonly signatures: readonly SigId[];
+}
+export interface TypePublicationLimits {
+  readonly maximumWork: number;
+  readonly maximumCreatedRecords: number;
+}
+export type TypePublicationResult =
+  | { readonly kind: "complete"; readonly value: TypePublication }
+  | { readonly kind: "resource-limit"; readonly dimension: "work" | "created-records"; readonly maximum: number };
+export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
 export type Substitute = (interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<TyId>;
 export type PrintTypes = (table: TypeTable) => string;
 export type ParseTypes = (text: string) => TextParseResult<TypeTable>;
@@ -358,9 +370,9 @@ export type TypeSite =
   | { readonly kind: "signature"; readonly signature: SigId }
   | { readonly kind: "source"; readonly source: SourceNodeRef }
   | { readonly kind: "binding"; readonly vector: number;
-      readonly family: "classBindings" | "methodBindings" | "capturedBindings" | "selfBindings";
+      readonly family: "classBindings" | "methodBindings" | "capturedBindings" | "selfBindings" | null;
       readonly position: number | null }
-  | { readonly kind: "evidence"; readonly position: number; readonly source: SourceNodeRef };
+  | { readonly kind: "evidence"; readonly position: number; readonly source: SourceNodeRef | null };
 
 export interface BindingScope {
   readonly classParameters: readonly TypeParameterIdentity[];

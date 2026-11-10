@@ -1,8 +1,8 @@
 import type { BodyId, DefId, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, PassingMode, SignatureOf, TypeEvidence, TypeOf, TypeParameter } from "../ir-types/contract.js";
-import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
+import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -36,7 +36,7 @@ export type TirArgument =
 
 export type TirRestPart =
   | { readonly kind: "value"; readonly expression: NodeId }
-  | { readonly kind: "spread"; readonly expression: NodeId; readonly elements: readonly NodeId[] };
+  | { readonly kind: "spread"; readonly expression: NodeId; readonly tuple: readonly TyId[] | null };
 
 export interface TirApplication {
   readonly callee: ResolvedCallee;
@@ -51,7 +51,7 @@ export interface TirProtocolStep {
 }
 
 export interface TirProtocol {
-  readonly kind: "iterate" | "spread" | "await" | "yield" | "delegate" | "dispose" | "completion";
+  readonly kind: "iterate" | "spread" | "await" | "yield" | "delegate" | "dispose";
   readonly asynchronous: boolean;
   readonly steps: readonly TirProtocolStep[];
   readonly value: TyId;
@@ -613,14 +613,22 @@ export interface TirModule {
 }
 
 export interface TirVerifierInput {
-  readonly typeOf: TypeOf;
-  readonly signatureOf: SignatureOf;
+  readonly source: HirModule;
+  readonly module: TirModule;
+  readonly types: TypeTable;
+  readonly bindingScopes: readonly BindingScope[];
+  readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
+  readonly membersOf: (receiver: TyId) => MemberTable | null;
+  readonly bodyOf: (instance: BodyInstance) => TirBody | null;
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
+  readonly localExists: (local: LocalRef) => boolean;
   readonly diagnostics: readonly Diagnostic[];
 }
 
 export type TirRule = "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
-  | "capture-qualified" | "cross-owner-qualified" | "parameter-order" | "phase-slots-total"
+  | "capture-qualified" | "cross-owner-qualified" | "parameter-order"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
@@ -629,7 +637,7 @@ export type TirRule = "body-owner" | "module-node-identity" | "node-reference" |
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"
   | "authored-node-ids-preserved" | "no-inserted-nodes" | "no-checker-payload" | "node-in-body-range"
-  | "nested-template-identity" | "nested-instance-key" | "nested-boundary" | "nested-dependence-local"
+  | "nested-template-identity" | "nested-instance-key" | "nested-boundary"
   | "template-shared-once" | "stable-order";
 
 export type TirSite =
@@ -638,6 +646,6 @@ export type TirSite =
   | { readonly kind: "body"; readonly body: BodyId }
   | { readonly kind: "node"; readonly node: NodeRef };
 
-export type PrintTir = (body: TirBody, types: TypeOf) => string;
+export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];

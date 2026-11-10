@@ -1,10 +1,10 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
-import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 
@@ -97,10 +97,8 @@ export interface HostProgram {
   readonly modules: readonly ModuleBodies[];
 }
 
-export interface InstantiationLimits {
+export interface InstantiationLimits extends TypePublicationLimits {
   readonly maximumBindingVectorsPerArtifact: number;
-  readonly maximumWork: number;
-  readonly maximumCreatedRecords: number;
   readonly typeExpansion: TypeExpansionLimits;
 }
 
@@ -153,18 +151,23 @@ export type ProgramSite =
   | { readonly kind: "body"; readonly instance: BodyInstance }
   | { readonly kind: "artifact"; readonly artifact: ArtifactReference; readonly bindings: ArtifactBindings };
 
+export type CanonicalizeProgram = (program: HostProgram, publication: TypePublication) => HostProgram;
 export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
+export interface ProgramVerificationContext {
+  readonly facts: FactsVerificationContext;
+  readonly tirOf: (module: ModuleId) => TirVerifierInput | null;
+}
 export type VerifyProgramIndex = (
   index: ProgramIndex,
-  context: FactsVerificationContext,
+  context: ProgramVerificationContext,
 ) => readonly Violation<ProgramRule, ProgramSite>[];
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,
-  context: FactsVerificationContext,
+  context: ProgramVerificationContext,
 ) => readonly Violation<ProgramRule, ProgramSite>[];
 export type Instantiate = (
   index: ProgramIndex,
