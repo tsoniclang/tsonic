@@ -1,8 +1,8 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
-import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
-import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
+import { decodeBodyId, decodeDefId, decodeModuleId, encodeDefId } from "../ids/index.js";
+import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirNodeData, hirObligationsData } from "./text-data.js";
@@ -109,7 +109,7 @@ function syntaxViolations(module: HirModule, inventory: HirInventory, report: Hi
     if (!Object.is(node.parent, parent === null ? null : parent.node.id)) report("lexical-parent", site, "parent must be the actual syntactic parent");
     if (node.origin.module !== module.module) report("module-owner", site, "origin must name this module");
     if (!validRange(node.loc.pos, node.loc.end)) report("origin-range", site, "invalid syntax range");
-    if (!validRange(node.origin.start, node.origin.start + node.origin.length) || node.origin.length < 0 || Object.is(node.origin.length, -0))
+    if (!validHirIndex(node.origin.length) || !validRange(node.origin.start, node.origin.start + node.origin.length))
       report("origin-range", site, "invalid origin range");
     if (body !== null && (node.loc.pos < body.root.loc.pos || node.loc.end > body.root.loc.end))
       report("node-in-body-range", site, "syntax must remain inside its body root range");
@@ -152,10 +152,9 @@ function declarationViolations(module: HirModule, inventory: HirInventory, repor
         const parentPath = parent === null ? null : decodeDefId(parent);
         if (parentPath !== null && parentPath.kind === "decoded" &&
           (parentPath.value.module !== path.value.module || parentPath.value.segments.length >= path.value.segments.length ||
-            parentPath.value.segments.some((segment, ordinal) => {
-              const actual = path.value.segments[ordinal];
-              return actual === undefined || actual.name !== segment.name || !Object.is(actual.ordinal, segment.ordinal);
-            }))) report("definition-parent", site, "declaration parent must be a proper definition path prefix");
+            encodeDefId({ module: path.value.module,
+              segments: path.value.segments.slice(0, parentPath.value.segments.length) }) !== parent))
+          report("definition-parent", site, "declaration parent must be a proper definition path prefix");
       }
     }
   }
@@ -175,6 +174,8 @@ const declarationKinds: readonly DeclarationKind[] = Object.freeze([
 
 function bodyViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
   const lexicalRanges = hirLexicalBodyRanges(module, inventory);
+  const lexicalBodies = new Map<BodyId, typeof lexicalRanges[number]>();
+  for (const range of lexicalRanges) if (!lexicalBodies.has(range.body.body)) lexicalBodies.set(range.body.body, range);
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   const seen = new Set<BodyId>();
   const actualNested = new Map<HirBody, BodyId[]>();
@@ -185,7 +186,8 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     else previous.push(body.body);
   }
   let previousBody: BodyId | null = null;
-  for (const body of module.bodies) {
+  for (const inner of lexicalRanges) {
+    const body = inner.body;
     const site: HirSite = { kind: "body", body: body.body };
     if (seen.has(body.body)) report("body-unique", site, "body occurs more than once");
     seen.add(body.body);
@@ -211,11 +213,10 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
           report("capture-owner", site, "capture local must name a declared outer capture");
       } else if (local.capturedFrom !== null) report("capture-owner", site, "noncapture local cannot have capturedFrom");
     });
-    const parameterLocals = body.locals.filter(local => local.role === "parameter");
-    if (parameterLocals.length !== body.params.length || body.params.some((parameter, ordinal) => {
-      const local = parameterLocals[ordinal];
-      return local === undefined || !Object.is(parameter.local, local.id);
-    })) report("parameter-order", site, "parameters must name every parameter local in declaration order");
+    const parameterLocals = body.locals.filter(local => local.role === "parameter").map(local => local.id);
+    if (parameterLocals.length !== body.params.length || body.params.some((parameter, ordinal) =>
+      !Object.is(parameter.local, parameterLocals[ordinal])))
+      report("parameter-order", site, "parameters must name every parameter local in declaration order");
     body.params.forEach((parameter, ordinal) => {
       if ((parameter.role === "this" && ordinal !== 0) || (parameter.role === "rest" && ordinal !== body.params.length - 1))
         report("parameter-order", site, "this must be first and rest must be last");
@@ -229,15 +230,13 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     const captureKeys = new Set<string>();
     for (const capture of body.captures) {
       const key = `${capture.body.length}:${capture.body}:${capture.local}`;
-      const owner = inventory.bodies.get(capture.body);
-      const outer = owner === undefined ? undefined : lexicalRanges.get(owner);
-      const inner = lexicalRanges.get(body);
-      if (captureKeys.has(key) || owner === undefined || owner === body || outer === undefined || inner === undefined ||
+      const outer = lexicalBodies.get(capture.body);
+      if (captureKeys.has(key) || outer === undefined || outer.body === body ||
         inner.start < outer.start || inner.start >= outer.end)
         report("capture-owner", site, "capture must name one distinct enclosing body's local");
       captureKeys.add(key);
-      if (owner !== undefined && (!Number.isSafeInteger(capture.local) || capture.local < 0 ||
-        Object.is(capture.local, -0) || owner.locals[capture.local] === undefined))
+      if (outer !== undefined && (!Number.isSafeInteger(capture.local) || capture.local < 0 ||
+        Object.is(capture.local, -0) || outer.body.locals[capture.local] === undefined))
         report("local-reference", site, "capture local does not exist in its named body");
     }
     const scopes = new Map<number, typeof body.scopes[number]>();
@@ -281,6 +280,39 @@ function verificationRoots(module: HirModule, inventory: HirInventory): readonly
   return roots;
 }
 
+type HirProtocolNode = AwaitExpression<CheckedPhase> | SpreadElement<CheckedPhase> | YieldExpression<CheckedPhase> |
+  ForInStatement<CheckedPhase> | ForOfStatement<CheckedPhase>;
+
+interface HirProtocolSyntax {
+  readonly kind: "await" | "spread" | "yield" | "delegate" | "iterate";
+  readonly subject: NodeId | null;
+  readonly asynchronous: boolean | null;
+}
+
+function protocolSyntax(node: HirProtocolNode): HirProtocolSyntax {
+  switch (node.kind) {
+    case "AwaitExpression": return { kind: "await", subject: node.expression.id, asynchronous: null };
+    case "SpreadElement": return { kind: "spread", subject: node.expression.id, asynchronous: null };
+    case "YieldExpression": return { kind: node.asteriskToken === null ? "yield" : "delegate",
+      subject: node.expression === null ? null : node.expression.id, asynchronous: null };
+    case "ForInStatement": return { kind: "iterate", subject: node.expression.id, asynchronous: false };
+    case "ForOfStatement": return { kind: "iterate", subject: node.expression.id, asynchronous: node.awaitModifier !== null };
+  }
+}
+
+function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport): void {
+  const captured = node.tsonic.protocol;
+  if (captured.kind === "unavailable" || captured.value === null) return;
+  const protocol = captured.value;
+  const expected = protocolSyntax(node);
+  if (protocol.kind !== expected.kind) report("protocol-kind", site, "protocol must match its syntactic operation");
+  if (!Object.is(protocol.subject, expected.subject))
+    report("protocol-kind", site, "protocol subject must be the actual syntactic operand");
+  if (expected.asynchronous !== null && (protocol.kind === "iterate" || protocol.kind === "spread") &&
+    protocol.asynchronous !== expected.asynchronous)
+    report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
+}
+
 function candidateViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext,
   requests: HirBindingRequest[], report: HirReport): void {
   for (const body of module.bodies) {
@@ -295,9 +327,8 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
         if (signature !== undefined && signature.declaration !== null && signature.declaration !== candidate.declaration)
           report("candidate-endpoints", site, "applied signature must retain the candidate declaration");
       }
-      const parameters = scope === null ? [] : [...scope.classParameters, ...scope.methodParameters, ...scope.capturedParameters];
       const allowed = new Map<DefId, Set<number>>();
-      for (const parameter of parameters) {
+      if (scope !== null) for (const parameter of [...scope.classParameters, ...scope.methodParameters, ...scope.capturedParameters]) {
         const previous = allowed.get(parameter.owner);
         if (previous === undefined) allowed.set(parameter.owner, new Set([parameter.index]));
         else previous.add(parameter.index);
@@ -330,36 +361,41 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
         (endpoint.body !== null && inventory.bodies.get(endpoint.body)?.owner !== endpoint.declaration))
         report("candidate-endpoints", site, "callable endpoint declaration, signature and body must agree");
     }
-    if (metadata !== null && "protocol" in metadata && metadata.protocol.kind === "available" && metadata.protocol.value !== null) {
-      const protocol = metadata.protocol.value;
-      const expected = node.kind === "AwaitExpression" ? "await" : node.kind === "SpreadElement" ? "spread" :
-        node.kind === "YieldExpression" ? node.asteriskToken === null ? "yield" : "delegate" :
-          node.kind === "ForOfStatement" || node.kind === "ForInStatement" ? "iterate" : null;
-      if (protocol.kind !== expected) report("protocol-kind", site, "protocol must match its syntactic operation");
-      if ((node.kind === "AwaitExpression" || node.kind === "SpreadElement" || node.kind === "YieldExpression" ||
-        node.kind === "ForOfStatement" || node.kind === "ForInStatement") && "subject" in protocol &&
-        !Object.is(protocol.subject, node.expression?.id ?? null))
-        report("protocol-kind", site, "protocol subject must be the actual syntactic operand");
-      if ((protocol.kind === "iterate" || protocol.kind === "spread") && node.kind === "ForOfStatement" &&
-        protocol.asynchronous !== (node.awaitModifier !== null))
-        report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
-    }
+    if (node.kind === "AwaitExpression" || node.kind === "SpreadElement" || node.kind === "YieldExpression" ||
+      node.kind === "ForOfStatement" || node.kind === "ForInStatement") verifyProtocol(node, site, report);
     if (metadata !== null && "disposal" in metadata) for (const fact of metadata.disposal)
       if (fact.kind === "available" && fact.value.kind !== "dispose")
         report("protocol-kind", site, "disposal list must contain disposal protocols");
   }
 }
 
-const binaryOperators: { readonly [token: string]: HirBinaryOperator | undefined } = Object.freeze({
-  PlusToken: "+", MinusToken: "-", AsteriskToken: "*", SlashToken: "/", PercentToken: "%", AsteriskAsteriskToken: "**",
-  AmpersandToken: "&", BarToken: "|", CaretToken: "^", LessThanLessThanToken: "<<", GreaterThanGreaterThanToken: ">>",
-  GreaterThanGreaterThanGreaterThanToken: ">>>", LessThanToken: "<", LessThanEqualsToken: "<=", GreaterThanToken: ">",
-  GreaterThanEqualsToken: ">=", EqualsEqualsToken: "==", ExclamationEqualsToken: "!=", EqualsEqualsEqualsToken: "===",
-  ExclamationEqualsEqualsToken: "!==", InKeyword: "in", InstanceOfKeyword: "instanceof",
-  PlusEqualsToken: "+", MinusEqualsToken: "-", AsteriskEqualsToken: "*", SlashEqualsToken: "/", PercentEqualsToken: "%",
-  AsteriskAsteriskEqualsToken: "**", AmpersandEqualsToken: "&", BarEqualsToken: "|", CaretEqualsToken: "^",
-  LessThanLessThanEqualsToken: "<<", GreaterThanGreaterThanEqualsToken: ">>", GreaterThanGreaterThanGreaterThanEqualsToken: ">>>",
-});
+function binaryOperator(token: BinaryOperator): HirBinaryOperator | null {
+  switch (token) {
+    case "PlusToken": case "PlusEqualsToken": return "+";
+    case "MinusToken": case "MinusEqualsToken": return "-";
+    case "AsteriskToken": case "AsteriskEqualsToken": return "*";
+    case "SlashToken": case "SlashEqualsToken": return "/";
+    case "PercentToken": case "PercentEqualsToken": return "%";
+    case "AsteriskAsteriskToken": case "AsteriskAsteriskEqualsToken": return "**";
+    case "AmpersandToken": case "AmpersandEqualsToken": return "&";
+    case "BarToken": case "BarEqualsToken": return "|";
+    case "CaretToken": case "CaretEqualsToken": return "^";
+    case "LessThanLessThanToken": case "LessThanLessThanEqualsToken": return "<<";
+    case "GreaterThanGreaterThanToken": case "GreaterThanGreaterThanEqualsToken": return ">>";
+    case "GreaterThanGreaterThanGreaterThanToken": case "GreaterThanGreaterThanGreaterThanEqualsToken": return ">>>";
+    case "LessThanToken": return "<";
+    case "LessThanEqualsToken": return "<=";
+    case "GreaterThanToken": return ">";
+    case "GreaterThanEqualsToken": return ">=";
+    case "EqualsEqualsToken": return "==";
+    case "ExclamationEqualsToken": return "!=";
+    case "EqualsEqualsEqualsToken": return "===";
+    case "ExclamationEqualsEqualsToken": return "!==";
+    case "InKeyword": return "in";
+    case "InstanceOfKeyword": return "instanceof";
+    case "QuestionQuestionToken": case "AmpersandAmpersandToken": case "BarBarToken": case "EqualsToken": case "BarBarEqualsToken": case "AmpersandAmpersandEqualsToken": case "QuestionQuestionEqualsToken": case "CommaToken": return null;
+  }
+}
 
 interface HirOperation {
   readonly operator: HirUnaryOperator | HirBinaryOperator;
@@ -368,8 +404,8 @@ interface HirOperation {
 
 function operationOf(node: HirNode): HirOperation | null {
   if (node.kind === "BinaryExpression") {
-    const operator = binaryOperators[node.operatorToken.kind];
-    return operator === undefined ? null : { operator, operands: [node.left.id, node.right.id] };
+    const operator = binaryOperator(node.operatorToken.kind);
+    return operator === null ? null : { operator, operands: [node.left.id, node.right.id] };
   }
   if (node.kind === "PrefixUnaryExpression" && node.tsonic.role !== "type-literal") {
     const operator = node.operator === "PlusToken" ? "+" : node.operator === "MinusToken" ? "-" :
@@ -397,7 +433,16 @@ function writeFitOf(node: HirNode): HirWriteFit | null {
       case "GreaterThanGreaterThanEqualsToken": case "BarBarEqualsToken":
       case "AmpersandAmpersandEqualsToken": case "QuestionQuestionEqualsToken":
         return { value: node, destination: node.left };
-      default: return null;
+      case "QuestionQuestionToken": case "AsteriskAsteriskToken": case "AsteriskToken":
+      case "SlashToken": case "PercentToken": case "PlusToken":
+      case "MinusToken": case "LessThanLessThanToken": case "GreaterThanGreaterThanToken":
+      case "GreaterThanGreaterThanGreaterThanToken": case "LessThanToken": case "LessThanEqualsToken":
+      case "GreaterThanToken": case "GreaterThanEqualsToken": case "InstanceOfKeyword":
+      case "InKeyword": case "EqualsEqualsToken": case "EqualsEqualsEqualsToken":
+      case "ExclamationEqualsEqualsToken": case "ExclamationEqualsToken": case "AmpersandToken":
+      case "BarToken": case "CaretToken": case "AmpersandAmpersandToken":
+      case "BarBarToken": case "CommaToken":
+        return null;
     }
   }
   if ((node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") &&
@@ -469,7 +514,8 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       report("obligation-complete", site, "root must retain each syntactically required obligation");
   }
   for (const diagnostic of module.checkerDiagnostics) if (diagnostic.site.kind === "source" &&
-    !validRange(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length))
+    (!validHirIndex(diagnostic.site.origin.length) ||
+      !validRange(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length)))
     report("origin-range", moduleSite, "diagnostic source range must be valid");
 }
 

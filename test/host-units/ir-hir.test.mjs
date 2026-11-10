@@ -1580,6 +1580,21 @@ test("HIR iteration, spread, yield and delegation retain their exact syntax, asy
   assert.deepStrictEqual(product.verifyHir(wrongModule, contextFor(wrongModule, {
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: null })] },
   })), [violation("protocol-kind", nodeSite(1), "iteration protocol must retain authored asynchronous mode")]);
+  const wrongEnumeration = syntax("ForInStatement", 0, { awaitModifier: null, initializer: nameExpression("key"),
+    expression: nameExpression("object"), statement: syntax("EmptyStatement", 0),
+    tsonic: { core: absentCore(), protocol: unavailable() } });
+  const wrongEnumerationModule = moduleWith([wrongEnumeration]);
+  wrongEnumeration.tsonic.protocol = available(iterationProtocol("iterate", wrongEnumeration.expression.id, true));
+  assert.deepStrictEqual(product.verifyHir(immutableTree(wrongEnumerationModule), contextFor(wrongEnumerationModule, {
+    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: null })] },
+  })), [violation("protocol-kind", nodeSite(1), "iteration protocol must retain authored asynchronous mode")]);
+  for (const kind of ["ForInStatement", "ForOfStatement"]) {
+    const empty = syntax(kind, 0, { awaitModifier: null, initializer: nameExpression("target"), expression: nameExpression("iterable"),
+      statement: syntax("EmptyStatement", 0), tsonic: { core: absentCore(), protocol: available(null) } });
+    const emptyModule = moduleWith([empty]);
+    const decoded = roundtrip(immutableTree(emptyModule), `${kind}/absent-protocol`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  }
 });
 
 function variableModule() {
@@ -1770,6 +1785,54 @@ test("HIR one typed parser reports the first actual shape or frame fault before 
   const [header, source, end] = original.split("\n");
   const inline = `${header.replace("tree=n:0", `tree=${source.slice("n:0=".length)}`)}\n${end}`;
   assertInvalidText(inline, inline.indexOf("tree=SourceFile") + "tree=".length, ["node wire reference"]);
+  for (const [text, marker, expected, adjustment = 0] of [
+    [original.replace('languageVariant="Standard"', 'languageVariant="Wrong"').replace('scriptKind="TS"', 'scriptKind="T\\q"'),
+      '"Wrong"', ["declared field value"]],
+    [original.replace('languageVariant="Standard"', 'languageVariant="Sta\\q"').replace('scriptKind="TS"', 'scriptKind="Wrong"'),
+      "\\q", ["JSON escape"], 1],
+    [original.replace("pos=0", "pos=1.0").replace('scriptKind="TS"', "bogus=@"), "pos=1.0", ["canonical finite number"], "pos=".length],
+    ['HirModule(module=mod:"\\q", bogus=@)', "\\q", ["JSON escape"], 1],
+    ['HirModule(bogus=mod:"\\q")', "bogus", ["module"]],
+  ]) assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+});
+
+test("HIR canonical parser owns complete empty, whitespace, delimiter, identity and wire-kind cases", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const text of ["", " \t\r\n "]) assertInvalidText(text, text.length, ["record"]);
+  assertComplete(product.parseHir(`\r\n\t ${original}\r\n`), { kind: "parsed", value: moduleWith() }, "all complete whitespace-delimited data");
+  const encoded = original.replace('scriptKind="TS"', 'scriptKind="\\u0054S"');
+  assertComplete(product.parseHir(encoded), { kind: "parsed", value: moduleWith() }, "literal domain accepts its genuine decoded Unicode spelling");
+  for (const [text, marker, expected, adjustment = 0] of [
+    ["n:0=SourceFile(@)", "n:0", ["HirModule"]],
+    ['HirModule("wrong\\q"=@)', '"wrong', ["module"]],
+    ['HirModule("mod\\q"=@)', "\\q", ["JSON escape"], 1],
+    ['HirModule("module":mod:"x")', ":mod", ["="]],
+    [original.replace("endOfFileToken=n:1", "endOfFileToken=n:0"), "endOfFileToken=n:0", ["EndOfFile"], "endOfFileToken=".length],
+    [original.replace("tree=n:0", "tree=n:1"), "tree=n:1", ["SourceFile"], "tree=".length],
+    [original.replace("id=n:0", 'id=n:"\\q"'), 'id=n:"', ["number identity"], "id=n:".length],
+    [original.replace("id=n:0", "id=n:true"), "id=n:true", ["number identity"], "id=n:".length],
+    [original.replace("flags=[]", 'flags=["Let" @]'), "@]", [",", "]"]],
+    [original.replace("flags=[]", 'flags=["Let" "Const"]'), '"Const"', [",", "]"]],
+  ]) assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+});
+
+test("HIR malformed bigint tokens are tested in their genuine exact-rational field before later syntax faults", () => {
+  const expression = syntax("NumericLiteral", 0, { text: "1", tokenFlags: [], tsonic: { core: absentCore(),
+    role: "value", value: emptyValue(), literal: { kind: "number", token: "1",
+      value: { numerator: 1n, denominator: 1n, negativeZero: false } } } });
+  const value = immutableTree(expressionModule(expression));
+  const original = product.printHir(value);
+  for (const token of ["01n", "-0n", "+1n", "1.0n", "1e1n"]) {
+    const marker = `numerator=${token}`;
+    const text = original.replace("numerator=1n", marker);
+    assert.equal(text.includes(marker), true, "the independent token is in the real exact-rational field");
+    assertInvalidText(text, text.indexOf(marker) + "numerator=".length, ["canonical bigint"]);
+  }
+  for (const [token, expected] of [['"wrong\\q"', ["bigint"]], ["+Infinity", ["bigint"]]]) {
+    const marker = `numerator=${token}`;
+    const text = original.replace("numerator=1n", marker);
+    assertInvalidText(text, text.indexOf(marker) + "numerator=".length, expected);
+  }
 });
 
 test("HIR parser validates ordinary literal fields at the field and selects only declared union discriminants", () => {
@@ -1855,6 +1918,45 @@ function signature(properties = {}) {
   return { id: 0, declaration: definitionIdentity, owner: null, composition: null, kind: "call", typeParameters: [], receiver: null,
     parameters: [], result: 0, ...properties };
 }
+
+test("HIR origin and syntax ranges validate actual integer counts before rounded endpoint arithmetic", () => {
+  for (const [position, outside] of [[-1, true], [-0, false], [0.5, false], [NaN, false],
+    [Infinity, false], [-Infinity, true], [Number.MAX_SAFE_INTEGER + 1, false]]) {
+    const value = moduleWith();
+    value.tree.endOfFileToken.loc = { pos: position, end: 100 };
+    const expected = [violation("origin-range", nodeSite(1), "invalid syntax range")];
+    if (outside) expected.push(violation("node-in-body-range", nodeSite(1), "syntax must remain inside its body root range"));
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), expected);
+  }
+  for (const length of [-1, -0, 0.5, -Number.MIN_VALUE, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const value = moduleWith();
+    value.tree.endOfFileToken.origin = { ...value.tree.endOfFileToken.origin, start: 1, length };
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [
+      violation("origin-range", nodeSite(1), "invalid origin range"),
+    ]);
+  }
+  for (const [start, length] of [[Number.MAX_SAFE_INTEGER, 0.25], [Number.MAX_SAFE_INTEGER, 1]]) {
+    const value = moduleWith();
+    value.tree.endOfFileToken.origin = { ...value.tree.endOfFileToken.origin, start, length };
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [
+      violation("origin-range", nodeSite(1), "invalid origin range"),
+    ]);
+  }
+  for (const length of [0, 1, Number.MAX_SAFE_INTEGER]) {
+    const value = moduleWith();
+    value.tree.endOfFileToken.origin = { ...value.tree.endOfFileToken.origin, start: 0, length };
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), []);
+  }
+  const upper = moduleWith();
+  upper.tree.loc = { pos: 0, end: Number.MAX_SAFE_INTEGER };
+  upper.tree.endOfFileToken.loc = { pos: Number.MAX_SAFE_INTEGER, end: Number.MAX_SAFE_INTEGER };
+  assert.deepStrictEqual(product.verifyHir(immutableTree(upper), contextFor(upper)), []);
+  const outside = moduleWith();
+  outside.tree.endOfFileToken.loc = { pos: 0, end: 101 };
+  assert.deepStrictEqual(product.verifyHir(immutableTree(outside), contextFor(outside)), [
+    violation("node-in-body-range", nodeSite(1), "syntax must remain inside its body root range"),
+  ]);
+});
 
 test("HIR candidate endpoints retain declaration identity independently of the signature table index", () => {
   const value = moduleWith();
@@ -1944,6 +2046,25 @@ function sourceDiagnostic(start = 0, length = 100) {
   } }, source: null, evidence: [], message: "original checker diagnostic", arguments: [], related: [], fix: null };
 }
 
+test("HIR checker diagnostic ranges retain valid integer lengths before rounded endpoint arithmetic", () => {
+  for (const [start, length] of [[0, -1], [0, -0], [0, 0.5], [0, -Number.MIN_VALUE], [0, NaN],
+    [0, Infinity], [0, -Infinity], [0, Number.MAX_SAFE_INTEGER + 1], [Number.MAX_SAFE_INTEGER, 0.25],
+    [Number.MAX_SAFE_INTEGER, 1], [-1, 0], [-0, 0], [0.5, 0], [NaN, 0], [Infinity, 0], [-Infinity, 0]]) {
+    const value = moduleWith();
+    value.checkerDiagnostics = [sourceDiagnostic(start, length)];
+    const decoded = roundtrip(immutableTree(value), `diagnostic-range/${start}/${length}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
+      violation("origin-range", { kind: "module", module: moduleIdentity }, "diagnostic source range must be valid"),
+    ]);
+  }
+  for (const [start, length] of [[0, 0], [0, 1], [0, Number.MAX_SAFE_INTEGER], [Number.MAX_SAFE_INTEGER, 0]]) {
+    const value = moduleWith();
+    value.checkerDiagnostics = [sourceDiagnostic(start, length)];
+    const decoded = roundtrip(immutableTree(value), `diagnostic-range-valid/${start}/${length}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  }
+});
+
 function indexObligation(ordinal = 0) {
   return { kind: "index", ordinal, occurrence: { body: bodyIdentity, node: 2 }, receiver: { body: bodyIdentity, node: 3 }, key: { body: bodyIdentity, node: 4 } };
 }
@@ -2018,6 +2139,17 @@ const assignmentObligationInputs = [
   ["GreaterThanGreaterThanGreaterThanEqualsToken", ">>>"], ["AmpersandAmpersandEqualsToken", null],
   ["BarBarEqualsToken", null], ["QuestionQuestionEqualsToken", null],
 ];
+
+test("HIR short-circuit and sequence tokens do not invent arithmetic or assignment obligations", () => {
+  for (const [token, role] of [["QuestionQuestionToken", "short-circuit"], ["AmpersandAmpersandToken", "short-circuit"],
+    ["BarBarToken", "short-circuit"], ["CommaToken", "sequence"]]) {
+    const expression = syntax("BinaryExpression", 0, { modifiers: null, left: nameExpression("left"), type: null,
+      operatorToken: syntax(token, 0), right: nameExpression("right"), tsonic: { core: absentCore(), role, value: emptyValue() } });
+    const value = expressionModule(expression);
+    const decoded = roundtrip(immutableTree(value), `non-operator-obligation/${token}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  }
+});
 
 for (const [token, operator] of assignmentObligationInputs) test(`HIR obligation-complete checks actual ${token} value/destination and never trusts a partial set`, () => {
   for (const reversed of [false, true]) {

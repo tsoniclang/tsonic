@@ -75,7 +75,7 @@ interface WireNode {
   readonly edges: Set<WireNode>;
 }
 type WireBinding =
-  | { readonly kind: "pending"; readonly node: WireNode; readonly references: WireReference[] }
+  | { readonly kind: "pending"; readonly node: WireNode; readonly references: [WireReference, ...WireReference[]] }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
 interface HirOutput { value: unknown }
 
@@ -304,8 +304,12 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       fail(reader, expectedValue(shape), offset);
       return null;
     }
-    const binding: WireBinding = previous ?? { kind: "pending", node: wireNode(), references: [] };
-    if (binding.kind === "pending") binding.references.push({ shape, offset });
+    let binding: WireBinding;
+    if (previous === undefined) binding = { kind: "pending", node: wireNode(), references: [{ shape, offset }] };
+    else {
+      binding = previous;
+      if (binding.kind === "pending") binding.references.push({ shape, offset });
+    }
     arena.set(value, binding);
     if (owner === null) roots.add(binding.node);
     else owner.edges.add(binding.node);
@@ -317,7 +321,9 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     if (frame === undefined && reader.cursor === reader.text.length) {
       if (!header) { fail(reader, ["record"]); return false; }
       for (const binding of arena.values()) if (binding.kind === "pending") {
-        for (const reference of binding.references) { fail(reader, expectedValue(reference.shape), reference.offset); return false; }
+        const reference = binding.references[0];
+        fail(reader, expectedValue(reference.shape), reference.offset);
+        return false;
       }
       const reachable = new Set<WireNode>();
       const work = [...roots];
@@ -535,6 +541,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     } else {
       if (!syntax && !identityShapes.some(leaf => typeof leaf !== "string" && leaf.kind === "identity" && leaf.value === "number")) {
         fail(reader, ["string identity"], payloadOffset);
+        return false;
+      }
+      if (!/[0-9+-]/u.test(reader.text.charAt(reader.cursor)) && !reader.text.startsWith("NaN", reader.cursor)) {
+        fail(reader, ["number identity"], payloadOffset);
         return false;
       }
       const content = numeric(reader, payloadOffset);

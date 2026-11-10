@@ -134,20 +134,20 @@ export function localSourceEntry(reference: SourceNodeRef, module: HirModule, in
   return entry.item === reference.value.owner ? entry : null;
 }
 
-interface BodyScopeRange { readonly start: number; readonly end: number }
+interface BodyScopeRange { readonly body: HirBody; readonly start: number; readonly end: number }
+interface MutableBodyScopeRange { readonly body: HirBody; start: number; end: number }
 type BodyScopeVisit = (
-  | { readonly kind: "enter"; readonly body: HirBody }
-  | { readonly kind: "leave"; readonly range: { start: number; end: number } }
+  | { readonly kind: "enter"; readonly range: MutableBodyScopeRange }
+  | { readonly kind: "leave"; readonly range: MutableBodyScopeRange }
 ) & { readonly next: BodyScopeVisit | null };
 
-export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory): ReadonlyMap<HirBody, BodyScopeRange> {
+export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory): readonly BodyScopeRange[] {
   const declarations = new Map<DefId, HirNode>();
   for (const item of module.items) {
     const node = inventory.nodesById.get(item.node);
     if (node !== undefined) declarations.set(item.definition, node);
   }
   const parents = new Map<HirBody, HirBody | null>();
-  for (const body of module.bodies) parents.set(body, inventory.bodyParents.get(body) ?? null);
   const parameterOwners = new Map<HirNode, HirBody>();
   for (const body of module.bodies) for (const parameter of body.params) {
     const node = declarations.get(parameter.declaration);
@@ -172,18 +172,27 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
     const environment = parameterEnvironments.get(node);
     if (environment !== undefined) parents.set(body, environment);
   }
-  const children = new Map<HirBody | null, HirBody[]>();
-  for (const [body, parent] of parents) {
-    const previous = children.get(parent);
-    if (previous === undefined) children.set(parent, [body]);
-    else previous.push(body);
+  const ranges: MutableBodyScopeRange[] = [];
+  const byBody = new Map<HirBody, MutableBodyScopeRange>();
+  for (const body of module.bodies) {
+    const previous = byBody.get(body);
+    const range = previous ?? { body, start: 0, end: 0 };
+    if (previous === undefined) byBody.set(body, range);
+    ranges.push(range);
   }
-  const ranges = new Map<HirBody, { start: number; end: number }>();
+  const children = new Map<HirBody | null, MutableBodyScopeRange[]>();
+  for (const range of byBody.values()) {
+    const parent = parents.get(range.body) ?? inventory.bodyParents.get(range.body) ?? null;
+    const previous = children.get(parent);
+    if (previous === undefined) children.set(parent, [range]);
+    else previous.push(range);
+  }
+  const seen = new Set<MutableBodyScopeRange>();
   let ordinal = 0;
-  const roots = [...(children.get(null) ?? []), ...module.bodies];
+  const roots = [...(children.get(null) ?? []), ...ranges];
   for (const root of roots) {
-    if (ranges.has(root)) continue;
-    let pending: BodyScopeVisit | null = { kind: "enter", body: root, next: null };
+    if (seen.has(root)) continue;
+    let pending: BodyScopeVisit | null = { kind: "enter", range: root, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
@@ -191,12 +200,14 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
         frame.range.end = ordinal;
         continue;
       }
-      if (ranges.has(frame.body)) continue;
-      const range = { start: ordinal, end: ordinal };
-      ranges.set(frame.body, range);
+      if (seen.has(frame.range)) continue;
+      seen.add(frame.range);
+      const range = frame.range;
+      range.start = ordinal;
+      range.end = ordinal;
       ordinal += 1;
       pending = { kind: "leave", range, next: pending };
-      for (const body of children.get(frame.body) ?? []) pending = { kind: "enter", body, next: pending };
+      for (const child of children.get(range.body) ?? []) pending = { kind: "enter", range: child, next: pending };
     }
   }
   return ranges;
