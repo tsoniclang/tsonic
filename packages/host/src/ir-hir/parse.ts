@@ -78,6 +78,7 @@ type WireBinding =
   | { readonly kind: "pending"; readonly node: WireNode; readonly references: [WireReference, ...WireReference[]] }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
 interface HirOutput { value: unknown }
+type DecodedCharacter = (value: string, offset: number) => void;
 
 function fail(reader: TextReader, expected: readonly string[], offset = reader.cursor): null {
   let line = 1;
@@ -109,19 +110,22 @@ function whitespace(reader: TextReader): boolean {
   return newline;
 }
 
-function word(reader: TextReader): string | null {
+function word(reader: TextReader, onCharacter: DecodedCharacter | null = null): string | null {
   const start = reader.cursor;
   if (!/[A-Za-z_]/u.test(reader.text.charAt(reader.cursor))) return fail(reader, ["identifier"]);
-  reader.cursor += 1;
-  while (/[A-Za-z0-9_-]/u.test(reader.text.charAt(reader.cursor))) reader.cursor += 1;
+  do {
+    onCharacter?.(reader.text.charAt(reader.cursor), reader.cursor);
+    reader.cursor += 1;
+  } while (/[A-Za-z0-9_-]/u.test(reader.text.charAt(reader.cursor)));
   return reader.text.slice(start, reader.cursor);
 }
 
-function quoted(reader: TextReader, domain: StringDomain | null): string | null {
+function quoted(reader: TextReader, domain: StringDomain | null, onCharacter: DecodedCharacter | null = null): string | null {
   reader.cursor += 1;
   const pieces: string[] = [];
   let prefix = "";
-  const admit = (value: string): boolean => {
+  const admit = (value: string, offset: number): boolean => {
+    onCharacter?.(value, offset);
     if (domain === null) return true;
     prefix += value;
     if (domain.values.some(candidate => candidate.startsWith(prefix))) return true;
@@ -138,6 +142,7 @@ function quoted(reader: TextReader, domain: StringDomain | null): string | null 
     }
     if (code < 32) return fail(reader, ["JSON string character"]);
     if (code === 92) {
+      const offset = reader.cursor;
       pieces.push(reader.text.slice(start, reader.cursor));
       reader.cursor += 1;
       const escape = reader.text.charAt(reader.cursor);
@@ -145,7 +150,7 @@ function quoted(reader: TextReader, domain: StringDomain | null): string | null 
         const digits = reader.text.slice(reader.cursor + 1, reader.cursor + 5);
         if (!/^[0-9A-Fa-f]{4}$/u.test(digits)) return fail(reader, ["four hexadecimal digits"], reader.cursor + 1);
         const value = String.fromCharCode(Number.parseInt(digits, 16));
-        if (!admit(value)) return null;
+        if (!admit(value, offset)) return null;
         pieces.push(value);
         reader.cursor += 5;
       } else {
@@ -161,13 +166,13 @@ function quoted(reader: TextReader, domain: StringDomain | null): string | null 
           case "t": value = "\t"; break;
           default: return fail(reader, ["JSON escape"]);
         }
-        if (!admit(value)) return null;
+        if (!admit(value, offset)) return null;
         pieces.push(value);
         reader.cursor += 1;
       }
       start = reader.cursor;
     } else {
-      if (!admit(reader.text.charAt(reader.cursor))) return null;
+      if (!admit(reader.text.charAt(reader.cursor), reader.cursor)) return null;
       reader.cursor += 1;
     }
   }
@@ -238,14 +243,61 @@ function stringDomain(leaves: readonly HirShapeLeaf[], shape: HirShape, offset: 
   return { values, expected: expectedValue(shape), offset };
 }
 
-function fieldDomain(frame: RecordFrame, offset: number): StringDomain | null {
-  const values: string[] = [];
+function readField(reader: TextReader, frame: RecordFrame): boolean {
+  let required: string[] | null = [];
   for (const choice of frame.choices) {
-    if (choice.kind === "dictionary") return null;
+    if (choice.kind === "dictionary") { required = null; break; }
     const field = choice.fields[frame.ordinal];
-    if (field !== undefined && !values.includes(field[0])) values.push(field[0]);
+    if (field !== undefined && !required.includes(field[0])) required.push(field[0]);
   }
-  return { values, expected: values.length === 0 ? [")"] : values, offset };
+  const expected = required === null ? [] : required.length === 0 ? ["end of record"] : required;
+  const quotedName = reader.text.charAt(reader.cursor) === "\"";
+  let first = reader.cursor + (quotedName ? 1 : 0);
+  let deviation: number | null = null;
+  let length = 0;
+  let candidates: readonly string[] | null = required;
+  const onCharacter: DecodedCharacter = (value, offset) => {
+    if (length === 0) first = offset;
+    if (candidates !== null && deviation === null) {
+      candidates = candidates.filter(candidate => candidate.charAt(length) === value);
+      if (candidates.length === 0) deviation = offset;
+    }
+    length += 1;
+  };
+  const name = quotedName ? quoted(reader, null, onCharacter) : word(reader, onCharacter);
+  if (name === null) {
+    if (deviation !== null && deviation < reader.failure.offset) fail(reader, expected, deviation);
+    return false;
+  }
+  const end = reader.cursor - (quotedName ? 1 : 0);
+  if (frame.names.has(name)) {
+    fail(reader, ["unique record field"], required === null ? first : deviation === null ? end : deviation);
+    return false;
+  }
+  const selected: FieldSelection[] = [];
+  let fieldShape: HirShape | null = null;
+  for (const choice of frame.choices) {
+    if (choice.kind === "dictionary") {
+      selected.push({ kind: "dictionary", choice });
+      fieldShape = fieldShape === null || fieldShape === choice.element ? choice.element : hirChoice(fieldShape, choice.element);
+    } else {
+      const field = choice.fields[frame.ordinal];
+      if (field !== undefined && field[0] === name) {
+        selected.push({ kind: "record", choice, field });
+        fieldShape = fieldShape === null || fieldShape === field[1] ? field[1] : hirChoice(fieldShape, field[1]);
+      }
+    }
+  }
+  if (fieldShape === null) {
+    fail(reader, expected, deviation === null ? end : deviation);
+    return false;
+  }
+  frame.names.add(name);
+  frame.name = name;
+  frame.selected = selected;
+  frame.shape = fieldShape;
+  frame.phase = "equals";
+  return true;
 }
 
 function frameChoices(choices: readonly (HirRecordShape | HirDictionaryShape)[]): readonly FrameChoice[] {
@@ -360,35 +412,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     }
     if (frame?.kind === "record" && (frame.phase === "first-field" || frame.phase === "field")) {
       if (frame.phase === "first-field" && character === ")") { frame.phase = "delimiter"; continue; }
-      const offset = reader.cursor;
-      const name = character === "\"" ? quoted(reader, fieldDomain(frame, offset)) : word(reader);
-      if (name === null) return false;
-      if (frame.names.has(name)) { fail(reader, ["distinct field"], offset); return false; }
-      const selected: FieldSelection[] = [];
-      let fieldShape: HirShape | null = null;
-      const expected: string[] = [];
-      for (const choice of frame.choices) {
-        if (choice.kind === "dictionary") {
-          selected.push({ kind: "dictionary", choice });
-          fieldShape = fieldShape === null || fieldShape === choice.element ? choice.element : hirChoice(fieldShape, choice.element);
-        }
-        else {
-          const field = choice.fields[frame.ordinal];
-          if (field !== undefined) {
-            if (!expected.includes(field[0])) expected.push(field[0]);
-            if (field[0] === name) {
-              selected.push({ kind: "record", choice, field });
-              fieldShape = fieldShape === null || fieldShape === field[1] ? field[1] : hirChoice(fieldShape, field[1]);
-            }
-          }
-        }
-      }
-      if (fieldShape === null) { fail(reader, expected.length === 0 ? [")"] : expected, offset); return false; }
-      frame.names.add(name);
-      frame.name = name;
-      frame.selected = selected;
-      frame.shape = fieldShape;
-      frame.phase = "equals";
+      if (!readField(reader, frame)) return false;
       continue;
     }
     if (frame?.kind === "record" && frame.phase === "equals") {

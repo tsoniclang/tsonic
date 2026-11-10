@@ -1753,7 +1753,7 @@ test("HIR malformed typed fields retain exact independently selected record and 
     assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
   }
   const extra = `${original.slice(0, -1)}, bogus=0)`;
-  assertInvalidText(extra, extra.lastIndexOf("bogus="), [")"]);
+  assertInvalidText(extra, extra.lastIndexOf("bogus="), ["end of record"]);
   for (const label of ["InventedNode", "HirBody", "Token"]) {
     const text = `${original}\nn:2=${label}(@)`;
     assertInvalidText(text, original.length + 1 + "n:2=".length, ["syntax node declaration"]);
@@ -1791,7 +1791,7 @@ test("HIR text grammar rejects complete independently authored field, value and 
   const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
   const header = original.split("\n")[0];
   const cases = [
-    ['HirModule(module=mod:"x", module=mod:"x")', 'module=mod:"x")', ["distinct field"]],
+    ['HirModule(module=mod:"x", module=mod:"x")', 'module=mod:"x")', ["unique record field"]],
     [`${header} ${header}`, " HirModule(", ["newline"], 1],
     ['HirModule(module=mod:"x"tree=n:0)', "tree=n:0", [",", ")"]],
     ["HirModule(module=mod:1n)", "1n", ["string identity"]],
@@ -1854,7 +1854,7 @@ test("HIR canonical parser owns complete empty, whitespace, delimiter, identity 
   assertComplete(product.parseHir(encoded), { kind: "parsed", value: moduleWith() }, "literal domain accepts its genuine decoded Unicode spelling");
   for (const [text, marker, expected, adjustment = 0] of [
     ["n:0=SourceFile(@)", "n:0", ["HirModule"]],
-    ['HirModule("wrong\\q"=@)', '"wrong', ["module"]],
+    ['HirModule("wrong\\q"=@)', '"wrong', ["module"], 1],
     ['HirModule("mod\\q"=@)', "\\q", ["JSON escape"], 1],
     ['HirModule("module":mod:"x")', ":mod", ["="]],
     [original.replace("endOfFileToken=n:1", "endOfFileToken=n:0"), "endOfFileToken=n:0", ["EndOfFile"], "endOfFileToken=".length],
@@ -1864,6 +1864,106 @@ test("HIR canonical parser owns complete empty, whitespace, delimiter, identity 
     [original.replace("flags=[]", 'flags=["Let" @]'), "@]", [",", "]"]],
     [original.replace("flags=[]", 'flags=["Let" "Const"]'), '"Const"', [",", "]"]],
   ]) assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+});
+
+test("HIR field names retain their first decoded deviation while the same decoder distinguishes complete duplicates", () => {
+  const prefix = 'HirModule(module=mod:"x", ';
+  for (const [name, offset, expected] of [
+    ["module=mod:\"x\")", 0, ["unique record field"]],
+    ['"module"=@)', 1, ["unique record field"]],
+    ['"\\u006dodule"=@)', 1, ["unique record field"]],
+    ['"m\\u006fdule"=@)', 1, ["unique record field"]],
+    ["mo", 0, ["tree"]],
+    ["mo\\q", 0, ["tree"]],
+    ['"mo', 1, ["tree"]],
+    ['"mo\\q', 1, ["tree"]],
+    ['"\\u006do', 1, ["tree"]],
+    ['"\\u006do\\q', 1, ["tree"]],
+    ["trae=@)", 2, ["tree"]],
+    ['"trae"=@)', 3, ["tree"]],
+    ['"tr\\u0061e"=@)', 3, ["tree"]],
+    ['"tr\\ne"=@)', 3, ["tree"]],
+    ["treeExtra=@)", 4, ["tree"]],
+    ['"treeExtra"=@)', 5, ["tree"]],
+    ['"tree\\u0045xtra"=@)', 5, ["tree"]],
+    ['"trX\\q', 3, ["tree"]],
+    ['"trX\\uZZZZ', 3, ["tree"]],
+    ['"trX\n', 3, ["tree"]],
+    ['"trX', 3, ["tree"]],
+    ["tr=@)", 2, ["tree"]],
+    ['"tr"=@)', 3, ["tree"]],
+    ['"t\\u0072"=@)', 8, ["tree"]],
+    ['""=@)', 1, ["tree"]],
+    ['"tr\\q', 4, ["JSON escape"]],
+    ['"tr\\uZZZZ', 5, ["four hexadecimal digits"]],
+    ['"tr\n', 3, ["JSON string character"]],
+    ['"tr', 3, ["closing quote"]],
+    ['"\\q', 2, ["JSON escape"]],
+    ['"\\uZZZZ', 3, ["four hexadecimal digits"]],
+    ['"', 1, ["closing quote"]],
+  ]) assertInvalidText(prefix + name, prefix.length + offset, expected);
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const name of ['"module"', '"\\u006dodule"', '"m\\u006fdule"'])
+    assertComplete(product.parseHir(original.replace("module=", `${name}=`)), { kind: "parsed", value: moduleWith() },
+      `the entire HIR value retains its genuine ${name} required field`);
+  for (const name of ['"tree"', '"\\u0074ree"', '"tr\\u0065e"'])
+    assertComplete(product.parseHir(original.replace("tree=", `${name}=`)), { kind: "parsed", value: moduleWith() },
+      `the next complete required field ${name} remains accepted`);
+});
+
+test("HIR a completed record uses the empty required name with the same decoded and lexical priority", () => {
+  const prefix = 'HirModule(module=mod:"x", tree=n:0, items=[], bodies=[], checkerDiagnostics=[], obligations=[], ';
+  for (const [name, offset, expected] of [
+    ["extra=0)", 0, ["end of record"]],
+    ["extra", 0, ["end of record"]],
+    ["extra\\q", 0, ["end of record"]],
+    ['"extra"=0)', 1, ["end of record"]],
+    ['"extra', 1, ["end of record"]],
+    ['"extra\\q', 1, ["end of record"]],
+    ['"\\u0065xtra"=0)', 1, ["end of record"]],
+    ['"\\u0065xtra', 1, ["end of record"]],
+    ['"\\u0065xtra\\q', 1, ["end of record"]],
+    ["module=mod:\"x\")", 0, ["unique record field"]],
+    ['"module"=@)', 1, ["unique record field"]],
+    ['"\\u006dodule"=@)', 1, ["unique record field"]],
+    ['"m\\u006fdule"=@)', 1, ["unique record field"]],
+    ['"mod', 1, ["end of record"]],
+    ['"mod\\q', 1, ["end of record"]],
+    ['""=@)', 1, ["end of record"]],
+    ['"\\q', 2, ["JSON escape"]],
+    ['"\\uZZZZ', 3, ["four hexadecimal digits"]],
+    ['"\n', 1, ["JSON string character"]],
+    ['"', 1, ["closing quote"]],
+  ]) assertInvalidText(prefix + name, prefix.length + offset, expected);
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const frame = "loc=TextRange(pos=0, end=100";
+  assert.equal(original.includes(`${frame})`), true, "the nested finite record is an actual declared HIR location");
+  for (const [name, offset, expected] of [
+    ["pos=0)", 0, ["unique record field"]],
+    ['"\\u0070os"=0)', 1, ["unique record field"]],
+    ['"extra\\q', 1, ["end of record"]],
+    ['""=0)', 1, ["end of record"]],
+  ]) {
+    const text = original.replace(`${frame})`, `${frame}, ${name}`);
+    assertInvalidText(text, original.indexOf(frame) + frame.length + 2 + offset, expected);
+  }
+});
+
+test("HIR arbitrary dictionary fields retain their real domain and only complete decoded duplicates are refused", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const frame = 'pragmas=[SingleLineCommentTrivia(pos=0, end=100, hasTrailingNewLine=false, name="fields", args=PragmaArguments(';
+  const value = 'PragmaArgument(pos=0, end=1, name="field", value="value")';
+  for (const [given, name, offset, expected] of [
+    ["field", "field=@", 0, ["unique record field"]],
+    ["field", '"field"=@', 1, ["unique record field"]],
+    ["field", '"\\u0066ield"=@', 1, ["unique record field"]],
+    ['""', '""=@', 1, ["unique record field"]],
+    ["field", '"field\\q', 7, ["JSON escape"]],
+  ]) {
+    const prefix = `${frame}${given}=${value}, `;
+    const text = original.replace("pragmas=[]", `${prefix}${name}`);
+    assertInvalidText(text, original.indexOf("pragmas=[]") + prefix.length + offset, expected);
+  }
 });
 
 test("HIR malformed bigint tokens are tested in their genuine exact-rational field before later syntax faults", () => {
