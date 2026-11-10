@@ -1,4 +1,20 @@
-import type { HirModule } from "./contract.js";
+import type { HirModule, HirBody, HirNode, HirRule, HirSite } from "./contract.js";
+import type { BodyId, DefId } from "../ids/contract.js";
+
+export interface HirInventory {
+  readonly nodes: readonly HirNode[];
+  readonly nodesById: ReadonlyMap<number, HirNode>;
+  readonly starts: ReadonlyMap<HirNode, number>;
+  readonly ends: ReadonlyMap<HirNode, number>;
+  readonly parents: ReadonlyMap<HirNode, HirNode | null>;
+  readonly owners: ReadonlyMap<HirNode, HirBody>;
+  readonly itemOwners: ReadonlyMap<HirNode, DefId>;
+  readonly bodies: ReadonlyMap<BodyId, HirBody>;
+  readonly bodyParents: ReadonlyMap<HirBody, HirBody | null>;
+  readonly repeated: readonly HirNode[];
+}
+
+export type HirReport = (rule: HirRule, site: HirSite, reason: string) => void;
 
 export type HirShape = string
   | { readonly kind: "identity"; readonly prefix: string; readonly value: "string" | "number" }
