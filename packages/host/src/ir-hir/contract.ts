@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 
 export interface TextRange {
   readonly pos: number;
@@ -4588,7 +4588,11 @@ export type HirSite =
 
 export type PrintHir = (module: HirModule) => string;
 export type ParseHir = (text: string) => TextParseResult<HirModule>;
-export type VerifyHir = (module: HirModule) => readonly Violation<HirRule, HirSite>[];
+export interface HirVerificationContext {
+  readonly types: TypeTable;
+  readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+}
+export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
 export type WalkSyntaxTree = <P extends Phase>(
   root: SyntaxNode<P>,
   stopBefore: readonly NodeId[],
