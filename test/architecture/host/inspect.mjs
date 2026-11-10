@@ -45,6 +45,7 @@ export function inspectHost(deps, inputs) {
     const { ast } = source;
     const file = source.sourceFiles.find(node => node !== undefined && ast.getFileName(node) === `/host-gate/${edge.source}`);
     const statement = ast.statements(file).find(node => ast.authoredRange(node).start === edge.start);
+    if (statement === undefined) return false;
     const imported = ast.is.IsImportDeclaration(statement);
     const exported = ast.is.IsExportDeclaration(statement);
     if (!imported && !exported) return false;
@@ -80,7 +81,7 @@ export function inspectHost(deps, inputs) {
       return from.kind === "pipeline" && to.kind === "component" && declarations.length > 0 && declarations.every(declaration => {
         const type = ast.typeNode(declaration);
         return ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}` &&
-          ast.is.IsFunctionTypeNode(type) && ast.text(ast.name(ast.parameters(type)[0])) === "deps";
+          type !== undefined && ast.is.IsFunctionTypeNode(type) && ast.text(ast.name(ast.parameters(type)[0])) === "deps";
       });
     });
   };

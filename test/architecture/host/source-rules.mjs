@@ -3,7 +3,7 @@ import { sourceOwner } from "./catalogue.mjs";
 import { quarantineReference } from "./import-graph.mjs";
 const producerMembers = Object.freeze(["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = Object.freeze(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", PluginModule: "plugins", TargetSession: "orchestration" });
+const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral", "RawImportPreparation"]);
 const sdkPayloads = Object.freeze({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
@@ -59,7 +59,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (children.length !== 2 || brand === undefined || !children.includes(node)) return false;
     const members = ast.members(brand);
     return members.length > 0 && members.every(member => ast.is.IsPropertySignatureDeclaration(member) &&
-      ast.hasModifierKind(member, "readonly") && ast.is.IsLiteralTypeNode(ast.typeNode(member)));
+      ast.hasModifierKind(member, "readonly") && ast.typeNode(member) !== undefined && ast.is.IsLiteralTypeNode(ast.typeNode(member)));
   };
   const callableType = original => {
     let node = original;
@@ -248,6 +248,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       if (current === undefined) return;
       const range = ast.authoredRange(current);
       if (module.name === "front" && closedFiles.has(file) && range.kind === "authored" &&
+        (ast.is.IsImportDeclaration(current) || ast.is.IsExportDeclaration(current) || ast.is.IsImportTypeNode(current)) &&
         graph.some(edge => edge.source === file && edge.start === range.start && edge.specifier === "@tsonic/tsts")) {
         if (!ast.is.IsImportDeclaration(current)) add("forbidden-import", file, current);
         let count = 0;
@@ -266,13 +267,13 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       }
       if (module.kind === "library" && file === module.entry && ast.is.IsVariableDeclaration(current)) {
         const annotation = ast.typeNode(current);
-        const selected = ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+        const selected = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
         if (selected !== undefined) libraryFunctionTypes.add(selected);
       }
       if (module.kind === "component" && (ast.is.IsFunctionTypeNode(current) || ast.is.IsFunctionDeclaration(current))) {
         const parameter = ast.parameters(current)[0];
         const annotation = ast.typeNode(parameter);
-        const selected = ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+        const selected = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
         if (ast.text(ast.name(parameter)) === "deps" && selected !== undefined) depsTypes.add(selected);
       }
       if (ast.is.IsTypeAliasDeclaration(current) || ast.is.IsInterfaceDeclaration(current) || ast.is.IsClassDeclaration(current)) {
@@ -321,14 +322,14 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       if (production) productionSymbols.add(selected);
       if (mutable) mutableSymbols.add(selected);
       const annotation = ast.typeNode(node);
-      if (ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName)))
+      if (annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName)))
         libraryFunctionTypes.add(selected);
     }
   }
   const resolveType = original => {
     let node = original;
     const active = new Set();
-    while (ast.is.IsTypeReferenceNode(node)) {
+    while (node !== undefined && ast.is.IsTypeReferenceNode(node)) {
       const declaration = aliases.get(symbol(ast.as.AsTypeReferenceNode(node).TypeName));
       if (declaration === undefined || active.has(declaration)) break;
       active.add(declaration); node = ast.typeNode(declaration);
@@ -341,8 +342,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (module?.name !== "front" || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path) ||
       ast.text(ast.name(declaration)) !== "ExtensionOf") continue;
     const callable = ast.typeNode(declaration);
-    const result = ast.is.IsFunctionTypeNode(callable) ? resolveType(ast.typeNode(callable)) : undefined;
-    if (!ast.is.IsUnionTypeNode(result)) continue;
+    const result = callable !== undefined && ast.is.IsFunctionTypeNode(callable) ? resolveType(ast.typeNode(callable)) : undefined;
+    if (result === undefined || !ast.is.IsUnionTypeNode(result)) continue;
     const arms = ast.children(result);
     const admitted = [];
     const seen = new Set();
@@ -352,11 +353,11 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const tag = members.find(member => memberName(ast.name(member)) === "kind");
       const value = members.find(member => memberName(ast.name(member)) === "value");
       const payload = ast.typeNode(value);
-      const name = ast.is.IsTypeReferenceNode(payload) ? ast.as.AsTypeReferenceNode(payload).TypeName : undefined;
+      const name = payload !== undefined && ast.is.IsTypeReferenceNode(payload) ? ast.as.AsTypeReferenceNode(payload).TypeName : undefined;
       const imported = sdkSymbols.get(symbol(name));
       const literal = ast.typeNode(tag);
       if (members.length !== 2 || !members.every(member => ast.hasModifierKind(member, "readonly")) || imported === undefined ||
-        !ast.is.IsLiteralTypeNode(literal) || ast.text(ast.children(literal)[0]) !== sdkPayloads[imported] || seen.has(imported)) break;
+        literal === undefined || !ast.is.IsLiteralTypeNode(literal) || ast.text(ast.children(literal)[0]) !== sdkPayloads[imported] || seen.has(imported)) break;
       seen.add(imported); admitted.push(name);
     }
     if (arms.length === 3 && seen.size === 3) for (const node of admitted) sdkPorts.add(node);
@@ -371,7 +372,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       if (module.kind === "component" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
       if (module.kind === "component" && ast.is.IsPropertySignatureDeclaration(current)) {
         const annotation = ast.typeNode(current);
-        if (ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName))) {
+        if (annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName))) {
           let container = ast.parent(current);
           while (container !== undefined && !ast.is.IsInterfaceDeclaration(container) && !ast.is.IsTypeAliasDeclaration(container)) container = ast.parent(container);
           if (container !== undefined && depsTypes.has(symbol(ast.name(container)))) add("impure-component", file, current);
@@ -445,7 +446,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         }
         if (exported && module.kind === "library" && file === module.entry) {
           const annotation = ast.typeNode(declaration);
-          const reference = ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+          const reference = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
           const declarations = reference === undefined ? [] : checker(current).getSymbolDeclarations(reference);
           if (declarations.length === 0 || !declarations.every(candidate =>
             ast.getFileName(ast.getSourceFile(candidate)) === `/host-gate/${module.contract}`))

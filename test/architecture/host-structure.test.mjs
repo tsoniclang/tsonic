@@ -91,7 +91,7 @@ test("actual type-only, import-type, value and re-export edges participate in cy
   }
   expect([[file("ids", "left.ts"), 'export type Left = import("./right.js").Right;'],
     [file("ids", "right.ts"), 'export type Right = import("./left.js").Left;']],
-  [at("source-cycle", file("ids", "left.ts")), at("source-cycle", file("ids", "right.ts"))]);
+  [at("source-cycle", file("ids", "left.ts"), 1, 20), at("source-cycle", file("ids", "right.ts"), 1, 21)]);
   expect([[file("unknown"), data]], [at("unknown-module", file("unknown"))]);
 });
 
@@ -206,9 +206,9 @@ test("pure stages require deps first, typed immutable inputs and no captured mod
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
 });
 
-test("only the four explicit owner-qualified opaque brands admit an object intersection", () => {
+test("only the five explicit owner-qualified opaque brands admit an object intersection", () => {
   for (const [owner, name, tag] of [["ir-types", "TypeInterner", "type-interner"], ["front", "CheckerExtensions", "checker-extensions"],
-    ["plugins", "PluginModule", "plugin-module"], ["orchestration", "TargetSession", "target-session"]]) {
+    ["front", "CheckedProgram", "checked-program"], ["plugins", "PluginModule", "plugin-module"], ["orchestration", "TargetSession", "target-session"]]) {
     const source = `export type ${name} = object & { readonly identityKind: "${tag}" };`;
     expect([[file(owner, "contract.ts"), source]], []);
     expect([[file("ids", "contract.ts"), source]], [at("contract-shape", file("ids", "contract.ts"))]);

@@ -64,7 +64,7 @@ test("actual nonempty V8 ranges and original source identity earn per-file 100 w
 
 test("one real uncovered same-line branch fails branches, not already executed statement lines", async () => {
   await capture(branchSource, [true], async ({ file, deps, raw }) => {
-    const offset = branchSource.indexOf("0;");
+    const offset = branchSource.indexOf(": 0;");
     const line = branchSource.slice(0, offset).split("\n");
     const expected = [{ code: "coverage-branch", path: file, line: 2, column: line[1].length + 1 }];
     const report = checkCoverage(deps, [file], [raw]);

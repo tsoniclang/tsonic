@@ -41,7 +41,7 @@ async function fixture(entries, action) {
 }
 
 const inferInput = root => ({ root, sourceFiles: [inferContract, inferEntry], interfaceSources: [contract, entry], outputDirectory: ".temp/isolation" });
-const label = report => report.diagnostics.join("\n").slice(-5000);
+const label = report => `${JSON.stringify(report.findings).slice(0, 2000)}\n${report.diagnostics.join("\n").slice(-5000)}`;
 
 test("real infer imports actual contract-typed substitute through fresh strict public value declarations", async () => {
   await fixture(substituteSources, async ({ root, deps }) => {
@@ -128,6 +128,10 @@ test("private, stale and undeclared interface inputs cannot replace the genuine 
     await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), interfaceSources: [contract, path("ir-types", "private.ts")] }), /public interface/u);
     write("packages/host/dist/ir-types/contract.d.ts", "export interface Stale { readonly value: number; }");
     assert.equal(existsSync(resolve(root, "packages/host/dist/ir-types/contract.d.ts")), true);
+    write(inferEntry, 'import type { Stale } from "../../dist/ir-types/contract.js"; export function infer(deps: { readonly bias: number }, input: Stale): number { return input.value + deps.bias; }');
+    const staleRead = await compileIsolated(deps, module("infer"), inferInput(root));
+    assert.equal(staleRead.status, "failed");
+    assert.equal(staleRead.findings.some(finding => finding.code === "forbidden-import"), true);
   });
 });
 
