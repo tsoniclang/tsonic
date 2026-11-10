@@ -3,6 +3,7 @@ import type { DefId, MemoryFieldId } from "../ids/contract.js";
 import type {
   FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
+import { validIndex, verifyFactBindings } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -33,6 +34,13 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   };
   if (!context.definitionExists(metadata.key.definition)) {
     report("definition-resolves", "The metadata declaration must exist in the supplied definition inventory.");
+  }
+  if (metadata.key.bindings.kind === "instantiated") {
+    for (const violation of verifyFactBindings([
+      { vector: metadata.key.bindings.bindings, definition: metadata.key.definition, site },
+    ], context)) {
+      violations.push({ rule: "bindings-complete", site, detail: violation.detail });
+    }
   }
   if (metadata.kind === "data-layout") {
     if (!context.nodeExists(metadata.occurrence)) {
@@ -67,6 +75,9 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     const layout = layouts[index];
     if (layout === undefined) continue;
     if (layout.id !== index) report("layout-id-dense", "Layout IDs must equal their dense arena positions.");
+    if (!validIndex(layout.source, context.types.terms.length)) {
+      report("type-resolves", "A layout source type must exist in the supplied canonical type table.");
+    }
     if (!context.nodeExists(layout.occurrence)) {
       report("occurrence-resolves", "Every layout occurrence must retain its original qualified source identity.");
     }
@@ -106,8 +117,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       if (element === undefined || layout.element >= layout.id) {
         report("layout-element-precedes", "An array element must reference an existing earlier layout.");
       }
-      const source = context.typeOf(layout.source);
-      if (layout.length < 0n || source.kind !== "fixed-array" ||
+      const source = context.types.terms[layout.source];
+      if (layout.length < 0n || source === undefined || source.kind !== "fixed-array" ||
         source.extent.length !== layout.length || source.extent.runtimeBase !== layout.runtimeBase ||
         element !== undefined && source.element !== element.source) {
         report("array-extent-exact", "An array retains its exact fixed extent, runtime base and selected element type.");
@@ -173,6 +184,9 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     const field = fields[index];
     if (field === undefined) continue;
     if (field.id !== index) report("field-id-dense", "Memory-field IDs must equal their dense arena positions.");
+    if (!validIndex(field.owner, context.types.terms.length) || !validIndex(field.value, context.types.terms.length)) {
+      report("type-resolves", "A field owner and value must resolve in the supplied canonical type table.");
+    }
     if (!context.nodeExists(field.occurrence) || !context.nodeExists(field.selector) || !context.nodeExists(field.selection)) {
       report("occurrence-resolves", "A field retains its actual authored occurrence, selector and selection.");
     }
