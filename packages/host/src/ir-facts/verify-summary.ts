@@ -1,7 +1,13 @@
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
+import type { Signature } from "../ir-types/contract.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
 import { escapeData, nodeOwnedBy, relationalUsage, summaryBindingInputs, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
+
+interface CallbackFormals {
+  readonly signatures: readonly Signature[];
+  readonly slots: Map<number, boolean>;
+}
 
 const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
@@ -50,8 +56,10 @@ export const verifySummary: VerifySummary = (summary, context) => {
     }
   };
   const receiver = signature?.receiver !== null && signature?.receiver !== undefined;
+  const formalExists = (index: number): boolean => signature !== undefined &&
+    validIndex(index, signature.parameters.length) && signature.parameters[index] !== undefined;
   for (const producer of summary.arena.producers) {
-    if (producer.kind === "parameter" && (signature === undefined || !validIndex(producer.index, signature.parameters.length)) ||
+    if (producer.kind === "parameter" && !formalExists(producer.index) ||
       producer.kind === "capture" && (capturedCount === null || !validIndex(producer.index, capturedCount)) || producer.kind === "receiver" && !receiver) {
       report("summary-finite", "A summary producer retains its actual formal, receiver or captured-location slot.");
     }
@@ -105,7 +113,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     }
     const path = target.kind === "shared" || target.kind === "parameter" || target.kind === "capture" || target.kind === "receiver" ? target.path : null;
     if (path !== null && !validIndex(path, summary.arena.projections.length) ||
-      target.kind === "parameter" && (signature === undefined || !validIndex(target.index, signature.parameters.length)) ||
+      target.kind === "parameter" && !formalExists(target.index) ||
       target.kind === "capture" && (capturedCount === null || !validIndex(target.index, capturedCount)) ||
       target.kind === "receiver" && !receiver || target.kind === "shared" && !context.definitionExists(target.definition) ||
       target.kind === "external" && !validIndex(target.boundary, summary.arena.boundaries.length)) {
@@ -118,49 +126,63 @@ export const verifySummary: VerifySummary = (summary, context) => {
     previousRetention = [retention.source, key];
   }
   let previousCallback = -1;
-  const callbackArities = new Map<number, number | null>();
+  const callbackFormals = new Map<number, CallbackFormals | null>();
   for (const callback of summary.callbacks) {
     if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
-    const parameterExists = signature !== undefined && validIndex(callback.parameterIndex, signature.parameters.length);
+    const parameterExists = formalExists(callback.parameterIndex);
     if (!parameterExists) {
       report("callback-parameter-resolves", "A callback names an actual parameter of the summary signature.");
     }
-    let count: number | null = null;
+    let formals: CallbackFormals | null = null;
     if (parameterExists) {
-      const cached = callbackArities.get(callback.parameterIndex);
-      if (cached !== undefined) count = cached;
+      const cached = callbackFormals.get(callback.parameterIndex);
+      if (cached !== undefined) formals = cached;
       else {
         const signatures = context.callbackSignaturesOf(summary.key, callback.parameterIndex);
-        if (signatures !== null) {
+        let calls: Signature[] | null = null;
+        if (signatures !== null && signatures.length !== 0) {
+          calls = [];
+          const seen = new Set<number>();
           for (const id of signatures) {
             const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
-            if (call === undefined || call.id !== id) { count = null; break; }
-            if (count === null || call.parameters.length < count) count = call.parameters.length;
+            if (call === undefined || call.id !== id) { calls = null; break; }
+            if (seen.has(id)) continue;
+            seen.add(id);
+            calls.push(call);
           }
         }
-        callbackArities.set(callback.parameterIndex, count);
+        formals = calls === null ? null : { signatures: calls, slots: new Map<number, boolean>() };
+        callbackFormals.set(callback.parameterIndex, formals);
       }
     }
-    if (parameterExists && count === null) {
+    if (parameterExists && formals === null) {
       report("callback-parameter-resolves", "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter.");
     }
+    const callbackFormalExists = (index: number): boolean => {
+      if (formals === null || Object.is(index, -0)) return false;
+      const cached = formals.slots.get(index);
+      if (cached !== undefined) return cached;
+      const exists = formals.signatures.every(call => validIndex(index, call.parameters.length) && call.parameters[index] !== undefined);
+      formals.slots.set(index, exists);
+      return exists;
+    };
     for (const input of callback.inputs) {
-      if (count === null || !validIndex(input.parameterIndex, count) ||
-        input.kind === "argument-element" && (signature === undefined || !validIndex(input.sourceParameterIndex, signature.parameters.length)) ||
+      if (!callbackFormalExists(input.parameterIndex) ||
+        input.kind === "argument-element" && !formalExists(input.sourceParameterIndex) ||
         input.kind !== "argument-element" && !receiver) {
         report("callback-input-resolves", "Callback input channels retain their actual callback formal and receiver or source parameter.");
       }
     }
     const rejection = callback.rejection;
-    if (rejection !== null && (count === null || !validIndex(rejection, count))) {
+    if (rejection !== null && !callbackFormalExists(rejection)) {
       report("callback-input-resolves", "A callback rejection channel names an actual callback formal.");
     }
   }
   let previousInvocationOnly = -1;
   for (const parameter of summary.invocationOnlyParameters) {
     if (parameter <= previousInvocationOnly) report("invocation-only-parameters-order", "Invocation-only parameters are distinct and ordered by declaration index.");
-    if (signature === undefined || !validIndex(parameter, signature.parameters.length)) {
+    if (!formalExists(parameter)) {
       report("invocation-only-parameter-resolves", "An invocation-only index names an actual declaration parameter.");
     }
     previousInvocationOnly = parameter;

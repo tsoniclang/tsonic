@@ -1368,6 +1368,80 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await summaryOpposite("actual callback signature ID must equal its table position", oneCallback,
     (input, supplied) => { supplied.types.signatures[1].id = 2; },
     [violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter.")]);
+  const formalSummary = (input, supplied) => {
+    oneParameter(input, supplied);
+    input.arena = emptySummary().arena;
+    input.result = 0;
+    supplied.scopeRows.summary = [];
+  };
+  const formalCallback = (input, supplied) => {
+    formalSummary(input, supplied);
+    oneCallback(input, supplied);
+  };
+  await summaryOpposite("a sparse declaration formal cannot become an actual callback parameter", formalCallback,
+    (input, supplied) => { supplied.types.signatures[0].parameters = new Array(1); },
+    [violation("callback-parameter-resolves", summarySite(), "A callback names an actual parameter of the summary signature.")]);
+  await summaryOpposite("a parameter producer resolves its actual declaration formal rather than the array length", (input, supplied) => {
+    formalSummary(input, supplied); input.arena.producers = [{ id: 0, path: null, kind: "parameter", index: 0 }];
+  }, (input, supplied) => { supplied.types.signatures[0].parameters = new Array(1); },
+  [violation("summary-finite", summarySite(), "A summary producer retains its actual formal, receiver or captured-location slot.")]);
+  await summaryOpposite("parameter retention resolves its actual declaration formal rather than the array length", (input, supplied) => {
+    formalSummary(input, supplied); input.arena.producers = [arena().producers[0]];
+    input.retention = [{ source: 0, into: { kind: "parameter", index: 0, path: null } }];
+  }, (input, supplied) => { supplied.types.signatures[0].parameters = new Array(1); },
+  [violation("cross-owner-qualified", summarySite(), "A retention target retains its actual declaration, formal, capture, path or boundary owner.")]);
+  await summaryOpposite("a callback argument source resolves a different actual declaration formal", (input, supplied) => {
+    formalCallback(input, supplied); supplied.types.signatures[0].parameters.push(parameter(definitions.capture));
+    input.parameters.push({ slot: { kind: "parameter", index: 1 }, reads: completePaths(), writes: completePaths() });
+    input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 1 }];
+  }, (input, supplied) => {
+    const parameters = new Array(2); parameters[0] = parameter(definitions.parameter, 3);
+    supplied.types.signatures[0].parameters = parameters;
+  }, [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  await summaryOpposite("invocation-only resolves its actual declaration formal rather than the array length", (input, supplied) => {
+    formalSummary(input, supplied); input.invocationOnlyParameters = [0];
+  }, (input, supplied) => { supplied.types.signatures[0].parameters = new Array(1); },
+  [violation("invocation-only-parameter-resolves", summarySite(), "An invocation-only index names an actual declaration parameter.")]);
+  await summaryOpposite("a callback input resolves the actual supplied callable formal", (input, supplied) => {
+    formalCallback(input, supplied); input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+  }, (input, supplied) => { supplied.types.signatures[1].parameters = new Array(1); },
+  [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  await summaryOpposite("callback rejection resolves the actual supplied callable formal", (input, supplied) => {
+    formalCallback(input, supplied); input.callbacks[0].rejection = 0;
+  }, (input, supplied) => { supplied.types.signatures[1].parameters = new Array(1); },
+  [violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal.")]);
+  for (const order of [[1, 2], [2, 1]]) await summaryOpposite(`every actual callable formal is present under signature order ${order.join(",")}`,
+    (input, supplied) => {
+      formalCallback(input, supplied);
+      supplied.types.signatures.push(signature(2, [parameter(definitions.capture)], null, definitions.other));
+      supplied.callbackSignatures.set(arenaKey([input.key, 0]), order);
+      input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+    }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); },
+    [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  await summaryOpposite("repeated actual signature references retain the same callable formal domain", (input, supplied) => {
+    formalCallback(input, supplied); supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 1]);
+    input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+  }, (input, supplied) => { supplied.types.signatures[1].parameters = new Array(1); },
+  [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  await summaryOpposite("a cached missing callback formal remains missing for its rejection channel", (input, supplied) => {
+    formalCallback(input, supplied);
+    input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+    input.callbacks[0].rejection = 0;
+  }, (input, supplied) => { supplied.types.signatures[1].parameters = new Array(1); }, [
+    violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
+    violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
+  ]);
+  for (const channel of ["input", "rejection"]) await summaryOpposite(`negative-zero ${channel} does not alias a cached actual callable formal`,
+    (input, supplied) => {
+      formalCallback(input, supplied);
+      input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+      input.callbacks[0].rejection = 0;
+    }, input => {
+      if (channel === "input") input.callbacks[0].inputs[0].parameterIndex = -0;
+      else input.callbacks[0].rejection = -0;
+    }, [violation("callback-input-resolves", summarySite(), channel === "input"
+      ? "Callback input channels retain their actual callback formal and receiver or source parameter."
+      : "A callback rejection channel names an actual callback formal.")]);
   for (const kind of ["optional", "union", "param"]) {
     await summaryOpposite(`actual ${kind} callback signature inventory supplies channel shape`, (input, supplied) => {
       oneCallback(input, supplied);
@@ -2474,7 +2548,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "declare const facts: BodyFacts; declare const summary: Summary; declare const metadata: MetadataRecord; declare const graph: CallGraph; declare const context: FactsVerificationContext; declare const mir: MirBody;",
         'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context)]; void values;',
       ].join("\n");
-      const cases = [["all-ports", "", []], ["facts-readonly", "facts.instance.body = facts.instance.body;", [2540]],
+      const cases = [["all-ports", "", []], ["sparse-signature-parameters", [
+        'import type { Signature, SignatureParameter } from "./packages/host/src/ir-types/contract.js";',
+        "declare const actualSignature: Signature;",
+        "const parameters: readonly SignatureParameter[] = new Array<SignatureParameter>(1);",
+        "const suppliedSignature: Signature = { ...actualSignature, parameters };",
+        "verifySummary(summary, { ...context, types: { ...context.types, signatures: [suppliedSignature] } });",
+      ].join("\n"), []], ["facts-readonly", "facts.instance.body = facts.instance.body;", [2540]],
         ["summary-readonly", "summary.result = summary.result;", [2540]], ["metadata-readonly", "metadata.key.definition = metadata.key.definition;", [2540]],
         ["graph-readonly", "graph.edges = [];", [2540]], ["producer-vector-readonly", "facts.arena.producers.push(facts.arena.producers[0]);", [2339]],
         ...["parseFacts", "parseSummary", "parseMetadata", "parseCallGraph"].map(name => [name, `${name}(0);`, [2345]]),

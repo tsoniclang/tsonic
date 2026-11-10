@@ -146,7 +146,7 @@ const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> =>
   const stack: Frame[] = [];
   let root: SyntaxValue | null = null;
   let index = 0;
-  const accept = (value: SyntaxValue): void => {
+  const appendSyntaxValue = (value: SyntaxValue): void => {
     const parent = stack[stack.length - 1];
     if (parent === undefined) root = value;
     else if (parent.kind === "array") { parent.values.push(value); parent.phase = "separator"; }
@@ -160,7 +160,7 @@ const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> =>
       const close = frame.kind === "array" ? "]" : ")";
       if ((frame.phase === "first" || frame.phase === "separator") && token.text === close) {
         stack.pop(); index += 1;
-        accept(frame.kind === "array" ? { kind: "array", offset: frame.offset, values: frame.values }
+        appendSyntaxValue(frame.kind === "array" ? { kind: "array", offset: frame.offset, values: frame.values }
           : { kind: "record", offset: frame.offset, end: token.offset, label: frame.label, fields: frame.fields }); continue;
       }
       if (frame.phase === "separator") {
@@ -177,7 +177,7 @@ const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> =>
         frame.phase = "value"; index += 1; continue;
       }
     } else if (root !== null) return reject(state, token.offset, ["end of document"]);
-    if (token.kind === "scalar") { accept({ kind: "scalar", offset: token.offset, value: token.value }); index += 1; continue; }
+    if (token.kind === "scalar") { appendSyntaxValue({ kind: "scalar", offset: token.offset, value: token.value }); index += 1; continue; }
     if (token.text === "[") { stack.push({ kind: "array", offset: token.offset, values: [], phase: "first" }); index += 1; continue; }
     if (token.kind === "word") {
       const next = tokens[index + 1];
@@ -187,7 +187,7 @@ const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> =>
       }
       const item = tokens[index + 2];
       if (next?.text === ":" && item?.kind === "scalar" && (typeof item.value === "number" || typeof item.value === "string")) {
-        accept({ kind: "identity", offset: token.offset, prefix: token.text, value: item.value }); index += 3; continue;
+        appendSyntaxValue({ kind: "identity", offset: token.offset, prefix: token.text, value: item.value }); index += 3; continue;
       }
     }
     return reject(state, token.offset, ["IR value"]);
