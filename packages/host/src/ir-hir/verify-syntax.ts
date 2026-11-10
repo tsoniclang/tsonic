@@ -1,4 +1,4 @@
-import type { HirModule, HirBody, HirNode, HirRule, HirSite } from "./contract.js";
+import type { HirModule, HirBody, HirNode, HirRule, HirSite, PlainTokenKind } from "./contract.js";
 import type { BodyId, DefId, SourceNodeRef } from "../ids/contract.js";
 import type { HirDataWork, HirFieldVisit } from "./walk.js";
 import { walkHirFields } from "./walk.js";
@@ -37,19 +37,102 @@ export interface HirLiteralShape {
   readonly values: readonly (string | number | boolean | null)[];
 }
 
-export type HirShape = string
-  | { readonly kind: "identity"; readonly prefix: string; readonly value: "string" | "number" }
-  | HirLiteralShape
-  | { readonly kind: "array"; readonly element: HirShape }
-  | { readonly kind: "choice"; readonly alternatives: readonly HirShape[] }
-  | { readonly kind: "record"; readonly label: string; readonly fields: readonly HirField[]; readonly syntax: boolean }
-  | { readonly kind: "dictionary"; readonly label: string; readonly element: HirShape };
+export interface HirIdentityShape {
+  readonly kind: "identity";
+  readonly prefix: string;
+  readonly value: "string" | "number";
+}
+export interface HirArrayShape { readonly kind: "array"; readonly element: HirShape }
+export interface HirChoiceShape { readonly kind: "choice"; readonly alternatives: readonly HirShape[] }
+export interface HirRecordShape {
+  readonly kind: "record";
+  readonly label: string;
+  readonly fields: readonly HirField[];
+  readonly syntax: boolean;
+}
+export interface HirDictionaryShape { readonly kind: "dictionary"; readonly label: string; readonly element: HirShape }
 
+export type HirSyntaxName = PlainTokenKind
+  | "Identifier" | "PrivateIdentifier" | "QualifiedName" | "ComputedPropertyName" | "Decorator" | "EmptyStatement"
+  | "IfStatement" | "DoStatement" | "WhileStatement" | "ForStatement" | "ForInStatement" | "ForOfStatement"
+  | "BreakStatement" | "ContinueStatement" | "ReturnStatement" | "WithStatement" | "SwitchStatement" | "CaseBlock"
+  | "CaseClause" | "DefaultClause" | "ThrowStatement" | "TryStatement" | "CatchClause" | "DebuggerStatement"
+  | "LabeledStatement" | "ExpressionStatement" | "Block" | "VariableStatement" | "VariableDeclaration"
+  | "VariableDeclarationList" | "ObjectBindingPattern" | "ArrayBindingPattern" | "Parameter" | "BindingElement"
+  | "MissingDeclaration" | "FunctionDeclaration" | "ClassDeclaration" | "ClassExpression" | "HeritageClause"
+  | "InterfaceDeclaration" | "TypeAliasDeclaration" | "JSTypeAliasDeclaration" | "EnumMember" | "EnumDeclaration"
+  | "ModuleBlock" | "NotEmittedStatement" | "NotEmittedTypeElement" | "ImportDeclaration" | "JSImportDeclaration"
+  | "ExternalModuleReference" | "NamespaceImport" | "NamedImports" | "ExportAssignment"
+  | "NamespaceExportDeclaration" | "NamespaceExport" | "NamedExports" | "ExportSpecifier" | "CallSignature"
+  | "ConstructSignature" | "Constructor" | "GetAccessor" | "SetAccessor" | "IndexSignature" | "MethodSignature"
+  | "MethodDeclaration" | "PropertySignature" | "PropertyDeclaration" | "SemicolonClassElement"
+  | "ClassStaticBlockDeclaration" | "OmittedExpression" | "StringLiteral" | "NumericLiteral" | "BigIntLiteral"
+  | "RegularExpressionLiteral" | "NoSubstitutionTemplateLiteral" | "BinaryExpression" | "PrefixUnaryExpression"
+  | "PostfixUnaryExpression" | "YieldExpression" | "ArrowFunction" | "FunctionExpression" | "AsExpression"
+  | "SatisfiesExpression" | "ConditionalExpression" | "PropertyAccessExpression" | "ElementAccessExpression"
+  | "CallExpression" | "NewExpression" | "MetaProperty" | "NonNullExpression" | "SpreadElement"
+  | "TemplateExpression" | "TemplateSpan" | "TaggedTemplateExpression" | "ParenthesizedExpression"
+  | "ArrayLiteralExpression" | "ObjectLiteralExpression" | "SpreadAssignment" | "PropertyAssignment"
+  | "ShorthandPropertyAssignment" | "DeleteExpression" | "TypeOfExpression" | "VoidExpression" | "AwaitExpression"
+  | "TypeAssertionExpression" | "UnionType" | "IntersectionType" | "ConditionalType" | "TypeOperator"
+  | "InferType" | "ArrayType" | "IndexedAccessType" | "TypeReference" | "ExpressionWithTypeArguments"
+  | "LiteralType" | "ThisType" | "TypePredicate" | "ImportAttribute" | "ImportAttributes" | "TypeQuery"
+  | "MappedType" | "TypeLiteral" | "TupleType" | "NamedTupleMember" | "OptionalType" | "RestType"
+  | "ParenthesizedType" | "FunctionType" | "ConstructorType" | "TemplateHead" | "TemplateMiddle" | "TemplateTail"
+  | "TemplateLiteralType" | "TemplateLiteralTypeSpan" | "PartiallyEmittedExpression" | "JsxElement"
+  | "JsxAttributes" | "JsxNamespacedName" | "JsxOpeningElement" | "JsxSelfClosingElement" | "JsxFragment"
+  | "JsxOpeningFragment" | "JsxClosingFragment" | "JsxAttribute" | "JsxSpreadAttribute" | "JsxClosingElement"
+  | "JsxExpression" | "JsxText" | "SyntaxList" | "JSDoc" | "JSDocTypeExpression" | "JSDocNonNullableType"
+  | "JSDocNullableType" | "JSDocAllType" | "JSDocVariadicType" | "JSDocOptionalType" | "JSDocTypeTag"
+  | "JSDocUnknownTag" | "JSDocTemplateTag" | "JSDocReturnTag" | "JSDocPublicTag" | "JSDocPrivateTag"
+  | "JSDocProtectedTag" | "JSDocReadonlyTag" | "JSDocOverrideTag" | "JSDocDeprecatedTag" | "JSDocSeeTag"
+  | "JSDocImplementsTag" | "JSDocAugmentsTag" | "JSDocSatisfiesTag" | "JSDocThrowsTag" | "JSDocThisTag"
+  | "JSDocImportTag" | "JSDocCallbackTag" | "JSDocOverloadTag" | "JSDocTypedefTag" | "JSDocSignature"
+  | "JSDocNameReference" | "SourceFile" | "ModuleDeclaration" | "ImportEqualsDeclaration" | "ExportDeclaration"
+  | "ImportType" | "ImportClause" | "ImportSpecifier" | "JSDocText" | "JSDocLink" | "JSDocLinkPlain"
+  | "JSDocLinkCode" | "TypeParameter" | "SyntheticReferenceExpression" | "JSDocTypeLiteral" | "JSDocParameterTag"
+  | "JSDocPropertyTag" | "Token" | "KeywordExpression" | "KeywordTypeNode" | "Expression" | "Statement"
+  | "TypeNode" | "BlockOrExpression" | "BodyRoot" | "NodeBody" | "ForInitializer" | "CaseOrDefaultClause"
+  | "BindingPattern" | "BindingName" | "PropertyName" | "EntityName" | "MemberName" | "ModuleName"
+  | "ModuleExportName" | "JSDocFullName" | "ModuleReference" | "NamedImportBindings" | "NamedExportBindings"
+  | "ModifierList" | "ClassElement" | "TypeElement" | "ObjectLiteralElementLike" | "LeftHandSideExpression"
+  | "LiteralTypeChild" | "BinaryOperatorToken" | "TemplateMiddleOrTail" | "TemplateLiteral"
+  | "TypePredicateParameterName" | "ImportAttributeName" | "JsxChild" | "JsxAttributeLike" | "JsxAttributeName"
+  | "JsxAttributeValue" | "JsxTagNameExpression" | "JSDocComment" | "JSDocTag" | "SyntaxFlag" | "TokenFlag"
+  | "NullKeyword" | "TrueKeyword" | "FalseKeyword" | "ThisKeyword" | "SuperKeyword" | "ImportKeyword"
+  | "AnyKeyword" | "BigIntKeyword" | "BooleanKeyword" | "IntrinsicKeyword" | "NeverKeyword" | "NumberKeyword"
+  | "ObjectKeyword" | "StringKeyword" | "SymbolKeyword" | "UndefinedKeyword" | "UnknownKeyword" | "VoidKeyword";
+type HirSchemaName = HirSyntaxName
+  | "PackageId" | "DefId" | "GroupId" | "ExpansionId" | "LocalId" | "SigId" | "TextRange" | "Origin" | "NodeRef"
+  | "ItemNodeRef" | "SourceNodeRef" | "LocalRef" | "LibraryModuleIdentity" | "TypeParameterIdentity"
+  | "TypeParameterData" | "TypeBinding" | "SelfBinding" | "BindingVector" | "ExactRational" | "LiteralValue"
+  | "LiteralTypeValue" | "NonNumericLiteralValue" | "MemberKey" | "MemberOrigin" | "PassingMode"
+  | "ConstructionDefinition" | "SumFamily" | "SumArmRole" | "ComponentSelector" | "TypeComponent"
+  | "DiagnosticCode" | "DiagnosticSite" | "MessageArgument" | "RelatedDiagnostic" | "TextEdit" | "DiagnosticFix"
+  | "Diagnostic" | "CommentDirective" | "CommentRange" | "PragmaArgument" | "PragmaArguments" | "Pragma"
+  | "CheckJsDirective" | "HirCheckerViews" | "ImportTarget" | "HirResolution" | "HirAttribute" | "HirArgument"
+  | "HirInferenceContribution" | "HirCallableEndpoint" | "HirCandidate" | "HirApplication" | "HirCandidateList"
+  | "HirProtocolFact" | "HirStoragePlace" | "HirMemoryGeometryCapture" | "HirMemoryLayoutCapture"
+  | "HirMemoryFieldCapture" | "HirObservationCapture" | "HirCapturedType" | "HirFieldMarkerCapture"
+  | "HirMarkersCapture" | "HirPointerTypeCapture" | "HirIntegerOperandCapture" | "HirAddressIntegerCapture"
+  | "HirPointerOperationCapture" | "HirAttributeCapture" | "HirSafetySelectionCapture" | "HirSafetyCapture"
+  | "HirArgumentPassingCapture" | "HirCoreCapture" | "CheckedValue" | "CheckedExpression" | "CheckedLiteral"
+  | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
+  | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
+  | "CheckedType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
+  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedEnum" | "CheckedNamespace"
+  | "HirImportBinding" | "CheckedImport" | "HirExportBinding" | "CheckedExport" | "CheckedStaticBlock"
+  | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
+  | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
+  | "HirUnaryOperator" | "HirBinaryOperator" | "ProofObligation" | "HirDiagnosticRoot" | "HirModule";
+type HirShapeBody = HirIdentityShape | HirLiteralShape | HirArrayShape | HirChoiceShape | HirRecordShape | HirDictionaryShape;
+export type HirShape = "string" | "number" | "bigint" | "boolean" | "null" | "SyntaxNode" | HirSchemaName | HirShapeBody;
 export type HirField = readonly [string, HirShape] | readonly [string, HirLiteralShape, true];
 export interface HirObject { readonly [field: string]: unknown }
-export interface HirSchema { readonly [name: string]: HirShape }
+type HirSyntaxSchema = { readonly [name in HirSyntaxName]: HirShapeBody };
+export type HirSchema = { readonly [name in HirSchemaName]: HirShapeBody };
 
-export function hirIdentity(prefix: string, value: "string" | "number"): HirShape {
+export function hirIdentity(prefix: string, value: "string" | "number"): HirIdentityShape {
   return Object.freeze({ kind: "identity", prefix, value });
 }
 
@@ -61,29 +144,29 @@ export function hirDiscriminant(name: string, ...values: readonly (string | numb
   return Object.freeze<readonly [string, HirLiteralShape, true]>([name, hirLiteral(...values), true]);
 }
 
-export function hirArray(element: HirShape): HirShape {
+export function hirArray(element: HirShape): HirArrayShape {
   return Object.freeze({ kind: "array", element });
 }
 
-export function hirChoice(...alternatives: readonly HirShape[]): HirShape {
+export function hirChoice(...alternatives: readonly HirShape[]): HirChoiceShape {
   return Object.freeze({ kind: "choice", alternatives: Object.freeze(alternatives) });
 }
 
-export function hirNullable(value: HirShape): HirShape {
+export function hirNullable(value: HirShape): HirChoiceShape {
   return hirChoice("null", value);
 }
 
-export function hirRecord(label: string, fields: readonly HirField[]): HirShape {
+export function hirRecord(label: string, fields: readonly HirField[]): HirRecordShape {
   return Object.freeze({ kind: "record", label, fields: Object.freeze(fields), syntax: false });
 }
 
-export function hirVariant(kind: string, fields: readonly HirField[]): HirShape {
+export function hirVariant(kind: string, fields: readonly HirField[]): HirRecordShape {
   return hirRecord(kind, [hirDiscriminant("kind", kind), ...fields]);
 }
 
-export function createSyntaxSchema(): HirSchema {
+export function createSyntaxSchema(): HirSyntaxSchema {
 
-  function list(element: HirShape): HirShape {
+  function list(element: HirShape): HirRecordShape {
     return hirRecord("NodeList", [["loc", "TextRange"], ["nodes", hirArray(element)]]);
   }
 
@@ -92,7 +175,7 @@ export function createSyntaxSchema(): HirSchema {
     ["flags", hirArray("SyntaxFlag")], ["loc", "TextRange"],
   ]);
 
-  function node(kind: string, metadata: HirShape, fields: readonly HirField[] = []): HirShape {
+  function node(kind: string, metadata: HirShape, fields: readonly HirField[] = []): HirRecordShape {
     return Object.freeze({ kind: "record", label: kind, syntax: true,
       fields: Object.freeze<HirField[]>([hirDiscriminant("kind", kind), ...header, ...fields, ["tsonic", metadata]]) });
   }
@@ -130,7 +213,7 @@ export function createSyntaxSchema(): HirSchema {
     ["body", hirNullable("BlockOrExpression")], ["name", hirNullable("Identifier")],
   ]);
 
-  const syntaxShapes: HirSchema = Object.freeze({
+  const syntaxShapes = Object.freeze({
     Identifier: node("Identifier", "CheckedName", [["text", "string"]]),
     PrivateIdentifier: node("PrivateIdentifier", "CheckedName", [["text", "string"]]),
     QualifiedName: node("QualifiedName", "CheckedName", [["left", "EntityName"], ["right", "Identifier"]]),
@@ -327,14 +410,14 @@ export function createSyntaxSchema(): HirSchema {
     JSDocPropertyTag: node("JSDocPropertyTag", "null", [...tag, ["name", "EntityName"], ["isBracketed", "boolean"], ["typeExpression", annotation], ["isNameFirst", "boolean"]]),
   });
 
-  const keywordExpressions: readonly string[] = Object.freeze([
+  const keywordExpressions: readonly HirSyntaxName[] = Object.freeze([
     "NullKeyword", "TrueKeyword", "FalseKeyword", "ThisKeyword", "SuperKeyword", "ImportKeyword",
   ]);
-  const keywordTypes: readonly string[] = Object.freeze([
+  const keywordTypes: readonly HirSyntaxName[] = Object.freeze([
     "AnyKeyword", "BigIntKeyword", "BooleanKeyword", "IntrinsicKeyword", "NeverKeyword", "NumberKeyword",
     "ObjectKeyword", "StringKeyword", "SymbolKeyword", "UndefinedKeyword", "UnknownKeyword", "VoidKeyword",
   ]);
-  const punctuation: readonly string[] = Object.freeze([
+  const punctuation: readonly HirSyntaxName[] = Object.freeze([
     "OpenBraceToken", "CloseBraceToken", "OpenParenToken", "CloseParenToken", "OpenBracketToken", "CloseBracketToken",
     "DotToken", "DotDotDotToken", "SemicolonToken", "CommaToken", "QuestionDotToken", "LessThanToken", "LessThanSlashToken",
     "GreaterThanToken", "LessThanEqualsToken", "GreaterThanEqualsToken", "EqualsEqualsToken", "ExclamationEqualsToken",
@@ -348,7 +431,7 @@ export function createSyntaxSchema(): HirSchema {
     "AmpersandEqualsToken", "BarEqualsToken", "BarBarEqualsToken", "AmpersandAmpersandEqualsToken",
     "QuestionQuestionEqualsToken", "CaretEqualsToken",
   ]);
-  const tokenKeywords: readonly string[] = Object.freeze([
+  const tokenKeywords: readonly HirSyntaxName[] = Object.freeze([
     "BreakKeyword", "CaseKeyword", "CatchKeyword", "ClassKeyword", "ConstKeyword", "ContinueKeyword", "DebuggerKeyword",
     "DefaultKeyword", "DeleteKeyword", "DoKeyword", "ElseKeyword", "EnumKeyword", "ExportKeyword", "ExtendsKeyword",
     "FinallyKeyword", "ForKeyword", "FunctionKeyword", "IfKeyword", "InKeyword", "InstanceOfKeyword", "NewKeyword",
@@ -360,7 +443,7 @@ export function createSyntaxSchema(): HirSchema {
     "ReadonlyKeyword", "RequireKeyword", "SatisfiesKeyword", "SetKeyword", "TypeKeyword", "UniqueKeyword", "UsingKeyword",
     "FromKeyword", "GlobalKeyword", "OverrideKeyword", "OfKeyword", "DeferKeyword",
   ]);
-  const plainTokens: readonly string[] = Object.freeze([
+  const plainTokens: readonly HirSyntaxName[] = Object.freeze([
     "Unknown", "EndOfFile", "SingleLineCommentTrivia", "MultiLineCommentTrivia", "NewLineTrivia", "WhitespaceTrivia",
     "ConflictMarkerTrivia", "NonTextFileMarkerTrivia", "JsxTextAllWhiteSpaces", "JSDocCommentTextToken",
     ...punctuation, ...tokenKeywords,
@@ -378,10 +461,163 @@ export function createSyntaxSchema(): HirSchema {
     "JsxExpression", "JsxText", "SyntheticReferenceExpression",
   ]);
 
-  const syntaxAliases: HirSchema = Object.freeze({
-    ...Object.fromEntries(plainTokens.map(kind => [kind, node(kind, "null")])),
-    ...Object.fromEntries(keywordExpressions.map(kind => [kind, node(kind, "CheckedKeyword")])),
-    ...Object.fromEntries(keywordTypes.map(kind => [kind, node(kind, "CheckedType")])),
+  const syntaxAliases = Object.freeze({
+    Unknown: node("Unknown", "null"),
+    EndOfFile: node("EndOfFile", "null"),
+    SingleLineCommentTrivia: node("SingleLineCommentTrivia", "null"),
+    MultiLineCommentTrivia: node("MultiLineCommentTrivia", "null"),
+    NewLineTrivia: node("NewLineTrivia", "null"),
+    WhitespaceTrivia: node("WhitespaceTrivia", "null"),
+    ConflictMarkerTrivia: node("ConflictMarkerTrivia", "null"),
+    NonTextFileMarkerTrivia: node("NonTextFileMarkerTrivia", "null"),
+    JsxTextAllWhiteSpaces: node("JsxTextAllWhiteSpaces", "null"),
+    OpenBraceToken: node("OpenBraceToken", "null"),
+    CloseBraceToken: node("CloseBraceToken", "null"),
+    OpenParenToken: node("OpenParenToken", "null"),
+    CloseParenToken: node("CloseParenToken", "null"),
+    OpenBracketToken: node("OpenBracketToken", "null"),
+    CloseBracketToken: node("CloseBracketToken", "null"),
+    DotToken: node("DotToken", "null"),
+    DotDotDotToken: node("DotDotDotToken", "null"),
+    SemicolonToken: node("SemicolonToken", "null"),
+    CommaToken: node("CommaToken", "null"),
+    QuestionDotToken: node("QuestionDotToken", "null"),
+    LessThanToken: node("LessThanToken", "null"),
+    LessThanSlashToken: node("LessThanSlashToken", "null"),
+    GreaterThanToken: node("GreaterThanToken", "null"),
+    LessThanEqualsToken: node("LessThanEqualsToken", "null"),
+    GreaterThanEqualsToken: node("GreaterThanEqualsToken", "null"),
+    EqualsEqualsToken: node("EqualsEqualsToken", "null"),
+    ExclamationEqualsToken: node("ExclamationEqualsToken", "null"),
+    EqualsEqualsEqualsToken: node("EqualsEqualsEqualsToken", "null"),
+    ExclamationEqualsEqualsToken: node("ExclamationEqualsEqualsToken", "null"),
+    EqualsGreaterThanToken: node("EqualsGreaterThanToken", "null"),
+    PlusToken: node("PlusToken", "null"),
+    MinusToken: node("MinusToken", "null"),
+    AsteriskToken: node("AsteriskToken", "null"),
+    AsteriskAsteriskToken: node("AsteriskAsteriskToken", "null"),
+    SlashToken: node("SlashToken", "null"),
+    PercentToken: node("PercentToken", "null"),
+    PlusPlusToken: node("PlusPlusToken", "null"),
+    MinusMinusToken: node("MinusMinusToken", "null"),
+    LessThanLessThanToken: node("LessThanLessThanToken", "null"),
+    GreaterThanGreaterThanToken: node("GreaterThanGreaterThanToken", "null"),
+    GreaterThanGreaterThanGreaterThanToken: node("GreaterThanGreaterThanGreaterThanToken", "null"),
+    AmpersandToken: node("AmpersandToken", "null"),
+    BarToken: node("BarToken", "null"),
+    CaretToken: node("CaretToken", "null"),
+    ExclamationToken: node("ExclamationToken", "null"),
+    TildeToken: node("TildeToken", "null"),
+    AmpersandAmpersandToken: node("AmpersandAmpersandToken", "null"),
+    BarBarToken: node("BarBarToken", "null"),
+    QuestionToken: node("QuestionToken", "null"),
+    ColonToken: node("ColonToken", "null"),
+    AtToken: node("AtToken", "null"),
+    QuestionQuestionToken: node("QuestionQuestionToken", "null"),
+    BacktickToken: node("BacktickToken", "null"),
+    HashToken: node("HashToken", "null"),
+    EqualsToken: node("EqualsToken", "null"),
+    PlusEqualsToken: node("PlusEqualsToken", "null"),
+    MinusEqualsToken: node("MinusEqualsToken", "null"),
+    AsteriskEqualsToken: node("AsteriskEqualsToken", "null"),
+    AsteriskAsteriskEqualsToken: node("AsteriskAsteriskEqualsToken", "null"),
+    SlashEqualsToken: node("SlashEqualsToken", "null"),
+    PercentEqualsToken: node("PercentEqualsToken", "null"),
+    LessThanLessThanEqualsToken: node("LessThanLessThanEqualsToken", "null"),
+    GreaterThanGreaterThanEqualsToken: node("GreaterThanGreaterThanEqualsToken", "null"),
+    GreaterThanGreaterThanGreaterThanEqualsToken: node("GreaterThanGreaterThanGreaterThanEqualsToken", "null"),
+    AmpersandEqualsToken: node("AmpersandEqualsToken", "null"),
+    BarEqualsToken: node("BarEqualsToken", "null"),
+    BarBarEqualsToken: node("BarBarEqualsToken", "null"),
+    AmpersandAmpersandEqualsToken: node("AmpersandAmpersandEqualsToken", "null"),
+    QuestionQuestionEqualsToken: node("QuestionQuestionEqualsToken", "null"),
+    CaretEqualsToken: node("CaretEqualsToken", "null"),
+    JSDocCommentTextToken: node("JSDocCommentTextToken", "null"),
+    BreakKeyword: node("BreakKeyword", "null"),
+    CaseKeyword: node("CaseKeyword", "null"),
+    CatchKeyword: node("CatchKeyword", "null"),
+    ClassKeyword: node("ClassKeyword", "null"),
+    ConstKeyword: node("ConstKeyword", "null"),
+    ContinueKeyword: node("ContinueKeyword", "null"),
+    DebuggerKeyword: node("DebuggerKeyword", "null"),
+    DefaultKeyword: node("DefaultKeyword", "null"),
+    DeleteKeyword: node("DeleteKeyword", "null"),
+    DoKeyword: node("DoKeyword", "null"),
+    ElseKeyword: node("ElseKeyword", "null"),
+    EnumKeyword: node("EnumKeyword", "null"),
+    ExportKeyword: node("ExportKeyword", "null"),
+    ExtendsKeyword: node("ExtendsKeyword", "null"),
+    FinallyKeyword: node("FinallyKeyword", "null"),
+    ForKeyword: node("ForKeyword", "null"),
+    FunctionKeyword: node("FunctionKeyword", "null"),
+    IfKeyword: node("IfKeyword", "null"),
+    InKeyword: node("InKeyword", "null"),
+    InstanceOfKeyword: node("InstanceOfKeyword", "null"),
+    NewKeyword: node("NewKeyword", "null"),
+    ReturnKeyword: node("ReturnKeyword", "null"),
+    SwitchKeyword: node("SwitchKeyword", "null"),
+    ThrowKeyword: node("ThrowKeyword", "null"),
+    TryKeyword: node("TryKeyword", "null"),
+    TypeOfKeyword: node("TypeOfKeyword", "null"),
+    VarKeyword: node("VarKeyword", "null"),
+    WhileKeyword: node("WhileKeyword", "null"),
+    WithKeyword: node("WithKeyword", "null"),
+    ImplementsKeyword: node("ImplementsKeyword", "null"),
+    InterfaceKeyword: node("InterfaceKeyword", "null"),
+    LetKeyword: node("LetKeyword", "null"),
+    PackageKeyword: node("PackageKeyword", "null"),
+    PrivateKeyword: node("PrivateKeyword", "null"),
+    ProtectedKeyword: node("ProtectedKeyword", "null"),
+    PublicKeyword: node("PublicKeyword", "null"),
+    StaticKeyword: node("StaticKeyword", "null"),
+    YieldKeyword: node("YieldKeyword", "null"),
+    AbstractKeyword: node("AbstractKeyword", "null"),
+    AccessorKeyword: node("AccessorKeyword", "null"),
+    AsKeyword: node("AsKeyword", "null"),
+    AssertsKeyword: node("AssertsKeyword", "null"),
+    AssertKeyword: node("AssertKeyword", "null"),
+    AsyncKeyword: node("AsyncKeyword", "null"),
+    AwaitKeyword: node("AwaitKeyword", "null"),
+    ConstructorKeyword: node("ConstructorKeyword", "null"),
+    DeclareKeyword: node("DeclareKeyword", "null"),
+    GetKeyword: node("GetKeyword", "null"),
+    ImmediateKeyword: node("ImmediateKeyword", "null"),
+    InferKeyword: node("InferKeyword", "null"),
+    IsKeyword: node("IsKeyword", "null"),
+    KeyOfKeyword: node("KeyOfKeyword", "null"),
+    ModuleKeyword: node("ModuleKeyword", "null"),
+    NamespaceKeyword: node("NamespaceKeyword", "null"),
+    OutKeyword: node("OutKeyword", "null"),
+    ReadonlyKeyword: node("ReadonlyKeyword", "null"),
+    RequireKeyword: node("RequireKeyword", "null"),
+    SatisfiesKeyword: node("SatisfiesKeyword", "null"),
+    SetKeyword: node("SetKeyword", "null"),
+    TypeKeyword: node("TypeKeyword", "null"),
+    UniqueKeyword: node("UniqueKeyword", "null"),
+    UsingKeyword: node("UsingKeyword", "null"),
+    FromKeyword: node("FromKeyword", "null"),
+    GlobalKeyword: node("GlobalKeyword", "null"),
+    OverrideKeyword: node("OverrideKeyword", "null"),
+    OfKeyword: node("OfKeyword", "null"),
+    DeferKeyword: node("DeferKeyword", "null"),
+    NullKeyword: node("NullKeyword", "CheckedKeyword"),
+    TrueKeyword: node("TrueKeyword", "CheckedKeyword"),
+    FalseKeyword: node("FalseKeyword", "CheckedKeyword"),
+    ThisKeyword: node("ThisKeyword", "CheckedKeyword"),
+    SuperKeyword: node("SuperKeyword", "CheckedKeyword"),
+    ImportKeyword: node("ImportKeyword", "CheckedKeyword"),
+    AnyKeyword: node("AnyKeyword", "CheckedType"),
+    BigIntKeyword: node("BigIntKeyword", "CheckedType"),
+    BooleanKeyword: node("BooleanKeyword", "CheckedType"),
+    IntrinsicKeyword: node("IntrinsicKeyword", "CheckedType"),
+    NeverKeyword: node("NeverKeyword", "CheckedType"),
+    NumberKeyword: node("NumberKeyword", "CheckedType"),
+    ObjectKeyword: node("ObjectKeyword", "CheckedType"),
+    StringKeyword: node("StringKeyword", "CheckedType"),
+    SymbolKeyword: node("SymbolKeyword", "CheckedType"),
+    UndefinedKeyword: node("UndefinedKeyword", "CheckedType"),
+    UnknownKeyword: node("UnknownKeyword", "CheckedType"),
+    VoidKeyword: node("VoidKeyword", "CheckedType"),
     Token: hirChoice(...plainTokens),
     KeywordExpression: hirChoice(...keywordExpressions),
     KeywordTypeNode: hirChoice(...keywordTypes),
@@ -475,6 +711,10 @@ export function isHirArray(value: unknown): value is readonly unknown[] {
   return Array.isArray(value);
 }
 
+function isHirSchemaName(name: string, schema: HirSchema): name is HirSchemaName {
+  return Object.hasOwn(schema, name);
+}
+
 interface PendingShape { readonly shape: HirShape; readonly next: PendingShape | null }
 
 export type HirResolvedValue =
@@ -499,25 +739,34 @@ export function resolveHirShape(input: HirShape, value: unknown, schema: HirSche
     const shape = pending.shape;
     pending = pending.next;
     if (typeof shape === "string") {
-      switch (shape) {
-        case "string": if (typeof value === "string") return { kind: "scalar", value, shape }; break;
-        case "number": if (typeof value === "number") return { kind: "scalar", value, shape }; break;
-        case "bigint": if (typeof value === "bigint") return { kind: "scalar", value, shape }; break;
-        case "boolean": if (typeof value === "boolean") return { kind: "scalar", value, shape }; break;
-        case "null": if (value === null) return { kind: "scalar", value, shape }; break;
-        case "SyntaxNode": {
-          if (isHirObject(value) && typeof value.kind === "string") {
-            const selected = schema[value.kind];
-            if (selected !== undefined && typeof selected !== "string" && selected.kind === "record" && selected.syntax)
-              pending = { shape: selected, next: pending };
-          }
-          break;
-        }
-        default: {
-          const selected = schema[shape];
-          if (selected !== undefined) pending = { shape: selected, next: pending };
-        }
+      if (shape === "string") {
+        if (typeof value === "string") return { kind: "scalar", value, shape };
+        continue;
       }
+      if (shape === "number") {
+        if (typeof value === "number") return { kind: "scalar", value, shape };
+        continue;
+      }
+      if (shape === "bigint") {
+        if (typeof value === "bigint") return { kind: "scalar", value, shape };
+        continue;
+      }
+      if (shape === "boolean") {
+        if (typeof value === "boolean") return { kind: "scalar", value, shape };
+        continue;
+      }
+      if (shape === "null") {
+        if (value === null) return { kind: "scalar", value, shape };
+        continue;
+      }
+      if (shape === "SyntaxNode") {
+        if (isHirObject(value) && typeof value.kind === "string" && isHirSchemaName(value.kind, schema)) {
+          const selected = schema[value.kind];
+          if (selected.kind === "record" && selected.syntax) pending = { shape: selected, next: pending };
+        }
+        continue;
+      }
+      pending = { shape: schema[shape], next: pending };
     } else {
       switch (shape.kind) {
         case "literal": {

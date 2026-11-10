@@ -1678,6 +1678,8 @@ test("HIR malformed typed fields retain exact independently selected record and 
     [original.replace("n:1=EndOfFile", "n:0=EndOfFile"), "n:0=EndOfFile", ["distinct wire binding"]],
     [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "n:3=EndOfFile", ["n:1"]],
     [original.replace("n:0=SourceFile", "n:0=InventedNode"), "InventedNode", ["syntax node declaration"]],
+    [original.replace("n:0=SourceFile", "n:0=HirBody"), "HirBody", ["syntax node declaration"]],
+    [original.replace("n:0=SourceFile", "n:0=Token"), "Token", ["syntax node declaration"]],
     [original.replace("n:0=SourceFile", "SourceFile"), "SourceFile(", ["node wire binding"]],
     [original.replace("provider=available(value=null)", 'provider=unavailable(reason="future")'), '"future"', ["declared field value"]],
   ];
@@ -1699,6 +1701,7 @@ test("HIR lexical failures retain UTF16 offsets for strings, escapes, delimiters
     ['HirModule(module=mod:"unfinished', "unfinished", "unfinished".length, ["closing quote"]],
     ["n:-0=SourceFile()", "-0", 0, ["nonnegative wire position"]],
     ["n:0.5=SourceFile()", "0.5", 0, ["nonnegative wire position"]],
+    ["n:0.0=SourceFile()", "0.0", 0, ["canonical finite number"]],
     ["n:NaN=SourceFile()", "NaN", 0, ["nonnegative wire position"]],
     ["n:-1=SourceFile()", "-1", 0, ["nonnegative wire position"]],
     ["n:+Infinity=SourceFile()", "+Infinity", 0, ["nonnegative wire position"]],
@@ -1790,6 +1793,8 @@ test("HIR strings, quoted dictionary keys and host numbers roundtrip every decla
   value.tree.commentDirectives = [{ loc: { pos: 0, end: 1 }, kind: "Unknown" }, { loc: { pos: 1, end: 2 }, kind: "ExpectError" }, { loc: { pos: 2, end: 3 }, kind: "Ignore" }];
   value.tree.checkJsDirective = { enabled: true, range: { pos: 0, end: 2, kind: "MultiLineCommentTrivia", hasTrailingNewLine: false } };
   const decoded = roundtrip(immutableTree(value), "UTF16 and dictionaries");
+  assertComplete(product.parseHir(decoded.text.replaceAll("/", "\\/")), { kind: "parsed", value },
+    "JSON solidus escapes retain the entire independently authored HIR value");
   assert.equal(Object.hasOwn(decoded.value.tree.pragmas[0].args, "__proto__"), true, "dictionary field is data, not prototype mutation");
   assert.equal(Object.getPrototypeOf(decoded.value.tree.pragmas[0].args), Object.prototype);
   for (const number of [-0, NaN, Infinity, -Infinity, 0.5, -1, 0, 1, Number.MAX_SAFE_INTEGER]) {

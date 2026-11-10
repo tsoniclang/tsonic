@@ -358,7 +358,7 @@ export const parseHir: ParseHir = text => {
   if (lexical.kind === "invalid-text") return lexical;
   const [header, ...declarations] = lexical.value;
   if (header.binding !== null) return invalidText(text, header.bindingOffset, ["HirModule"]);
-  const arena = new Map<number, MutableRecord>();
+  const arena = new Map<number, { readonly value: MutableRecord; readonly wire: TextRecord }>();
   const locations = new Map<object, Map<string | number, number>>();
   const containers: object[] = [];
   const pending: DecodeTask[] = [];
@@ -380,7 +380,7 @@ export const parseHir: ParseHir = text => {
     if (arena.has(wire.binding)) return invalidText(text, wire.bindingOffset, ["distinct wire binding"]);
     if (wire.binding !== arena.size) return invalidText(text, wire.bindingOffset, [`n:${arena.size}`]);
     const object: MutableRecord = { kind: wire.label };
-    arena.set(wire.binding, object);
+    arena.set(wire.binding, { value: object, wire });
     pending.push({ wire, shape: "SyntaxNode", target: object, put: () => {} });
   }
   pending.push({ wire: header, shape: "HirModule", target: null, put: value => { decoded = value; } });
@@ -399,7 +399,7 @@ export const parseHir: ParseHir = text => {
       if (scalar !== null && scalar.kind === "identity" && scalar.prefix === wire.prefix) {
         task.put(wire.value);
       } else {
-        const target = wire.prefix === "n" && typeof wire.value === "number" ? arena.get(wire.value) : undefined;
+        const target = wire.prefix === "n" && typeof wire.value === "number" ? arena.get(wire.value)?.value : undefined;
         const shape = target === undefined ? null : resolveHirShape(task.shape, target, hirSchema);
         if (shape !== null && shape.kind === "record" && shape.syntax) task.put(target);
         else reject(wire.offset, [typeof task.shape === "string" ? task.shape : "declared identity"]);
@@ -460,9 +460,8 @@ export const parseHir: ParseHir = text => {
   };
   if (!isHirModuleValue(decoded, hirSchema, shapeFailure)) return invalidText(text, fault.offset, [fault.expected]);
   const reachable = new Set<object>(hirSyntaxArena(decoded));
-  for (const wire of declarations) {
-    const object = wire.binding === null ? undefined : arena.get(wire.binding);
-    if (object === undefined || !reachable.has(object)) return invalidText(text, wire.bindingOffset, ["referenced syntax declaration"]);
+  for (const { value, wire } of arena.values()) {
+    if (!reachable.has(value)) return invalidText(text, wire.bindingOffset, ["referenced syntax declaration"]);
   }
   for (const container of containers) Object.freeze(container);
   return { kind: "parsed", value: decoded };

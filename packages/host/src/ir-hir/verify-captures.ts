@@ -1,18 +1,18 @@
 import type { SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
-import type { HirField, HirInventory, HirNodeEntry, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
+import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
 import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, resolveHirShape, walkHirData } from "./verify-syntax.js";
 
-function captured(value: HirShape): HirShape {
+function captured(value: HirShape): HirChoiceShape {
   return hirChoice(hirVariant("available", [["value", value]]),
     hirVariant("unavailable", [["reason", hirLiteral("checker-error", "parameter-dependent", "not-provided")]]));
 }
 
 function variants(name: string, field: string, arms: readonly (readonly [string | number, readonly HirField[]])[],
-  common: readonly HirField[] = []): HirShape {
+  common: readonly HirField[] = []): HirChoiceShape {
   return hirChoice(...arms.map(([value, fields]) => hirRecord(field === "kind" ? String(value) : name,
     [...common, hirDiscriminant(field, value), ...fields])));
 }
@@ -44,7 +44,7 @@ export function createHirSchema(): HirSchema {
   const layoutCommon: readonly HirField[] = Object.freeze([
     ["occurrence", sourceReference], ["bindings", captured("BindingVector")],
   ]);
-  const syntaxRange: HirShape = hirRecord("TextRange", range);
+  const syntaxRange: HirRecordShape = hirRecord("TextRange", range);
   const commentKinds: readonly string[] = Object.freeze(["SingleLineCommentTrivia", "MultiLineCommentTrivia"]);
   const commentFields: readonly HirField[] = Object.freeze([...range, ["hasTrailingNewLine", "boolean"]]);
 
