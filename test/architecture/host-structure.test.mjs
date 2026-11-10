@@ -8,10 +8,11 @@ import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const quarantineDataPath = process.env.TSONIC_HOST_QUARANTINE_AREAS ?? resolve(repository, "test/architecture/quarantine/areas.json");
-const quarantineRoots = JSON.parse(readFileSync(quarantineDataPath, "utf8")).areas.map(area => area.directory);
+const quarantineData = JSON.parse(readFileSync(quarantineDataPath, "utf8"));
+const quarantineRoots = quarantineData.areas.map(area => area.directory);
 const inspectionDeps = createInspectionDeps(quarantineRoots);
 const referenceRoot = quarantineRoots[0];
-const host = "packages/host/src";
+const host = quarantineData.currentRoots.hostSource;
 const file = (module, name = "unit.ts") => `${host}/${module}/${name}`;
 const data = "export interface Data { readonly value: number; }";
 const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"];
@@ -20,7 +21,7 @@ const expectedImports = Object.freeze([
   ["ir-infer", first.slice(0, 4)], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "ir-mir"]], ["query", ["ids", "diag"]],
   ["libraries", ["ids", "diag", "ir-types", "ir-facts"]], ["snapshot", ["ids", "diag"]],
-  ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries"]],
+  ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer"]],
   ["elaborate", [...first.slice(0, 5), "ir-infer"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
   ["lower-mir", first.slice(0, 6)], ["evaluate", [...first.slice(0, 6), "libraries"]],
@@ -65,6 +66,9 @@ test("the complete R6 catalogue and snapshot amendment have exactly one explicit
   assert.equal(hostCatalogue.every(module => Object.isFrozen(module) && Object.isFrozen(module.imports)), true);
   assert.equal(hostCatalogue.every(module => Object.isFrozen(module.effects) && module.effects.every(effect => Object.isFrozen(effect))), true);
   assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
+  assert.equal(JSON.stringify(hostCatalogue.filter(module => module.effects.length > 0).map(module => [module.name, module.effects])),
+    JSON.stringify(["project", "packages", "plugins", "artifacts", "orchestration"].map(name => [name,
+      [{ path: `${host}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }]])));
   assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 13);
   assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 17);
 });
@@ -121,9 +125,9 @@ test("pipeline imports real component implementations; components do not import 
   expect([[file("elaborate"), 'import { infer } from "../infer/unit.js"; export function run(deps: { readonly bias: number }, input: number): number { return infer(deps, input); }'],
     [component, implementation]], [at("forbidden-import", file("elaborate"))]);
   const ownTest = "test/host-cases/infer/function/owner.test.mjs";
-  expect([[ownTest, 'import { infer } from "../../../../packages/host/src/infer/unit.js";'], [component, implementation]], []);
+  expect([[ownTest, `import { infer } from "../../../../${host}/infer/unit.js";`], [component, implementation]], []);
   const otherTest = "test/host-cases/elaborate/function/owner.test.mjs";
-  expect([[otherTest, 'import { infer } from "../../../../packages/host/src/infer/unit.js";'], [component, implementation]], [at("forbidden-import", otherTest)]);
+  expect([[otherTest, `import { infer } from "../../../../${host}/infer/unit.js";`], [component, implementation]], [at("forbidden-import", otherTest)]);
 });
 
 test("front's sole SDK-value port is the complete tagged ExtensionOf return union", () => {
@@ -235,8 +239,9 @@ test("Node effects are catalogue-file permissions and pure modules cannot import
     expect([[effect, 'import { readFile } from "node:fs";']], [], effectsCatalogue);
     expect([[`${module.directory}/unit.ts`, 'import { readFile } from "node:fs";']], [at("forbidden-import", `${module.directory}/unit.ts`)], effectsCatalogue);
   }
-  expect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], [at("forbidden-import", file("plugins", "effects.ts"))]);
-  assert.throws(() => inspect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], { catalogue: effectsCatalogue }), /exact agreed/u);
+  const unadmittedEffects = Object.freeze(hostCatalogue.map(module => Object.freeze({ ...module, effects: Object.freeze([]) })));
+  expect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], [at("forbidden-import", file("plugins", "effects.ts"))], unadmittedEffects);
+  assert.throws(() => inspect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], { catalogue: unadmittedEffects }), /exact agreed/u);
   expect([[file("infer"), 'import type { Input } from "some-package";']], [at("forbidden-import", file("infer"))], effectsCatalogue);
 });
 

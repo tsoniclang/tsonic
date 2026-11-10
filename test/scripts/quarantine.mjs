@@ -9,7 +9,7 @@ const pins = Object.freeze([
   "ad9beca6c46dd5bdb9c3ed302e26fbd9f9975363",
 ]);
 const dataPath = "test/architecture/quarantine/areas.json";
-const dataDigest = "f54dd587361c0a0100d2376391a53a2534e83407c93b8250e02e3d3ae2543473";
+const dataDigest = "6fdd6a773df3417010703175534ce6d1370636cd9adc6f512ea5116da651e953";
 const guards = Object.freeze([
   "scripts/check-branch-hygiene.sh", "scripts/run-bounded.sh",
   ...["bounded-run.sh", "bounded-test-scope.sh", "guard-command.mjs", "guard-cgroup.mjs",

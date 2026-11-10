@@ -14,6 +14,11 @@
     }
   ],
   "oldPackages": ["cli", "create-tsonic", "source-core", "target-api", "js-source-profile"],
+  "currentRoots": {
+    "hostSource": "packages/host/src",
+    "cliSource": "packages/cli/src",
+    "createTsonicSource": "packages/create-tsonic/src"
+  },
   "oldRoots": {
     "hostSource": "packages/host/src",
     "packages": ["packages/cli", "packages/create-tsonic", "packages/source-core", "packages/target-api", "packages/js-source-profile"],

@@ -12,8 +12,9 @@ import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineDataPath = process.env.TSONIC_HOST_QUARANTINE_AREAS ?? resolve(repository, "test/architecture/quarantine/areas.json");
-const quarantineRoots = JSON.parse(readFileSync(quarantineDataPath, "utf8")).areas.map(area => area.directory);
-const host = "packages/host/src";
+const quarantineData = JSON.parse(readFileSync(quarantineDataPath, "utf8"));
+const quarantineRoots = quarantineData.areas.map(area => area.directory);
+const host = quarantineData.currentRoots.hostSource;
 const module = name => hostCatalogue.find(candidate => candidate.name === name);
 const path = (name, file = "contract.ts") => `${host}/${name}/${file}`;
 const contract = path("ir-types");
@@ -53,7 +54,7 @@ test("real infer imports actual contract-typed substitute through fresh strict p
     assert.equal(report.diagnostics.length, 2, "fresh interface emission and strict owner compilation both execute");
     assert.equal(report.findings.length, 0);
     assert.equal(report.provenance.length, 2);
-    assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/ir-types/index.d.ts")), true);
+    assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/ir-types/index.d.ts`)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/ir-types/index.ts")), false);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     for (const provenance of report.provenance) {
@@ -81,7 +82,7 @@ test("genuine public declaration production includes its explicit private implem
       assert.equal(report.status, "passed", label(report));
       assert.equal(report.loadedInventory.some(file => file.endsWith(`/interface-source/${helper}`)), true);
       assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/private.ts")), false);
-      assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/ir-types/private.d.ts")), forwarding);
+      assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/ir-types/private.d.ts`)), forwarding);
       assert.equal(report.sourceInventory.some(source => source.path === resolve(root, helper) && source.hash === createHash("sha256").update(privateText).digest("hex")), true);
       assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
       await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper, helper] }), /Distinct complete explicit/u);
@@ -169,7 +170,7 @@ test("real pipeline isolation emits only permitted component query types and the
     const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], declarationSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.provenance.length, 2);
-    assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/front/contract.d.ts")), true);
+    assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/front/contract.d.ts`)), true);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
   });

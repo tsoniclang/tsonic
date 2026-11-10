@@ -1,4 +1,7 @@
-const root = "packages/host/src";
+import { readFileSync } from "node:fs";
+
+const { currentRoots } = JSON.parse(readFileSync(new URL("../quarantine/areas.json", import.meta.url), "utf8"));
+const root = currentRoots.hostSource;
 
 const row = (name, kind, imports, directory = `${root}/${name}`, effects = []) => Object.freeze({
   name, kind, directory, contract: `${directory}/contract.ts`,
@@ -30,7 +33,7 @@ export const hostCatalogue = Object.freeze([
   row("libraries", "library", [...first(3), "ir-facts"]),
   row("snapshot", "library", first(2)),
   row("front", "component", [...first(4), "libraries", "snapshot"]),
-  row("decls", "component", [...first(4), "libraries"]),
+  row("decls", "component", [...first(4), "libraries", "ir-infer"]),
   row("rules", "component", [...first(4), "libraries", "ir-infer"]),
   row("infer", "component", [...first(4), "dataflow", "ir-infer"]),
   row("elaborate", "component", [...first(5), "ir-infer"]),
@@ -41,10 +44,12 @@ export const hostCatalogue = Object.freeze([
   ...analyses.map(name => row(`analyses/${name}`, "component", [...first(7), "dataflow"])),
   row("summaries", "component", [...first(7), "dataflow"]),
   row("pipeline", "pipeline", [...libraries, ...components]),
-  ...drivers.map(name => row(name, "driver", ["ids", "diag", "snapshot"])),
-  row("orchestration", "orchestration", ["ids", "diag", "snapshot", "ir-program", "pipeline", ...drivers]),
-  row("cli", "cli", ["orchestration", "diag", "snapshot"], "packages/cli/src"),
-  row("create-tsonic", "cli", ["orchestration", "diag", "snapshot"], "packages/create-tsonic/src"),
+  ...drivers.map(name => row(name, "driver", ["ids", "diag", "snapshot"], `${root}/${name}`,
+    [{ path: `${root}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }])),
+  row("orchestration", "orchestration", ["ids", "diag", "snapshot", "ir-program", "pipeline", ...drivers], `${root}/orchestration`,
+    [{ path: `${root}/orchestration/effects.ts`, role: "effects" }]),
+  row("cli", "cli", ["orchestration", "diag", "snapshot"], currentRoots.cliSource),
+  row("create-tsonic", "cli", ["orchestration", "diag", "snapshot"], currentRoots.createTsonicSource),
 ]);
 
 export function sourceOwner(catalogue, path) {
