@@ -311,9 +311,6 @@ export const verifyRelationalArena = (
       previous = bound;
     }
     if (origins.kind === "open") {
-      if (origins.boundaries.length === 0) {
-        report("open-boundaries-nonempty", site, "Unknown origins retain at least one explicit boundary; they are not known empty origins.");
-      }
       for (const boundary of origins.boundaries) {
         if (!validIndex(boundary, arena.boundaries.length)) {
           report("boundary-resolves", site, "Every open-origin boundary must resolve in its own arena.");

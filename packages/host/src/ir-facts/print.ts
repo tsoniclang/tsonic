@@ -233,8 +233,11 @@ const producer = (writer: Writer, value: Producer): void => {
     case "receiver": break;
     case "shared": fields.push(["definition", () => identity(writer, "def", value.definition)]); break;
     case "suspension-input": fields.push(["at", () => nodeRef(writer, value.at)], ["channel", () => scalar(writer, value.channel)]); break;
-    case "call-result": fields.push(["at", () => nodeRef(writer, value.at)], ["callee", () => record(writer, value.callee.kind,
-      value.callee.kind === "direct" ? [["definition", () => identity(writer, "def", value.callee.definition)]] : [])]); break;
+    case "call-result": {
+      const callee = value.callee;
+      fields.push(["at", () => nodeRef(writer, value.at)], ["callee", () => record(writer, callee.kind,
+        callee.kind === "direct" ? [["definition", () => identity(writer, "def", callee.definition)]] : [])]); break;
+    }
   }
   record(writer, value.kind, fields);
 };

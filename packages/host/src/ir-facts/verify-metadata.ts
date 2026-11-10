@@ -3,7 +3,7 @@ import type { DefId, MemoryFieldId } from "../ids/contract.js";
 import type {
   FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { validIndex, verifyFactBindings } from "./verify-relations.js";
+import { sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -47,8 +47,9 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       report("occurrence-resolves", "The data-layout occurrence must retain its original qualified source identity.");
     }
     const selected = context.metadataOf(metadata.key);
-    if (selected !== null && (selected.kind !== "data-layout" || selected.fingerprint !== metadata.fingerprint ||
-      selected.byteOrder !== metadata.byteOrder || selected.addressWidth !== metadata.addressWidth)) {
+    if (selected === null || selected.kind !== "data-layout" || selected.key.definition !== metadata.key.definition ||
+      !sameBindings(selected.key.bindings, metadata.key.bindings) || selected.fingerprint !== metadata.fingerprint ||
+      selected.byteOrder !== metadata.byteOrder || selected.addressWidth !== metadata.addressWidth) {
       report("data-layout-reference-resolves", "The data-layout record must retain its selected ABI identity and descriptor.");
     }
     return Object.freeze(violations);
@@ -59,7 +60,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   const canonical = context.metadataOf(metadata.key);
   const canonicalLayouts = canonical !== null && canonical.kind !== "data-layout" ? canonical.layouts : null;
   const canonicalFields = canonical !== null && canonical.kind !== "data-layout" ? canonical.fields : null;
-  if (canonical !== null && canonical.kind !== metadata.kind) {
+  if (canonical === null || canonical.kind !== metadata.kind || canonical.key.definition !== metadata.key.definition ||
+    !sameBindings(canonical.key.bindings, metadata.key.bindings)) {
     report("cross-owner-qualified", "The metadata kind must belong to the same declaration and complete binding environment.");
   }
   const layoutAt = (id: number): MemoryLayout | undefined => {

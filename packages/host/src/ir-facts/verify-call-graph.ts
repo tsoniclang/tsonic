@@ -1,9 +1,10 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { ComponentId, DefId } from "../ids/contract.js";
-import { decodeBodyId, decodeComponentId } from "../ids/index.js";
+import { decodeBodyId, decodeComponentId, encodeKey } from "../ids/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
+import { artifactData, ownerKey, validIndex } from "./verify-relations.js";
 
 const definitionSite = (definition: DefId): FactsSite => ({
   kind: "summary", summary: { definition, bindings: { kind: "parametric" } },
@@ -25,15 +26,14 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
     if (field === 1 && left.at.node !== right.at.node) return left.at.node < right.at.node ? -1 : 1;
   }
   if (left.callee.kind === "open" && right.callee.kind === "open") {
-    const leftOwner = left.callee.boundary.owner;
-    const rightOwner = right.callee.boundary.owner;
-    if (leftOwner.kind !== rightOwner.kind) return leftOwner.kind < rightOwner.kind ? -1 : 1;
-    const leftName = leftOwner.kind === "body" ? leftOwner.instance.body : leftOwner.definition;
-    const rightName = rightOwner.kind === "body" ? rightOwner.instance.body : rightOwner.definition;
-    if (leftName !== rightName) return leftName < rightName ? -1 : 1;
-    return left.callee.boundary.boundary - right.callee.boundary.boundary;
+    const leftOwner = ownerKey(left.callee.boundary.owner);
+    const rightOwner = ownerKey(right.callee.boundary.owner);
+    if (leftOwner !== rightOwner) return leftOwner < rightOwner ? -1 : 1;
+    if (left.callee.boundary.boundary !== right.callee.boundary.boundary) return left.callee.boundary.boundary - right.callee.boundary.boundary;
   }
-  return 0;
+  const leftBindings = encodeKey(artifactData(left.bindings));
+  const rightBindings = encodeKey(artifactData(right.bindings));
+  return leftBindings === rightBindings ? 0 : leftBindings < rightBindings ? -1 : 1;
 };
 
 const reachedMembers = (
@@ -159,6 +159,14 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       const calleeComponent = membership.get(callee);
       if (callerComponent !== undefined && calleeComponent !== undefined && callerComponent !== calleeComponent) {
         dependencies.get(callerComponent)?.add(calleeComponent);
+      }
+    } else {
+      const owner = edge.callee.boundary.owner;
+      const arena = context.arenaOf(owner);
+      const definition = owner.kind === "summary" ? owner.definition : decodeBodyId(owner.instance.body);
+      const actualOwner = typeof definition === "string" ? definition : definition.kind === "decoded" ? definition.value.owner : null;
+      if (arena === null || !validIndex(edge.callee.boundary.boundary, arena.boundaries.length) || actualOwner !== edge.caller) {
+        report("cross-owner-qualified", site, "An open call retains its actual caller-owned relational boundary and complete environment.");
       }
     }
   }
