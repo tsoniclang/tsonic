@@ -1,9 +1,9 @@
-import type { TextRecord, TextValue } from "./parse.js";
-import type { HirModule, PrintHir } from "./contract.js";
-import type { HirDataPath, HirSchema, HirShape } from "./verify-syntax.js";
-import { hirDataPathText, isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
-import { createHirSchema } from "./verify-captures.js";
-import { hirSyntaxArena } from "./walk.js";
+import type { TextIdentity, TextRecord, TextValue } from "./parse.js";
+import type { HirNode, PrintHir } from "./contract.js";
+import type { HirDataPath, HirDataWork, HirRecordWork } from "./walk.js";
+import { hirDataPathText } from "./walk.js";
+import { hirModuleData, hirNodeData } from "./text-data.js";
+import { childrenOfSyntax } from "./children.js";
 
 interface TextTask {
   readonly kind: "text";
@@ -52,13 +52,13 @@ export function quoteHirText(value: string): string {
 }
 
 function scalarText(value: string | number | bigint | boolean | null): string {
+  if (value === null) return "null";
   switch (typeof value) {
     case "string": return quoteHirText(value);
     case "number":
       return Object.is(value, -0) ? "-0" : value === Number.POSITIVE_INFINITY ? "+Infinity" : String(value);
     case "bigint": return `${value}n`;
     case "boolean": return value ? "true" : "false";
-    default: return "null";
   }
 }
 
@@ -120,87 +120,90 @@ export function printHirRecords(records: readonly TextRecord[]): string {
 
 interface EncodeValue {
   readonly kind: "value";
-  readonly value: unknown;
-  readonly shape: HirShape;
+  readonly work: HirDataWork;
   readonly path: HirDataPath;
   readonly put: (value: TextValue) => void;
 }
 
 interface PendingEncode {
-  readonly task: EncodeValue | { readonly kind: "leave"; readonly value: object };
+  readonly task: EncodeValue | { readonly kind: "leave"; readonly owner: object };
   readonly next: PendingEncode | null;
 }
 
-function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyMap<object, number>, binding: number | null, hirSchema: HirSchema): TextRecord {
-  const shape = resolveHirShape(expected, value, hirSchema);
-  if (shape === null || typeof shape === "string" || shape.kind !== "record" || !isHirObject(value))
-    throw new Error("HIR text requires the declared record shape.");
+interface SyntaxBinding {
+  readonly node: HirNode;
+  readonly ordinal: number;
+}
+
+interface PendingSyntax {
+  readonly node: HirNode;
+  readonly next: PendingSyntax | null;
+}
+
+function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode) => TextIdentity, binding: number | null): TextRecord {
+  const view = work.read();
   const fields: { name: string; offset: number; value: TextValue }[] = [];
-  const root: TextRecord = { kind: "record", binding, bindingOffset: 0, offset: 0, end: 0, label: shape.label, fields };
-  let pending = shape.fields.reduceRight<PendingEncode | null>((next, [field, fieldShape]) => field === "kind" ? next : ({
-    task: { kind: "value", value: value[field], shape: fieldShape, path: { parent: null, field },
-      put: wire => { fields.push({ name: field, offset: 0, value: wire }); } }, next,
+  const root: TextRecord = { kind: "record", binding, bindingOffset: 0, offset: 0, end: 0, label: view.label, fields };
+  let pending = view.fields.reduceRight<PendingEncode | null>((next, field) => ({
+    task: { kind: "value", work: field.work, path: { parent: null, field: field.name },
+      put: wire => { fields.push({ name: field.name, offset: 0, value: wire }); } }, next,
   }), null);
-  const onPath = new Set<object>([value]);
+  const onPath = new Set<object>([view.owner]);
   while (pending !== null) {
     const task = pending.task;
     pending = pending.next;
-    if (task.kind === "leave") {
-      onPath.delete(task.value);
-      continue;
-    }
-    const selected = resolveHirShape(task.shape, task.value, hirSchema);
-    if (selected === null) throw new Error("HIR text requires the declared field shape.");
-    const data = task.value;
-    if (typeof selected !== "string" && selected.kind === "record" && selected.syntax && isHirObject(data)) {
-      const position = bindings.get(data);
-      if (position === undefined) throw new Error("HIR syntax object requires its traversal-position wire binding.");
-      task.put({ kind: "identity", offset: 0, prefix: "n", value: position });
-      continue;
-    }
-    if (data !== null && typeof data === "object") {
-      if (onPath.has(data)) throw new TypeError(`Inline value cycle at ${hirDataPathText(task.path)}`);
-      onPath.add(data);
-      pending = { task: { kind: "leave", value: data }, next: pending };
-    }
-    if (typeof selected === "string" || selected.kind === "literal") {
-      if (data === null || typeof data === "string" || typeof data === "number" || typeof data === "bigint" || typeof data === "boolean")
-        task.put({ kind: "scalar", offset: 0, value: data });
-    } else if (selected.kind === "identity") {
-      if (typeof data === "string" || typeof data === "number")
-        task.put({ kind: "identity", offset: 0, prefix: selected.prefix, value: data });
-    } else if (selected.kind === "array" && isHirArray(data)) {
-      const values: TextValue[] = [];
-      task.put({ kind: "array", offset: 0, end: 0, values });
-      pending = data.reduceRight<PendingEncode | null>((next, element, ordinal) => ({
-        task: { kind: "value", value: element, shape: selected.element, path: { parent: task.path, field: ordinal },
-          put: wire => { values.push(wire); } }, next,
-      }), pending);
-    } else if (selected.kind === "record" && isHirObject(data)) {
-      const content: { name: string; offset: number; value: TextValue }[] = [];
-      task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
-      pending = selected.fields.reduceRight<PendingEncode | null>((next, [field, fieldShape]) => field === "kind" ? next : ({
-        task: { kind: "value", value: data[field], shape: fieldShape, path: { parent: task.path, field },
-          put: wire => { content.push({ name: field, offset: 0, value: wire }); } }, next,
-      }), pending);
-    } else if (selected.kind === "dictionary" && isHirObject(data)) {
-      const content: { name: string; offset: number; value: TextValue }[] = [];
-      task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
-      pending = Object.keys(data).sort().reduceRight<PendingEncode | null>((next, field) => ({
-        task: { kind: "value", value: data[field], shape: selected.element, path: { parent: task.path, field },
-          put: wire => { content.push({ name: field, offset: 0, value: wire }); } }, next,
-      }), pending);
+    if (task.kind === "leave") { onPath.delete(task.owner); continue; }
+    const data = task.work.read();
+    switch (data.kind) {
+      case "scalar": task.put({ kind: "scalar", offset: 0, value: data.value }); break;
+      case "identity": task.put({ kind: "identity", offset: 0, prefix: data.prefix, value: data.value }); break;
+      case "array":
+      case "record": {
+        if (data.kind === "record" && data.syntax !== null) { task.put(bind(data.syntax)); break; }
+        if (onPath.has(data.owner)) throw new TypeError(`Inline value cycle at ${hirDataPathText(task.path)}`);
+        onPath.add(data.owner);
+        pending = { task: { kind: "leave", owner: data.owner }, next: pending };
+        if (data.kind === "array") {
+          const values: TextValue[] = [];
+          task.put({ kind: "array", offset: 0, end: 0, values });
+          pending = data.value.reduceRight<PendingEncode | null>((next, element, ordinal) => ({
+            task: { kind: "value", work: element, path: { parent: task.path, field: ordinal },
+              put: wire => { values.push(wire); } }, next,
+          }), pending);
+        } else {
+          const content: { name: string; offset: number; value: TextValue }[] = [];
+          task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: data.label, fields: content });
+          pending = data.fields.reduceRight<PendingEncode | null>((next, field) => ({
+            task: { kind: "value", work: field.work, path: { parent: task.path, field: field.name },
+              put: wire => { content.push({ name: field.name, offset: 0, value: wire }); } }, next,
+          }), pending);
+        }
+      }
     }
   }
   return root;
 }
 
-export const printHir: PrintHir = (module: HirModule): string => {
-  const hirSchema = createHirSchema();
-  const arena = hirSyntaxArena(module);
-  const bindings = new Map<object, number>();
-  arena.forEach((node, ordinal) => { bindings.set(node, ordinal); });
-  const records: TextRecord[] = [encodeHirRecord(module, "HirModule", bindings, null, hirSchema)];
-  arena.forEach((node, ordinal) => { records.push(encodeHirRecord(node, "SyntaxNode", bindings, ordinal, hirSchema)); });
+export const printHir: PrintHir = module => {
+  const bindings = new Map<HirNode, TextIdentity>();
+  const arena: SyntaxBinding[] = [];
+  const bind = (node: HirNode): TextIdentity => {
+    const previous = bindings.get(node);
+    if (previous !== undefined) return previous;
+    const root: TextIdentity = { kind: "identity", offset: 0, prefix: "n", value: arena.length };
+    let pending: PendingSyntax | null = { node, next: null };
+    while (pending !== null) {
+      const frame = pending;
+      pending = frame.next;
+      if (bindings.has(frame.node)) continue;
+      const ordinal = arena.length;
+      bindings.set(frame.node, { kind: "identity", offset: 0, prefix: "n", value: ordinal });
+      arena.push({ node: frame.node, ordinal });
+      pending = childrenOfSyntax(frame.node).reduceRight<PendingSyntax | null>((next, child) => ({ node: child, next }), pending);
+    }
+    return root;
+  };
+  const records: TextRecord[] = [encodeHirRecord(hirModuleData(module), bind, null)];
+  for (const entry of arena) records.push(encodeHirRecord(hirNodeData(entry.node), bind, entry.ordinal));
   return printHirRecords(records);
 };

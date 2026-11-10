@@ -2,8 +2,9 @@ import type { SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
 import type { HirField, HirInventory, HirNodeEntry, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
+import { hirCoreData } from "./text-data.js";
 import { hirArray, hirChoice, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
-  createSyntaxSchema, resolveHirShape, walkHirData, checkHirShape } from "./verify-syntax.js";
+  createSyntaxSchema, resolveHirShape, walkHirData } from "./verify-syntax.js";
 
 function captured(value: HirShape): HirShape {
   return hirChoice(hirVariant("available", [["value", value]]),
@@ -417,10 +418,6 @@ interface MemoryVisit {
   readonly next: MemoryVisit | null;
 }
 
-function sourceReferenceValue(value: unknown, hirSchema: HirSchema): value is SourceNodeRef {
-  return checkHirShape(value, "SourceNodeRef", hirSchema);
-}
-
 function sameNode(left: SourceNodeRef, right: SourceNodeRef, readers: HirCaptureReaders): boolean {
   const first = readers.nodeOf(left);
   const second = readers.nodeOf(right);
@@ -501,7 +498,7 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
 
 function verifyObservation(observation: HirObservationCapture, node: HirNode, site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
   const occurrence: SourceNodeRef = { kind: "body", value: observation.occurrence };
-  if (!sameNode(occurrence, readers.referenceOf(node), readers))
+  if (readers.nodeOf(occurrence) !== node)
     report("observation-capture-owner", site, "observation must retain its exact owning occurrence");
   if (observation.operation === "field-offset") {
     if (observation.selector === null || observation.field.kind === "available" && observation.field.value === null)
@@ -554,8 +551,8 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
     }
     if (!("core" in metadata)) continue;
     const coreCapture = metadata.core;
-    walkHirData({ value: coreCapture, shape: "HirCoreCapture", node, body: null, site }, hirSchema, data => {
-      if (data.shape === "SourceNodeRef" && sourceReferenceValue(data.value, hirSchema) && readers.nodeOf(data.value) === null)
+    walkHirData({ work: hirCoreData(coreCapture), node, body: null, site }, data => {
+      if (data.reference.kind === "SourceNodeRef" && readers.nodeOf(data.reference.value) === null)
         report("core-capture-reference", site, "Core capture reference must retain an existing qualified source node");
     });
     if (coreCapture.markers.kind === "available") {

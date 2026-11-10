@@ -1,5 +1,7 @@
 import type { HirModule, HirBody, HirNode, HirRule, HirSite } from "./contract.js";
 import type { BodyId, DefId, SourceNodeRef } from "../ids/contract.js";
+import type { HirDataWork, HirFieldVisit } from "./walk.js";
+import { walkHirFields } from "./walk.js";
 
 export interface HirNodeEntry {
   readonly node: HirNode;
@@ -561,78 +563,14 @@ export function isHirModuleValue(value: unknown, schema: HirSchema,
 }
 
 export interface HirDataRoot {
-  readonly value: unknown;
-  readonly shape: HirShape;
+  readonly work: HirDataWork;
   readonly site: HirSite;
   readonly node: HirNode | null;
   readonly body: HirBody | null;
 }
 
-export interface HirDataVisit extends HirDataRoot {
-  readonly selected: HirShape;
-  readonly parent: HirObject | null;
-  readonly field: string | null;
-}
+export interface HirDataVisit extends HirDataRoot, HirFieldVisit {}
 
-export interface HirDataPath {
-  readonly parent: HirDataPath | null;
-  readonly field: string | number;
-}
-
-export function hirDataPathText(path: HirDataPath | null): string {
-  const fields: (string | number)[] = [];
-  for (let current = path; current !== null; current = current.parent) fields.push(current.field);
-  const pieces: string[] = ["$"];
-  for (const field of fields.reverse()) pieces.push(typeof field === "number" ? `[${field}]` :
-    /^[A-Za-z_][A-Za-z0-9_]*$/u.test(field) ? `.${field}` : `[${JSON.stringify(field)}]`);
-  return pieces.join("");
-}
-
-interface PendingData {
-  readonly root: HirDataRoot;
-  readonly parent: HirObject | null;
-  readonly field: string | null;
-  readonly path: HirDataPath | null;
-  readonly leave: boolean;
-  readonly next: PendingData | null;
-}
-
-export function walkHirData(root: HirDataRoot, schema: HirSchema, visit: (data: HirDataVisit) => void): void {
-  let pending: PendingData | null = { root, parent: null, field: null, path: null, leave: false, next: null };
-  const onPath = new Set<object>();
-  while (pending !== null) {
-    const frame = pending;
-    pending = frame.next;
-    const data = frame.root.value;
-    if (frame.leave) {
-      if (data !== null && typeof data === "object") onPath.delete(data);
-      continue;
-    }
-    const selected = resolveHirShape(frame.root.shape, data, schema);
-    if (selected === null) throw new Error("HIR data must inhabit its declared type.");
-    visit({ ...frame.root, selected, parent: frame.parent, field: frame.field });
-    if (typeof selected === "string") continue;
-    if (selected.kind === "record" && selected.syntax && frame.path !== null) continue;
-    if (data !== null && typeof data === "object") {
-      if (onPath.has(data)) throw new TypeError(`Inline value cycle at ${hirDataPathText(frame.path)}`);
-      onPath.add(data);
-      pending = { ...frame, leave: true, next: pending };
-    }
-    if (selected.kind === "array" && isHirArray(data)) {
-      pending = data.reduceRight<PendingData | null>((next, value, ordinal) => ({
-        root: { ...frame.root, value, shape: selected.element }, parent: null, field: frame.field,
-        path: { parent: frame.path, field: ordinal }, leave: false, next,
-      }), pending);
-    } else if (selected.kind === "record" && isHirObject(data)) {
-      pending = selected.fields.reduceRight<PendingData | null>((next, [field, shape]) => ({
-        root: { ...frame.root, value: data[field], shape }, parent: data, field,
-        path: { parent: frame.path, field }, leave: false, next,
-      }), pending);
-    } else if (selected.kind === "dictionary" && isHirObject(data)) {
-      pending = Object.keys(data).sort().reduceRight<PendingData | null>((next, field) => ({
-        root: { ...frame.root, value: data[field], shape: selected.element }, parent: data, field,
-        path: { parent: frame.path, field }, leave: false, next,
-      }), pending);
-    }
-  }
+export function walkHirData(root: HirDataRoot, visit: (data: HirDataVisit) => void): void {
+  walkHirFields(root.work, data => { visit({ ...root, ...data }); });
 }

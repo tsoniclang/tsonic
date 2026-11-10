@@ -17,7 +17,7 @@ const moduleIdentity = "M[P[%002Fproject];main.ts]";
 const definitionIdentity = `D[${moduleIdentity}]`;
 const bodyIdentity = `B[${definitionIdentity};module;0]`;
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const runtimeNames = ["index", "children", "walk", "print", "parse", "verify", "verify-syntax", "verify-bindings", "verify-captures"];
+const runtimeNames = ["index", "children", "walk", "print", "parse", "verify", "verify-syntax", "verify-bindings", "verify-captures", "text-syntax", "text-data"];
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
 const ownedSources = ["contract", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
@@ -1609,7 +1609,7 @@ test("HIR text grammar rejects complete independently authored field, value and 
     ["HirModule(module=mod:1n)", "1n", ["number identity"]],
     ["HirModule(module=[,])", ",]", ["identifier"]],
     ["HirModule(module=[0,])", "]", ["identifier"]],
-    ["HirModule(module=0x10)", "0x10", ["canonical finite number"]],
+    ["HirModule(module=0x10)", "x10", [",", ")"]],
     ["HirModule(module=01)", "01", ["canonical finite number"]],
     ["HirModule(module=1.0)", "1.0", ["canonical finite number"]],
     ["HirModule(module=1e999)", "1e999", ["canonical finite number"]],

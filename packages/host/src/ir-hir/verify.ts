@@ -1,10 +1,11 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { ExactRational, LiteralTypeValue, LiteralValue, MemberKey } from "../ir-types/contract.js";
+import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
 import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport, HirSchema } from "./verify-syntax.js";
-import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
+import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
+import { walkHirData } from "./verify-syntax.js";
+import { hirBodyData, hirDiagnosticsData, hirItemsData, hirNodeData, hirObligationsData } from "./text-data.js";
 import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeOf, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
@@ -266,13 +267,13 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
 function verificationRoots(module: HirModule, inventory: HirInventory): readonly HirDataRoot[] {
   const moduleSite: HirSite = { kind: "module", module: module.module };
   const roots: HirDataRoot[] = [
-    { value: module.items, shape: hirArray("HirDeclarationEntry"), site: moduleSite, node: null, body: null },
-    { value: module.checkerDiagnostics, shape: hirArray("Diagnostic"), site: moduleSite, node: null, body: null },
-    { value: module.obligations, shape: hirArray("HirDiagnosticRoot"), site: moduleSite, node: null, body: null },
+    { work: hirItemsData(module.items), site: moduleSite, node: null, body: null },
+    { work: hirDiagnosticsData(module.checkerDiagnostics), site: moduleSite, node: null, body: null },
+    { work: hirObligationsData(module.obligations), site: moduleSite, node: null, body: null },
   ];
-  for (const entry of inventory.entries) roots.push({ value: entry.node, shape: "SyntaxNode",
+  for (const entry of inventory.entries) roots.push({ work: hirNodeData(entry.node),
     site: { kind: "node", node: entry.source }, node: entry.node, body: entry.body });
-  for (const body of module.bodies) roots.push({ value: body, shape: "HirBody",
+  for (const body of module.bodies) roots.push({ work: hirBodyData(body),
     site: { kind: "body", body: body.body }, node: null, body });
   return roots;
 }
@@ -534,12 +535,8 @@ function literalMatches(value: LiteralValue | LiteralTypeValue): boolean {
   return true;
 }
 
-function memberKeyValue(value: unknown, schema: HirSchema): value is MemberKey {
-  return checkHirShape(value, "MemberKey", schema);
-}
-
 function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport,
-  roots: readonly HirDataRoot[], schema: HirSchema): void {
+  roots: readonly HirDataRoot[]): void {
   for (const entry of inventory.entries) {
     const node = entry.node;
     const metadata = node.tsonic;
@@ -565,9 +562,10 @@ function literalViolations(module: HirModule, inventory: HirInventory, report: H
         report("literal-exact", site, "unary literal must preserve the actual operand and sign");
     }
   }
-  for (const root of roots) walkHirData(root, schema, data => {
-    if (data.shape === "MemberKey" && memberKeyValue(data.value, schema) && data.value.kind === "number" &&
-      !normalizedRational(data.value.value)) report("literal-exact", data.site, "numeric member key must retain a normalized exact rational");
+  for (const root of roots) walkHirData(root, data => {
+    const reference = data.reference;
+    if (reference.kind === "MemberKey" && reference.value.kind === "number" &&
+      !normalizedRational(reference.value.value)) report("literal-exact", data.site, "numeric member key must retain a normalized exact rational");
   });
 }
 
@@ -580,10 +578,10 @@ export const verifyHir: VerifyHir = (module, context) => {
   declarationViolations(module, inventory, report);
   bodyViolations(module, inventory, report);
   const roots = verificationRoots(module, inventory);
-  verifyHirReferences(roots, module, inventory, context, report, hirSchema);
+  verifyHirReferences(roots, module, inventory, context, report);
   const requests: HirBindingRequest[] = [];
   candidateViolations(module, inventory, context, requests, report);
-  literalViolations(module, inventory, report, roots, hirSchema);
+  literalViolations(module, inventory, report, roots);
   obligationViolations(module, inventory, context, report);
   const readers: HirCaptureReaders = {
     nodeOf: reference => sourceNodeOf(reference, module, inventory, context),

@@ -1,11 +1,11 @@
 import type { Violation } from "../diag/contract.js";
-import type { DefId, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js";
+import type { DefId, LocalRef, SourceNodeRef } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
 import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport, HirSchema } from "./verify-syntax.js";
-import { checkHirShape, isHirObject, walkHirData } from "./verify-syntax.js";
+import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
+import { walkHirData } from "./verify-syntax.js";
 
 export type HirBindingRequest = {
   readonly vector: BindingVector;
@@ -81,18 +81,6 @@ export function verifyBindingVectors(
     });
   }
   return Object.freeze(results.flat());
-}
-
-export function isSourceNodeRef(value: unknown, hirSchema: HirSchema): value is SourceNodeRef {
-  return checkHirShape(value, "SourceNodeRef", hirSchema);
-}
-
-function isNodeRef(value: unknown, hirSchema: HirSchema): value is NodeRef {
-  return checkHirShape(value, "NodeRef", hirSchema);
-}
-
-function isLocalRef(value: unknown, hirSchema: HirSchema): value is LocalRef {
-  return checkHirShape(value, "LocalRef", hirSchema);
 }
 
 export function validHirIndex(value: number): boolean {
@@ -215,46 +203,58 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
 }
 
 export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext, report: HirReport, hirSchema: HirSchema): void {
+  inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
   const definitions = new Set<string>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   const checkedDefinitions = new Set<string>();
   const checkedBodies = new Set<string>();
   const scopeExists = new Map<string, boolean>();
-  for (const root of roots) walkHirData(root, hirSchema, data => {
-    const value = data.value;
-    if (data.shape === "HirResolution" && isHirObject(value) && value.kind === "unresolved" &&
-      typeof value.checkerDiagnostic === "number" && (!validHirIndex(value.checkerDiagnostic) || module.checkerDiagnostics[value.checkerDiagnostic] === undefined))
-      report("diagnostic-reference", data.site, "unresolved resolution must name an existing checker diagnostic");
-    if (data.shape === "NodeRef" && isNodeRef(value, hirSchema)) {
-      const reference: SourceNodeRef = { kind: "body", value };
-      if (!sourceNodeExists(reference, module, inventory, context))
-        report("cross-owner-qualified", data.site, "qualified body node must exist in its named owner");
-    } else if (data.shape === "ItemNodeRef" && data.parent !== null && isSourceNodeRef(data.parent, hirSchema)) {
-      if (!sourceNodeExists(data.parent, module, inventory, context))
-        report("cross-owner-qualified", data.site, "qualified item node must exist in its named owner");
-    } else if (data.shape === "LocalRef" && isLocalRef(value, hirSchema)) {
-      if (!localExists(value, module, inventory, context))
-        report("local-reference", data.site, "qualified local must exist in its named body");
-    }
-    if (typeof data.selected !== "string" && data.selected.kind === "identity") {
-      const prefix = data.selected.prefix;
-      if (typeof value === "number") {
-        if (prefix === "t" && (!validHirIndex(value) || context.types.terms[value] === undefined))
+  for (const root of roots) walkHirData(root, data => {
+    const reference = data.reference;
+    switch (reference.kind) {
+      case "plain": case "SourceNodeRef": case "MemberKey": break;
+      case "HirResolution": {
+        const value = reference.value;
+        if (value.kind === "unresolved" && value.checkerDiagnostic !== null &&
+          (!validHirIndex(value.checkerDiagnostic) || module.checkerDiagnostics[value.checkerDiagnostic] === undefined))
+          report("diagnostic-reference", data.site, "unresolved resolution must name an existing checker diagnostic");
+        break;
+      }
+      case "NodeRef":
+        if (!sourceNodeExists({ kind: "body", value: reference.value }, module, inventory, context))
+          report("cross-owner-qualified", data.site, "qualified body node must exist in its named owner");
+        break;
+      case "ItemNodeRef":
+        if (!sourceNodeExists({ kind: "item", value: reference.value }, module, inventory, context))
+          report("cross-owner-qualified", data.site, "qualified item node must exist in its named owner");
+        break;
+      case "LocalRef":
+        if (!localExists(reference.value, module, inventory, context))
+          report("local-reference", data.site, "qualified local must exist in its named body");
+        break;
+      case "TyId":
+        if (!validHirIndex(reference.value) || context.types.terms[reference.value] === undefined)
           report("type-reference", data.site, "type must exist in the supplied table");
-        else if (prefix === "sig" && (!validHirIndex(value) || context.types.signatures[value] === undefined))
+        break;
+      case "SigId":
+        if (!validHirIndex(reference.value) || context.types.signatures[reference.value] === undefined)
           report("signature-reference", data.site, "signature must exist in the supplied table");
-        else if (prefix === "n" && data.field !== "id" && data.shape === "NodeId" &&
-          !(data.field === "node" && data.parent !== null &&
-            (isNodeRef(data.parent, hirSchema) || checkHirShape(data.parent, "ItemNodeRef", hirSchema))) &&
-          (!validHirIndex(value) || !inventory.nodesById.has(value)))
+        break;
+      case "NodeId":
+        if (data.field !== "id" && !(data.field === "node" && (data.parent.kind === "NodeRef" || data.parent.kind === "ItemNodeRef")) &&
+          (!validHirIndex(reference.value) || !inventory.nodesById.has(reference.value)))
           report("node-reference", data.site, "node must exist in the module arena");
-        else if (prefix === "cand" && data.field !== "id" &&
-          (!validHirIndex(value) || data.body === null || data.body.candidateLists[value] === undefined))
+        break;
+      case "CandidateListId":
+        if (data.field !== "id" && (!validHirIndex(reference.value) || data.body === null || data.body.candidateLists[reference.value] === undefined))
           report("candidate-list-reference", data.site, "candidate list must exist in the containing body");
-        else if (prefix === "l" && data.shape === "LocalId" && data.field !== "id" && data.field !== "local" &&
-          (!validHirIndex(value) || data.body === null || data.body.locals[value] === undefined))
+        break;
+      case "LocalId":
+        if (data.field !== "id" && data.field !== "local" &&
+          (!validHirIndex(reference.value) || data.body === null || data.body.locals[reference.value] === undefined))
           report("local-reference", data.site, "local must exist in the containing body");
-      } else if (typeof value === "string" && prefix === "def") {
+        break;
+      case "DefId": {
+        const value = reference.value;
         const path = decodeDefId(value);
         if (path.kind === "invalid") report("definition-reference", data.site, "invalid definition identity");
         else {
@@ -263,13 +263,17 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
             for (const segment of path.value.segments) if (!validHirIndex(segment.ordinal))
               report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
           }
-          if (!definitions.has(value) && data.shape === "DefId") {
+          if (!definitions.has(value)) {
             let exists = scopeExists.get(value);
             if (exists === undefined) { exists = context.bindingScopeOf(encodeDefId(path.value)) !== null; scopeExists.set(value, exists); }
             if (!exists) report("definition-reference", data.site, "definition must exist in the canonical declaration inventory");
           }
         }
-      } else if (typeof value === "string" && prefix === "body" && !checkedBodies.has(value)) {
+        break;
+      }
+      case "BodyId": {
+        const value = reference.value;
+        if (checkedBodies.has(value)) break;
         checkedBodies.add(value);
         const path = decodeBodyId(value);
         if (path.kind === "invalid") report("body-owner", data.site, "invalid body identity");
@@ -283,7 +287,7 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
               report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
           }
           if (owner.kind === "decoded" && owner.value.module === module.module && !inventory.bodies.has(encodeBodyId(path.value)))
-            report("body-owner", data.site, "body reference must exist in its owning module");
+            report("body-owner", data.site, "body must exist in this module");
         }
       }
     }
