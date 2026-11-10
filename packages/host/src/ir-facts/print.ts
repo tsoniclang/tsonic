@@ -69,9 +69,7 @@ const identity = (writer: Writer, prefix: string, value: string | number): void 
 const record = (writer: Writer, label: string, fields: readonly Field[]): void => {
   writer.parts.push(label, "(");
   writer.pending.push(() => { writer.parts.push(")"); });
-  for (let index = fields.length - 1; index >= 0; index -= 1) {
-    const field = fields[index];
-    if (field === undefined) continue;
+  for (const [index, field] of Array.from(fields.entries()).reverse()) {
     writer.pending.push(field[1]);
     writer.pending.push(() => { writer.parts.push(field[0], "="); });
     if (index !== 0) writer.pending.push(() => { writer.parts.push(", "); });
@@ -81,9 +79,7 @@ const record = (writer: Writer, label: string, fields: readonly Field[]): void =
 const sequence = <Value>(writer: Writer, values: readonly Value[], write: (value: Value) => void): void => {
   writer.parts.push("[");
   writer.pending.push(() => { writer.parts.push(values.length === 0 ? "]" : "\n]"); });
-  for (let index = values.length - 1; index >= 0; index -= 1) {
-    const value = values[index];
-    if (value === undefined) continue;
+  for (const [index, value] of Array.from(values.entries()).reverse()) {
     writer.pending.push(() => { write(value); });
     writer.pending.push(() => { writer.parts.push(index === 0 ? "\n  " : ",\n  "); });
   }
@@ -97,9 +93,10 @@ const nullable = <Value>(writer: Writer, value: Value | null, write: (value: Val
 const finish = <Value>(value: Value, write: (writer: Writer, value: Value) => void): string => {
   const writer: Writer = { parts: [], pending: [] };
   writer.pending.push(() => { write(writer, value); });
-  while (writer.pending.length !== 0) {
+  for (;;) {
     const next = writer.pending.pop();
-    if (next !== undefined) next();
+    if (next === undefined) break;
+    next();
   }
   writer.parts.push("\n");
   return writer.parts.join("");

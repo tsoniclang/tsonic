@@ -9,7 +9,7 @@ import type {
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  declarationOf, escapeData, instanceKey, sameBindings, validIndex,
+  collectSelectionChecks, declarationOf, escapeData, instanceKey, relationalUsage, sameBindings, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 import type { FactBindingInput } from "./verify-relations.js";
@@ -131,12 +131,17 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       case "capture":
         if (!validIndex(value.index, tir.captures.length)) report("capture-locations-exact", site, "An escape retains its actual captured-location index.");
         path(value.path, site); break;
-      case "receiver": path(value.path, site); break;
+      case "receiver":
+        if (context.types.signatures[tir.signature]?.receiver === null) report("producer-resolves", site, "A receiver escape retains an actual receiver slot.");
+        path(value.path, site); break;
       case "callback": case "suspension":
         if (value.at.kind === "node") nodeRef(value.at.node, site);
-        else if (!context.libraryExportExists(value.at.identity) || context.declaredSiteCount(value.at.identity) === null ||
-          !validIndex(value.at.site, context.declaredSiteCount(value.at.identity) ?? 0)) report("declared-site-ordinal", site,
-          "An escape's declared site retains its actual library export and logical allocation ordinal.");
+        else {
+          if (!context.libraryExportExists(value.at.identity)) report("relational-site-resolves", site, "An escape retains an existing declared library export.");
+          const count = context.declaredSiteCount(value.at.identity);
+          if (count === null || !validIndex(value.at.site, count)) report("declared-site-ordinal", site,
+            "An escape's declared site retains its actual library export and logical allocation ordinal.");
+        }
         break;
       case "external": boundary(value.boundary, site); break;
     }
@@ -144,6 +149,14 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const retention = (rows: readonly RetentionFact[], site: FactsSite): void => {
     for (const row of rows) { producer(row.source, site); target(row.into, site); }
   };
+  for (const row of facts.arena.producers) {
+    const site: FactsSite = { kind: "producer", owner, producer: row.id };
+    if (row.kind === "parameter" && !validIndex(row.index, tir.params.length) ||
+      row.kind === "capture" && !validIndex(row.index, tir.captures.length) ||
+      row.kind === "receiver" && context.types.signatures[tir.signature]?.receiver === null) {
+      report("producer-resolves", site, "A producer retains its actual body parameter, receiver or captured-location slot.");
+    }
+  }
 
   ordered(facts.liveness.stores, "stores-order", row => [row.node, row.point.block, row.point.statement === null ? Number.MAX_SAFE_INTEGER : row.point.statement], row => at(row.node));
   for (const store of facts.liveness.stores) { node(store.node); point(store.point, at(store.node)); }
@@ -187,6 +200,16 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     report("integer-facts-domain-exact", bodySite, "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.");
   }
   nodeOrder(facts.refinements.countedLoops, "counted-loops-order");
+  const resolvesCounter = (reference: TirNode, counter: TirNode): boolean => {
+    if (reference.kind !== "Identifier" || counter.kind !== "VariableDeclaration") return false;
+    const annotation = reference.tsonic;
+    if (!("resolution" in annotation)) return false;
+    const resolution = annotation.resolution;
+    const declaration = counter.tsonic.declaration;
+    return resolution.kind === "local" && declaration.kind === "local"
+      ? resolution.local.body === declaration.local.body && resolution.local.local === declaration.local.local
+      : resolution.kind === "definition" && declaration.kind === "definition" && resolution.definition === declaration.definition;
+  };
   for (const loop of facts.refinements.countedLoops) {
     const site = at(loop.statement);
     for (const endpoint of [loop.statement, loop.counterDeclaration, loop.start, loop.bound, loop.body]) {
@@ -196,8 +219,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     const counter = nodes.get(loop.counterDeclaration);
     if (statement?.kind !== "ForStatement" || counter?.kind !== "VariableDeclaration" || counter.initializer?.id !== loop.start ||
       statement.statement.id !== loop.body || statement.condition?.kind !== "BinaryExpression" || statement.condition.operatorToken.kind !== "LessThanToken" ||
-      statement.condition.right.id !== loop.bound || statement.incrementor === null ||
-      (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") || statement.incrementor.operator !== "PlusPlusToken") {
+      statement.condition.right.id !== loop.bound || !resolvesCounter(statement.condition.left, counter) ||
+      statement.initializer?.kind !== "VariableDeclarationList" || statement.initializer.declarations.nodes.length !== 1 ||
+      statement.initializer.declarations.nodes[0]?.id !== counter.id || statement.incrementor === null ||
+      (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") ||
+      statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter)) {
       report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment.");
     }
   }
@@ -376,9 +402,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     const actual = facts.arena.origins[pointer.origins];
     for (const backing of pointer.producers) {
       producer(backing.producer, site, true); nodeRef(backing.operation.at, site);
-      if (actual !== undefined && !actual.producers.includes(backing.producer) ||
-        backing.operation.family === "raw-memory" && backing.operation.operation !== "reinterpret" ||
-        backing.operation.family === "typed-location" && !["allocate", "address-of", "bind-pointer", "project-pointer"].includes(backing.operation.operation)) {
+      if (actual !== undefined && !actual.producers.includes(backing.producer)) {
         report("pointer-backing-family-exact", site, "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation.");
       }
     }
@@ -465,33 +489,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         "A closed array retains actual checked declaration identities.");
       for (const reference of array.references) nodeRef(reference, site);
       for (const literal of array.literals) nodeRef(literal, site);
-      for (const element of array.elements) {
-        bindings(element.decision.bindings, site);
-        if (element.decision.read !== null) type(element.decision.read, site);
-        if (element.decision.write !== null) type(element.decision.write, site);
-      }
+      for (const element of array.elements) collectSelectionChecks(element, site, definition, context, bindingInputs, violations);
     }
   }
   for (const violation of verifyFactBindings(bindingInputs, context)) violations.push(violation);
   const limits = context.limits;
-  let exceeded = mir.blocks.length > limits.maximumBlocksPerBody || mir.places.length > limits.maximumPlacesPerBody;
-  const arena = facts.arena;
-  const depths: number[] = [];
-  let references = 0;
-  for (const projection of arena.projections) {
-    const parent = projection.parent === null ? 0 : depths[projection.parent];
-    const depth = parent === undefined ? 0 : parent + 1; depths.push(depth);
-    if (depth > limits.maximumProjectionDepth) exceeded = true;
-    if (projection.parent !== null) references += 1;
-  }
-  for (const origins of arena.origins) {
-    if (origins.producers.length > limits.maximumOriginAlternatives) exceeded = true;
-    references += origins.producers.length + (origins.kind === "open" ? origins.boundaries.length : 0);
-  }
-  for (const value of arena.contexts) references += value.arguments.length + value.captures.length + (value.receiver === null ? 0 : 1);
-  references += arena.boundProducers.length * 2 + arena.boundaries.length * 3;
-  const rows = arena.projections.length + arena.producers.length + arena.contexts.length + arena.boundProducers.length + arena.origins.length + arena.boundaries.length;
-  if (exceeded || rows > limits.maximumRelationalRecordsPerBody || references > limits.maximumRelationalReferencesPerBody) {
+  const usage = relationalUsage(facts.arena);
+  if (mir.blocks.length > limits.maximumBlocksPerBody || mir.places.length > limits.maximumPlacesPerBody ||
+    usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
+    usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody) {
     report("analysis-limits-respected", bodySite, "Published blocks, places, projection depth, alternatives, relational rows and references respect the actual six producer limits.");
   }
   return Object.freeze(violations);

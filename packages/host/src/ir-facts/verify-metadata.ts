@@ -1,9 +1,10 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { DefId, MemoryFieldId } from "../ids/contract.js";
 import type {
-  FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
+  FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
+import { collectSelectionChecks, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
+import type { FactBindingInput } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -57,6 +58,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
 
   const layouts = metadata.layouts;
   const fields = metadata.fields;
+  const memberBindings: FactBindingInput[] = [];
+  const memberViolations: Violation<FactsRule, FactsSite>[] = [];
   const canonical = context.metadataOf(metadata.key);
   const canonicalLayouts = canonical !== null && canonical.kind !== "data-layout" ? canonical.layouts : null;
   const canonicalFields = canonical !== null && canonical.kind !== "data-layout" ? canonical.fields : null;
@@ -73,9 +76,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     return selected?.id === id ? selected : undefined;
   };
   const dataLayouts = new Map<DefId, { readonly width: 32 | 64; readonly maximum: bigint } | null>();
-  for (let index = 0; index < layouts.length; index += 1) {
-    const layout = layouts[index];
-    if (layout === undefined) continue;
+  for (const [index, layout] of layouts.entries()) {
     if (layout.id !== index || !validIndex(layout.id, layouts.length)) report("layout-id-dense", "Layout IDs must equal their dense arena positions.");
     if (!validIndex(layout.source, context.types.terms.length)) {
       report("type-resolves", "A layout source type must exist in the supplied canonical type table.");
@@ -182,9 +183,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     }
   }
 
-  for (let index = 0; index < fields.length; index += 1) {
-    const field = fields[index];
-    if (field === undefined) continue;
+  for (const [index, field] of fields.entries()) {
     if (field.id !== index || !validIndex(field.id, fields.length)) report("field-id-dense", "Memory-field IDs must equal their dense arena positions.");
     if (!validIndex(field.owner, context.types.terms.length) || !validIndex(field.value, context.types.terms.length)) {
       report("type-resolves", "A field owner and value must resolve in the supplied canonical type table.");
@@ -202,6 +201,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       report("member-correspondence-exact", "A field's value type must equal its selected child layout source type.");
     }
     const selected = field.member.decision;
+    collectSelectionChecks(field.member, site, metadata.key.definition, context, memberBindings, memberViolations);
     let previous: DefId | undefined;
     for (const declaration of field.selectedDeclarations) {
       if (previous !== undefined && previous >= declaration) {
@@ -233,5 +233,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   if (metadata.kind === "memory-layout" ? layoutAt(metadata.root) === undefined : fieldAt(metadata.root) === undefined) {
     report("root-resolves", "The metadata root must resolve in its own selected layout or field arena.");
   }
+  for (const violation of verifyFactBindings(memberBindings, context)) memberViolations.push(violation);
+  for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
+    : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
   return Object.freeze(violations);
 };

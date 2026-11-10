@@ -1,0 +1,10 @@
+{
+  "kind": "refused",
+  "diagnostics": [
+    {
+      "code": "invalid-text",
+      "message": "Expected CallGraph",
+      "site": { "offset": 0, "line": 1, "column": 1, "expected": ["CallGraph"], "found": "Unknown" }
+    }
+  ]
+}

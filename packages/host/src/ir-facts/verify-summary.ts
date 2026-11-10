@@ -2,7 +2,7 @@ import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Signature } from "../ir-types/contract.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
-import { escapeData, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
+import { escapeData, nodeOwnedBy, relationalUsage, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
 
 const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
@@ -56,11 +56,16 @@ export const verifySummary: VerifySummary = (summary, context) => {
     }
   };
   const receiver = signature?.receiver !== null && signature?.receiver !== undefined;
+  for (const producer of summary.arena.producers) {
+    if (producer.kind === "parameter" && (signature === undefined || !validIndex(producer.index, signature.parameters.length)) ||
+      producer.kind === "capture" && (capturedCount === null || !validIndex(producer.index, capturedCount)) || producer.kind === "receiver" && !receiver) {
+      report("summary-finite", "A summary producer retains its actual formal, receiver or captured-location slot.");
+    }
+  }
   if (signature !== undefined && summary.parameters.length !== signature.parameters.length + (receiver ? 1 : 0)) {
     report("parameters-total", "Summary effects contain the actual receiver and every declared parameter exactly once.");
   }
-  for (let index = 0; index < summary.parameters.length; index += 1) {
-    const effect = summary.parameters[index]; if (effect === undefined) continue;
+  for (const [index, effect] of summary.parameters.entries()) {
     const position = index - (receiver ? 1 : 0);
     if (receiver && index === 0 ? effect.slot.kind !== "receiver"
       : effect.slot.kind !== "parameter" || effect.slot.index !== position) {
@@ -68,8 +73,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     }
     checkPaths(effect.reads); checkPaths(effect.writes);
   }
-  for (let index = 0; index < summary.captures.length; index += 1) {
-    const effect = summary.captures[index]; if (effect === undefined) continue;
+  for (const [index, effect] of summary.captures.entries()) {
     if (effect.index !== index) report("captures-order", "Capture effects retain the actual dense captured-location order.");
     checkPaths(effect.reads); checkPaths(effect.writes);
   }
@@ -95,6 +99,16 @@ export const verifySummary: VerifySummary = (summary, context) => {
       report("retention-source-resolves", "Every retained source is a producer in this exact summary arena.");
     }
     const target = retention.into;
+    if (target.kind === "callback" || target.kind === "suspension") {
+      if (target.at.kind === "node") {
+        if (!context.nodeExists({ kind: "body", value: target.at.node })) report("relational-site-resolves", "A retention target retains its actual source occurrence.");
+        if (!nodeOwnedBy(owner, target.at.node)) report("cross-owner-qualified", "A retention target retains its actual summary declaration owner.");
+      } else {
+        if (!context.libraryExportExists(target.at.identity)) report("relational-site-resolves", "A retention target retains its actual library export.");
+        const count = context.declaredSiteCount(target.at.identity);
+        if (count === null || !validIndex(target.at.site, count)) report("declared-site-ordinal", "A retention target retains its actual declared allocation ordinal.");
+      }
+    }
     const path = target.kind === "shared" || target.kind === "parameter" || target.kind === "capture" || target.kind === "receiver" ? target.path : null;
     if (path !== null && !validIndex(path, summary.arena.projections.length) ||
       target.kind === "parameter" && (signature === undefined || !validIndex(target.index, signature.parameters.length)) ||
@@ -141,24 +155,9 @@ export const verifySummary: VerifySummary = (summary, context) => {
     previousInvocationOnly = parameter;
   }
   const limits = context.limits;
-  const rows = summary.arena.projections.length + summary.arena.producers.length + summary.arena.contexts.length +
-    summary.arena.boundProducers.length + summary.arena.origins.length + summary.arena.boundaries.length;
-  const depths: number[] = [];
-  let references = 0;
-  let exceeded = rows > limits.maximumRelationalRecordsPerBody;
-  for (const path of summary.arena.projections) {
-    const parent = path.parent === null ? 0 : depths[path.parent];
-    const depth = parent === undefined ? 0 : parent + 1; depths.push(depth);
-    if (depth > limits.maximumProjectionDepth) exceeded = true;
-    if (path.parent !== null) references += 1;
-  }
-  for (const origins of summary.arena.origins) {
-    references += origins.producers.length + (origins.kind === "open" ? origins.boundaries.length : 0);
-    if (origins.producers.length > limits.maximumOriginAlternatives) exceeded = true;
-  }
-  for (const value of summary.arena.contexts) references += (value.receiver === null ? 0 : 1) + value.arguments.length + value.captures.length;
-  references += summary.arena.boundProducers.length * 2 + summary.arena.boundaries.length * 3;
-  if (exceeded || references > limits.maximumRelationalReferencesPerBody) {
+  const usage = relationalUsage(summary.arena);
+  if (usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody ||
+    usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives) {
     report("summary-finite", "The published summary arena respects the actual producer's finite record, reference, path and alternative limits.");
   }
   return Object.freeze(violations);

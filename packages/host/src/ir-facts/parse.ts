@@ -64,7 +64,7 @@ const lex = (state: State): Decoded<readonly Token[]> => {
     const special = state.text.startsWith("NaN", offset) ? { text: "NaN", value: NaN }
       : state.text.startsWith("+Infinity", offset) ? { text: "+Infinity", value: Infinity }
         : state.text.startsWith("-Infinity", offset) ? { text: "-Infinity", value: -Infinity } : null;
-    if (special !== null) {
+    if (special !== null && !/[A-Za-z0-9_-]/.test(state.text.charAt(offset + special.text.length))) {
       tokens.push({ kind: "scalar", text: special.text, offset, value: special.value }); offset += special.text.length; continue;
     }
     if ("()[]=,:".includes(character)) {

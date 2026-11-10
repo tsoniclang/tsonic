@@ -15,6 +15,30 @@ import type {
 export const validIndex = (index: number, length: number): boolean =>
   Number.isSafeInteger(index) && index >= 0 && index < length && !Object.is(index, -0);
 
+export const relationalUsage = (arena: RelationalArena): {
+  readonly records: number; readonly references: number; readonly depth: number; readonly alternatives: number;
+} => {
+  const depths: number[] = [];
+  let references = 0; let depth = 0; let alternatives = 0;
+  for (const path of arena.projections) {
+    const parent = path.parent === null ? 0 : depths[path.parent];
+    const current = parent === undefined ? 0 : parent + 1;
+    depths.push(current);
+    if (current > depth) depth = current;
+    if (path.parent !== null) references += 1;
+  }
+  for (const producer of arena.producers) if (producer.path !== null) references += 1;
+  for (const value of arena.contexts) references += (value.receiver === null ? 0 : 1) + value.arguments.length + value.captures.length;
+  for (const origins of arena.origins) {
+    if (origins.producers.length > alternatives) alternatives = origins.producers.length;
+    references += origins.producers.length + (origins.kind === "open" ? origins.boundaries.length : 0);
+  }
+  for (const boundary of arena.boundaries) references += 2 + (boundary.owner === null ? 0 : 1);
+  references += arena.boundProducers.length * 2;
+  return { records: arena.projections.length + arena.producers.length + arena.contexts.length +
+    arena.boundProducers.length + arena.origins.length + arena.boundaries.length, references, depth, alternatives };
+};
+
 const typeBindingData = (binding: TypeBinding): KeyData => binding.kind === "bound"
   ? [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type]
   : [binding.kind, binding.parameter.owner, binding.parameter.index];
@@ -129,6 +153,49 @@ export interface FactBindingInput {
   readonly site: FactsSite;
 }
 
+export const collectSelectionChecks = (
+  selection: MemberSelection, site: FactsSite, definition: DefId | null, context: FactsVerificationContext,
+  bindings: FactBindingInput[], violations: Violation<FactsRule, FactsSite>[],
+): void => {
+  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
+  const type = (id: number | null): void => {
+    if (id !== null && !validIndex(id, context.types.terms.length)) report("type-resolves", "A selected member type resolves in the actual supplied type table.");
+  };
+  const endpoint = (value: HirCallableEndpoint | null): void => {
+    if (value === null) return;
+    if (!context.definitionExists(value.declaration)) report("producer-resolves", "A selected member endpoint retains its actual declaration.");
+    if (!validIndex(value.signature, context.types.signatures.length) || context.types.signatures[value.signature]?.id !== value.signature) {
+      report("signature-resolves", "A selected member endpoint resolves in the actual supplied signature table.");
+    }
+  };
+  const member = selection.decision;
+  type(member.read); type(member.write); endpoint(member.getter); endpoint(member.setter);
+  for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
+    report("producer-resolves", "A selected member retains its actual selected declaration group.");
+  }
+  const owner = member.primary ?? definition;
+  if (owner !== null) bindings.push({ vector: member.bindings, definition: owner, site });
+  for (const callee of [selection.getter, selection.setter]) {
+    if (callee === null) continue;
+    const decision = callee.decision;
+    endpoint(decision.advertised); endpoint(decision.api);
+    if (!validIndex(decision.completion.signature, context.types.signatures.length)) {
+      report("signature-resolves", "A selected member completion retains its actual signature.");
+    }
+    type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
+    bindings.push({ vector: decision.bindings, definition: decision.advertised.declaration, site });
+    if (decision.implementationBindings !== null) bindings.push({ vector: decision.implementationBindings, definition: decision.api.declaration, site });
+    if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
+      const declaration = declarationOf(callee.activation);
+      if (declaration !== null) bindings.push({ vector: callee.activation.bindings.bindings, definition: declaration, site });
+    }
+    for (const capture of callee.captures) if (!context.localExists(capture)) {
+      report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
+    }
+    for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
+  }
+};
+
 export const verifyFactBindings = (
   entries: readonly FactBindingInput[],
   context: FactsVerificationContext,
@@ -198,15 +265,18 @@ export const verifyRelationalArena = (
     }
   };
   const projections = new Set<string>();
-  for (let index = 0; index < arena.projections.length; index += 1) {
-    const path = arena.projections[index];
-    if (path === undefined) continue;
+  const bindings: FactBindingInput[] = [];
+  const ownerDefinition = owner.kind === "summary" ? owner.definition : declarationOf(owner.instance);
+  for (const [index, path] of arena.projections.entries()) {
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
     if (path.parent !== null && !validIndex(path.parent, index)) {
       report("projection-parent-precedes", site, "A projection parent must reference an earlier row of the same arena.");
     }
     const projection = path.projection;
+    if (projection.kind === "field" || projection.kind === "method-value") {
+      collectSelectionChecks(projection.member, site, ownerDefinition, context, bindings, violations);
+    }
     const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
       ? [projection.kind, memberData(projection.member)]
       : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
@@ -215,9 +285,7 @@ export const verifyRelationalArena = (
     projections.add(key);
   }
   const producers = new Set<string>();
-  for (let index = 0; index < arena.producers.length; index += 1) {
-    const producer = arena.producers[index];
-    if (producer === undefined) continue;
+  for (const [index, producer] of arena.producers.entries()) {
     const site: FactsSite = { kind: "producer", owner, producer: producer.id };
     if (producer.id !== index || !validIndex(producer.id, arena.producers.length)) report("producer-id-dense", site, "Producer IDs must equal their dense arena positions.");
     if (producer.path !== null && !validIndex(producer.path, arena.projections.length)) {
@@ -261,9 +329,7 @@ export const verifyRelationalArena = (
   if (canonical === null) {
     report("cross-owner-qualified", ownerSite(owner), "The actual relational owner must resolve to its canonical arena.");
   }
-  for (let index = 0; index < arena.contexts.length; index += 1) {
-    const value = arena.contexts[index];
-    if (value === undefined) continue;
+  for (const [index, value] of arena.contexts.entries()) {
     const site: FactsSite = { kind: "context", owner, context: value.id };
     if (value.id !== index || !validIndex(value.id, arena.contexts.length)) report("context-id-dense", site, "Value-context IDs must equal their dense arena positions.");
     if (value.receiver !== null && !validIndex(value.receiver, arena.origins.length)) {
@@ -279,6 +345,11 @@ export const verifyRelationalArena = (
       (expected.arguments.length !== value.arguments.length ||
         (expected.receiver === null) !== (value.receiver === null))) {
       report("context-arguments-total", site, "A value context retains every actual parameter and the actual receiver slot.");
+    }
+    if (expected !== undefined && expected.id === value.id && expected.arguments.length === value.arguments.length &&
+      (expected.receiver === null) === (value.receiver === null) &&
+      (expected.receiver !== value.receiver || expected.arguments.some((argument, position) => argument !== value.arguments[position]))) {
+      report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives.");
     }
     let previousCapture = -1;
     for (const capture of value.captures) {
@@ -296,12 +367,8 @@ export const verifyRelationalArena = (
       report("capture-locations-exact", site, "A capture vector retains actual storage locations rather than creation-time values.");
     }
   }
-  const bindings: FactBindingInput[] = [];
-  const ownerDefinition = owner.kind === "summary" ? owner.definition : declarationOf(owner.instance);
   const alternatives = new Set<string>();
-  for (let index = 0; index < arena.boundProducers.length; index += 1) {
-    const bound = arena.boundProducers[index];
-    if (bound === undefined) continue;
+  for (const [index, bound] of arena.boundProducers.entries()) {
     const site: FactsSite = { kind: "bound-producer", owner, producer: bound.id };
     if (bound.id !== index || !validIndex(bound.id, arena.boundProducers.length)) report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions.");
     if (!validIndex(bound.producer, arena.producers.length)) {
@@ -322,9 +389,7 @@ export const verifyRelationalArena = (
       : producer?.kind === "call-result" && producer.callee.kind === "direct" ? producer.callee.definition : ownerDefinition;
     if (definition !== null) bindings.push({ vector: bound.bindings, definition, site });
   }
-  for (let index = 0; index < arena.origins.length; index += 1) {
-    const origins = arena.origins[index];
-    if (origins === undefined) continue;
+  for (const [index, origins] of arena.origins.entries()) {
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
     if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
     let previous = -1;
