@@ -328,7 +328,7 @@ test("fresh genuine emitted declarations admit the three ports and reject readon
   const negatives = [
     ["readonly-order.ts", 'import { orderDiagnostics } from "./diag/index.js"; orderDiagnostics([]).push();', 2339],
     ["wrong-code.ts", 'import { lookupDiagnostic } from "./diag/index.js"; lookupDiagnostic({ definitions: [] }, 1);', 2345],
-    ["incomplete-invariant.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ pass: "infer", query: null, origin: null });', 2345],
+    ["incomplete-invariant.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ pass: "infer", query: null, origin: null });', 2741],
     ["extra-argument.ts", 'import { orderDiagnostics } from "./diag/index.js"; orderDiagnostics([], []);', 2554],
     ["readonly-definition.ts", 'import type { DiagnosticDefinition } from "./diag/contract.js"; export function update(value: DiagnosticDefinition): void { value.template = "changed"; }', 2540],
     ["mutable-result.ts", 'import { orderDiagnostics } from "./diag/index.js"; import type { Diagnostic } from "./diag/contract.js"; export const mutable: (values: readonly Diagnostic[]) => Diagnostic[] = orderDiagnostics;', 2322],
