@@ -1,6 +1,5 @@
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { Signature } from "../ir-types/contract.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
 import { escapeData, nodeOwnedBy, relationalUsage, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
 
@@ -34,7 +33,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     violations.push({ rule, site: violation.site, detail: violation.detail });
   }
   const capturedCount = context.captureCount(summary.key);
-  if (capturedCount === null || !Number.isSafeInteger(capturedCount) || capturedCount < 0 || summary.captures.length !== capturedCount) {
+  if (capturedCount === null || !Number.isSafeInteger(capturedCount) || capturedCount < 0 || Object.is(capturedCount, -0) || summary.captures.length !== capturedCount) {
     report("captures-total", "A summary retains every location in the actual declaration capture inventory.");
   }
   const dependent = context.bindingDependentOf(summary.key.definition);
@@ -124,6 +123,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     previousRetention = [retention.source, key];
   }
   let previousCallback = -1;
+  const callbackArities = new Map<number, number | null>();
   for (const callback of summary.callbacks) {
     if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
@@ -131,18 +131,28 @@ export const verifySummary: VerifySummary = (summary, context) => {
     if (signature === undefined || !validIndex(callback.parameterIndex, signature.parameters.length) || parameter === undefined) {
       report("callback-parameter-resolves", "A callback names an actual parameter of the summary signature.");
     }
-    const type = parameter === undefined ? undefined : context.types.terms[parameter.type];
-    const calls: readonly Signature[] = type?.kind === "callable" || type?.kind === "shape"
-      ? type.calls.flatMap(id => { const selected = context.types.signatures[id]; return selected === undefined ? [] : [selected]; }) : [];
+    if (parameter !== undefined && !callbackArities.has(parameter.type)) {
+      const type = context.types.terms[parameter.type];
+      let count: number | null = null;
+      if (type?.kind === "callable" || type?.kind === "shape") {
+        for (const id of type.calls) {
+          const call = context.types.signatures[id];
+          if (call === undefined || call.id !== id) { count = null; break; }
+          if (count === null || call.parameters.length < count) count = call.parameters.length;
+        }
+      }
+      callbackArities.set(parameter.type, count);
+    }
+    const count = parameter === undefined ? null : callbackArities.get(parameter.type) ?? null;
     for (const input of callback.inputs) {
-      if (calls.length === 0 || calls.some(call => !validIndex(input.parameterIndex, call.parameters.length)) ||
+      if (count === null || !validIndex(input.parameterIndex, count) ||
         input.kind === "argument-element" && (signature === undefined || !validIndex(input.sourceParameterIndex, signature.parameters.length)) ||
         input.kind !== "argument-element" && !receiver) {
         report("callback-input-resolves", "Callback input channels retain their actual callback formal and receiver or source parameter.");
       }
     }
     const rejection = callback.rejection;
-    if (rejection !== null && (calls.length === 0 || calls.some(call => !validIndex(rejection, call.parameters.length)))) {
+    if (rejection !== null && (count === null || !validIndex(rejection, count))) {
       report("callback-input-resolves", "A callback rejection channel names an actual callback formal.");
     }
   }

@@ -353,7 +353,7 @@ export const verifyRelationalArena = (
     }
     let previousCapture = -1;
     for (const capture of value.captures) {
-      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || capture.index <= previousCapture ||
+      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) || capture.index <= previousCapture ||
         !validIndex(capture.location, arena.boundProducers.length)) {
         report("capture-locations-exact", site, "Captured locations must retain distinct ordered indices and actual bound storage locations.");
       }
@@ -410,9 +410,7 @@ export const verifyRelationalArena = (
       }
     }
   }
-  for (let index = 0; index < arena.boundaries.length; index += 1) {
-    const boundary = arena.boundaries[index];
-    if (boundary === undefined) continue;
+  for (const [index, boundary] of arena.boundaries.entries()) {
     const site: FactsSite = { kind: "boundary", owner, boundary: boundary.id };
     if (boundary.id !== index || !validIndex(boundary.id, arena.boundaries.length)) report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions.");
     checkSite(boundary.at);

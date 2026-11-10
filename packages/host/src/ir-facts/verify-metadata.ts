@@ -17,10 +17,17 @@ const aligned = (value: bigint): boolean => value > 0n && (value & (value - 1n))
 const offsetOrder = (fields: readonly OccupiedField[]): readonly OccupiedField[] => {
   let current = fields;
   for (let shift = 0n; shift < 64n; shift += 8n) {
-    const buckets: OccupiedField[][] = Array.from({ length: 256 }, () => []);
-    for (const field of current) buckets[Number((field.start >> shift) & 255n)]?.push(field);
+    const buckets = new Map<number, OccupiedField[]>();
+    for (const field of current) {
+      const index = Number((field.start >> shift) & 255n);
+      const bucket = buckets.get(index);
+      if (bucket === undefined) buckets.set(index, [field]); else bucket.push(field);
+    }
     const next: OccupiedField[] = [];
-    for (const bucket of buckets) for (const field of bucket) next.push(field);
+    for (let index = 0; index < 256; index += 1) {
+      const bucket = buckets.get(index);
+      if (bucket !== undefined) for (const field of bucket) next.push(field);
+    }
     current = next;
   }
   return current;
@@ -89,19 +96,19 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       dataLayouts.set(layout.dataLayout, selected !== null && selected.kind === "data-layout"
         ? { width: selected.addressWidth, maximum: (1n << BigInt(selected.addressWidth)) - 1n } : null);
     }
-    const abi = dataLayouts.get(layout.dataLayout);
-    if (abi === null || abi === undefined) {
+    const abi = dataLayouts.get(layout.dataLayout) ?? null;
+    if (abi === null) {
       report("data-layout-reference-resolves", "Every layout must name an actual finalized data-layout declaration.");
     }
-    if (layout.byteSize < 0n || abi !== null && abi !== undefined && layout.byteSize > abi.maximum) {
+    if (layout.byteSize < 0n || abi !== null && layout.byteSize > abi.maximum) {
       report("layout-size-exact", "The exact layout size must fit the selected ABI address domain.");
     }
-    if (!aligned(layout.byteAlignment) || abi !== null && abi !== undefined && layout.byteAlignment > abi.maximum) {
+    if (!aligned(layout.byteAlignment) || abi !== null && layout.byteAlignment > abi.maximum) {
       report("layout-alignment-valid", "Layout alignment must be an exact positive power of two in the selected ABI.");
     }
     if (layout.stride < layout.byteSize || layout.stride < 0n ||
       layout.byteAlignment > 0n && layout.stride % layout.byteAlignment !== 0n ||
-      abi !== null && abi !== undefined && layout.stride > abi.maximum) {
+      abi !== null && layout.stride > abi.maximum) {
       report("layout-stride-exact", "The exact stride must contain the value, preserve alignment and fit the selected ABI.");
     }
     const captured = canonicalLayouts?.[index];

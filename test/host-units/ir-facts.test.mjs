@@ -142,13 +142,24 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const graphText = `CallGraph(definitions=${arrayText([`def:"${definitions.f}"`])}, edges=[], components=${arrayText([
     `CallComponent(id=component:"${ids.encodeComponentId([definitions.f])}", definitions=${arrayText([`def:"${definitions.f}"`])}, dependencies=[])`])})\n`;
   const textCase = (name, value, expected, print, parse) => suite.test(name, () => {
-    assert.equal(print(value), expected, `${name}: complete independently authored text`);
+    equal(print(value), expected, `${name}: complete independently authored text`);
     equal(parse(expected), { kind: "parsed", value }, `${name}: complete decoded record`);
     equal(parse(print(value)), { kind: "parsed", value }, `${name}: lossless whole-value composition`);
   });
   await textCase("body facts required empty records and qualified identity", emptyFacts(), emptyFactsText, product.printFacts, product.parseFacts);
   await textCase("summary known empty effects", emptySummary(), emptySummaryText, product.printSummary, product.parseSummary);
   for (const width of [32, 64]) await textCase(`authored ${width}-bit ABI`, abi(width), abiText(width), product.printMetadata, product.parseMetadata);
+  {
+    const input = abi(); input.byteOrder = "big";
+    await textCase("authored big-endian ABI", input, abiText(64).replace('byteOrder="little"', 'byteOrder="big"'), product.printMetadata, product.parseMetadata);
+    await suite.test("big-endian ABI verifies against its actual selected descriptor", () => {
+      const supplied = setup(); supplied.metadataRows.set(definitions.abi64, clone(input));
+      equal(product.verifyMetadata(input, supplied.context), [], "complete selected big-endian descriptor vector");
+    });
+    const bodyOccurrence = abi(); bodyOccurrence.occurrence = { kind: "body", value: nodeRef(1) };
+    await textCase("ABI retains a typed body-owned occurrence", bodyOccurrence,
+      abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
+  }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
   await suite.test("every exported value is exactly the twelve approved own-contract ports", () => {
     assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyMetadata", "verifySummary"]);
@@ -236,6 +247,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const arenaTextCase = async (name, field, rows, authored) => {
     const input = emptyFacts(); input.arena[field] = rows;
     await textCase(name, input, emptyFactsText.replace(`${field}=[]`, `${field}=${arrayText(authored)}`), product.printFacts, product.parseFacts);
+    const retained = emptySummary(); retained.arena[field] = rows;
+    const needle = field === "origins" ? `origins=${arrayText(["complete(id=origins:0, producers=[], includesAbsence=false)"])}` : `${field}=[]`;
+    await textCase(`${name}: summary`, retained, emptySummaryText.replace(needle, `${field}=${arrayText(authored)}`), product.printSummary, product.parseSummary);
   };
   const libraryText = 'LibraryExportIdentity(module=LibraryModuleIdentity(providerId="fixture", providerVersion="1", packageName=null, moduleSpecifier="facts", providerModuleId="main"), exportId="allocation", memberId=null, signatureId=null)';
   const producerTexts = [
@@ -244,12 +258,15 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     [{ kind: "parameter", index: 0 }, "parameter(id=producer:0, path=null, index=0)"],
     [{ kind: "capture", index: 0 }, "capture(id=producer:0, path=null, index=0)"],
     [{ kind: "receiver" }, "receiver(id=producer:0, path=null)"],
-    [{ kind: "shared", definition: definitions.f }, `shared(id=producer:0, path=null, definition=def:"${definitions.f}")`],
+    [{ kind: "shared", definition: definitions.f, path: 0 }, `shared(id=producer:0, path=path:0, definition=def:"${definitions.f}")`],
     ...["sent", "return", "thrown"].map(channel => [{ kind: "suspension-input", at: nodeRef(1), channel }, `suspension-input(id=producer:0, path=null, at=${nodeText(1)}, channel="${channel}")`]),
     [{ kind: "call-result", at: nodeRef(1), callee: { kind: "direct", definition: definitions.callee } }, `call-result(id=producer:0, path=null, at=${nodeText(1)}, callee=direct(definition=def:"${definitions.callee}"))`],
     [{ kind: "call-result", at: nodeRef(1), callee: { kind: "indirect" } }, `call-result(id=producer:0, path=null, at=${nodeText(1)}, callee=indirect())`],
   ];
   for (const [row, expected] of producerTexts) await arenaTextCase(`producer transport ${expected}`, "producers", [{ id: 0, path: null, ...row }], [expected]);
+  const fullIdentity = { ...libraryIdentity, module: { ...libraryIdentity.module, packageName: "@fixture/facts" }, memberId: "field", signatureId: "call" };
+  await arenaTextCase("declared site retains every provider package member and signature identity", "producers", [{ id: 0, path: null, kind: "allocation", at: { kind: "declared", identity: fullIdentity, site: 1 } }],
+    [`allocation(id=producer:0, path=null, at=declared(identity=${libraryText.replace("packageName=null", 'packageName="@fixture/facts"').replace("memberId=null", 'memberId="field"').replace("signatureId=null", 'signatureId="call"')}, site=1))`]);
   for (const [projection, expected] of [[{ kind: "element" }, "element()"], [{ kind: "deref" }, "deref()"], [{ kind: "index", constant: 9007199254740993n }, "index(constant=9007199254740993n)"]]) {
     await arenaTextCase(`projection transport ${projection.kind}`, "projections", [{ id: 0, parent: null, projection }], [`ProjectionPath(id=path:0, parent=null, projection=${expected})`]);
   }
@@ -332,9 +349,28 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A live interval contains ordered actual statement or terminator positions in its own block."],
   ];
   for (const [rule, amend, site, message] of basicCases) await factOpposite(rule, unchanged, amend, [violation(rule, site, message)]);
+  for (const field of ["mir", "tir"]) await factOpposite(`body-instance-exact ${field} identity`, unchanged,
+    (input, supplied) => { supplied[field].body = otherBody; }, [violation("body-instance-exact", bodySite(), "Facts, TIR and MIR retain one exact body and complete binding environment.")]);
+  await factOpposite("body declaration ownership", unchanged, (input, supplied) => { supplied.tir.owner = definitions.other; },
+    [violation("cross-owner-qualified", bodySite(), "The body identity retains its actual declaration owner.")]);
+  await factOpposite("unknown actual relational owner is not an empty arena", unchanged, (input, supplied) => { supplied.context.arenaOf = () => null; },
+    [violation("cross-owner-qualified", bodySite(), "The actual relational owner must resolve to its canonical arena.")]);
+  for (const [field, rule, kind, key] of [["projections", "projection-id-dense", "projection", "projection"], ["producers", "producer-id-dense", "producer", "producer"],
+    ["contexts", "context-id-dense", "context", "context"], ["boundProducers", "bound-producer-id-dense", "bound-producer", "producer"],
+    ["origins", "origins-id-dense", "origins", "origins"], ["boundaries", "boundary-id-dense", "boundary", "boundary"]]) {
+    const message = basicCases.find(entry => entry[0] === rule)[3];
+    await factOpposite(`${rule} negative zero is not dense positive zero`, unchanged, input => { input.arena[field][0].id = -0; },
+      [violation(rule, arenaSite(kind, key, -0), message)]);
+  }
   await factOpposite("declared-site-ordinal", value => { value.arena.producers[0].at = { kind: "declared", identity: clone(libraryIdentity), site: 0 }; },
     value => { value.arena.producers[0].at.site = 1; }, [violation("declared-site-ordinal", { kind: "declared-site", owner: owner(), identity: libraryIdentity, site: 1 },
       "A logical site ordinal must name an actual declared allocation site of that export.")]);
+  await factOpposite("declared count absent is not known zero", value => { value.arena.producers[0].at = { kind: "declared", identity: clone(libraryIdentity), site: 0 }; },
+    (value, supplied) => { supplied.context.declaredSiteCount = () => null; }, [violation("declared-site-ordinal", { kind: "declared-site", owner: owner(), identity: libraryIdentity, site: 0 },
+      "A logical site ordinal must name an actual declared allocation site of that export.")]);
+  await factOpposite("declared existence remains distinct from ordinal range", value => { value.arena.producers[0].at = { kind: "declared", identity: clone(libraryIdentity), site: 0 }; },
+    (value, supplied) => { supplied.context.libraryExportExists = () => false; }, [violation("relational-site-resolves", { kind: "declared-site", owner: owner(), identity: libraryIdentity, site: 0 },
+      "A declared relational site must name an existing library export.")]);
   const put = (input, path, value) => { let parent = input; for (const part of path.slice(0, -1)) parent = parent[part]; parent[path.at(-1)] = value; };
   const simpleOrders = [
     ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, observed: true })],
@@ -549,6 +585,25 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await factOpposite("suspension-input-site actual terminator kind", (input, supplied) => suspend("yield", input, supplied),
     (input, supplied) => { supplied.mir.blocks[0].terminator = { kind: "return", value: null, origin: sourceOrigin(1), tir: nodeRef(1) }; },
     [violation("suspension-input-site", nodeSite(1), "A suspension retains its actual MIR await, yield or delegated-yield occurrence.")]);
+  for (const kind of ["await", "yield", "delegate"]) for (const channel of ["sent", "return", "thrown"]) {
+    if (kind === "await" && channel === "sent") continue;
+    await suite.test(`actual ${kind} suspension input ${channel}`, () => {
+      const input = bodyFacts(); const supplied = setup(); suspend(kind, input, supplied);
+      input.arena.producers[0] = { id: 0, path: null, kind: "suspension-input", at: nodeRef(1), channel };
+      supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+      equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual supported suspension channel vector");
+    });
+  }
+  await factOpposite("await has no generator sent input", (input, supplied) => {
+    suspend("await", input, supplied); input.arena.producers[0] = { id: 0, path: null, kind: "suspension-input", at: nodeRef(1), channel: "return" };
+  }, input => { input.arena.producers[0].channel = "sent"; }, [violation("suspension-input-site", arenaSite("producer", "producer", 0),
+    "A suspension input retains the actual supported suspension channel and occurrence.")]);
+  await suite.test("actual callback activation retains its qualified formal entry and caller context", () => {
+    const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
+    input.origins.activations = [{ node: 2, definition: definitions.callee, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
+    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual callback activation vector");
+  });
 
   const summaryCases = [
     ["definition-resolves", unchanged, (input, supplied) => { supplied.context.definitionExists = () => false; }, summarySite(), "A summary must name an existing declaration in the supplied inventory."],
@@ -580,6 +635,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A projection parent must reference an earlier row of the same arena."],
   ];
   for (const [rule, prepare, amend, site, message] of summaryCases) await summaryOpposite(rule, prepare, amend, [violation(rule, site, message)]);
+  await summaryOpposite("missing capture inventory is not zero captures", unchanged, (input, supplied) => { supplied.context.captureCount = () => null; },
+    [violation("captures-total", summarySite(), "A summary retains every location in the actual declaration capture inventory.")]);
+  await summaryOpposite("missing dependence inventory is not parametric", unchanged, (input, supplied) => { supplied.context.bindingDependentOf = () => null; },
+    [violation("summary-binding-dependence", summarySite(), "Summary dependence equals the supplied declaration's actual binding dependence.")]);
   await summaryOpposite("bindings-complete", (input, supplied) => {
     Object.assign(input, emptySummary());
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.f, index: 0 }] });
@@ -692,7 +751,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const escapeRows = [
     [{ kind: "return" }, "return()"], [{ kind: "throw" }, "throw()"],
     [{ kind: "shared", definition: definitions.f, path: 0 }, `shared(definition=def:"${definitions.f}", path=path:0)`],
-    [{ kind: "parameter", index: 0, path: null }, "parameter(index=0, path=null)"], [{ kind: "receiver", path: 0 }, "receiver(path=path:0)"],
+    [{ kind: "parameter", index: 0, path: 0 }, "parameter(index=0, path=path:0)"], [{ kind: "receiver", path: 0 }, "receiver(path=path:0)"],
     [{ kind: "capture", index: 0, path: null }, "capture(index=0, path=null)"],
     [{ kind: "callback", at: { kind: "node", node: nodeRef(2) } }, `callback(at=node(node=${nodeText(2)}))`],
     [{ kind: "suspension", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, `suspension(at=declared(identity=${libraryText}, site=0))`],
@@ -743,6 +802,16 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }
   await factTransport("complete bound activation transport", ["origins", "activations"], "activations=[]", { node: 1, definition: definitions.f, context: 0, caller: 1, entry: null },
     `BoundActivation(node=n:1, definition=def:"${definitions.f}", context=context:0, caller=context:1, entry=null)`);
+  {
+    const input = bodyFacts(); invocationFixture(input, setup()); const entry = input.origins.invocations[0].alternatives[0].arguments[0];
+    await factTransport("complete bound activation formal entry transport", ["origins", "activations"], "activations=[]", { node: 1, definition: definitions.f, context: 0, caller: null, entry },
+      `BoundActivation(node=n:1, definition=def:"${definitions.f}", context=context:0, caller=null, entry=${argumentText(0, definitions.parameter)})`);
+    for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
+      const argument = { ...entry, passing };
+      await factTransport(`actual transport passing mode ${passing}`, ["origins", "callbacks"], "callbacks=[]", { node: 1, argument, timing: "unknown", rejection: null, inputs: [] },
+        `CallbackEntry(node=n:1, argument=${argumentText(0, definitions.parameter).replace('passing="by-value"', `passing="${passing}"`)}, timing="unknown", rejection=null, inputs=[])`);
+    }
+  }
   for (const kind of ["origin", "boundary"]) await factTransport(`value frontier transport ${kind}`, ["origins", "frontiers"], "frontiers=[]", { node: 1, kind, subject: 0, context: 0 },
     `${kind}(node=n:1, subject=producer:0, context=context:0)`);
   const region = { owner: definitions.f, node: nodeRef(2), context: 0 };
@@ -752,6 +821,148 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     `ConstructionAlternative(node=n:1, root=${nodeText(1)}, allocation=${nodeText(2)}, implementation=def:"${definitions.f}", body=${instanceText}, regions=${arrayText([regionText])})`);
   for (const kind of ["await", "yield", "delegate"]) await factTransport(`suspension transport ${kind}`, ["suspension", "suspensions"], "suspensions=[]", { node: 1, kind, values: [{ place: 0, origins: 1, retention: [{ source: 0, into: { kind: "return" } }], continuations: ["resume", "return", "unwind"] }] },
     `${kind}(node=n:1, values=${arrayText([`SuspensionValue(place=p:0, origins=origins:1, retention=${arrayText(["RetentionFact(source=producer:0, into=return())"])}, continuations=${arrayText(['"resume"', '"return"', '"unwind"'])})`])})`);
+
+  const errorRows = [
+    [{ kind: "preserved", at: nodeRef(2), owner: 1 }, `preserved(at=${nodeText(2)}, owner=origins:1)`],
+    [{ kind: "invalidated", at: nodeRef(2), owner: 1, cause: "suspension" }, `invalidated(at=${nodeText(2)}, owner=origins:1, cause="suspension")`],
+    [{ kind: "invalidated", at: nodeRef(2), owner: 1, cause: "overlapping-write", affected: 0 }, `invalidated(at=${nodeText(2)}, owner=origins:1, cause="overlapping-write", affected=origins:0)`],
+    ...[[{ kind: "incomplete-origins", affected: 0 }, "incomplete-origins(affected=origins:0)"],
+      [{ kind: "inexact-accessor-footprint" }, "inexact-accessor-footprint()"], [{ kind: "open-constructor-domain", constructor: 0 }, "open-constructor-domain(constructor=origins:0)"],
+      [{ kind: "opaque-invocation-footprint", affected: 0 }, "opaque-invocation-footprint(affected=origins:0)"]].map(([reason, text]) => [
+      { kind: "unproven", at: nodeRef(2), owner: 1, reason, detail: "unknown" }, `unproven(at=${nodeText(2)}, owner=origins:1, reason=${text}, detail="unknown")`,
+    ]),
+  ];
+  for (const [row, authored] of errorRows) await factTransport(`error invalidation transport ${row.kind}/${row.reason?.kind ?? row.cause ?? "preserved"}`,
+    ["errorStorage", "errors"], "errors=[]", { node: 1, origins: 1, writes: [2], retention: [], invalidations: [row] },
+    `ErrorStorageFact(node=n:1, origins=origins:1, writes=${arrayText(["n:2"])}, retention=[], invalidations=${arrayText([authored])})`);
+  for (const [family, operation] of [["typed-location", "allocate"], ["typed-location", "address-of"], ["typed-location", "bind-pointer"], ["typed-location", "project-pointer"], ["raw-memory", "reinterpret"]]) {
+    await factTransport(`pointer backing transport ${family}/${operation}`, ["pointerBacking", "pointers"], "pointers=[]", { node: 1, returned: true, origins: 1, producers: [{ producer: 0, operation: { family, operation, at: nodeRef(2) } }] },
+      `PointerBackingFact(node=n:1, returned=true, origins=origins:1, producers=${arrayText([`PointerBackingProducer(producer=bound:0, operation=PointerBackingOperation(family="${family}", operation="${operation}", at=${nodeText(2)}))`])})`);
+  }
+  const layoutReference = { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 };
+  const fieldReference = { metadata: { definition: definitions.layout, bindings: parametric() }, field: 0 };
+  const layoutReferenceText = `MetadataLayoutRef(metadata=${keyText("layout")}, layout=layout:0)`;
+  const fieldReferenceText = `MetadataFieldRef(metadata=${keyText("layout")}, field=field:0)`;
+  for (const operation of ["size", "alignment", "stride", "field-offset"]) await factTransport(`observation transport ${operation}`, ["observations"], "observations=[]",
+    { node: 1, operation, operand: nodeRef(2), layout: layoutReference, field: operation === "field-offset" ? fieldReference : null, result: 0, value: 9007199254740993n, context: 0, bindings: emptyBindings() },
+    `ObservationFact(node=n:1, operation="${operation}", operand=${nodeText(2)}, layout=${layoutReferenceText}, field=${operation === "field-offset" ? fieldReferenceText : "null"}, result=t:0, value=9007199254740993n, context=context:0, bindings=${bindingsText})`);
+  for (const operation of ["to-raw", "reinterpret"]) await factTransport(`raw location transport ${operation}`, ["rawLocations"], "rawLocations=[]",
+    { node: 1, operation, pointee: 0, layout: layoutReference, context: 0, bindings: emptyBindings() },
+    `RawLocationFact(node=n:1, operation="${operation}", pointee=t:0, layout=${layoutReferenceText}, context=context:0, bindings=${bindingsText})`);
+  const boundField = node => ({ node, result: 0, owner: 3, fieldExpression: nodeRef(2), field: fieldReference, pointer: nodeRef(3), pointee: 0, context: 0, bindings: emptyBindings() });
+  await factTransport("field binding retains selector pointer and full metadata identity", ["fieldBindings"], "fieldBindings=[]", boundField(1),
+    `MemoryFieldBindingFact(node=n:1, result=t:0, owner=t:3, fieldExpression=${nodeText(2)}, field=${fieldReferenceText}, pointer=${nodeText(3)}, pointee=t:0, context=context:0, bindings=${bindingsText})`);
+  await factTransport("record binding retains each authored field expression", ["recordBindings"], "recordBindings=[]",
+    { node: 1, result: 3, layoutExpression: nodeRef(2), layout: layoutReference, context: 0, bindings: emptyBindings(), fields: [{ expression: nodeRef(3), binding: 4 }] },
+    `MemoryRecordBindingFact(node=n:1, result=t:3, layoutExpression=${nodeText(2)}, layout=${layoutReferenceText}, context=context:0, bindings=${bindingsText}, fields=${arrayText([`BoundRecordField(expression=${nodeText(3)}, binding=n:4)`])})`);
+  for (const [row, text] of [[{ kind: "bound", node: 1, record: 2 }, "bound(node=n:1, record=n:2)"], [{ kind: "error", node: 1 }, "error(node=n:1)"]]) {
+    await factTransport(`memory inventory transport ${row.kind}`, ["memoryBindings"], "memoryBindings=[]", row, text);
+  }
+  for (const kind of ["not-local-element-access", "open-origin-domain", "nonlocal-or-projected-origin", "sparse-or-spread-literal", "callable-boundary", "alias-declaration-missing", "different-origin-domain", "binding-not-plain", "initialization-not-block-local", "unproven-capture", "assignment-result-exposed", "unproven-use", "no-local-allocation"]) {
+    const reason = kind === "open-origin-domain" ? { kind, origins: 1 } : { kind, at: nodeRef(2) };
+    await factTransport(`closed-array refusal transport ${kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "unproven", reason },
+      `unproven(node=n:1, reason=${kind}(${kind === "open-origin-domain" ? "origins=origins:1" : `at=${nodeText(2)}`}))`);
+  }
+  await factOpposite("field-bindings-order", (input, supplied) => {
+    const record = metadata(); withField(record, supplied); supplied.metadataRows.set(definitions.layout, record);
+    input.fieldBindings = [boundField(1), boundField(2)];
+  }, input => { input.fieldBindings.reverse(); }, [violation("field-bindings-order", nodeSite(1), orderMessage)]);
+
+  const selectionText = (key, origins, primary = `def:"${definitions.field}"`, getter = "null", setter = "null") =>
+    `MemberSelection(decision=MemberDecision(key=${key}, origins=${arrayText(origins)}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=${primary}, read=t:0, write=t:0, getter=${getter}, setter=${setter}, bindings=${bindingsText}), getter=null, setter=null)`;
+  for (const [key, authored] of [[{ kind: "text", value: "value" }, 'text(value="value")'], [{ kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } }, "number(value=ExactRational(numerator=0n, denominator=1n, negativeZero=true))"],
+    [{ kind: "symbol", declaration: definitions.field }, `symbol(declaration=def:"${definitions.field}")`]]) {
+    const selected = member(); selected.decision.key = key;
+    selected.decision.origins = [{ kind: "declared", declaration: definitions.field }, { kind: "class-prototype", owner: definitions.layout },
+      { kind: "mapped", owner: { kind: "body", value: nodeRef(1) }, key: { kind: "text", value: "value" } }];
+    const expected = selectionText(authored, [`declared(declaration=def:"${definitions.field}")`, `class-prototype(owner=def:"${definitions.layout}")`,
+      `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`]);
+    await arenaTextCase(`full field member key transport ${key.kind}`, "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
+      [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
+    await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },
+      `closed(node=n:1, declarations=${arrayText([`def:"${definitions.field}"`])}, references=${arrayText([nodeText(2)])}, literals=${arrayText([nodeText(3)])}, elements=${arrayText([expected])})`);
+  }
+  for (const timing of ["synchronous", "deferred"]) {
+    const input = emptySummary(); input.parameters = [{ slot: { kind: "receiver" }, reads: { kind: "open", paths: [0], boundaries: [0] }, writes: completePaths() },
+      { slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: { kind: "complete", paths: [1] } }];
+    input.captures = [{ index: 0, reads: completePaths(), writes: { kind: "open", paths: [], boundaries: [0] } }];
+    input.writes = [{ target: 0, value: 0 }]; input.retention = [{ source: 0, into: { kind: "return" } }];
+    input.callbacks = [{ parameterIndex: 0, timing, rejection: 1, inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 1 }, { kind: "receiver-element", parameterIndex: 1 }, { kind: "receiver-rejection", parameterIndex: 2 }] }];
+    input.invocationOnlyParameters = [0]; input.suspends = true; input.bindingDependent = true;
+    const expected = emptySummaryText.replace("parameters=[]", `parameters=${arrayText([
+      `ParameterEffect(slot=receiver(), reads=open(paths=${arrayText(["path:0"])}, boundaries=${arrayText(["boundary:0"])}), writes=complete(paths=[]))`,
+      `ParameterEffect(slot=parameter(index=0), reads=complete(paths=[]), writes=complete(paths=${arrayText(["path:1"])}))`,
+    ])}`).replace("captures=[]", `captures=${arrayText([`CaptureEffect(index=0, reads=complete(paths=[]), writes=open(paths=[], boundaries=${arrayText(["boundary:0"])}))`])}`)
+      .replace("writes=[]", `writes=${arrayText(["SummaryWrite(target=producer:0, value=origins:0)"])}`)
+      .replace("retention=[]", `retention=${arrayText(["RetentionFact(source=producer:0, into=return())"])}`)
+      .replace("callbacks=[]", `callbacks=${arrayText([`SummaryCallback(parameterIndex=0, timing="${timing}", rejection=1, inputs=${arrayText([
+        "argument-element(parameterIndex=0, sourceParameterIndex=1)", "receiver-element(parameterIndex=1)", "receiver-rejection(parameterIndex=2)",
+      ])})`])}`).replace("invocationOnlyParameters=[]", `invocationOnlyParameters=${arrayText(["0"])}`).replace("suspends=false, bindingDependent=false", "suspends=true, bindingDependent=true");
+    await textCase(`full summary effect and callback transport ${timing}`, input, expected, product.printSummary, product.parseSummary);
+  }
+
+  const metadataOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0))`;
+  const baseLayoutText = `value(id=layout:0, occurrence=${metadataOccurrence}, source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`;
+  const physicalOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.field}", node=n:0))`;
+  const physicalMemberText = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`]);
+  const physicalFieldText = `MemoryField(id=field:0, occurrence=${physicalOccurrence}, owner=t:3, selector=${physicalOccurrence}, selection=${physicalOccurrence}, member=${physicalMemberText}, primary=def:"${definitions.field}", selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, value=t:0, layout=layout:0, byteOffset=0n, byteAlignment=8n)`;
+  for (const kind of ["memory-layout", "memory-field"]) {
+    const input = metadata(); withField(input, setup()); input.kind = kind; if (kind === "memory-field") input.root = 0;
+    const expected = `${kind}(key=${keyText("layout")}, root=${kind === "memory-layout" ? "layout:1" : "field:0"}, layouts=${arrayText([baseLayoutText,
+      `value(id=layout:1, occurrence=${metadataOccurrence}, source=t:3, dataLayout=def:"${definitions.abi64}", byteSize=16n, byteAlignment=8n, stride=16n, fields=${arrayText(["field:0"])})`,
+    ])}, fields=${arrayText([physicalFieldText])})\n`;
+    await textCase(`complete physical metadata transport ${kind}`, input, expected, product.printMetadata, product.parseMetadata);
+  }
+  for (const width of [32, 64]) await suite.test(`actual selected ${width}-bit metadata and exact array extents`, () => {
+    const input = metadata(); const supplied = setup();
+    input.layouts[0].dataLayout = definitions[`abi${width}`];
+    const length = width === 64 ? 9007199254740993n : 17n;
+    const runtimeBase = width === 64 ? "bigint" : "number";
+    supplied.types.terms[2].extent = { length, runtimeBase };
+    input.layouts.push({ id: 1, occurrence: itemRef(definitions.layout), source: 2, dataLayout: definitions[`abi${width}`],
+      byteSize: length * 8n, byteAlignment: 8n, stride: length * 8n, kind: "array", length, runtimeBase, element: 0 });
+    input.root = 1; supplied.metadataRows.set(definitions.layout, clone(input));
+    equal(product.verifyMetadata(input, supplied.context), [], "full exact authored extent and selected ABI vector");
+    const expected = `memory-layout(key=${keyText("layout")}, root=layout:1, layouts=${arrayText([
+      baseLayoutText.replace(`def:"${definitions.abi64}"`, `def:"${definitions[`abi${width}`]}"`),
+      `array(id=layout:1, occurrence=${metadataOccurrence}, source=t:2, dataLayout=def:"${definitions[`abi${width}`]}", byteSize=${length * 8n}n, byteAlignment=8n, stride=${length * 8n}n, length=${length}n, runtimeBase="${runtimeBase}", element=layout:0)`,
+    ])}, fields=[])\n`;
+    equal(product.printMetadata(input), expected, "complete independently authored exact bigint array text");
+    equal(product.parseMetadata(expected), { kind: "parsed", value: input }, "complete exact bigint array value");
+  });
+  await suite.test("packed physical alignment is distinct from the child type alignment", () => {
+    const input = metadata(); const supplied = setup(); withField(input, supplied);
+    input.layouts[1].byteSize = 24n; input.layouts[1].stride = 24n; input.layouts[1].byteAlignment = 1n;
+    input.fields[0].byteOffset = 1n; input.fields[0].byteAlignment = 1n;
+    const second = memoryField(1, definitions.capture); second.byteOffset = 9n; second.byteAlignment = 1n;
+    input.fields.push(second); input.layouts[1].fields.push(1);
+    supplied.metadataRows.set(definitions.layout, clone(input));
+    equal(product.verifyMetadata(input, supplied.context), [], "full packed layout retains 8-byte child alignment and independently authored 1-byte placement");
+  });
+  await suite.test("several zero-sized physical fields occupy no bytes and do not overlap", () => {
+    const input = metadata(); const supplied = setup(); withField(input, supplied);
+    supplied.types.terms.push({ kind: "declared", definition: definitions.other, arguments: [], facet: "instance", extent: null });
+    supplied.context.nominalOf = definition => ({ kind: "declared", facets: definition === definitions.other ? ["instance"] : ["instance", "value"] });
+    input.layouts[0].source = 4; input.layouts[0].byteSize = 0n; input.layouts[0].stride = 0n;
+    input.layouts[1].byteSize = 0n; input.layouts[1].stride = 0n;
+    input.fields[0].value = 4; input.fields[0].member.decision.read = 4; input.fields[0].member.decision.write = 4;
+    const second = memoryField(1, definitions.capture); second.value = 4; second.member.decision.read = 4; second.member.decision.write = 4;
+    input.fields.push(second); input.layouts[1].fields.push(1); supplied.metadataRows.set(definitions.layout, clone(input));
+    equal(product.verifyMetadata(input, supplied.context), [], "full zero-sized geometry vector");
+  });
+  for (const timing of ["synchronous", "deferred"]) await suite.test(`complete callback effects ${timing} use independent actual signature and capture inventories`, () => {
+    const input = summary(); const supplied = setup(); oneCallback(input, supplied);
+    supplied.types.signatures[0].receiver = 0;
+    supplied.types.signatures[1].parameters = [parameter(definitions.parameter), parameter(definitions.capture), parameter(definitions.other)];
+    input.parameters.unshift({ slot: { kind: "receiver" }, reads: { kind: "open", paths: [0], boundaries: [0] }, writes: completePaths() });
+    input.captures = [{ index: 0, reads: completePaths(), writes: { kind: "complete", paths: [1] } }];
+    supplied.tir.captures = [{ body: otherBody, local: 0 }]; supplied.context.captureCount = () => supplied.tir.captures.length;
+    input.callbacks[0] = { parameterIndex: 0, timing, rejection: 2, inputs: [{ kind: "receiver-element", parameterIndex: 0 }, { kind: "receiver-rejection", parameterIndex: 1 },
+      { kind: "argument-element", parameterIndex: 2, sourceParameterIndex: 0 }] };
+    input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: nodeRef(1) } } }];
+    supplied.canonicalArenas.set(arenaKey(summaryOwner(input.key)), clone(input.arena));
+    equal(product.verifySummary(input, supplied.context), [], "full known/open effects and actual callback channel vector");
+  });
 
   const componentId = name => ids.encodeComponentId([definitions[name]]);
   const componentSite = id => ({ kind: "component", component: id });
@@ -794,6 +1005,25 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [rule, make, amend, expected] of graphCases) await graphOpposite(rule, make, amend,
     expected.map(entry => violation(entry.rule, entry.site, entry.message)));
   await suite.test("legal recursion remains wholly inside one real component", () => equal(product.verifyCallGraph(recursiveGraph(), setup().context), [], "mutual recursion is not a condensation cycle"));
+  await suite.test("parser line and column locations use UTF-16 code units and CRLF counts once", () => {
+    malformed(product.parseCallGraph, " \r\n  Unknown()", 5, ["CallGraph"], "Unknown", "CRLF record location", 2, 3);
+    malformed(product.parseCallGraph, "\n\tUnknown()", 2, ["CallGraph"], "Unknown", "tab is one code unit", 2, 2);
+    malformed(product.parseCallGraph, "\rUnknown()", 1, ["CallGraph"], "Unknown", "CR record location", 2, 1);
+  });
+  for (const kind of ["direct", "indirect", "getter", "setter", "constructor", "initializer", "callback"]) {
+    const input = graph(); input.edges = [{ ...edge("f", "f"), kind }];
+    const expected = graphText.replace("edges=[]", `edges=${arrayText([`${kind}(caller=def:"${definitions.f}", at=${nodeText(1)}, callee=definition(definition=def:"${definitions.f}"), bindings=parametric())`])}`);
+    await textCase(`call edge transport ${kind}`, input, expected, product.printCallGraph, product.parseCallGraph);
+    await suite.test(`call edge ${kind} actual same-component recursion`, () => equal(product.verifyCallGraph(input, setup().context), [], "complete same-component graph"));
+  }
+  for (const selectedOwner of [owner(), { kind: "summary", definition: definitions.f, bindings: parametric() }]) {
+    const input = graph(); input.edges = [{ caller: definitions.f, at: nodeRef(1), kind: "callback", callee: { kind: "open", boundary: { owner: selectedOwner, boundary: 0 } }, bindings: parametric() }];
+    const expectedOwner = selectedOwner.kind === "body" ? `body(instance=${instanceText})` : `summary(definition=def:"${definitions.f}", bindings=parametric())`;
+    await textCase(`open call edge qualified ${selectedOwner.kind}`, input, graphText.replace("edges=[]",
+      `edges=${arrayText([`callback(caller=def:"${definitions.f}", at=${nodeText(1)}, callee=open(boundary=OpenBoundaryRef(owner=${expectedOwner}, boundary=boundary:0)), bindings=parametric())`])}`),
+    product.printCallGraph, product.parseCallGraph);
+    await suite.test(`open call edge ${selectedOwner.kind} resolves actual canonical arena`, () => equal(product.verifyCallGraph(input, setup().context), [], "complete resolving open graph"));
+  }
 
   await suite.test("authored adjacent descriptors execute the real owning ports with complete outcomes", async () => {
     const invalid = result => ({ kind: "refused", diagnostics: [{ code: "invalid-text", message: `Expected ${result.expected.join(" or ")}`,
@@ -821,13 +1051,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const authored = arrayText(rows.map(row => `ProjectionPath(id=path:${row.id}, parent=${row.parent === null ? "null" : `path:${row.parent}`}, projection=index(constant=0n))`));
     const input = emptyFacts(); input.arena.projections = rows;
     const expected = emptyFactsText.replace("projections=[]", `projections=${authored}`);
-    assert.equal(product.printFacts(input), expected, "complete independently authored 100000-link body text");
+    equal(product.printFacts(input), expected, "complete independently authored 100000-link body text");
     equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete 100000-link body decode");
     const supplied = setup(input);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete 100000-link body verifier");
     const retained = emptySummary(); retained.arena.projections = rows;
     const summaryExpected = emptySummaryText.replace("projections=[]", `projections=${authored}`);
-    assert.equal(product.printSummary(retained), summaryExpected, "complete independently authored 100000-link summary text");
+    equal(product.printSummary(retained), summaryExpected, "complete independently authored 100000-link summary text");
     equal(product.parseSummary(summaryExpected), { kind: "parsed", value: retained }, "complete 100000-link summary decode");
     supplied.canonicalArenas.set(arenaKey(summaryOwner(retained.key)), clone(retained.arena));
     equal(product.verifySummary(retained, supplied.context), [], "complete 100000-link summary verifier");
@@ -845,7 +1075,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const layouts = [`value(id=layout:0, occurrence=${occurrence}, source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`];
     for (let id = 1; id < 100000; id += 1) layouts.push(`array(id=layout:${id}, occurrence=${occurrence}, source=t:${id}, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, length=1n, runtimeBase="bigint", element=layout:${id - 1})`);
     const expected = `memory-layout(key=${keyText("layout")}, root=layout:99999, layouts=${arrayText(layouts)}, fields=[])\n`;
-    assert.equal(product.printMetadata(input), expected, "complete independently authored 100000-link metadata text");
+    equal(product.printMetadata(input), expected, "complete independently authored 100000-link metadata text");
     equal(product.parseMetadata(expected), { kind: "parsed", value: input }, "complete 100000-link metadata decode");
     equal(product.verifyMetadata(input, supplied.context), [], "complete 100000-link metadata verifier");
   });
@@ -859,7 +1089,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const expected = `CallGraph(definitions=${arrayText(definitions.map(value => `def:"${value}"`))}, edges=${arrayText(input.edges.map((edge, index) =>
       `direct(caller=def:"${definitions[index]}", at=NodeRef(body=body:"${bodies[index]}", node=n:1), callee=definition(definition=def:"${definitions[index + 1]}"), bindings=parametric())`))}, components=${arrayText(input.components.map((component, index) =>
       `CallComponent(id=component:"${components[index]}", definitions=${arrayText([`def:"${definitions[index]}"`])}, dependencies=${arrayText(index === 99999 ? [] : [`component:"${components[index + 1]}"`])})`))})\n`;
-    assert.equal(product.printCallGraph(input), expected, "complete independently authored 100000-link graph text");
+    equal(product.printCallGraph(input), expected, "complete independently authored 100000-link graph text");
     equal(product.parseCallGraph(expected), { kind: "parsed", value: input }, "complete 100000-link graph decode");
     const supplied = setup(); const declarationInventory = new Set(definitions); const nodeInventory = new Set(bodies);
     supplied.context.definitionExists = value => declarationInventory.has(value);

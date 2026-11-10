@@ -41,6 +41,10 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     report("cross-owner-qualified", bodySite, "The body identity retains its actual declaration owner.");
   }
   const bindingInputs: FactBindingInput[] = [];
+  const diagnosticSites = new Set<string>();
+  for (const diagnostic of context.diagnostics) if (diagnostic.severity === "error" && diagnostic.site.kind === "source") {
+    const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
+  }
   if (definition !== null && facts.instance.bindings.kind === "instantiated") {
     bindingInputs.push({ vector: facts.instance.bindings.bindings, definition, site: bodySite });
   }
@@ -167,9 +171,9 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     if (!validIndex(local.local, mir.locals.length)) report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
     ordered(local.segments, "live-segments-order", row => [row.block, row.first, row.last], () => site);
     for (const segment of local.segments) {
-      const block = mir.blocks[segment.block];
-      if (block === undefined || !Number.isSafeInteger(segment.first) || segment.first < 0 || !Number.isSafeInteger(segment.last) ||
-        segment.last < segment.first || segment.last > block.statements.length) report("live-segments-bounds", site,
+      const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
+      if (block === undefined || block.id !== segment.block || !validIndex(segment.first, block.statements.length + 1) ||
+        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first) report("live-segments-bounds", site,
         "A live interval contains ordered actual statement or terminator positions in its own block.");
     }
   }
@@ -246,6 +250,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const escape of facts.origins.escapes) { node(escape.node); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node)); }
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
     origins(argument.actual, site); path(argument.projection, site);
+    if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
+      !Number.isSafeInteger(argument.effectiveIndex) || argument.effectiveIndex < 0 || Object.is(argument.effectiveIndex, -0) ||
+      argument.authoredIndex !== null && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
+      report("argument-transports-total", site, "A transport retains actual nonnegative authored, formal and effective indices.");
+    }
     const foreign = context.arenaOf(argument.formal.owner);
     if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
     else if (!validIndex(argument.formal.producer, foreign.producers.length) || foreign.producers[argument.formal.producer]?.id !== argument.formal.producer) {
@@ -287,7 +296,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         const identity = encodeKey([argument.parameterIndex, argument.authoredIndex, argument.effectiveIndex]);
         const parameter = selected?.parameters[argument.parameterIndex];
         if (seen.has(identity) || parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
-          !Number.isSafeInteger(argument.effectiveIndex) || argument.effectiveIndex < 0 ||
           argument.repeated !== (parameter.kind === "rest")) report("argument-transports-total", site,
           "Transports retain complete selected formals, passing modes and effective actual components exactly once.");
         seen.add(identity); supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
@@ -315,8 +323,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   nodeOrder(facts.origins.callbacks, "callbacks-order");
   for (const callback of facts.origins.callbacks) {
     node(callback.node); checkArgument(callback.argument, at(callback.node));
-    for (const input of callback.inputs) if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 ||
-      input.kind === "argument-element" && (!Number.isSafeInteger(input.sourceParameterIndex) || input.sourceParameterIndex < 0)) {
+    for (const input of callback.inputs) if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || Object.is(input.parameterIndex, -0) ||
+      input.kind === "argument-element" && (!Number.isSafeInteger(input.sourceParameterIndex) || input.sourceParameterIndex < 0 || Object.is(input.sourceParameterIndex, -0))) {
       report("argument-transports-total", at(callback.node), "A callback input retains actual nonnegative formal channel indices.");
     }
   }
@@ -397,12 +405,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     }
   }
   nodeOrder(facts.pointerBacking.pointers, "pointers-order");
+  const pointerAlternatives = new Map<number, ReadonlySet<number>>();
   for (const pointer of facts.pointerBacking.pointers) {
     node(pointer.node); const site = at(pointer.node); origins(pointer.origins, site);
     const actual = facts.arena.origins[pointer.origins];
+    if (actual !== undefined && !pointerAlternatives.has(pointer.origins)) pointerAlternatives.set(pointer.origins, new Set(actual.producers));
+    const alternatives = pointerAlternatives.get(pointer.origins);
     for (const backing of pointer.producers) {
       producer(backing.producer, site, true); nodeRef(backing.operation.at, site);
-      if (actual !== undefined && !actual.producers.includes(backing.producer)) {
+      if (alternatives !== undefined && !alternatives.has(backing.producer)) {
         report("pointer-backing-family-exact", site, "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation.");
       }
     }
@@ -470,8 +481,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       if (!recordBindings.has(binding.record)) report("metadata-reference-resolves", site, "A bound memory occurrence retains its actual complete record-binding row.");
     } else {
       const origin = nodes.get(binding.node)?.origin;
-      if (origin === undefined || !context.diagnostics.some(diagnostic => diagnostic.severity === "error" && diagnostic.site.kind === "source" &&
-        diagnostic.site.origin.module === origin.module && diagnostic.site.origin.start === origin.start && diagnostic.site.origin.length === origin.length)) {
+      if (origin === undefined || !diagnosticSites.has(encodeKey([origin.module, origin.start, origin.length]))) {
         report("memory-binding-error-diagnostic", site, "An error binding retains an actual error diagnostic from the same complete checked diagnostic vector.");
       }
     }
