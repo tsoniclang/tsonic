@@ -97,6 +97,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const originalSummary = summary();
     const originalMetadata = metadata();
     const originalTir = tir();
+    const bodyRows = new Map([[body, originalTir]]);
     const originalMir = mir();
     const tables = { terms: [{ kind: "primitive", primitive: "int64" }, { kind: "intrinsic", intrinsic: "void" },
       { kind: "fixed-array", element: 0, extent: { length: 9007199254740993n, runtimeBase: "bigint" } }], signatures: [signature()] };
@@ -104,7 +105,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const canonicalArenas = new Map([[arenaKey(owner()), original.arena], [arenaKey(summaryOwner(originalSummary.key)), originalSummary.arena]]);
     const context = {
       limits: finiteLimits(), types: tables, diagnostics: [],
-      tirBody: selected => { assert.equal(selected.body, body, "named actual TIR lookup"); return originalTir; },
+      tirBody: selected => { const record = bodyRows.get(selected.body); assert.equal(record !== undefined, true, "named actual TIR lookup"); return record; },
       definitionExists: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named definition inventory"); return selected !== definitions.missing; },
       libraryExportExists: selected => { equal(selected, libraryIdentity, "named actual library export"); return true; },
       declaredSiteCount: selected => { equal(selected, libraryIdentity, "named declared-site inventory"); return 1; },
@@ -126,7 +127,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         return record !== null && isDeepStrictEqual(record.key.bindings, selected.bindings) ? record : null; },
     };
     return { canonical: original, summary: originalSummary, metadata: originalMetadata, mir: originalMir, tir: originalTir,
-      types: tables, context, metadataRows, canonicalArenas };
+      types: tables, context, metadataRows, canonicalArenas, bodyRows };
   };
 
   const arrayText = records => records.length === 0 ? "[]" : `[\n  ${records.join(",\n  ")}\n]`;
@@ -214,6 +215,42 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.parseCallGraph('CallGraph("definitions"=[], "edges"=[], "components"=[])'), { kind: "parsed", value: { definitions: [], edges: [], components: [] } }, "complete quoted field names");
     const input = abi(); input.fingerprint = "/";
     equal(product.parseMetadata(abiText(64).replace('"abi-64"', '"\\/"')), { kind: "parsed", value: input }, "complete JSON escaped slash");
+  });
+  await suite.test("scalar domains and grammar delimiters retain the complete independent rejection", () => {
+    const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), observed=false)";
+    const integer = "IntegerFact(node=n:1, range=IntegerRange(minimum=0, maximum=1n), nonnegative=false)";
+    const badObserved = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=0)";
+    const vectors = [
+      [product.parseMetadata, abiText(64).replace('fingerprint="abi-64"', "fingerprint=0"), "fingerprint=0", "fingerprint=", ["string"], "0"],
+      [product.parseFacts, emptyFactsText.replace("stores=[]", `stores=${arrayText([statement])}`), 'statement="zero"', "statement=", ["number"], '"zero"'],
+      [product.parseFacts, emptyFactsText.replace("integers=[]", `integers=${arrayText([integer])}`), "minimum=0", "minimum=", ["bigint"], "0"],
+      [product.parseFacts, emptyFactsText.replace("stores=[]", `stores=${arrayText([badObserved])}`), "observed=0", "observed=", ["boolean"], "0"],
+      [product.parseMetadata, abiText(64).replace("addressWidth=64", "addressWidth=0"), "addressWidth=0", "addressWidth=", ["32", "64"], "0"],
+      [product.parseFacts, emptyFactsText.replace(`body:"${body}"`, 'body:"not-a-body"'), 'body:"not-a-body"', "", ["canonical BodyId"], "body"],
+      [product.parseCallGraph, 'CallGraph(definitions=[], edges=[], components=[CallComponent(id=component:"bad", definitions=[], dependencies=[])])',
+        'component:"bad"', "", ["canonical ComponentId"], "component"],
+      [product.parseCallGraph, "CallGraph(definitions[])", "[]", "", ["="], "["],
+      [product.parseCallGraph, "CallGraph(definitions=[] edges=[], components=[])", "edges", "", [",", ")"], "edges"],
+      [product.parseCallGraph, "CallGraph(definitions=[], edges=[], components=[]) 0", ") 0", ") ", ["end of document"], "0"],
+      [product.parseCallGraph, "CallGraph(definitions=[0,], edges=[], components=[])", ",]", ",", ["IR value"], "]"],
+    ];
+    for (const [parse, text, marker, prefix, expected, found] of vectors) {
+      const offset = text.indexOf(marker) + prefix.length;
+      const before = text.slice(0, offset).split("\n");
+      malformed(parse, text, offset, expected, found, `complete scalar or grammar failure ${marker}`, before.length, before.at(-1).length + 1);
+    }
+  });
+  await suite.test("shared inline records are values, not an additional reference arena", () => {
+    const point = { block: 0, statement: null };
+    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point, observed: false }, { node: 2, point, observed: true }];
+    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([
+      "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=false)",
+      "StoreLiveness(node=n:2, point=MirPoint(block=b:0, statement=null), observed=true)",
+    ])}`);
+    equal(product.printFacts(input), expected, "complete shared-inline by-value spelling");
+    equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete equal inline values after parsing");
+    const supplied = setup(input);
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "shared inline point is not an inline cycle");
   });
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["not a number", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"], ["negative infinity", -Infinity, "-Infinity"], ["fractional", 0.5, "0.5"], ["exponent", 1e30, "1e+30"]]) {
     const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, observed: false }];
@@ -434,6 +471,60 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, input => { put(input, path, [row(2), row(1)]); }, [violation(rule, nodeSite(1), orderMessage)]);
 
   const localSite = local => ({ kind: "local", local: { body, local } });
+  const withMirEndpoints = supplied => {
+    supplied.mir.locals.push({ id: 1, storage: 0, role: { kind: "temporary" }, source: null, origin: sourceOrigin(2) });
+    supplied.mir.places.push({ id: 1, base: { kind: "local", local: 1 }, storage: 0, origin: sourceOrigin(2) });
+    supplied.mir.blocks[0].statements = [{ kind: "storage-live", local: 0, origin: sourceOrigin(1), tir: nodeRef(1) },
+      { kind: "storage-dead", local: 0, origin: sourceOrigin(2), tir: nodeRef(2) }];
+    supplied.mir.blocks.push({ id: 1, origin: sourceOrigin(3), tir: nodeRef(3), statements: [],
+      terminator: { kind: "return", value: null, origin: sourceOrigin(3), tir: nodeRef(3) } });
+  };
+  const endpointOrders = [
+    ["same store node statement ordinal", "stores-order", ["liveness", "stores"],
+      [{ node: 1, point: { block: 0, statement: 0 }, observed: false }, { node: 1, point: { block: 0, statement: 1 }, observed: true }], nodeSite(1)],
+    ["same store node terminator last", "stores-order", ["liveness", "stores"],
+      [{ node: 1, point: { block: 0, statement: 1 }, observed: false }, { node: 1, point: { block: 0, statement: null }, observed: true }], nodeSite(1)],
+    ["same store node block ordinal", "stores-order", ["liveness", "stores"],
+      [{ node: 1, point: { block: 0, statement: null }, observed: false }, { node: 1, point: { block: 1, statement: null }, observed: true }], nodeSite(1)],
+    ["same read node place ordinal", "reads-order", ["origins", "reads"], [{ node: 1, place: 0, origins: 0 }, { node: 1, place: 1, origins: 1 }], nodeSite(1)],
+    ["same point statement ordinal", "points-order", ["origins", "points"],
+      [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }, { point: { block: 0, statement: 1 }, place: 0, origins: 1 }], bodySite()],
+    ["same point place ordinal", "points-order", ["origins", "points"],
+      [{ point: { block: 0, statement: null }, place: 0, origins: 0 }, { point: { block: 0, statement: null }, place: 1, origins: 1 }], bodySite()],
+    ["same point block ordinal", "points-order", ["origins", "points"],
+      [{ point: { block: 0, statement: null }, place: 0, origins: 0 }, { point: { block: 1, statement: null }, place: 0, origins: 1 }], bodySite()],
+    ["same subject node role", "subjects-order", ["origins", "subjects"],
+      [{ node: 1, role: "input", path: null, origins: 0 }, { node: 1, role: "value", path: null, origins: 1 }], nodeSite(1)],
+    ["same subject role nullable path", "subjects-order", ["origins", "subjects"],
+      [{ node: 1, role: "value", path: null, origins: 0 }, { node: 1, role: "value", path: 0, origins: 1 }], nodeSite(1)],
+    ["same frontier node kind", "frontiers-order", ["origins", "frontiers"],
+      [{ node: 1, kind: "boundary", subject: 0, context: 0 }, { node: 1, kind: "origin", subject: 0, context: 0 }], nodeSite(1)],
+    ["same construction node root", "constructions-order", ["origins", "constructions"],
+      [{ node: 1, root: nodeRef(1), allocation: nodeRef(3), implementation: null, body: null, regions: [] },
+        { node: 1, root: nodeRef(2), allocation: nodeRef(3), implementation: null, body: null, regions: [] }], nodeSite(1)],
+    ["same construction root allocation", "constructions-order", ["origins", "constructions"],
+      [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: null, body: null, regions: [] },
+        { node: 1, root: nodeRef(1), allocation: nodeRef(3), implementation: null, body: null, regions: [] }], nodeSite(1)],
+    ["same construction allocation implementation", "constructions-order", ["origins", "constructions"],
+      [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: null, body: null, regions: [] },
+        { node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.f, body: null, regions: [] }], nodeSite(1)],
+    ["same construction implementation artifact", "constructions-order", ["origins", "constructions"],
+      [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.f, body: null, regions: [] },
+        { node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.f, body: instance(), regions: [] }], nodeSite(1)],
+    ["qualified captured body", "captures-order", ["liveness", "captures"],
+      [{ local: { body, local: 0 }, reads: false, writes: true }, { local: { body: otherBody, local: 0 }, reads: true, writes: false }],
+      { kind: "local", local: { body, local: 0 } }],
+  ];
+  for (const [name, rule, path, rows, site] of endpointOrders) await factOpposite(`canonical ${name}`, (input, supplied) => {
+    withMirEndpoints(supplied); put(input, path, clone(rows));
+  }, input => { put(input, path, clone(rows).reverse()); }, [violation(rule, site, orderMessage)]);
+  for (const segments of [[{ block: 0, first: 0, last: 0 }, { block: 0, first: 0, last: 1 }],
+    [{ block: 0, first: 0, last: 1 }, { block: 0, first: 1, last: 1 }],
+    [{ block: 0, first: 0, last: 1 }, { block: 1, first: 0, last: 0 }]]) {
+    await factOpposite(`canonical live segment complete endpoints ${JSON.stringify(segments)}`, (input, supplied) => {
+      withMirEndpoints(supplied); input.liveness.locals = [{ local: 0, segments: clone(segments) }];
+    }, input => { input.liveness.locals[0].segments.reverse(); }, [violation("live-segments-order", localSite(0), orderMessage)]);
+  }
   const additionalFacts = [
     ["locals-order", input => { input.liveness.bindings = [{ local: 0, scope: "body", captured: false }]; },
       input => { input.liveness.bindings.push(clone(input.liveness.bindings[0])); }, localSite(0), orderMessage],
@@ -588,10 +679,21 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   const invocationFixture = (input, supplied) => {
     supplied.types.signatures.push(signature(1, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.callee));
+    supplied.types.terms.push({ kind: "callable", calls: [1], constructs: [] });
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
     const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: emptyBindings(),
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
       completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1 }, activation: null, captures: [] };
+    supplied.tir.root = { ...header(1), kind: "CallExpression", questionDotToken: null, typeArguments: null,
+      expression: { ...header(2, 1), kind: "Identifier", text: "callee", tsonic: { ...typedValue(3), role: "value",
+        resolution: { kind: "definition", definition: definitions.callee, aliases: [] } } },
+      arguments: { loc: { pos: 3, end: 5 }, nodes: [3, 4].map((id, index) => ({ ...header(id, 1), kind: "NumericLiteral",
+        text: String(index + 1), tokenFlags: [], tsonic: { ...typedValue(), role: "value",
+          value: { numerator: BigInt(index + 1), denominator: 1n, negativeZero: false } } })) },
+      tsonic: { ...typedValue(1), application: { kind: "decided", decision: { callee: resolution, receiver: null,
+        arguments: [{ kind: "provided", parameter: 0, expression: 3 }, { kind: "provided", parameter: 1, expression: 4 }] } }, operation: null } };
+    input.refinements.integers = [1, 2, 3, 4].map(node => ({ node, range: null, nonnegative: false }));
+    supplied.mir.blocks[0].tir = nodeRef(1); supplied.mir.blocks[0].terminator.tir = nodeRef(1);
     const selectedOwner = { kind: "summary", definition: definitions.callee, bindings: parametric() };
     const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
@@ -600,6 +702,86 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.origins.invocations = [{ node: 1, kind: "call", alternatives: [{ resolution, context: 0, arguments: transports, result: 0, thrown: 0,
       summary: { definition: definitions.callee, bindings: parametric() } }], boundaries: [] }];
   };
+  const restFixture = (mode, input, supplied) => {
+    invocationFixture(input, supplied);
+    supplied.types.terms.push({ kind: "array", element: 0, readonly: false });
+    const tuple = mode === "dynamic" ? null : mode === "empty" ? [] : [0, 0];
+    supplied.types.terms.push(tuple === null ? { kind: "array", element: 0, readonly: false }
+      : { kind: "tuple", elements: tuple.map(type => ({ kind: "required", type, declaration: null })), readonly: false });
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const restIndex = mode === "head" ? 1 : 0;
+    const restParameter = parameter(restIndex === 0 ? definitions.parameter : definitions.capture, 4); restParameter.kind = "rest";
+    supplied.types.signatures[1].parameters = mode === "head" ? [parameter(), restParameter] : [restParameter];
+    alternative.resolution.decision.parameters = mode === "head"
+      ? [{ kind: "argument", parameter: 0, argument: 0, component: 0, passing: "by-value" }, { kind: "rest", parameter: 1, arguments: [0], passing: "by-value" }]
+      : [{ kind: "rest", parameter: 0, arguments: [0], passing: "by-value" }];
+    const call = supplied.tir.root;
+    const spread = { ...header(3, 1), kind: "SpreadElement", expression: { ...header(4, 3), kind: "Identifier", text: "tuple",
+      tsonic: { ...typedValue(5), role: "value", resolution: { kind: "definition", definition: definitions.other, aliases: [] } } },
+      tsonic: { ...typedValue(5), protocol: { kind: "decided", decision: { kind: "spread", asynchronous: false, steps: [], value: 0, completion: 1, sent: null, thrown: 1 } } } };
+    call.arguments.nodes = mode === "value" ? [call.arguments.nodes[0]] : [spread];
+    call.tsonic.application.decision.arguments = [{ kind: "rest", parameter: restIndex,
+      parts: [mode === "value" ? { kind: "value", expression: 3 } : { kind: "spread", expression: 4, tuple }] }];
+    if (mode === "head") call.tsonic.application.decision.arguments.unshift({ kind: "provided", parameter: 0, expression: 4 });
+    input.refinements.integers = (mode === "value" ? [1, 2, 3] : [1, 2, 3, 4]).map(node => ({ node, range: null, nonnegative: false }));
+    const selectedOwner = summaryOwner(alternative.summary);
+    supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: supplied.types.signatures[1].parameters.map((formal, index) =>
+      ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
+    input.arena.contexts[0].arguments = mode === "head" ? [0, 0] : [0];
+    const transport = (parameterIndex, projection, repeated = false) => ({ authoredIndex: 0,
+      parameter: supplied.types.signatures[1].parameters[parameterIndex].declaration, parameterIndex, repeated, passing: "by-value", actual: 0,
+      formal: { owner: clone(selectedOwner), producer: parameterIndex }, projection });
+    if (mode === "empty") alternative.arguments = [];
+    else if (mode === "dynamic") {
+      input.arena.projections.push({ id: 2, parent: null, projection: { kind: "element" } });
+      alternative.arguments = [transport(0, 2, true)];
+    } else if (mode === "value") alternative.arguments = [transport(0, null)];
+    else {
+      input.arena.projections.push({ id: 2, parent: null, projection: { kind: "index", constant: 0n } },
+        { id: 3, parent: null, projection: { kind: "index", constant: 1n } });
+      alternative.arguments = mode === "head" ? [transport(0, 2), transport(1, 3)] : [transport(0, 2), transport(0, 3)];
+    }
+  };
+  const restMessage = "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads.";
+  for (const mode of ["empty", "finite", "dynamic", "value", "head"]) await factOpposite(`actual selected rest ${mode}`, (input, supplied) => restFixture(mode, input, supplied),
+    input => {
+      const alternative = input.origins.invocations[0].alternatives[0];
+      if (mode === "empty") alternative.arguments = [{ authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
+        passing: "by-value", actual: 0, formal: { owner: summaryOwner(alternative.summary), producer: 0 }, projection: null }];
+      else if (mode === "value") alternative.arguments[0].repeated = true;
+      else if (mode === "head") alternative.arguments[1].projection = 2;
+      else alternative.arguments.pop();
+    }, [violation("argument-transports-total", nodeSite(1), restMessage)]);
+  await factOpposite("absent rest is not an invented empty-rest transport", (input, supplied) => {
+    restFixture("empty", input, supplied);
+    input.origins.invocations[0].alternatives[0].resolution.decision.parameters[0].arguments = [];
+    supplied.tir.root.arguments.nodes = [];
+    supplied.tir.root.tsonic.application.decision.arguments = [{ kind: "omitted", parameter: 0, value: { kind: "empty-rest" } }];
+    input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
+  }, input => {
+    const alternative = input.origins.invocations[0].alternatives[0];
+    alternative.arguments = [{ authoredIndex: null, parameter: definitions.parameter, parameterIndex: 0, repeated: false,
+      passing: "by-value", actual: 0, formal: { owner: summaryOwner(alternative.summary), producer: 0 }, projection: null }];
+  }, [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."),
+    violation("argument-transports-total", nodeSite(1), restMessage)]);
+  for (const kind of ["default", "omitted"]) await factOpposite(`actual selected ${kind} has no invented authored occurrence`, (input, supplied) => {
+    invocationFixture(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const initializer = ids.encodeBodyId({ owner: definitions.capture, role: "default-argument", ordinal: 0 });
+    const formal = supplied.types.signatures[1].parameters[1]; formal.kind = kind === "default" ? "default" : "optional";
+    formal.initializer = kind === "default" ? initializer : null;
+    alternative.resolution.decision.parameters[1] = kind === "default" ? { kind, parameter: 1, initializer } : { kind, parameter: 1, type: 1 };
+    alternative.arguments[1].authoredIndex = null;
+    supplied.tir.root.arguments.nodes.pop();
+    supplied.tir.root.tsonic.application.decision.arguments[1] = { kind: "omitted", parameter: 1,
+      value: kind === "default" ? { kind: "initializer", instance: { body: initializer, bindings: parametric() } } : { kind: "absence" } };
+    input.refinements.integers.pop();
+    if (kind === "omitted") {
+      input.arena.origins.push({ id: 2, kind: "complete", producers: [], includesAbsence: true });
+      input.arena.contexts[0].arguments[1] = 2; alternative.arguments[1].actual = 2;
+    }
+  }, input => { input.origins.invocations[0].alternatives[0].arguments[1].authoredIndex = 1; },
+    [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.")]);
   const invocationCases = [
     ["signature-resolves", (input, supplied) => { input.origins.invocations[0].alternatives[0].resolution.decision.completion.signature = 99; },
       "A fact signature resolves in the actual supplied signature table."],
@@ -634,16 +816,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const field of ["authoredIndex", "parameterIndex"]) {
     for (const invalid of [-1, -0, 0.5, NaN, Infinity, -Infinity]) await factOpposite(`transport ${field} retains its actual index domain ${String(invalid)}/${Object.is(invalid, -0)}`,
       invocationFixture, input => { input.origins.invocations[0].alternatives[0].arguments[0][field] = invalid; },
-      [violation("argument-transports-total", nodeSite(1), "A transport retains actual nonnegative authored, formal and effective indices."),
+      [violation("argument-transports-total", nodeSite(1), "A transport retains actual nonnegative authored and formal indices."),
         ...(field === "parameterIndex" && !Object.is(invalid, -0) ? [violation("argument-transports-total", nodeSite(1), "A transport's formal producer retains its actual declaration parameter position."),
           violation("argument-transports-total", nodeSite(1), "Transports retain complete selected formals, passing modes and effective actual components exactly once."),
           violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")] : []),
         ...(field === "authoredIndex" && (Number.isNaN(invalid) || invalid === Infinity) ? [violation("argument-transports-authored-order", nodeSite(1),
           "Transports retain authored actual evaluation order without inventing a flattened runtime slot.")] : [])]);
   }
-  await factOpposite("actual context origins cannot be independently permuted", (input, supplied) => { invocationFixture(input, supplied); input.arena.contexts[0].arguments = [0, 1]; },
+  await factOpposite("actual context origins cannot be independently permuted", (input, supplied) => { invocationFixture(input, supplied);
+    input.arena.contexts[0].arguments = [0, 1]; input.origins.invocations[0].alternatives[0].arguments[1].actual = 1; },
     input => { input.arena.contexts[0].arguments.reverse(); }, [violation("origin-alternatives-correlated", arenaSite("context", "context", 0),
-      "A value context retains its actual receiver and parameter origins without mixing alternatives.")]);
+      "A value context retains its actual receiver and parameter origins without mixing alternatives."),
+      ...[0, 1].map(() => violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."))]);
   const bodylessDependentInvocation = (input, supplied) => {
     invocationFixture(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0];
@@ -668,9 +852,31 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await factOpposite("unknown actual API dependence is not parametric", invocationFixture,
     (input, supplied) => { supplied.context.bindingDependentOf = definition => definition === definitions.callee ? null : false; },
     [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
-  await factOpposite("activation validates but never replaces the canonical API environment", bodylessDependentInvocation,
+  const actualDependentActivation = (input, supplied) => {
+    bodylessDependentInvocation(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const calleeBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
+    const actual = tir(); actual.body = calleeBody; actual.owner = definitions.callee; actual.signature = 1;
+    actual.bindings = clone(alternative.summary.bindings); actual.lexicalBindings = clone(alternative.resolution.decision.implementationBindings);
+    actual.dependence = "binding-dependent";
+    actual.params = supplied.types.signatures[1].parameters.map((formal, local) => ({ local, declaration: formal.declaration,
+      role: formal.kind, passing: formal.passing, initializer: formal.initializer, storage: formal.type }));
+    actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration), name: `parameter${parameter.local}`,
+      role: "parameter", capturedFrom: null, mutable: true, storage: parameter.storage }));
+    supplied.bodyRows.set(calleeBody, actual);
+    alternative.resolution.decision.api.body = calleeBody;
+    alternative.resolution.activation = { body: calleeBody, bindings: clone(alternative.summary.bindings) };
+  };
+  await factOpposite("activation validates but never replaces the canonical API environment", actualDependentActivation,
     input => { input.origins.invocations[0].alternatives[0].resolution.activation = { body: ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 }), bindings: parametric() }; },
     [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+  await factOpposite("activation retains the actual selected body identity", actualDependentActivation,
+    (input, supplied) => { supplied.bodyRows.get(input.origins.invocations[0].alternatives[0].resolution.activation.body).body = otherBody; },
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+  await factOpposite("activation retains the actual selected declaration owner", actualDependentActivation,
+    (input, supplied) => { supplied.bodyRows.get(input.origins.invocations[0].alternatives[0].resolution.activation.body).owner = definitions.other; },
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment."),
+      violation("bindings-complete", nodeSite(1), "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
 
   const formalInventory = (kind, input, supplied) => {
     input.arena.producers[0] = kind === "receiver" ? { id: 0, path: null, kind }
@@ -787,6 +993,35 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     suspend("await", input, supplied); input.arena.producers[0] = { id: 0, path: null, kind: "suspension-input", at: nodeRef(1), channel: "return" };
   }, input => { input.arena.producers[0].channel = "sent"; }, [violation("suspension-input-site", arenaSite("producer", "producer", 0),
     "A suspension input retains the actual supported suspension channel and occurrence.")]);
+  await factOpposite("suspension error invalidation retains its actual MIR suspension occurrence", (input, supplied) => {
+    suspend("await", input, supplied);
+    input.errorStorage.errors = [{ node: 2, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(1), owner: 1, kind: "invalidated", cause: "suspension" }] }];
+  }, input => { input.errorStorage.errors[0].invalidations[0].at = nodeRef(2); },
+    [violation("error-invalidation-outcome-exact", nodeSite(2), "A suspension invalidation retains an actual suspension occurrence.")]);
+  await factOpposite("unknown error ownership cannot be claimed as preserved", input => {
+    input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "preserved" }] }];
+  }, input => { input.arena.origins[1] = { ...input.arena.origins[1], kind: "open", boundaries: [0] }; },
+    [violation("error-invalidation-outcome-exact", nodeSite(1), "Unknown error-owner origins cannot be relabelled as a proven preserved owner.")]);
+  for (const kind of ["incomplete-origins", "inexact-accessor-footprint", "open-constructor-domain", "opaque-invocation-footprint"]) {
+    await factOpposite(`unproven error reason retains its complete ${kind} domain`, input => {
+      input.arena.origins[1] = { ...input.arena.origins[1], kind: "open", boundaries: [0] };
+      const reason = kind === "inexact-accessor-footprint" ? { kind } : kind === "open-constructor-domain" ? { kind, constructor: 1 } : { kind, affected: 1 };
+      input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "unproven", reason, detail: "actual unresolved footprint" }] }];
+    }, input => {
+      const invalidation = input.errorStorage.errors[0].invalidations[0];
+      if (kind === "inexact-accessor-footprint") invalidation.owner = 99;
+      else if (kind === "open-constructor-domain") invalidation.reason.constructor = 99;
+      else invalidation.reason.affected = 99;
+    }, [violation("error-invalidation-origins-resolve", nodeSite(1), kind === "inexact-accessor-footprint"
+      ? "An error invalidation retains its actual owner origins in this arena." : "An unproven error reason retains its actual affected or constructor origins.")]);
+  }
+  for (const kind of ["incomplete-origins", "open-constructor-domain"]) await factOpposite(`unproven ${kind} is not a complete domain`, input => {
+    input.arena.origins[1] = { ...input.arena.origins[1], kind: "open", boundaries: [0] };
+    input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "unproven",
+      reason: kind === "incomplete-origins" ? { kind, affected: 1 } : { kind, constructor: 1 }, detail: "actual open domain" }] }];
+  }, input => { const reason = input.errorStorage.errors[0].invalidations[0].reason;
+    if (kind === "incomplete-origins") reason.affected = 0; else reason.constructor = 0; },
+  [violation("error-invalidation-outcome-exact", nodeSite(1), "An incomplete-domain reason must retain an actually open origin domain.")]);
   await suite.test("actual callback activation retains its qualified formal entry and caller context", () => {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     input.origins.activations = [{ node: 2, definition: definitions.callee, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
@@ -852,6 +1087,19 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.layouts.push({ ...clone(input.layouts[0]), id: 1, source: 2, byteSize: 0n, stride: 0n, kind: "array", length: 0n, runtimeBase: "bigint", element: 0 });
     delete input.layouts[1].fields; input.root = 1;
   };
+  for (const kind of ["not-local-element-access", "open-origin-domain", "nonlocal-or-projected-origin", "sparse-or-spread-literal", "callable-boundary",
+    "alias-declaration-missing", "different-origin-domain", "binding-not-plain", "initialization-not-block-local", "unproven-capture",
+    "assignment-result-exposed", "unproven-use", "no-local-allocation"]) await factOpposite(`saved closed-array reason ${kind} keeps its own endpoint`, input => {
+    if (kind === "open-origin-domain") input.arena.origins[1] = { ...input.arena.origins[1], kind: "open", boundaries: [0] };
+    input.closedArrays = [{ node: 1, kind: "unproven", reason: kind === "open-origin-domain" ? { kind, origins: 1 } : { kind, at: nodeRef(2) } }];
+  }, input => { const reason = input.closedArrays[0].reason;
+    if (kind === "open-origin-domain") reason.origins = 99; else reason.at.node = 99; },
+  [violation(kind === "open-origin-domain" ? "origins-resolves" : "node-resolves", nodeSite(1), kind === "open-origin-domain"
+    ? "Origins resolve in this exact relational arena." : "Every fact retains an actual source occurrence in its declared body domain.")]);
+  for (const field of ["references", "literals"]) await factOpposite(`closed-array ${field} retain qualified actual occurrences`, input => {
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [member()] }];
+  }, input => { input.closedArrays[0][field][0].body = otherBody; },
+    [violation("cross-owner-qualified", nodeSite(1), "A local fact cannot borrow the same numeric node index from another body.")]);
   const metadataSite = () => ({ kind: "metadata", metadata: { definition: definitions.layout, bindings: parametric() } });
   const metadataOpposite = async (name, prepare, amend, expected) => suite.test(`metadata ${name}`, () => {
     const input = metadata(); const supplied = setup();
@@ -1250,6 +1498,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, make, amend, expected] of graphCases) await graphOpposite(rule, make, amend,
     expected.map(entry => violation(entry.rule, entry.site, entry.message)));
+  await graphOpposite("duplicate component identifiers do not merge distinct member worklists", directedGraph,
+    input => { input.components[1].id = componentId("f"); }, [
+      violation("components-order", componentSite(componentId("f")), "Components must be distinct and ordered by identity."),
+      violation("component-identity", componentSite(componentId("f")), "The component identity must encode exactly its canonical member vector."),
+      violation("component-dependencies-exact", componentSite(componentId("f")), "Dependencies must be exactly the other components named by closed call edges."),
+    ]);
   await suite.test("legal recursion remains wholly inside one real component", () => equal(product.verifyCallGraph(recursiveGraph(), setup().context), [], "mutual recursion is not a condensation cycle"));
   await suite.test("parser line and column locations use UTF-16 code units and CRLF counts once", () => {
     malformed(product.parseCallGraph, " \r\n  Unknown()", 5, ["CallGraph"], "Unknown", "CRLF record location", 2, 3);

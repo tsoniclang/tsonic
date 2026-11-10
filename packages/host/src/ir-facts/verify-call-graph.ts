@@ -41,7 +41,7 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
 
 const reachedMembers = (
   first: DefId,
-  component: ComponentId,
+  component: ComponentWork,
   membership: ReadonlyMap<DefId, ComponentWork>,
   edges: ReadonlyMap<DefId, readonly DefId[]>,
 ): number => {
@@ -53,7 +53,7 @@ const reachedMembers = (
     const targets = edges.get(definition);
     if (targets === undefined) continue;
     for (const target of targets) {
-      if (membership.get(target)?.component.id === component && !visited.has(target)) pending.push(target);
+      if (membership.get(target) === component && !visited.has(target)) pending.push(target);
     }
   }
   return visited.size;
@@ -182,8 +182,8 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     }
     const first = component.definitions[0];
     if (first !== undefined && membership.get(first) === state &&
-      (reachedMembers(first, component.id, membership, forward) !== component.definitions.length ||
-        reachedMembers(first, component.id, membership, reverse) !== component.definitions.length)) {
+      (reachedMembers(first, state, membership, forward) !== component.definitions.length ||
+        reachedMembers(first, state, membership, reverse) !== component.definitions.length)) {
       report("component-membership-exact", site, "The members of a component must be mutually reachable through actual call edges.");
     }
   }

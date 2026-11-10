@@ -16,6 +16,12 @@ import type { FactBindingInput } from "./verify-relations.js";
 
 const compare = (left: string | number, right: string | number): number => left === right ? 0 : left < right ? -1 : 1;
 
+interface TransportShape {
+  readonly authoredIndex: number | null;
+  readonly repeated: boolean;
+  readonly component: number | null;
+}
+
 export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const bodySite: FactsSite = { kind: "body", instance: facts.instance };
@@ -250,7 +256,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     origins(argument.actual, site); path(argument.projection, site);
     if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
       argument.authoredIndex !== null && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
-      report("argument-transports-total", site, "A transport retains actual nonnegative authored, formal and effective indices.");
+      report("argument-transports-total", site, "A transport retains actual nonnegative authored and formal indices.");
     }
     const foreign = context.arenaOf(argument.formal.owner);
     if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
@@ -266,6 +272,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   nodeOrder(facts.origins.invocations, "invocations-order");
   for (const invocation of facts.origins.invocations) {
     node(invocation.node); const site = at(invocation.node);
+    const syntax = nodes.get(invocation.node);
+    const application = syntax !== undefined && syntax.tsonic !== null && "application" in syntax.tsonic && syntax.tsonic.application.kind === "decided"
+      ? syntax.tsonic.application.decision : null;
+    const authored = new Map<NodeId, number>();
+    if (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression") {
+      for (const [index, argument] of (syntax.arguments?.nodes ?? []).entries()) {
+        authored.set(argument.kind === "SpreadElement" ? argument.expression.id : argument.id, index);
+      }
+    }
     for (const id of invocation.boundaries) boundary(id, site);
     for (const alternative of invocation.alternatives) {
       const decision = alternative.resolution.decision;
@@ -278,11 +293,42 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       bindings(decision.implementationBindings, site, decision.api.declaration);
       const selected = context.types.signatures[decision.api.signature];
       const receiver = facts.arena.contexts[alternative.context];
+      const mappings = new Map(decision.parameters.map(mapping => [mapping.parameter, mapping]));
+      const restAuthored = new Map(decision.parameters.filter(mapping => mapping.kind === "rest").map(mapping => [mapping.parameter, new Set(mapping.arguments)]));
+      const consumed = new Map<number, Set<number>>();
+      for (const mapping of decision.parameters) if (mapping.kind === "argument" && mapping.component !== null) {
+        const components = consumed.get(mapping.argument);
+        if (components === undefined) consumed.set(mapping.argument, new Set([mapping.component]));
+        else components.add(mapping.component);
+      }
+      const restParts = new Map(application === null ? [] : application.arguments.filter(argument => argument.kind === "rest").map(argument => [argument.parameter, argument]));
+      const expectedRests = new Map<number, readonly TransportShape[]>();
+      for (const mapping of decision.parameters) if (mapping.kind === "rest") {
+        const shapes: TransportShape[] = [];
+        if (mapping.arguments.length === 0) expectedRests.set(mapping.parameter, shapes);
+        else {
+          const rest = restParts.get(mapping.parameter);
+          if (rest !== undefined) {
+            for (const part of rest.parts) {
+              const index = authored.get(part.expression);
+              if (index === undefined || !restAuthored.get(mapping.parameter)?.has(index)) {
+                report("argument-transports-total", site, "Rest transports retain their actual selected authored spread and value occurrences.");
+              } else if (part.kind === "value") shapes.push({ authoredIndex: index, repeated: false, component: null });
+              else if (part.tuple === null) shapes.push({ authoredIndex: index, repeated: true, component: null });
+              else for (const [component] of part.tuple.entries()) if (!consumed.get(index)?.has(component)) {
+                shapes.push({ authoredIndex: index, repeated: false, component });
+              }
+            }
+            expectedRests.set(mapping.parameter, shapes);
+          }
+        }
+      }
       if (selected !== undefined && receiver !== undefined && (receiver.arguments.length !== selected.parameters.length ||
         (receiver.receiver === null) !== (selected.receiver === null))) report("context-arguments-total", site,
         "Each invocation context retains every actual selected parameter and receiver slot.");
       let previousAuthored: number | null = null;
       const supplied = new Map<number, number>();
+      const rests = new Map<number, ArgumentTransport[]>();
       for (const argument of alternative.arguments) {
         checkArgument(argument, site);
         if (argument.authoredIndex !== null) {
@@ -291,9 +337,26 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           previousAuthored = argument.authoredIndex;
         }
         const parameter = selected?.parameters[argument.parameterIndex];
+        const mapping = mappings.get(argument.parameterIndex);
         if (parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
-          argument.repeated !== (parameter.kind === "rest")) report("argument-transports-total", site,
+          mapping === undefined || mapping.kind !== "rest" && argument.repeated) report("argument-transports-total", site,
           "Transports retain complete selected formals, passing modes and effective actual components exactly once.");
+        if (mapping !== undefined && (argument.authoredIndex === null || Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0))) {
+          const valid = mapping.kind === "argument" ? argument.authoredIndex === mapping.argument
+            : mapping.kind === "rest" ? argument.authoredIndex !== null && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true
+              : argument.authoredIndex === null;
+          const projection = argument.projection === null ? null : facts.arena.projections[argument.projection]?.projection;
+          if (!valid || mapping.kind !== "rest" && receiver !== undefined && receiver.arguments[argument.parameterIndex] !== argument.actual ||
+            mapping.kind === "argument" && (mapping.component === null ? argument.projection !== null
+              : !Number.isSafeInteger(mapping.component) || mapping.component < 0 || Object.is(mapping.component, -0) ||
+                projection?.kind !== "index" || projection.constant !== BigInt(mapping.component))) {
+            report("argument-transports-total", site, "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.");
+          }
+        }
+        if (mapping?.kind === "rest") {
+          const rows = rests.get(argument.parameterIndex);
+          if (rows === undefined) rests.set(argument.parameterIndex, [argument]); else rows.push(argument);
+        }
         supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
         if (argument.formal.owner.kind !== "summary" || argument.formal.owner.definition !== alternative.summary.definition ||
           !sameBindings(argument.formal.owner.bindings, alternative.summary.bindings)) report("cross-owner-qualified", site,
@@ -304,12 +367,31 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         if (parameter !== undefined && parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
           "Every non-rest selected formal has its complete actual or explicit omitted transport.");
       }
+      for (const [parameter, shapes] of expectedRests) {
+        const rows = rests.get(parameter) ?? [];
+        const expected = encodeKey(shapes.map(shape => [shape.authoredIndex, shape.repeated,
+          shape.component === null ? shape.repeated ? "element" : null : BigInt(shape.component)]));
+        const actual = encodeKey(rows.map(row => {
+          const projection = row.projection === null ? null : facts.arena.projections[row.projection]?.projection;
+          return [row.authoredIndex, row.repeated, projection === null ? null : projection === undefined ? "missing"
+            : projection.kind === "index" ? projection.constant : projection.kind];
+        }));
+        if (actual !== expected) report("argument-transports-total", site,
+          "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads.");
+      }
       const activation = alternative.resolution.activation;
       const dependent = context.bindingDependentOf(decision.api.declaration);
       const environment: ArtifactBindings | null = dependent === null ? null : dependent
         ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
+      let activationValid = true;
+      if (activation !== null) {
+        const actual = context.tirBody(activation);
+        activationValid = actual.body === activation.body && actual.owner === decision.api.declaration &&
+          sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
+        if (activation.bindings.kind === "instantiated") bindings(activation.bindings.bindings, site, actual.owner);
+      }
       if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
-        activation !== null && !sameBindings(activation.bindings, environment)) report("summary-reference-exact", site,
+        !activationValid) report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment.");
       const captureSet = new Set(alternative.resolution.captures.map(capture => encodeKey([capture.body, capture.local])));
       if (captureSet.size !== alternative.resolution.captures.length || receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
