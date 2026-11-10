@@ -1,0 +1,9 @@
+{
+  "operation": "invariant",
+  "failure": {
+    "pass": "infer",
+    "query": null,
+    "origin": null,
+    "message": "no invented query or origin"
+  }
+}
