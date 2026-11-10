@@ -1,0 +1,7 @@
+{
+  "name": "lookup-present",
+  "level": "function",
+  "rule": "diag.registry-exact-supplied-definition",
+  "input": "test/host-cases/diag/function/lookup-present.input.json",
+  "expected": "test/host-cases/diag/function/lookup-present.expected.json"
+}

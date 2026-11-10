@@ -1,0 +1,20 @@
+{
+  "operation": "lookup",
+  "registry": {
+    "definitions": [
+      {
+        "code": "HOST_A",
+        "severity": "warning",
+        "stage": "front",
+        "template": "first {0}"
+      },
+      {
+        "code": "HOST_Z",
+        "severity": "error",
+        "stage": "analysis",
+        "template": "last {0}\r\n\ud800"
+      }
+    ]
+  },
+  "code": "host_a"
+}

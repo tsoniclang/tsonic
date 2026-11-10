@@ -1,0 +1,7 @@
+{
+  "name": "invariant-full",
+  "level": "function",
+  "rule": "diag.invariant-exact-complete-failure",
+  "input": "test/host-cases/diag/function/invariant-full.input.json",
+  "expected": "test/host-cases/diag/function/invariant-full.expected.json"
+}

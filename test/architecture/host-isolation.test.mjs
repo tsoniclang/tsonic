@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { hostCatalogue } from "./host/catalogue.mjs";
+import { hostCatalogue, sourceOwner } from "./host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "./host/isolation.mjs";
 import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
@@ -243,7 +243,7 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
   });
 });
 
-test("the actual 36 Host contracts pass S1 inspection and fresh whole-module declaration isolation", async context => {
+test("all actual Host modules pass S1 inspection and fresh whole-module declaration isolation", async context => {
   const modules = hostCatalogue.filter(module => module.directory.startsWith(`${host}/`));
   assert.equal(modules.length, 36, "complete current contract owners");
   const deps = isolationDeps(tooling, quarantineRoots);
@@ -253,21 +253,24 @@ test("the actual 36 Host contracts pass S1 inspection and fresh whole-module dec
     root: repository, files: [...files.keys()], catalogue: hostCatalogue, loadedFiles: [], configurations: ["packages/host/tsconfig.json"],
   });
   assert.equal(JSON.stringify(inspection), "[]", `actual contract findings: ${JSON.stringify(inspection).slice(0, 6000)}`);
-  assert.equal(JSON.stringify(inventory), JSON.stringify(modules.map(module => module.contract).sort()), "the complete actual current root equals the explicit reviewed inventory");
+  const expectedInventory = [...modules.map(module => module.contract),
+    ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`)].sort();
+  assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
-    const closure = new Set([module.contract]);
+    const ownSources = inventory.filter(path => sourceOwner(hostCatalogue, path)?.name === module.name);
+    const closure = new Set(ownSources);
     for (const source of closure) for (const edge of graph) if (edge.source === source && edge.target !== null) closure.add(edge.target);
-    const interfaces = [...closure].filter(path => path !== module.contract).sort();
+    const interfaces = [...closure].filter(path => !ownSources.includes(path)).sort();
     const report = await compileIsolated(deps, module, {
-      root: repository, sourceFiles: [module.contract], interfaceSources: interfaces, declarationSources: interfaces,
-      outputDirectory: ".temp/host-contract-lock-isolation",
+      root: repository, sourceFiles: ownSources, interfaceSources: interfaces, declarationSources: interfaces,
+      outputDirectory: ".temp/host-current-isolation",
     });
     assert.equal(report.status, "passed", `${module.name}: ${label(report)}`);
     assert.equal(report.loadedInventory.length > 0, true, "real compiler input inventory is nonempty");
     assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true, "no undeclared compiler source");
     assert.equal(report.provenance.length, interfaces.length, "every public dependency has genuine fresh declaration provenance");
-    assert.equal(report.sourceInventory.length, closure.size, "complete explicit original contract closure");
+    assert.equal(report.sourceInventory.length, closure.size, "complete explicit original module source closure");
   });
 });
 

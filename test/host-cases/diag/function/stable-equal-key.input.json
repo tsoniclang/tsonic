@@ -1,0 +1,159 @@
+{
+  "operation": "order",
+  "diagnostics": [
+    {
+      "code": {
+        "kind": "host",
+        "name": "HOST_STABLE",
+        "rendered": "SHARED"
+      },
+      "severity": "suggestion",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 0,
+          "length": 3,
+          "derived": [
+            {
+              "kind": "lowering",
+              "pass": "front"
+            }
+          ]
+        }
+      },
+      "source": null,
+      "evidence": [
+        "first",
+        "first"
+      ],
+      "message": "z first authored",
+      "arguments": [
+        {
+          "kind": "origin",
+          "value": {
+            "module": "M[P[project];a.ts]",
+            "start": 0,
+            "length": 3,
+            "derived": [
+              {
+                "kind": "lowering",
+                "pass": "front"
+              }
+            ]
+          }
+        }
+      ],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "extension",
+        "number": 0,
+        "extensionCode": "EXT_STABLE",
+        "rendered": "SHARED"
+      },
+      "severity": "error",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 0,
+          "length": 90,
+          "derived": []
+        }
+      },
+      "source": "extension",
+      "evidence": [
+        "second"
+      ],
+      "message": "a second authored",
+      "arguments": [
+        {
+          "kind": "text",
+          "value": "\ud800"
+        }
+      ],
+      "related": [
+        {
+          "site": {
+            "kind": "file",
+            "path": "related.ts"
+          },
+          "code": {
+            "kind": "checker",
+            "number": 0,
+            "rendered": "TS0"
+          },
+          "message": "related detail"
+        }
+      ],
+      "fix": {
+        "description": "second edit",
+        "edits": [
+          {
+            "origin": {
+              "module": "M[P[project];a.ts]",
+              "start": 0,
+              "length": 3,
+              "derived": [
+                {
+                  "kind": "lowering",
+                  "pass": "front"
+                }
+              ]
+            },
+            "replacement": ""
+          }
+        ]
+      }
+    },
+    {
+      "code": {
+        "kind": "host",
+        "name": "HOST_STABLE",
+        "rendered": "SHARED"
+      },
+      "severity": "suggestion",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 0,
+          "length": 3,
+          "derived": [
+            {
+              "kind": "lowering",
+              "pass": "front"
+            }
+          ]
+        }
+      },
+      "source": null,
+      "evidence": [
+        "first",
+        "first"
+      ],
+      "message": "z first authored",
+      "arguments": [
+        {
+          "kind": "origin",
+          "value": {
+            "module": "M[P[project];a.ts]",
+            "start": 0,
+            "length": 3,
+            "derived": [
+              {
+                "kind": "lowering",
+                "pass": "front"
+              }
+            ]
+          }
+        }
+      ],
+      "related": [],
+      "fix": null
+    }
+  ]
+}
