@@ -23,7 +23,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     report("cross-owner-qualified", "The summary signature must retain its actual declaration owner.");
   }
   for (const violation of verifyRelationalArena(summary.arena, owner, context)) {
-    const rule: SummaryRule = violation.rule === "bindings-complete" || violation.rule === "cross-owner-qualified" ||
+    const rule: SummaryRule = violation.rule === "cross-owner-qualified" ||
       violation.rule === "relational-site-resolves" || violation.rule === "declared-site-ordinal" ? violation.rule : "summary-finite";
     violations.push({ rule, site: violation.site, detail: violation.detail });
   }
@@ -122,24 +122,26 @@ export const verifySummary: VerifySummary = (summary, context) => {
   for (const callback of summary.callbacks) {
     if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
-    const parameter = signature?.parameters[callback.parameterIndex];
-    const parameterExists = signature !== undefined && validIndex(callback.parameterIndex, signature.parameters.length) && parameter !== undefined;
+    const parameterExists = signature !== undefined && validIndex(callback.parameterIndex, signature.parameters.length);
     if (!parameterExists) {
       report("callback-parameter-resolves", "A callback names an actual parameter of the summary signature.");
     }
-    if (parameterExists && !callbackArities.has(callback.parameterIndex)) {
-      const signatures = context.callbackSignaturesOf(summary.key, callback.parameterIndex);
-      let count: number | null = null;
-      if (signatures !== null) {
-        for (const id of signatures) {
-          const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
-          if (call === undefined || call.id !== id) { count = null; break; }
-          if (count === null || call.parameters.length < count) count = call.parameters.length;
+    let count: number | null = null;
+    if (parameterExists) {
+      const cached = callbackArities.get(callback.parameterIndex);
+      if (cached !== undefined) count = cached;
+      else {
+        const signatures = context.callbackSignaturesOf(summary.key, callback.parameterIndex);
+        if (signatures !== null) {
+          for (const id of signatures) {
+            const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
+            if (call === undefined || call.id !== id) { count = null; break; }
+            if (count === null || call.parameters.length < count) count = call.parameters.length;
+          }
         }
+        callbackArities.set(callback.parameterIndex, count);
       }
-      callbackArities.set(callback.parameterIndex, count);
     }
-    const count = parameterExists ? callbackArities.get(callback.parameterIndex) ?? null : null;
     if (parameterExists && count === null) {
       report("callback-parameter-resolves", "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter.");
     }

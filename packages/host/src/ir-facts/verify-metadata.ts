@@ -89,12 +89,13 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     if (!context.nodeExists(layout.occurrence)) {
       report("occurrence-resolves", "Every layout occurrence must retain its original qualified source identity.");
     }
-    if (!dataLayouts.has(layout.dataLayout)) {
+    let abi = dataLayouts.get(layout.dataLayout);
+    if (abi === undefined) {
       const selected = context.metadataOf({ definition: layout.dataLayout, bindings: { kind: "parametric" } });
-      dataLayouts.set(layout.dataLayout, selected !== null && selected.kind === "data-layout"
-        ? { width: selected.addressWidth, maximum: (1n << BigInt(selected.addressWidth)) - 1n } : null);
+      abi = selected !== null && selected.kind === "data-layout"
+        ? { width: selected.addressWidth, maximum: (1n << BigInt(selected.addressWidth)) - 1n } : null;
+      dataLayouts.set(layout.dataLayout, abi);
     }
-    const abi = dataLayouts.get(layout.dataLayout) ?? null;
     if (abi === null) {
       report("data-layout-reference-resolves", "Every layout must name an actual finalized data-layout declaration.");
     }

@@ -1239,14 +1239,12 @@ const errorInvalidation: Decode<ErrorInvalidationFact> = (state, input) =>
           ? then(fields(state, input, "invalidated", ["at","owner","cause"]), values =>
     then(nodeRef(state, values[0]), atValue =>
     then(originsIdentity(state, values[1]), ownerValue =>
-    then(literal(state, values[2], ["suspension"]), causeValue =>
-      accept<ErrorInvalidationFact>({ kind: "invalidated", at: atValue, owner: ownerValue, cause: causeValue })))))
+      accept<ErrorInvalidationFact>({ kind: "invalidated", at: atValue, owner: ownerValue, cause }))))
           : then(fields(state, input, "invalidated", ["at","owner","cause","affected"]), values =>
     then(nodeRef(state, values[0]), atValue =>
     then(originsIdentity(state, values[1]), ownerValue =>
-    then(literal(state, values[2], ["overlapping-write"]), causeValue =>
     then(originsIdentity(state, values[3]), affectedValue =>
-      accept<ErrorInvalidationFact>({ kind: "invalidated", at: atValue, owner: ownerValue, cause: causeValue, affected: affectedValue })))))));
+      accept<ErrorInvalidationFact>({ kind: "invalidated", at: atValue, owner: ownerValue, cause, affected: affectedValue }))))));
         });
       }
     }

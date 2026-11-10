@@ -20,19 +20,31 @@ interface ComponentWork {
 }
 
 const compareEdges = (left: CallEdge, right: CallEdge): number => {
-  const leftDefinition = left.callee.kind === "definition" ? left.callee.definition : "";
-  const rightDefinition = right.callee.kind === "definition" ? right.callee.definition : "";
   if (left.caller !== right.caller) return left.caller < right.caller ? -1 : 1;
   if (left.at.body !== right.at.body) return left.at.body < right.at.body ? -1 : 1;
   if (left.at.node !== right.at.node) return left.at.node < right.at.node ? -1 : 1;
   if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
-  if (left.callee.kind !== right.callee.kind) return left.callee.kind < right.callee.kind ? -1 : 1;
-  if (leftDefinition !== rightDefinition) return leftDefinition < rightDefinition ? -1 : 1;
-  if (left.callee.kind === "open" && right.callee.kind === "open") {
-    const leftOwner = ownerKey(left.callee.boundary.owner);
-    const rightOwner = ownerKey(right.callee.boundary.owner);
-    if (leftOwner !== rightOwner) return leftOwner < rightOwner ? -1 : 1;
-    if (left.callee.boundary.boundary !== right.callee.boundary.boundary) return left.callee.boundary.boundary - right.callee.boundary.boundary;
+  switch (left.callee.kind) {
+    case "definition":
+      switch (right.callee.kind) {
+        case "open": return -1;
+        case "definition":
+          if (left.callee.definition !== right.callee.definition) return left.callee.definition < right.callee.definition ? -1 : 1;
+          break;
+      }
+      break;
+    case "open":
+      switch (right.callee.kind) {
+        case "definition": return 1;
+        case "open": {
+          const leftOwner = ownerKey(left.callee.boundary.owner);
+          const rightOwner = ownerKey(right.callee.boundary.owner);
+          if (leftOwner !== rightOwner) return leftOwner < rightOwner ? -1 : 1;
+          if (left.callee.boundary.boundary !== right.callee.boundary.boundary) return left.callee.boundary.boundary - right.callee.boundary.boundary;
+          break;
+        }
+      }
+      break;
   }
   const leftBindings = encodeKey(artifactData(left.bindings));
   const rightBindings = encodeKey(artifactData(right.bindings));

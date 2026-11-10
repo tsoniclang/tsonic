@@ -1,6 +1,7 @@
 import type { Violation } from "../diag/contract.js";
 import type { NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
+import type { DeclarationTarget } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
@@ -196,12 +197,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     report("integer-facts-domain-exact", bodySite, "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.");
   }
   nodeOrder(facts.refinements.countedLoops, "counted-loops-order");
-  const resolvesCounter = (reference: TirNode, counter: TirNode): boolean => {
-    if (reference.kind !== "Identifier" || counter.kind !== "VariableDeclaration") return false;
+  const resolvesCounter = (reference: TirNode, declaration: DeclarationTarget): boolean => {
+    if (reference.kind !== "Identifier") return false;
     const annotation = reference.tsonic;
     if (!("resolution" in annotation)) return false;
     const resolution = annotation.resolution;
-    const declaration = counter.tsonic.declaration;
     return resolution.kind === "local" && declaration.kind === "local"
       ? resolution.local.body === declaration.local.body && resolution.local.local === declaration.local.local
       : resolution.kind === "definition" && declaration.kind === "definition" && resolution.definition === declaration.definition;
@@ -215,11 +215,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     const counter = nodes.get(loop.counterDeclaration);
     if (statement?.kind !== "ForStatement" || counter?.kind !== "VariableDeclaration" || counter.initializer?.id !== loop.start ||
       statement.statement.id !== loop.body || statement.condition?.kind !== "BinaryExpression" || statement.condition.operatorToken.kind !== "LessThanToken" ||
-      statement.condition.right.id !== loop.bound || !resolvesCounter(statement.condition.left, counter) ||
+      statement.condition.right.id !== loop.bound || !resolvesCounter(statement.condition.left, counter.tsonic.declaration) ||
       statement.initializer?.kind !== "VariableDeclarationList" || statement.initializer.declarations.nodes.length !== 1 ||
       statement.initializer.declarations.nodes[0]?.id !== counter.id || statement.incrementor === null ||
       (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") ||
-      statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter)) {
+      statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter.tsonic.declaration)) {
       report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment.");
     }
   }
@@ -251,21 +251,19 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       report("argument-transports-total", site, "A transport retains actual nonnegative authored and formal indices.");
     }
     const foreign = context.arenaOf(argument.formal.owner);
+    const formal = foreign === null ? undefined : foreign.producers[argument.formal.producer];
     if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
-    else if (!validIndex(argument.formal.producer, foreign.producers.length) || foreign.producers[argument.formal.producer]?.id !== argument.formal.producer) {
+    else if (!validIndex(argument.formal.producer, foreign.producers.length) || formal === undefined || formal.id !== argument.formal.producer) {
       report("producer-resolves", site, "The actual formal producer resolves in its declared foreign arena.");
-    } else {
-      const formal = foreign.producers[argument.formal.producer];
-      if (formal?.kind !== "parameter" || formal.index !== argument.parameterIndex) report("argument-transports-total", site,
+    } else if (formal.kind !== "parameter" || formal.index !== argument.parameterIndex) report("argument-transports-total", site,
         "A transport's formal producer retains its actual declaration parameter position.");
-    }
     if (!context.definitionExists(argument.parameter)) report("argument-transports-total", site, "A transport retains its actual parameter declaration.");
   };
   nodeOrder(facts.origins.invocations, "invocations-order");
   for (const invocation of facts.origins.invocations) {
     node(invocation.node); const site = at(invocation.node);
     const syntax = nodes.get(invocation.node);
-    const application = syntax !== undefined && syntax.tsonic !== null && "application" in syntax.tsonic && syntax.tsonic.application.kind === "decided"
+    const application = (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" || syntax?.kind === "TaggedTemplateExpression") && syntax.tsonic.application.kind === "decided"
       ? syntax.tsonic.application.decision : null;
     const authored = new Map<NodeId, number>();
     if (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression") {
@@ -352,9 +350,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           !sameBindings(argument.formal.owner.bindings, alternative.summary.bindings)) report("cross-owner-qualified", site,
           "An argument's formal producer belongs to this exact callee summary and complete binding environment.");
       }
-      for (let index = 0; index < (selected?.parameters.length ?? 0); index += 1) {
-        const parameter = selected?.parameters[index];
-        if (parameter !== undefined && parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
+      for (const [index, parameter] of selected?.parameters.entries() ?? []) {
+        if (parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
           "Every non-rest selected formal has its complete actual or explicit omitted transport.");
       }
       for (const [parameter, shapes] of expectedRests) {

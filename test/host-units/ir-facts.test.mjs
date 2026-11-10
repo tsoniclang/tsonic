@@ -245,6 +245,45 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = abi(); input.fingerprint = "/";
     equal(product.parseMetadata(abiText(64).replace('"abi-64"', '"\\/"')), { kind: "parsed", value: input }, "complete JSON escaped slash");
   });
+  for (const [name, text, offset, expected, found] of [
+    ["an incomplete identity", "def:", 0, ["IR value"], "def"],
+    ["a Boolean identity payload", "def:true", 0, ["IR value"], "def"],
+    ["a numeric record field name", "CallGraph(0=[])", 10, ["field name"], "0"],
+    ["a missing array separator", "[0 1]", 3, [",", "]"], "1"],
+    ["a misplaced closing array", "]", 0, ["IR value"], "]"],
+    ["a root array", "[]", 0, ["CallGraph"], "["],
+    ["a root Boolean", "false", 0, ["CallGraph"], "false"],
+    ["a root absence", "null", 0, ["CallGraph"], "null"],
+    ["a special-number prefix followed by a name", "NaNx", 0, ["IR value"], "NaNx"],
+    ["a positive infinity prefix followed by a name", "+Infinityx", 0, ["IR value"], "+"],
+    ["a negative infinity prefix followed by a name", "-Infinityx", 0, ["finite decimal number"], "-"],
+    ["an unfinished escaped string", '"\\', 2, ["JSON string escape"], null],
+  ]) await suite.test(`typed grammar rejects ${name}`, () => malformed(product.parseCallGraph, text, offset, expected, found, name));
+  for (const [name, text, expected] of [
+    ["an unknown metadata record", "Unknown()", ["data-layout", "memory-layout", "memory-field"]],
+    ["a scalar in the metadata record position", "0", ["data-layout", "memory-layout", "memory-field"]],
+  ]) await suite.test(`typed metadata rejects ${name}`, () => malformed(product.parseMetadata, text, 0, expected,
+    name === "an unknown metadata record" ? "Unknown" : "0", name));
+  for (const [name, row, marker, expected, found] of [
+    ["unknown projection", "ProjectionPath(id=path:0, parent=null, projection=Unknown())", "Unknown", ["field", "method-value", "element", "index", "deref"], "Unknown"],
+    ["wrong projection field kind", "ProjectionPath(id=path:0, parent=null, projection=0)", "projection=0", ["field", "method-value", "element", "index", "deref"], "0"],
+    ["invalid first boundary", "open(id=origins:0, producers=[], includesAbsence=false, boundaries=[q:0])", "q:0", ["boundary:number"], "q"],
+    ["invalid later boundary", "open(id=origins:0, producers=[], includesAbsence=false, boundaries=[boundary:0, q:0])", "q:0", ["boundary:number"], "q"],
+    ["invalid first refinement invalidation", "unproven(node=n:1, guards=[], reason=invalidated(sites=[Unknown()]))", "Unknown", ["write", "call"], "Unknown"],
+    ["invalid later refinement invalidation", `unproven(node=n:1, guards=[], reason=invalidated(sites=[write(at=${nodeText(1)}), Unknown()]))`, "Unknown", ["write", "call"], "Unknown"],
+  ]) await suite.test(`typed nested grammar rejects ${name}`, () => {
+    const field = name.includes("projection") ? "projections" : name.includes("boundary") ? "origins" : "refinements";
+    const text = emptyFactsText.replace(`${field}=[]`, `${field}=${arrayText([row])}`);
+    const offset = text.indexOf(marker) + (marker === "projection=0" ? "projection=".length : 0);
+    const before = text.slice(0, offset).split("\n");
+    malformed(product.parseFacts, text, offset, expected, found, name, before.length, before.at(-1).length + 1);
+  });
+  await suite.test("raw Unicode line separators retain exact later-field UTF-16 locations", () => {
+    const text = abiText(64).replace('"abi-64"', '"first\u2028second\u2029third"').replace("addressWidth=64", "addressWidth=0");
+    const offset = text.indexOf("addressWidth=0") + "addressWidth=".length;
+    const before = text.slice(0, offset).split(/[\u2028\u2029]/u);
+    malformed(product.parseMetadata, text, offset, ["32", "64"], "0", "Unicode line separator field", before.length, before.at(-1).length + 1);
+  });
   await suite.test("scalar domains and grammar delimiters retain the complete independent rejection", () => {
     const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), observed=false)";
     const integer = "IntegerFact(node=n:1, range=IntegerRange(minimum=0, maximum=1n), nonnegative=false)";
@@ -720,6 +759,39 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await factOpposite("counted-loop-conditions-exact actual increment counter", countedLoop, (input, supplied) => {
     supplied.tir.root.statements.nodes[0].incrementor.operand.tsonic.resolution.local = { body: otherBody, local: 0 };
   }, [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
+  for (const [endpoint, actual] of [["statement", 12], ["counterDeclaration", 4], ["start", 9], ["bound", 5], ["body", 13]]) {
+    await factOpposite(`a resolving ${endpoint} still has its exact counted-loop role`, countedLoop,
+      input => { input.refinements.countedLoops[0][endpoint] = actual; },
+      [violation("counted-loop-conditions-exact", nodeSite(endpoint === "statement" ? actual : 1), loopMessage)]);
+  }
+  for (const [name, amend] of [
+    ["a non-identifier comparison", (input, supplied) => {
+      const condition = supplied.tir.root.statements.nodes[0].condition;
+      condition.left = { ...clone(condition.right), id: 7 };
+    }],
+    ["a property-name role without resolution", (input, supplied) => {
+      supplied.tir.root.statements.nodes[0].condition.left.tsonic = { role: "property-name", key: { kind: "text", value: "counter" } };
+      input.refinements.integers = input.refinements.integers.filter(row => row.node !== 7);
+    }],
+    ["a different resolution domain", (input, supplied) => {
+      supplied.tir.root.statements.nodes[0].condition.left.tsonic.resolution = { kind: "definition", definition: definitions.f, aliases: [] };
+    }],
+    ["a missing comparison", (input, supplied) => {
+      supplied.tir.root.statements.nodes[0].condition = null;
+      input.refinements.countedLoops[0].bound = 5;
+      input.refinements.integers = input.refinements.integers.filter(row => ![6, 7, 9].includes(row.node));
+    }],
+    ["a non-exclusive comparison", (input, supplied) => { supplied.tir.root.statements.nodes[0].condition.operatorToken.kind = "LessThanEqualsToken"; }],
+    ["a decrement instead of a unit increment", (input, supplied) => { supplied.tir.root.statements.nodes[0].incrementor.operator = "MinusMinusToken"; }],
+  ]) await factOpposite(`typed counted-loop evidence rejects ${name}`, countedLoop, amend,
+    [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
+  await factOpposite("a definition-bound counted loop preserves the actual definition identity", (input, supplied) => {
+    countedLoop(input, supplied); const loop = supplied.tir.root.statements.nodes[0];
+    loop.initializer.declarations.nodes[0].tsonic.declaration = { kind: "definition", definition: definitions.f };
+    loop.initializer.declarations.nodes[0].name.tsonic.declaration = { kind: "definition", definition: definitions.f };
+    for (const reference of [loop.condition.left, loop.incrementor.operand]) reference.tsonic.resolution = { kind: "definition", definition: definitions.f, aliases: [] };
+  }, (input, supplied) => { supplied.tir.root.statements.nodes[0].incrementor.operand.tsonic.resolution.definition = definitions.other; },
+  [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
 
   const completePaths = () => ({ kind: "complete", paths: [] });
   const parameter = (declaration = definitions.parameter, type = 0) => ({ declaration, kind: "required", type, passing: "by-value", initializer: null });
@@ -811,6 +883,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }
   };
   const restMessage = "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads.";
+  await factOpposite("an instantiation annotation is not a typed application record", (input, supplied) => {
+    invocationFixture(input, supplied); const call = supplied.tir.root;
+    supplied.tir.root = { ...header(1), kind: "ExpressionWithTypeArguments", expression: call.expression, typeArguments: null,
+      tsonic: { ...typedValue(3), role: "value", bindings: emptyBindings(), application: null } };
+    input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
+    input.origins.invocations[0].kind = "native-callback";
+  }, input => { input.origins.invocations[0].alternatives[0].arguments.pop(); },
+  [violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")]);
   for (const mode of ["empty", "finite", "dynamic", "value", "head"]) await factOpposite(`actual selected rest ${mode}`, (input, supplied) => restFixture(mode, input, supplied),
     input => {
       const alternative = input.origins.invocations[0].alternatives[0];
@@ -987,6 +1067,56 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }, input => { if (kind === "receiver") input.arena.producers[0] = { id: 0, path: null, kind: "parameter", index: 0 }; else input.arena.producers[0].index = 1; },
     [violation("summary-finite", summarySite(), "A summary producer retains its actual formal, receiver or captured-location slot.")]);
   }
+  for (const kind of ["parameter", "capture"]) for (const index of [-0, -1, 0.5, NaN, Infinity]) {
+    await factOpposite(`typed ${kind} index ${Object.is(index, -0) ? "negative zero" : String(index)}`,
+      (input, supplied) => formalInventory(kind, input, supplied), input => { input.arena.producers[0].index = index; }, [
+        violation("producer-resolves", arenaSite("producer", "producer", 0), "A formal or captured producer retains its actual nonnegative index."),
+        violation("producer-resolves", arenaSite("producer", "producer", 0), "A producer retains its actual body parameter, receiver or captured-location slot."),
+      ]);
+  }
+  await factOpposite("a shared producer retains its own declaration scope", input => {
+    input.arena.producers[0] = { id: 0, path: null, kind: "shared", definition: definitions.f };
+  }, input => { input.arena.producers[0].definition = definitions.missing; }, [
+    violation("producer-resolves", arenaSite("producer", "producer", 0), "A shared producer must name an existing declaration."),
+    violation("bindings-complete", arenaSite("bound-producer", "producer", 0), "The complete lexical binding scope must resolve in the supplied declaration inventory."),
+  ]);
+  await factOpposite("an indirect producer has no invented declaration scope", input => {
+    input.arena.producers[0] = { id: 0, path: null, kind: "call-result", at: nodeRef(1), callee: { kind: "indirect" } };
+  }, input => { input.arena.producers[0].at.node = 99; },
+  [violation("relational-site-resolves", nodeSite(99), "A relational site must retain an existing qualified source occurrence.")]);
+  await factOpposite("a direct producer retains its actual callee declaration scope", input => {
+    input.arena.producers[0] = { id: 0, path: null, kind: "call-result", at: nodeRef(1), callee: { kind: "direct", definition: definitions.callee } };
+  }, input => { input.arena.producers[0].callee.definition = definitions.missing; }, [
+    violation("producer-resolves", arenaSite("producer", "producer", 0), "A direct call-result producer must retain its actual callee declaration."),
+    violation("bindings-complete", arenaSite("bound-producer", "producer", 0), "The complete lexical binding scope must resolve in the supplied declaration inventory."),
+  ]);
+  await factOpposite("a captured context preserves signed-zero index validation", (input, supplied) => formalInventory("capture", input, supplied),
+    input => { input.arena.contexts[0].captures[0].index = -0; },
+    [violation("capture-locations-exact", arenaSite("context", "context", 0), "Captured locations must retain distinct ordered indices and actual bound storage locations.")]);
+  for (const [name, prepare, amend, rule, site, message] of [
+    ["a live local", input => { input.liveness.locals = [{ local: 0, segments: [] }]; }, input => { input.liveness.locals[0].local = 99; },
+      "cross-owner-qualified", localSite(99), "A live local belongs to this actual MIR local table."],
+    ["a storage local", input => { input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }]; }, input => { input.liveness.bindings[0].local = 99; },
+      "cross-owner-qualified", localSite(99), "A binding-storage row belongs to this actual MIR local table."],
+    ["a qualified captured local", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
+      input => { input.liveness.captures[0].local.local = 99; }, "capture-locations-exact", { kind: "local", local: { body: otherBody, local: 99 } },
+      "A capture retains its actual qualified outer local."],
+    ["an actual MIR block identity", input => { input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }]; },
+      (input, supplied) => { supplied.mir.blocks[0].id = 1; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
+    ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }]; },
+      input => { input.liveness.stores[0].point.statement = 2; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
+  ]) await factOpposite(`typed references retain ${name}`, prepare, amend, [violation(rule, site, message)]);
+  for (const [name, diagnostic] of [
+    ["a source warning", { severity: "warning", site: { kind: "source", origin: sourceOrigin(1) } }],
+    ["a source suggestion", { severity: "suggestion", site: { kind: "source", origin: sourceOrigin(1) } }],
+    ["a file error", { severity: "error", site: { kind: "file", path: "main.ts" } }],
+    ["an unsited error", { severity: "error", site: { kind: "none" } }],
+  ]) await factOpposite(`a binding error is not discharged by ${name}`, (input, supplied) => {
+    input.memoryBindings = [{ kind: "error", node: 1 }];
+    supplied.context.diagnostics = [{ code: { kind: "checker", number: 123, rendered: "TS123" }, severity: "error", site: { kind: "source", origin: sourceOrigin(1) },
+      source: "checked", evidence: [], message: "actual checked error", arguments: [], related: [], fix: null }];
+  }, (input, supplied) => { Object.assign(supplied.context.diagnostics[0], diagnostic); },
+  [violation("memory-binding-error-diagnostic", nodeSite(1), "An error binding retains an actual error diagnostic from the same complete checked diagnostic vector.")]);
 
   const targetInventory = (kind, input, supplied, isSummary) => {
     if (kind === "parameter") {
@@ -1843,7 +1973,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["definition-resolves", graph, (input, supplied) => { supplied.context.definitionExists = () => false; }, [{ rule: "definition-resolves", site: summarySite(), message: "The graph definition must exist in the supplied definition inventory." }]],
     ["call-site-resolves", directedGraph, input => { input.edges[0].at.node = 99; }, [{ rule: "call-site-resolves", site: nodeSite(99), message: "A call edge must retain an existing source occurrence." }]],
     ["cross-owner-qualified", directedGraph, input => { input.edges[0].at.body = otherBody; }, [{ rule: "cross-owner-qualified", site: { kind: "node", at: { body: otherBody, node: 1 } }, message: "The call occurrence must belong to its actual caller definition." }]],
-    ["component-identity", directedGraph, input => { input.components[0].id = componentId("parameter"); }, [{ rule: "component-identity", site: componentSite(componentId("parameter")), message: "The component identity must encode exactly its canonical member vector." }]],
+    ["component-identity", directedGraph, input => { input.components[0].id = componentId("parameter"); }, [
+      { rule: "component-identity", site: componentSite(componentId("parameter")), message: "The component identity must encode exactly its canonical member vector." },
+      { rule: "components-order", site: componentSite(componentId("other")), message: "Components must be distinct and ordered by identity." },
+    ]],
     ["component-membership-exact", directedGraph, input => { input.components.shift(); }, [{ rule: "component-membership-exact", site: summarySite(), message: "Each graph definition must belong to exactly one component." }]],
     ["component-dependencies-exact", directedGraph, input => { input.components[0].dependencies = []; }, [{ rule: "component-dependencies-exact", site: componentSite(componentId("f")), message: "Dependencies must be exactly the other components named by closed call edges." }]],
     ["component-members-order", recursiveGraph, input => { input.components[0].definitions.reverse(); }, [
@@ -1869,6 +2002,51 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await graphOpposite("actual missing caller body ownership is not reconstructed from an ID", directedGraph,
     (input, supplied) => { supplied.bodyOwners.set(body, null); },
     [violation("cross-owner-qualified", nodeSite(1), "The call occurrence must belong to its actual caller definition.")]);
+  await graphOpposite("an empty typed component is neither an identity nor a member partition", graph,
+    input => { input.components[0].definitions = []; }, [
+      violation("component-identity", componentSite(componentId("f")), "The component identity must encode exactly its canonical member vector."),
+      violation("component-membership-exact", componentSite(componentId("f")), "Every component must contain at least one graph definition."),
+      violation("component-membership-exact", summarySite(), "Each graph definition must belong to exactly one component."),
+    ]);
+  await graphOpposite("a foreign first member has no fabricated adjacency row", graph, input => {
+    input.definitions = [definitions.other]; input.components[0].definitions = [definitions.f, definitions.other];
+    input.components[0].id = ids.encodeComponentId([definitions.f, definitions.other]);
+  }, [
+    violation("component-membership-exact", componentSite(ids.encodeComponentId([definitions.f, definitions.other])), "Each graph definition must belong to exactly one component."),
+    violation("component-membership-exact", componentSite(ids.encodeComponentId([definitions.f, definitions.other])), "The members of a component must be mutually reachable through actual call edges."),
+  ]);
+  await graphOpposite("canonical identity deduplication does not waive duplicate membership", graph,
+    input => { input.components[0].definitions.push(definitions.f); }, [
+      violation("component-members-order", componentSite(componentId("f")), "Component members must be distinct and ordered by definition identity."),
+      violation("component-membership-exact", componentSite(componentId("f")), "Each graph definition must belong to exactly one component."),
+      violation("component-membership-exact", componentSite(componentId("f")), "The members of a component must be mutually reachable through actual call edges."),
+    ]);
+  for (const name of ["f", "other"]) await graphOpposite(`a closed ${name === "f" ? "caller" : "callee"} outside the graph retains both violations`, directedGraph,
+    input => { input.definitions = input.definitions.filter(definition => definition !== definitions[name]); }, [
+      violation("component-membership-exact", componentSite(componentId(name)), "Each graph definition must belong to exactly one component."),
+      violation("definition-resolves", nodeSite(1), name === "f" ? "A call edge caller must be a graph definition." : "A closed call edge callee must be a graph definition."),
+    ]);
+  await graphOpposite("an unknown dependency cannot substitute for a real edge target", directedGraph,
+    input => { input.components[0].dependencies = [componentId("parameter")]; },
+    [violation("component-dependencies-exact", componentSite(componentId("f")), "Dependencies must be exactly the other components named by closed call edges.")]);
+  await graphOpposite("an existing self dependency is not the actual external target", directedGraph,
+    input => { input.components[0].dependencies = [componentId("f")]; }, [
+      violation("component-dependencies-exact", componentSite(componentId("f")), "Dependencies must be exactly the other components named by closed call edges."),
+      violation("component-acyclic", componentSite(componentId("f")), "The condensation graph must be acyclic; recursion belongs inside one component."),
+    ]);
+  await graphOpposite("forward connectivity alone is not mutual reachability", recursiveGraph,
+    input => { input.edges.pop(); },
+    [violation("component-membership-exact", componentSite(ids.encodeComponentId([definitions.f, definitions.other])), "The members of a component must be mutually reachable through actual call edges.")]);
+  for (const mode of ["unresolved", "out-of-range", "foreign-owner"]) await graphOpposite(`an open boundary remains ${mode}`, () => {
+    const input = graph(); input.edges = [{ ...edge("f", "f"), callee: { kind: "open", boundary: { owner: summaryOwner(summary().key), boundary: 0 } } }]; return input;
+  }, (input, supplied) => {
+    if (mode === "unresolved") supplied.context.arenaOf = () => null;
+    if (mode === "out-of-range") input.edges[0].callee.boundary.boundary = 99;
+    if (mode === "foreign-owner") {
+      const selected = { kind: "summary", definition: definitions.other, bindings: parametric() };
+      input.edges[0].callee.boundary.owner = selected; supplied.canonicalArenas.set(arenaKey(selected), arena());
+    }
+  }, [violation("cross-owner-qualified", nodeSite(1), "An open call retains its actual caller-owned relational boundary and complete environment.")]);
   const edgeOrder = [violation("edges-order", nodeSite(1), "Call edges must be distinct and ordered by caller, occurrence and callee.")];
   await graphOpposite("same-occurrence kind order", () => {
     const input = graph(); input.edges = [{ ...edge("f", "f"), kind: "callback" }, edge("f", "f")]; return input;
