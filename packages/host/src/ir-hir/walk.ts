@@ -56,7 +56,6 @@ export interface HirDataPath {
 export type HirDataReference =
   | { readonly kind: "plain" }
   | { readonly kind: "NodeId"; readonly value: NodeId }
-  | { readonly kind: "LocalId"; readonly value: LocalId }
   | { readonly kind: "CandidateListId"; readonly value: CandidateListId }
   | { readonly kind: "TyId"; readonly value: TyId }
   | { readonly kind: "SigId"; readonly value: SigId }
@@ -110,7 +109,7 @@ export function hirIdentityData(prefix: string, value: string | number, referenc
 }
 
 export function hirNodeIdData(value: NodeId): HirDataWork { return hirIdentityData("n", value, { kind: "NodeId", value }); }
-export function hirLocalIdData(value: LocalId): HirDataWork { return hirIdentityData("l", value, { kind: "LocalId", value }); }
+export function hirLocalIdData(value: LocalId): HirDataWork { return hirIdentityData("l", value); }
 export function hirCandidateIdData(value: CandidateListId): HirDataWork { return hirIdentityData("cand", value, { kind: "CandidateListId", value }); }
 export function hirTyIdData(value: TyId): HirDataWork { return hirIdentityData("t", value, { kind: "TyId", value }); }
 export function hirSigIdData(value: SigId): HirDataWork { return hirIdentityData("sig", value, { kind: "SigId", value }); }

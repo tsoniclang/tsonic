@@ -248,11 +248,6 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         if (data.field !== "id" && (!validHirIndex(reference.value) || data.body === null || data.body.candidateLists[reference.value] === undefined))
           report("candidate-list-reference", data.site, "candidate list must exist in the containing body");
         break;
-      case "LocalId":
-        if (data.field !== "id" && data.field !== "local" &&
-          (!validHirIndex(reference.value) || data.body === null || data.body.locals[reference.value] === undefined))
-          report("local-reference", data.site, "local must exist in the containing body");
-        break;
       case "DefId": {
         const value = reference.value;
         const path = decodeDefId(value);

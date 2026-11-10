@@ -1677,9 +1677,9 @@ test("HIR malformed typed fields retain exact independently selected record and 
     [original.replace("nodes=[]", "nodes=[false]"), "nodes=[false]", ["Statement"], "nodes=[".length],
     [original.replace("n:1=EndOfFile", "n:0=EndOfFile"), "n:0=EndOfFile", ["distinct wire binding"]],
     [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "n:3=EndOfFile", ["n:1"]],
-    [original.replace("n:0=SourceFile", "n:0=InventedNode"), "InventedNode", ["syntax node declaration"]],
-    [original.replace("n:0=SourceFile", "n:0=HirBody"), "HirBody", ["syntax node declaration"]],
-    [original.replace("n:0=SourceFile", "n:0=Token"), "Token", ["syntax node declaration"]],
+    [original.replace("n:0=SourceFile", "n:0=InventedNode"), "tree=n:0", ["SourceFile"], "tree=".length],
+    [original.replace("n:0=SourceFile", "n:0=HirBody"), "tree=n:0", ["SourceFile"], "tree=".length],
+    [original.replace("n:0=SourceFile", "n:0=Token"), "tree=n:0", ["SourceFile"], "tree=".length],
     [original.replace("n:0=SourceFile", "SourceFile"), "SourceFile(", ["node wire binding"]],
     [original.replace("provider=available(value=null)", 'provider=unavailable(reason="future")'), '"future"', ["declared field value"]],
   ];
@@ -1689,11 +1689,16 @@ test("HIR malformed typed fields retain exact independently selected record and 
   }
   const extra = `${original.slice(0, -1)}, bogus=0)`;
   assertInvalidText(extra, extra.lastIndexOf("bogus="), [")"]);
+  for (const label of ["InventedNode", "HirBody", "Token"]) {
+    const text = `${original}\nn:2=${label}(@)`;
+    assertInvalidText(text, original.length + 1 + "n:2=".length, ["syntax node declaration"]);
+  }
   const surplus = `${original}\n${original.split("\n")[2].replace("n:1=EndOfFile(id=n:1", "n:2=EmptyStatement(id=n:7")}`;
   assertInvalidText(surplus, original.length + 1, ["referenced syntax declaration"]);
 });
 
 test("HIR lexical failures retain UTF16 offsets for strings, escapes, delimiters and wire positions", () => {
+  const header = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").split("\n")[0];
   for (const [text, marker, adjustment, expected] of [
     ['HirModule(module=mod:"\\q")', "\\q", 1, ["JSON escape"]],
     ['HirModule(module=mod:"\\uZZZZ")', "ZZZZ", 0, ["four hexadecimal digits"]],
@@ -1710,34 +1715,61 @@ test("HIR lexical failures retain UTF16 offsets for strings, escapes, delimiters
     ["n:0n=SourceFile()", "0n", 0, ["nonnegative wire position"]],
     ["n:0 SourceFile()", " SourceFile", 1, ["="]],
     ["HirModule(module 0)", "0", 0, ["="]],
-  ]) assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+  ]) {
+    const input = text.startsWith("n:") ? `${header}\n${text}` : text;
+    const start = text.startsWith("n:") ? header.length + 1 : 0;
+    assertInvalidText(input, start + text.indexOf(marker) + adjustment, expected);
+  }
 });
 
 test("HIR text grammar rejects complete independently authored field, value and separator failures", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const header = original.split("\n")[0];
   const cases = [
     ['HirModule(module=mod:"x", module=mod:"x")', 'module=mod:"x")', ["distinct field"]],
-    ["HirModule() HirModule()", " HirModule()", ["newline"], 1],
+    [`${header} ${header}`, " HirModule(", ["newline"], 1],
     ['HirModule(module=mod:"x"tree=n:0)', "tree=n:0", [",", ")"]],
-    ["HirModule(module=mod:1n)", "1n", ["number identity"]],
-    ["HirModule(module=[,])", ",]", ["identifier"]],
-    ["HirModule(module=[0,])", "]", ["identifier"]],
-    ["HirModule(module=0x10)", "x10", [",", ")"]],
-    ["HirModule(module=01)", "01", ["canonical finite number"]],
-    ["HirModule(module=1.0)", "1.0", ["canonical finite number"]],
-    ["HirModule(module=1e999)", "1e999", ["canonical finite number"]],
-    ["HirModule(module=+1)", "+1", ["canonical finite number"]],
-    ["HirModule(module=1e+1)", "1e+1", ["canonical finite number"]],
+    ["HirModule(module=mod:1n)", "1n", ["string identity"]],
+    [original.replace("id=n:0", "id=n:0n"), "id=n:0n", ["number identity"], "id=n:".length],
+    [original.replace("flags=[]", "flags=[,]"), "flags=[,]", ["identifier"], "flags=[".length],
+    [original.replace("flags=[]", 'flags=["Let",]'), 'flags=["Let",]', ["identifier"], 'flags=["Let",'.length],
+    [original.replace("pos=0", "pos=0x10"), "pos=0x10", [",", ")"], "pos=0".length],
   ];
   for (const [text, marker, expected, adjustment = 0] of cases)
     assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+  for (const number of ["01", "1.0", "1e999", "+1", "1e+1"]) {
+    const marker = `pos=${number}`;
+    const text = original.replace("pos=0", marker);
+    assertInvalidText(text, text.indexOf(marker) + "pos=".length, ["canonical finite number"]);
+  }
   for (const text of ["true", "false", "null", "0", '"text"']) assertInvalidText(text, 0, ["record"]);
-  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
   for (const replacement of ['flags=[null]', 'flags=["Invented"]']) {
     const text = original.replace("flags=[]", replacement);
     assertInvalidText(text, text.indexOf(replacement) + "flags=[".length, ["SyntaxFlag"]);
   }
   const wrongPrefix = original.replace("module=mod:", "module=body:");
   assertInvalidText(wrongPrefix, wrongPrefix.indexOf("body:"), ["ModuleId"]);
+});
+
+test("HIR one typed parser reports the first actual shape or frame fault before later lexical and child faults", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const cases = [
+    ["Wrong(@)", "Wrong", ["HirModule"]],
+    ["HirModule(module=Wrong(@))", "Wrong", ["ModuleId"]],
+    ["HirModule(bogus=@)", "bogus", ["module"]],
+    ["HirModule(module=mod:0, bogus=@)", "0,", ["string identity"]],
+    ["HirModule() HirModule(@)", ")", ["module"]],
+    [original.replace("pos=0", "pos=false").replace('languageVariant="Standard"', "bogus=@"),
+      "pos=false", ["number"], "pos=".length],
+    [original.replace('scriptKind="TS"', 'scriptKind="Wrong\\q"'), '"Wrong', ["declared field value"]],
+    [original.replace('scriptKind="TS"', 'scriptKind=Wrong(@)'), "Wrong", ["declared record"]],
+    [original.replace("flags=[]", 'flags=Wrong(@)'), "Wrong", ["declared record"]],
+  ];
+  for (const [text, marker, expected, adjustment = 0] of cases)
+    assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+  const [header, source, end] = original.split("\n");
+  const inline = `${header.replace("tree=n:0", `tree=${source.slice("n:0=".length)}`)}\n${end}`;
+  assertInvalidText(inline, inline.indexOf("tree=SourceFile") + "tree=".length, ["node wire reference"]);
 });
 
 test("HIR parser validates ordinary literal fields at the field and selects only declared union discriminants", () => {

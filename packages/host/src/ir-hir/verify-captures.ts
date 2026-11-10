@@ -4,7 +4,7 @@ import type { HirBindingRequest } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
 import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
-  createSyntaxSchema, resolveHirShape, walkHirData } from "./verify-syntax.js";
+  createSyntaxSchema, hirRecordChoices, walkHirData } from "./verify-syntax.js";
 
 function captured(value: HirShape): HirChoiceShape {
   return hirChoice(hirVariant("available", [["value", value]]),
@@ -571,7 +571,7 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
       if (markers.defaultValue !== null) references.push(markers.defaultValue.typeNode);
       for (const reference of references) {
         const target = readers.nodeOf(reference);
-        if (target !== null && resolveHirShape("TypeNode", target, hirSchema) === null)
+        if (target !== null && hirRecordChoices("TypeNode", target.kind, hirSchema).length === 0)
           report("core-capture-kind", site, "marker type reference must point to a type syntax node");
       }
     }
