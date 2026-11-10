@@ -1,0 +1,1 @@
+{"name":"scalar-keys","level":"function","rule":"Key scalar domains and exact canonical spellings","input":"test/host-cases/ids/function/scalar-keys.input.json","expected":"test/host-cases/ids/function/scalar-keys.expected.json"}

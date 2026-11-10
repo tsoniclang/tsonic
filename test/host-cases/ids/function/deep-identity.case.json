@@ -1,0 +1,1 @@
+{"name":"deep-identity","level":"function","rule":"One hundred thousand definition segments encode and decode without input-depth recursion","input":"test/host-cases/ids/function/deep-identity.input.json","expected":"test/host-cases/ids/function/deep-identity.expected.json"}

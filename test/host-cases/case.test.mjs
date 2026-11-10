@@ -6,6 +6,18 @@ import test from "node:test";
 import { runCase } from "./case.mjs";
 import { compareCaseValues } from "./compare.mjs";
 
+test("harness preserves complete host-number outcomes including nonfinite values and signed zero", () => {
+  for (const [actual, expected, equal] of [
+    [NaN, NaN, true], [Infinity, Infinity, true], [-Infinity, -Infinity, true],
+    [-0, -0, true], [0, 0, true], [1, 1, true],
+    [NaN, Infinity, false], [Infinity, -Infinity, false], [NaN, 0, false],
+    [-0, 0, false], [NaN, "NaN", false], [Infinity, "Infinity", false],
+  ]) {
+    assert.equal(compareCaseValues({ value: actual, nested: [actual] },
+      { value: expected, nested: [expected] }), equal);
+  }
+});
+
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
 const diagnostic = Object.freeze({ code: "FIXTURE_REFUSED", message: "The fixture input is refused.", site: { path: "input", start: 2, length: 1 }, evidence: ["fixture"], related: [] });
