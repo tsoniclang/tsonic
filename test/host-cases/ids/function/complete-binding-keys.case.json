@@ -1,0 +1,1 @@
+{"name":"complete-binding-keys","level":"function","rule":"All four binding families, parameter identity and self owner participate in canonical keys","input":"test/host-cases/ids/function/complete-binding-keys.input.json","expected":"test/host-cases/ids/function/complete-binding-keys.expected.json"}
