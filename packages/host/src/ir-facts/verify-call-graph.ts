@@ -1,6 +1,6 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { ComponentId, DefId } from "../ids/contract.js";
-import { decodeBodyId, encodeComponentId, encodeKey } from "../ids/index.js";
+import { encodeComponentId, encodeKey } from "../ids/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
@@ -142,8 +142,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     if (!context.nodeExists({ kind: "body", value: edge.at })) {
       report("call-site-resolves", site, "A call edge must retain an existing source occurrence.");
     }
-    const body = decodeBodyId(edge.at.body);
-    if (body.kind !== "decoded" || body.value.owner !== edge.caller) {
+    if (context.bodyOwner(edge.at.body) !== edge.caller) {
       report("cross-owner-qualified", site, "The call occurrence must belong to its actual caller definition.");
     }
     if (edge.callee.kind === "definition") {

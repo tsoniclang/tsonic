@@ -2,6 +2,7 @@ import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
 import { escapeData, nodeOwnedBy, relationalUsage, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
+import type { FactBindingInput } from "./verify-relations.js";
 
 const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
@@ -9,6 +10,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
   const violations: Violation<SummaryRule, FactsSite>[] = [];
   const site: FactsSite = { kind: "summary", summary: summary.key };
   const owner: RelationalOwner = { kind: "summary", definition: summary.key.definition, bindings: summary.key.bindings };
+  const bindingInputs: FactBindingInput[] = [];
   const report = (rule: SummaryRule, text: string, at: FactsSite = site): void => {
     violations.push({ rule, site: at, detail: [{ kind: "text", value: text }] });
   };
@@ -23,11 +25,9 @@ export const verifySummary: VerifySummary = (summary, context) => {
     report("cross-owner-qualified", "The summary signature must retain its actual declaration owner.");
   }
   if (summary.key.bindings.kind === "instantiated") {
-    for (const violation of verifyFactBindings([{ vector: summary.key.bindings.bindings, definition: summary.key.definition, site }], context)) {
-      violations.push({ rule: "bindings-complete", site: violation.site, detail: violation.detail });
-    }
+    bindingInputs.push({ vector: summary.key.bindings.bindings, definition: summary.key.definition, site });
   }
-  for (const violation of verifyRelationalArena(summary.arena, owner, context)) {
+  for (const violation of verifyRelationalArena(summary.arena, owner, context, bindingInputs)) {
     const rule: SummaryRule = violation.rule === "bindings-complete" || violation.rule === "cross-owner-qualified" ||
       violation.rule === "relational-site-resolves" || violation.rule === "declared-site-ordinal" ? violation.rule : "summary-finite";
     violations.push({ rule, site: violation.site, detail: violation.detail });
@@ -101,7 +101,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     if (target.kind === "callback" || target.kind === "suspension") {
       if (target.at.kind === "node") {
         if (!context.nodeExists({ kind: "body", value: target.at.node })) report("relational-site-resolves", "A retention target retains its actual source occurrence.");
-        if (!nodeOwnedBy(owner, target.at.node)) report("cross-owner-qualified", "A retention target retains its actual summary declaration owner.");
+        if (!nodeOwnedBy(owner, target.at.node, context)) report("cross-owner-qualified", "A retention target retains its actual summary declaration owner.");
       } else {
         if (!context.libraryExportExists(target.at.identity)) report("relational-site-resolves", "A retention target retains its actual library export.");
         const count = context.declaredSiteCount(target.at.identity);
@@ -128,22 +128,26 @@ export const verifySummary: VerifySummary = (summary, context) => {
     if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
     const parameter = signature?.parameters[callback.parameterIndex];
-    if (signature === undefined || !validIndex(callback.parameterIndex, signature.parameters.length) || parameter === undefined) {
+    const parameterExists = signature !== undefined && validIndex(callback.parameterIndex, signature.parameters.length) && parameter !== undefined;
+    if (!parameterExists) {
       report("callback-parameter-resolves", "A callback names an actual parameter of the summary signature.");
     }
-    if (parameter !== undefined && !callbackArities.has(parameter.type)) {
-      const type = context.types.terms[parameter.type];
+    if (parameterExists && !callbackArities.has(callback.parameterIndex)) {
+      const signatures = context.callbackSignaturesOf(summary.key, callback.parameterIndex);
       let count: number | null = null;
-      if (type?.kind === "callable" || type?.kind === "shape") {
-        for (const id of type.calls) {
-          const call = context.types.signatures[id];
+      if (signatures !== null) {
+        for (const id of signatures) {
+          const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
           if (call === undefined || call.id !== id) { count = null; break; }
           if (count === null || call.parameters.length < count) count = call.parameters.length;
         }
       }
-      callbackArities.set(parameter.type, count);
+      callbackArities.set(callback.parameterIndex, count);
     }
-    const count = parameter === undefined ? null : callbackArities.get(parameter.type) ?? null;
+    const count = parameterExists ? callbackArities.get(callback.parameterIndex) ?? null : null;
+    if (parameterExists && count === null) {
+      report("callback-parameter-resolves", "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter.");
+    }
     for (const input of callback.inputs) {
       if (count === null || !validIndex(input.parameterIndex, count) ||
         input.kind === "argument-element" && (signature === undefined || !validIndex(input.sourceParameterIndex, signature.parameters.length)) ||
@@ -169,6 +173,9 @@ export const verifySummary: VerifySummary = (summary, context) => {
   if (usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody ||
     usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives) {
     report("summary-finite", "The published summary arena respects the actual producer's finite record, reference, path and alternative limits.");
+  }
+  for (const violation of verifyFactBindings(bindingInputs, context)) {
+    violations.push({ rule: violation.rule === "bindings-complete" ? "bindings-complete" : "summary-finite", site: violation.site, detail: violation.detail });
   }
   return Object.freeze(violations);
 };

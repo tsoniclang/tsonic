@@ -1,6 +1,6 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { DefId, KeyData, NodeRef } from "../ids/contract.js";
-import { decodeBodyId, encodeKey } from "../ids/index.js";
+import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
@@ -136,10 +136,9 @@ export const ownerSite = (owner: RelationalOwner): FactsSite => owner.kind === "
   ? { kind: "body", instance: owner.instance }
   : { kind: "summary", summary: { definition: owner.definition, bindings: owner.bindings } };
 
-export const nodeOwnedBy = (owner: RelationalOwner, node: NodeRef): boolean => {
+export const nodeOwnedBy = (owner: RelationalOwner, node: NodeRef, context: FactsVerificationContext): boolean => {
   if (owner.kind === "body") return node.body === owner.instance.body;
-  const decoded = decodeBodyId(node.body);
-  return decoded.kind === "decoded" && decoded.value.owner === owner.definition;
+  return context.bodyOwner(node.body) === owner.definition;
 };
 
 export interface FactBindingInput {
@@ -234,6 +233,7 @@ export const verifyRelationalArena = (
   arena: RelationalArena,
   owner: RelationalOwner,
   context: FactsVerificationContext,
+  bindings: FactBindingInput[],
 ): readonly Violation<FactsRule, FactsSite>[] => {
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const report = (rule: FactsRule, site: FactsSite, text: string): void => {
@@ -254,13 +254,12 @@ export const verifyRelationalArena = (
       if (!context.nodeExists({ kind: "body", value: at.node })) {
         report("relational-site-resolves", site, "A relational site must retain an existing qualified source occurrence.");
       }
-      if (!nodeOwnedBy(owner, at.node)) {
+      if (!nodeOwnedBy(owner, at.node, context)) {
         report("cross-owner-qualified", site, "A relational occurrence must belong to the same actual body or summary owner.");
       }
     }
   };
   const projections = new Set<string>();
-  const bindings: FactBindingInput[] = [];
   const ownerDefinition = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
   for (const [index, path] of arena.projections.entries()) {
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
@@ -418,6 +417,5 @@ export const verifyRelationalArena = (
     }
     bindings.push({ vector: boundary.bindings, definition: ownerDefinition, site });
   }
-  for (const violation of verifyFactBindings(bindings, context)) violations.push(violation);
   return Object.freeze(violations);
 };

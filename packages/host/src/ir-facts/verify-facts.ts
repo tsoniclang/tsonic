@@ -47,7 +47,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   if (facts.instance.bindings.kind === "instantiated") {
     bindingInputs.push({ vector: facts.instance.bindings.bindings, definition, site: bodySite });
   }
-  for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
+  for (const violation of verifyRelationalArena(facts.arena, owner, context, bindingInputs)) violations.push(violation);
   const nodes = new Map<NodeId, TirNode>();
   const valueNodes = new Set<NodeId>();
   const nestedBodies = new Set(tir.nestedBodies);
@@ -440,7 +440,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   }
   ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compare(left.owner, right.owner) || compare(left.node.body, right.node.body) ||
     compare(left.node.node, right.node.node) || compare(left.context, right.context), row => ({ kind: "node", at: row.node }));
-  for (const region of facts.origins.instanceRegions) { nodeRef(region.node, { kind: "node", at: region.node }, false); valueContext(region.context, bodySite); }
+  for (const region of facts.origins.instanceRegions) {
+    const site: FactsSite = { kind: "node", at: region.node };
+    nodeRef(region.node, site, false); valueContext(region.context, bodySite);
+    if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "An instance region retains its actual lexical declaration owner.");
+  }
 
   nodeOrder(facts.suspension.suspensions, "suspensions-order");
   const suspensionKinds = new Map<NodeId, "await" | "yield" | "delegate">();

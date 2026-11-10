@@ -40,15 +40,19 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     const detail: MessageArgument = Object.freeze({ kind: "text", value: text });
     violations.push(Object.freeze({ rule, site, detail: Object.freeze([detail]) }));
   };
+  const bindingInputs: FactBindingInput[] = [];
+  const memberViolations: Violation<FactsRule, FactsSite>[] = [];
+  const finish = (): readonly Violation<MetadataRule, FactsSite>[] => {
+    for (const violation of verifyFactBindings(bindingInputs, context)) memberViolations.push(violation);
+    for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
+      : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
+    return Object.freeze(violations);
+  };
   if (!context.definitionExists(metadata.key.definition)) {
     report("definition-resolves", "The metadata declaration must exist in the supplied definition inventory.");
   }
   if (metadata.key.bindings.kind === "instantiated") {
-    for (const violation of verifyFactBindings([
-      { vector: metadata.key.bindings.bindings, definition: metadata.key.definition, site },
-    ], context)) {
-      violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves" : "bindings-complete", site, detail: violation.detail });
-    }
+    bindingInputs.push({ vector: metadata.key.bindings.bindings, definition: metadata.key.definition, site });
   }
   if (metadata.kind === "data-layout") {
     if (!context.nodeExists(metadata.occurrence)) {
@@ -60,13 +64,11 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       selected.byteOrder !== metadata.byteOrder || selected.addressWidth !== metadata.addressWidth) {
       report("data-layout-reference-resolves", "The data-layout record must retain its selected ABI identity and descriptor.");
     }
-    return Object.freeze(violations);
+    return finish();
   }
 
   const layouts = metadata.layouts;
   const fields = metadata.fields;
-  const memberBindings: FactBindingInput[] = [];
-  const memberViolations: Violation<FactsRule, FactsSite>[] = [];
   const canonical = context.metadataOf(metadata.key);
   const canonicalLayouts = canonical !== null && canonical.kind !== "data-layout" ? canonical.layouts : null;
   const canonicalFields = canonical !== null && canonical.kind !== "data-layout" ? canonical.fields : null;
@@ -215,7 +217,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       report("member-correspondence-exact", "A field's value type must equal its selected child layout source type.");
     }
     const selected = field.member.decision;
-    collectSelectionChecks(field.member, site, metadata.key.definition, context, memberBindings, memberViolations);
+    collectSelectionChecks(field.member, site, metadata.key.definition, context, bindingInputs, memberViolations);
     let previous: DefId | undefined;
     for (const declaration of field.selectedDeclarations) {
       if (previous !== undefined && previous >= declaration) {
@@ -247,8 +249,5 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   if (metadata.kind === "memory-layout" ? layoutAt(metadata.root) === undefined : fieldAt(metadata.root) === undefined) {
     report("root-resolves", "The metadata root must resolve in its own selected layout or field arena.");
   }
-  for (const violation of verifyFactBindings(memberBindings, context)) memberViolations.push(violation);
-  for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
-    : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
-  return Object.freeze(violations);
+  return finish();
 };
