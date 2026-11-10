@@ -3,6 +3,7 @@ import type { ParseHir } from "./contract.js";
 import type { HirShape, HirShapeVisit } from "./verify-syntax.js";
 import { isHirModuleValue, resolveHirShape } from "./verify-syntax.js";
 import { hirSchema } from "./verify-captures.js";
+import { hirSyntaxArena } from "./walk.js";
 
 export interface TextScalar {
   readonly kind: "scalar";
@@ -25,6 +26,8 @@ export interface TextField {
 
 export interface TextRecord {
   readonly kind: "record";
+  readonly binding: number | null;
+  readonly bindingOffset: number;
   readonly offset: number;
   readonly end: number;
   readonly label: string;
@@ -51,6 +54,8 @@ interface TextReader {
 
 interface RecordFrame {
   readonly kind: "record";
+  readonly binding: number | null;
+  readonly bindingOffset: number;
   readonly offset: number;
   readonly label: string;
   readonly fields: TextField[];
@@ -153,9 +158,13 @@ function quoted(reader: TextReader): string | null {
   return fail(reader, ["closing quote"]);
 }
 
+const specialNumbers: readonly (readonly [string, number])[] = Object.freeze([
+  ["NaN", Number.NaN], ["+Infinity", Number.POSITIVE_INFINITY], ["-Infinity", Number.NEGATIVE_INFINITY],
+]);
+
 function numeric(reader: TextReader, offset: number): TextScalar | null {
-  for (const [token, value] of [["NaN", Number.NaN], ["+Infinity", Number.POSITIVE_INFINITY], ["-Infinity", Number.NEGATIVE_INFINITY]]) {
-    if (typeof token === "string" && typeof value === "number" && reader.text.startsWith(token, reader.cursor)) {
+  for (const [token, value] of specialNumbers) {
+    if (reader.text.startsWith(token, reader.cursor)) {
       reader.cursor += token.length;
       return { kind: "scalar", offset, value };
     }
@@ -211,7 +220,8 @@ export function readHirText(text: string): TextParseResult<readonly [TextRecord,
       const closing = frame.kind === "record" ? ")" : "]";
       if (character === closing) {
         const value: TextRecord | TextArray = frame.kind === "record"
-          ? { kind: "record", offset: frame.offset, end: reader.cursor, label: frame.label, fields: Object.freeze(frame.fields) }
+          ? { kind: "record", binding: frame.binding, bindingOffset: frame.bindingOffset,
+            offset: frame.offset, end: reader.cursor, label: frame.label, fields: Object.freeze(frame.fields) }
           : { kind: "array", offset: frame.offset, end: reader.cursor, values: Object.freeze(frame.values) };
         reader.cursor += 1;
         pending = pending.next;
@@ -250,6 +260,23 @@ export function readHirText(text: string): TextParseResult<readonly [TextRecord,
       frame.phase = "delimiter";
       continue;
     }
+    let binding: number | null = null;
+    const bindingOffset = reader.cursor;
+    if (pending === null && text.startsWith("n:", reader.cursor)) {
+      reader.cursor += 2;
+      const numberOffset = reader.cursor;
+      const position = numeric(reader, numberOffset);
+      if (position === null) break;
+      if (typeof position.value !== "number" || !Number.isSafeInteger(position.value) || position.value < 0 || Object.is(position.value, -0)) {
+        fail(reader, ["nonnegative wire position"], numberOffset);
+        break;
+      }
+      binding = position.value;
+      whitespace(reader);
+      if (text.charAt(reader.cursor) !== "=") { fail(reader, ["="]); break; }
+      reader.cursor += 1;
+      whitespace(reader);
+    }
     const offset = reader.cursor;
     let value: TextValue | null = null;
     if (character === "[") {
@@ -271,7 +298,7 @@ export function readHirText(text: string): TextParseResult<readonly [TextRecord,
         whitespace(reader);
         if (text.charAt(reader.cursor) === "(") {
           reader.cursor += 1;
-          pending = { frame: { kind: "record", offset, label, fields: [], names: new Set(),
+          pending = { frame: { kind: "record", binding, bindingOffset, offset, label, fields: [], names: new Set(),
             phase: "first-field", name: "", nameOffset: offset }, next: pending };
           continue;
         }
@@ -331,6 +358,7 @@ export const parseHir: ParseHir = text => {
   const lexical = readHirText(text);
   if (lexical.kind === "invalid-text") return lexical;
   const [header, ...declarations] = lexical.value;
+  if (header.binding !== null) return invalidText(text, header.bindingOffset, ["HirModule"]);
   const arena = new Map<number, MutableRecord>();
   const locations = new Map<object, Map<string | number, number>>();
   const containers: object[] = [];
@@ -349,14 +377,11 @@ export const parseHir: ParseHir = text => {
   for (const wire of declarations) {
     const selected = resolveHirShape("SyntaxNode", { kind: wire.label }, hirSchema);
     if (selected === null) return invalidText(text, wire.offset, ["syntax node declaration"]);
-    const field = wire.fields.find(candidate => candidate.name === "id");
-    if (field === undefined) return invalidText(text, wire.end, ["id"]);
-    const identity = field.value;
-    if (identity.kind !== "identity" || identity.prefix !== "n" || typeof identity.value !== "number")
-      return invalidText(text, identity.offset, ["n:number"]);
-    if (arena.has(identity.value)) return invalidText(text, identity.offset, ["distinct node declaration"]);
+    if (wire.binding === null) return invalidText(text, wire.offset, ["node wire binding"]);
+    if (arena.has(wire.binding)) return invalidText(text, wire.bindingOffset, ["distinct wire binding"]);
+    if (wire.binding !== arena.size) return invalidText(text, wire.bindingOffset, [`n:${arena.size}`]);
     const object: MutableRecord = { kind: wire.label };
-    arena.set(identity.value, object);
+    arena.set(wire.binding, object);
     pending.push({ wire, shape: "SyntaxNode", target: object, put: () => {} });
   }
   pending.push({ wire: header, shape: "HirModule", target: null, put: value => { decoded = value; } });
@@ -422,6 +447,11 @@ export const parseHir: ParseHir = text => {
     fault.expected = typeof visit.shape === "string" ? visit.shape : "declared field value";
   };
   if (!isHirModuleValue(decoded, hirSchema, shapeFailure)) return invalidText(text, fault.offset, [fault.expected]);
+  const reachable = new Set<object>(hirSyntaxArena(decoded));
+  for (const wire of declarations) {
+    const object = wire.binding === null ? undefined : arena.get(wire.binding);
+    if (object === undefined || !reachable.has(object)) return invalidText(text, wire.bindingOffset, ["referenced syntax declaration"]);
+  }
   for (const container of containers) Object.freeze(container);
   return { kind: "parsed", value: decoded };
 };

@@ -1,13 +1,74 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import test from "node:test";
-import { childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } from "../../packages/host/dist/ir-hir/index.js";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Session } from "node:inspector";
+import { spawnSync } from "node:child_process";
+import test, { after, before } from "node:test";
+import { hostCatalogue } from "../architecture/host/catalogue.mjs";
+import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
+import { checkCoverage } from "../architecture/host/coverage.mjs";
+import { parseSources } from "../architecture/host/import-graph.mjs";
 import { runCase } from "../host-cases/case.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const moduleIdentity = "M[P[%002Fproject];main.ts]";
+const definitionIdentity = `D[${moduleIdentity}]`;
+const bodyIdentity = `B[${definitionIdentity};module;0]`;
+const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
+const runtimeNames = ["index", "children", "walk", "print", "parse", "verify", "verify-syntax", "verify-bindings", "verify-captures"];
+const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
+const ownedSources = ["contract", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
+const inspector = new Session();
+const post = (method, parameters = {}) => new Promise((done, reject) => {
+  inspector.post(method, parameters, (error, value) => error === null ? done(value) : reject(error));
+});
+let product;
+let childrenOfSyntax;
+let indexSyntaxTree;
+let walkSyntaxTree;
+let evidenceDirectory;
+
+before(async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined && process.env.TSONIC_TEST_ADMISSION_OWNER !== undefined,
+    true, "the real whole unit, pure cases and compiler children use one admitted aggregate process-group guard");
+  mkdirSync(resolve(repository, ".temp/host-f-ir-hir"), { recursive: true });
+  evidenceDirectory = mkdtempSync(resolve(repository, ".temp/host-f-ir-hir/proof-"));
+  inspector.connect();
+  await post("Debugger.enable");
+  await post("Profiler.enable");
+  await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+  product = await import(pathToFileURL(resolve(repository, "packages/host/dist/ir-hir/index.js")).href);
+  ({ childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } = product);
+});
+
+after(async () => {
+  try {
+    const capture = await post("Profiler.takePreciseCoverage");
+    const urls = new Set(runtimeFiles.map(path => pathToFileURL(path).href));
+    const result = capture.result.filter(script => urls.has(script.url));
+    const sources = [];
+    for (const script of result) {
+      const response = await post("Debugger.getScriptSource", { scriptId: script.scriptId });
+      sources.push({ scriptId: script.scriptId, url: script.url, text: response.scriptSource });
+    }
+    await post("Profiler.stopPreciseCoverage");
+    const report = checkCoverage({ canonical: realpathSync, readText: path => readFileSync(path, "utf8"),
+      parse: parseSources, project: (url, text) => url.startsWith("file:") ? { path: fileURLToPath(url), text } : null,
+    }, runtimeFiles, [{ result, sources }]);
+    writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
+    writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify([...ownedSources.map(path => resolve(repository, path)), ...runtimeFiles]
+      .map(path => ({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") })), null, 2)}\n`);
+    assert.equal(result.length, runtimeNames.length, "each actual emitted product file has nonempty source-identified raw coverage");
+    assert.deepStrictEqual(report.findings, []);
+    assert.equal(report.status, "passed");
+    for (const file of report.files) assert.deepStrictEqual([file.status, file.lines, file.branches, file.functions],
+      ["covered", 100, 100, 100], file.path);
+  } finally {
+    inspector.disconnect();
+  }
+});
 
 function header(id, parent = null, start = 0, length = 100) {
   return { id, parent, origin: { module: moduleIdentity, start, length, derived: [] },
@@ -342,4 +403,142 @@ test("HIR closed syntax constructors preserve authored direct children across nu
       assertNodes(childrenOfSyntax(row.node), row.expected, `${row.node.kind}/${count}/${nullOptionals}/${reversed}`);
     }
   }
+});
+
+const available = value => ({ kind: "available", value });
+const unavailable = (reason = "not-provided") => ({ kind: "unavailable", reason });
+const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
+const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+const absentCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
+  pointerType: available(null), pointerOperation: available(null), attribute: available(null), safety: available(null),
+  argumentPassing: available(null), flowState: available(null) });
+const emptyViews = () => ({ read: unavailable(), declared: available(null), contextual: available(null) });
+const emptyValue = () => ({ views: emptyViews(), place: available(null), memory: available(null), observation: available(null) });
+const expressionMetadata = () => ({ ...emptyValue(), core: absentCore() });
+const nameMetadata = () => ({ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "unresolved", checkerDiagnostic: null } });
+const typeMetadata = () => ({ core: absentCore(), type: unavailable(), referencedDefinitions: [] });
+const bodySource = (node, body = bodyIdentity) => ({ kind: "body", value: { body, node } });
+const nodeSite = (node, body = bodyIdentity) => ({ kind: "node", node: bodySource(node, body) });
+const violation = (rule, site, value) => ({ rule, site, detail: [{ kind: "text", value }] });
+
+function moduleWith(statements = []) {
+  const end = syntax("EndOfFile", 1, {}, 0);
+  const tree = syntax("SourceFile", 0, { statements: nodeList(statements), endOfFileToken: end,
+    languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
+    tsonic: { core: absentCore(), parent: null, attributes: [], memory: available(null), definition: definitionIdentity, body: bodyIdentity } });
+  const pending = [{ node: tree, parent: null }];
+  let ordinal = 0;
+  while (pending.length > 0) {
+    const frame = pending.pop();
+    frame.node.id = ordinal;
+    frame.node.parent = frame.parent;
+    ordinal += 1;
+    const children = fixtureChildren(frame.node);
+    for (let index = children.length - 1; index >= 0; index -= 1)
+      pending.push({ node: children[index], parent: frame.node.id });
+  }
+  return { module: moduleIdentity, tree, items: [], bodies: [{ body: bodyIdentity, owner: definitionIdentity,
+    params: [], locals: [], root: tree, captures: [], scopes: [], asynchronous: false, generator: false,
+    candidateLists: [], nestedBodies: [] }], checkerDiagnostics: [], obligations: [] };
+}
+
+function fixtureChildren(node) {
+  switch (node.kind) {
+    case "SourceFile": return [...node.statements.nodes, node.endOfFileToken];
+    case "Block": return node.statements.nodes;
+    case "ExpressionStatement": case "AwaitExpression": case "SpreadElement": case "ParenthesizedExpression": return [node.expression];
+    case "PrefixUnaryExpression": case "PostfixUnaryExpression": return [node.operand];
+    case "BinaryExpression": return [node.left, node.operatorToken, node.right];
+    case "CallExpression": return [node.expression, ...(node.questionDotToken === null ? [] : [node.questionDotToken]),
+      ...(node.typeArguments?.nodes ?? []), ...node.arguments.nodes];
+    case "LiteralType": return [node.literal];
+    case "ElementAccessExpression": return [node.expression, ...(node.questionDotToken === null ? [] : [node.questionDotToken]), node.argumentExpression];
+    case "Identifier": case "EndOfFile": case "EmptyStatement": case "NumericLiteral": case "BigIntLiteral":
+    case "StringLiteral": case "NoSubstitutionTemplateLiteral": case "PlusToken": case "AnyKeyword": return [];
+    default: assert.fail(`fixture requires its independently authored child order: ${node.kind}`);
+  }
+}
+
+function contextFor(value, additions = {}) {
+  const declarations = new Set([value.tree.tsonic.definition, ...value.items.map(item => item.definition)]);
+  return { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [] },
+    bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
+    nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
+    nodeExists: reference => { assert.fail(`unexpected external node lookup: ${JSON.stringify(reference)}`); },
+    localExists: reference => { assert.fail(`unexpected external local lookup: ${JSON.stringify(reference)}`); }, ...additions };
+}
+
+function assertComplete(actual, expected, label) {
+  const pending = [[actual, expected, label]];
+  const paired = new Map();
+  while (pending.length > 0) {
+    const [left, right, path] = pending.pop();
+    if (right === null || typeof right !== "object") {
+      assert.equal(Object.is(left, right), true, `${path}: exact scalar`);
+      continue;
+    }
+    assert.equal(left !== null && typeof left === "object", true, `${path}: record or array`);
+    assert.equal(Array.isArray(left), Array.isArray(right), `${path}: container kind`);
+    let previous = paired.get(right);
+    if (previous?.has(left)) continue;
+    if (previous === undefined) { previous = new Set(); paired.set(right, previous); }
+    previous.add(left);
+    const names = Object.keys(right);
+    assert.deepStrictEqual(Object.keys(left).sort(), [...names].sort(), `${path}: all declared keys`);
+    for (const name of names) pending.push([left[name], right[name], `${path}.${name}`]);
+  }
+}
+
+function roundtrip(value, label) {
+  const text = product.printHir(value);
+  const decoded = product.parseHir(text);
+  assert.equal(decoded.kind, "parsed", `${label}: declared parse arm`);
+  if (decoded.kind !== "parsed") assert.fail(`${label}: invalid text ${JSON.stringify(decoded)}`);
+  assertComplete(decoded, { kind: "parsed", value }, label);
+  assert.equal(decoded.value.bodies[0].root === decoded.value.tree, true, `${label}: SAME body root, not a copied tree`);
+  assert.equal(Object.isFrozen(decoded.value), true, `${label}: immutable module`);
+  return { text, value: decoded.value };
+}
+
+test("HIR public index has exactly the six approved complete data operations", () => {
+  assert.deepStrictEqual(Object.keys(product).sort(), ["childrenOfSyntax", "indexSyntaxTree", "parseHir", "printHir", "verifyHir", "walkSyntaxTree"]);
+  assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
+    ["contract", ...runtimeNames].map(name => `${name}.ts`).sort());
+});
+
+test("HIR minimal module roundtrips full data and verifies without querying absent providers", () => {
+  const value = immutableTree(moduleWith());
+  const decoded = roundtrip(value, "minimal module");
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), []);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+});
+
+test("HIR wire bindings preserve distinct objects with repeated semantic ids, signed zero and shared syntax", () => {
+  for (const [rootId, endId] of [[0, 0], [-0, 0], [0, -0], [NaN, Infinity], [-Infinity, 0.5]]) {
+    const value = moduleWith();
+    value.tree.id = rootId;
+    value.tree.endOfFileToken.id = endId;
+    const decoded = roundtrip(immutableTree(value), `semantic ids ${String(rootId)}/${String(endId)}`);
+    assert.equal(decoded.value.tree !== decoded.value.tree.endOfFileToken, true, "wire objects remain distinct despite payload collision");
+    assert.equal(Object.is(decoded.value.tree.id, rootId), true);
+    assert.equal(Object.is(decoded.value.tree.endOfFileToken.id, endId), true);
+  }
+  const block = syntax("Block", 1, { statements: nodeList([]), multiLine: false }, 0);
+  const value = moduleWith([block]);
+  value.tree.statements.nodes.push(block);
+  const decoded = roundtrip(immutableTree(value), "shared syntax object");
+  assert.equal(decoded.value.tree.statements.nodes[0] === decoded.value.tree.statements.nodes[1], true);
+});
+
+test("HIR deep checked block syntax prints, parses and verifies 100000 levels without recursive input processing", () => {
+  let block = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  for (let ordinal = 1; ordinal < 100_000; ordinal += 1)
+    block = syntax("Block", 0, { statements: nodeList([block]), multiLine: ordinal % 2 === 0 });
+  const value = immutableTree(moduleWith([block]));
+  const decoded = roundtrip(value, "100000 checked blocks");
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), []);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  const nodes = indexSyntaxTree(decoded.value.tree);
+  assert.equal(nodes.length, 100_002);
+  assert.equal(nodes.every((node, ordinal) => node.id === ordinal), true, "every declared node retains the complete deep preorder");
 });

@@ -1,4 +1,4 @@
-import type { IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from "./contract.js";
+import type { CheckedPhase, HirModule, HirNode, IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from "./contract.js";
 import type { NodeId } from "../ids/contract.js";
 import { childrenOfSyntax } from "./children.js";
 
@@ -29,3 +29,20 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
 };
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
+
+export function hirSyntaxArena(module: HirModule): readonly HirNode[] {
+  const seen = new Set<HirNode>();
+  const nodes: HirNode[] = [];
+  let pending = [module.tree, ...module.bodies.map(body => body.root)].reduceRight<PendingNode<CheckedPhase> | null>(
+    (next, node) => ({ node, next }), null);
+  while (pending !== null) {
+    const node = pending.node;
+    pending = pending.next;
+    if (seen.has(node)) continue;
+    seen.add(node);
+    nodes.push(node);
+    pending = childrenOfSyntax(node).reduceRight<PendingNode<CheckedPhase> | null>(
+      (next, child) => ({ node: child, next }), pending);
+  }
+  return Object.freeze(nodes);
+}

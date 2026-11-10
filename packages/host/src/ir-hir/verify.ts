@@ -1,8 +1,13 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, SourceNodeRef } from "../ids/contract.js";
+import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
-import type { DeclarationKind, HirBody, HirModule, HirNode, HirRule, HirSite } from "./contract.js";
-import type { HirInventory, HirReport } from "./verify-syntax.js";
+import type { DeclarationKind, HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext, VerifyHir } from "./contract.js";
+import type { HirDataRoot, HirInventory, HirReport } from "./verify-syntax.js";
+import { hirArray } from "./verify-syntax.js";
+import { localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import type { HirBindingRequest } from "./verify-bindings.js";
+import { verifyHirCaptures } from "./verify-captures.js";
 import { childrenOfSyntax } from "./children.js";
 
 interface NodeFrame {
@@ -177,11 +182,17 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     const nested = actualNested.get(body) ?? [];
     if (body.nestedBodies.length !== nested.length || body.nestedBodies.some((identity, ordinal) => identity !== nested[ordinal]))
       report("body-owner", site, "nested bodies must be the actual direct body roots in preorder");
+    const captured = new Map<BodyId, Set<number>>();
+    for (const reference of body.captures) {
+      const previous = captured.get(reference.body);
+      if (previous === undefined) captured.set(reference.body, new Set([reference.local]));
+      else previous.add(reference.local);
+    }
     body.locals.forEach((local, ordinal) => {
       if (!Object.is(local.id, ordinal)) report("local-dense", site, "local id must equal its declaration position");
       if (local.role === "capture") {
-        if (local.capturedFrom === null || !body.captures.some(reference => reference.body === local.capturedFrom?.body &&
-          reference.local === local.capturedFrom?.local)) report("capture-owner", site, "capture local must name a declared outer capture");
+        if (local.capturedFrom === null || !captured.get(local.capturedFrom.body)?.has(local.capturedFrom.local))
+          report("capture-owner", site, "capture local must name a declared outer capture");
       } else if (local.capturedFrom !== null) report("capture-owner", site, "noncapture local cannot have capturedFrom");
     });
     const parameterLocals = body.locals.filter(local => local.role === "parameter");
@@ -237,3 +248,234 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     });
   }
 }
+
+function verificationRoots(module: HirModule, inventory: HirInventory): readonly HirDataRoot[] {
+  const moduleSite: HirSite = { kind: "module", module: module.module };
+  const roots: HirDataRoot[] = [
+    { value: module.items, shape: hirArray("HirDeclarationEntry"), site: moduleSite, node: null, body: null },
+    { value: module.checkerDiagnostics, shape: hirArray("Diagnostic"), site: moduleSite, node: null, body: null },
+    { value: module.obligations, shape: hirArray("HirDiagnosticRoot"), site: moduleSite, node: null, body: null },
+  ];
+  for (const node of inventory.nodes) roots.push({ value: node, shape: "SyntaxNode",
+    site: nodeSite(node, inventory, module), node, body: inventory.owners.get(node) ?? null });
+  for (const body of module.bodies) roots.push({ value: body, shape: "HirBody",
+    site: { kind: "body", body: body.body }, node: null, body });
+  return roots;
+}
+
+function candidateViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext,
+  requests: HirBindingRequest[], report: HirReport): void {
+  for (const body of module.bodies) {
+    const site: HirSite = { kind: "body", body: body.body };
+    for (const list of body.candidateLists) for (const candidate of list.candidates) {
+      const scope = context.bindingScopeOf(candidate.declaration);
+      if (candidate.bindings.kind === "available")
+        requests.push({ definition: candidate.declaration, vector: candidate.bindings.value, site });
+      if (candidate.appliedSignature.kind === "available") {
+        const signature = validHirIndex(candidate.appliedSignature.value)
+          ? context.types.signatures[candidate.appliedSignature.value] : undefined;
+        if (signature !== undefined && signature.declaration !== null && signature.declaration !== candidate.declaration)
+          report("candidate-endpoints", site, "applied signature must retain the candidate declaration");
+      }
+      const parameters = scope === null ? [] : [...scope.classParameters, ...scope.methodParameters, ...scope.capturedParameters];
+      const allowed = new Map<DefId, Set<number>>();
+      for (const parameter of parameters) {
+        const previous = allowed.get(parameter.owner);
+        if (previous === undefined) allowed.set(parameter.owner, new Set([parameter.index]));
+        else previous.add(parameter.index);
+      }
+      for (const contribution of candidate.contributions) if (!validHirIndex(contribution.parameter.index) ||
+        !allowed.get(contribution.parameter.owner)?.has(contribution.parameter.index))
+        report("contribution-parameter", site, "contribution must name an actual candidate type parameter");
+    }
+  }
+  for (const node of inventory.nodes) {
+    const metadata = node.tsonic;
+    const site = nodeSite(node, inventory, module);
+    if (metadata !== null && "signatures" in metadata) for (const endpoint of metadata.signatures) {
+      const signature = validHirIndex(endpoint.signature) ? context.types.signatures[endpoint.signature] : undefined;
+      if ((signature !== undefined && signature.declaration !== null && signature.declaration !== endpoint.declaration) ||
+        endpoint.declaration !== metadata.definition || (endpoint.role === "api-body" && endpoint.body === null) ||
+        (endpoint.body !== null && inventory.bodies.get(endpoint.body)?.owner !== endpoint.declaration))
+        report("candidate-endpoints", site, "callable endpoint declaration, signature and body must agree");
+    }
+    if (metadata !== null && "protocol" in metadata && metadata.protocol.kind === "available" && metadata.protocol.value !== null) {
+      const protocol = metadata.protocol.value;
+      const expected = node.kind === "AwaitExpression" ? "await" : node.kind === "SpreadElement" ? "spread" :
+        node.kind === "YieldExpression" ? node.asteriskToken === null ? "yield" : "delegate" :
+          node.kind === "ForOfStatement" || node.kind === "ForInStatement" ? "iterate" : null;
+      if (protocol.kind !== expected) report("protocol-kind", site, "protocol must match its syntactic operation");
+      if ((protocol.kind === "iterate" || protocol.kind === "spread") && node.kind === "ForOfStatement" &&
+        protocol.asynchronous !== (node.awaitModifier !== null))
+        report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
+    }
+    if (metadata !== null && "disposal" in metadata) for (const fact of metadata.disposal)
+      if (fact.kind === "available" && fact.value.kind !== "dispose")
+        report("protocol-kind", site, "disposal list must contain disposal protocols");
+    const place = metadata !== null && "place" in metadata ? metadata.place :
+      metadata !== null && "value" in metadata && "place" in metadata.value ? metadata.value.place : null;
+    if (place !== null && place.kind === "available" && place.value !== null && place.value.base.kind === "place" &&
+      (!validHirIndex(place.value.base.node) || place.value.base.node >= node.id))
+      report("place-parent-precedes", site, "parent storage place must precede its projection");
+  }
+}
+
+function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
+  const moduleSite: HirSite = { kind: "module", module: module.module };
+  const seen = new Set<number>();
+  for (const root of module.obligations) {
+    const site: HirSite = { kind: "node", node: root.owner };
+    if (!validHirIndex(root.diagnostic) || module.checkerDiagnostics[root.diagnostic] === undefined || seen.has(root.diagnostic))
+      report("diagnostic-reference", site, "diagnostic root must name one existing diagnostic");
+    seen.add(root.diagnostic);
+    const owner = inventory.nodesById.get(root.owner.value.node);
+    if (!sourceNodeExists(root.owner, module, inventory, context) || owner === undefined)
+      report("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module");
+    const diagnostic = module.checkerDiagnostics[root.diagnostic];
+    if (diagnostic !== undefined && diagnostic.site.kind === "source" && owner !== undefined &&
+      (diagnostic.site.origin.module !== module.module || diagnostic.site.origin.start < owner.loc.pos ||
+        diagnostic.site.origin.start + diagnostic.site.origin.length > owner.loc.end))
+      report("diagnostic-root-owner", site, "diagnostic source range must be inside its exact root");
+    if (root.obligations.length === 0) report("obligation-complete", site, "a discharge root requires its complete nonempty obligations");
+    const occurrences = new Set<number>();
+    root.obligations.forEach((obligation, ordinal) => {
+      if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
+      const occurrence = inventory.nodesById.get(obligation.occurrence.node);
+      const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
+      if (!sourceNodeExists(reference, module, inventory, context) || owner === undefined || occurrence === undefined ||
+        !containsHirNode(owner, occurrence, inventory))
+        report("obligation-complete", site, "every obligation must belong to its diagnostic root");
+      const key = obligation.occurrence.node;
+      if (occurrences.has(key)) report("obligation-order", site, "an occurrence must not be repeated in one root");
+      occurrences.add(key);
+      if (obligation.kind === "operator" && occurrence !== undefined) {
+        const operands = occurrence.kind === "BinaryExpression" ? [occurrence.left.id, occurrence.right.id] :
+          occurrence.kind === "PrefixUnaryExpression" || occurrence.kind === "PostfixUnaryExpression" ? [occurrence.operand.id] : [];
+        if (operands.length === 0 || obligation.operands.length !== operands.length ||
+          obligation.operands.some((operand, index) => operand.body !== obligation.occurrence.body || operand.node !== operands[index]))
+          report("obligation-complete", site, "operator obligation must retain all actual operands in order");
+      } else if (obligation.kind === "index" && occurrence !== undefined &&
+        (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
+          obligation.key.node !== occurrence.argumentExpression.id || obligation.receiver.body !== obligation.occurrence.body ||
+          obligation.key.body !== obligation.occurrence.body))
+        report("obligation-complete", site, "index obligation must retain the actual receiver and key");
+    });
+  }
+  for (const diagnostic of module.checkerDiagnostics) if (diagnostic.site.kind === "source" &&
+    !validRange(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length))
+    report("origin-range", moduleSite, "diagnostic source range must be valid");
+}
+
+function magnitude(value: bigint): bigint {
+  return value < 0n ? -value : value;
+}
+
+function normalizedRational(value: ExactRational): boolean {
+  if (value.denominator <= 0n || value.negativeZero && value.numerator !== 0n) return false;
+  let left = magnitude(value.numerator);
+  let right = value.denominator;
+  while (right !== 0n) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left === 1n;
+}
+
+interface DecimalToken {
+  readonly coefficient: bigint;
+  readonly exponent: bigint;
+  readonly negative: boolean;
+}
+
+function numericToken(text: string): DecimalToken | null {
+  const radix = /^([+-]?)(0(?:[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|[oO][0-7](?:_?[0-7])*|[bB][01](?:_?[01])*))$/u.exec(text);
+  if (radix !== null) {
+    const digits = radix[2];
+    if (digits === undefined) return null;
+    return { coefficient: BigInt(digits.replace(/_/gu, "")), exponent: 0n, negative: radix[1] === "-" };
+  }
+  if (!/^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$/u.test(text)) return null;
+  const normalized = text.replace(/_/gu, "");
+  const parsed = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
+  if (parsed === null) return null;
+  const fraction = parsed[3] ?? parsed[4] ?? "";
+  return { coefficient: BigInt((parsed[2] ?? "0") + fraction),
+    exponent: BigInt(parsed[5] ?? "0") - BigInt(fraction.length), negative: parsed[1] === "-" };
+}
+
+function tokenMatchesRational(token: DecimalToken, value: ExactRational): boolean {
+  if (!normalizedRational(value)) return false;
+  if (token.coefficient === 0n) return value.numerator === 0n && value.negativeZero === token.negative;
+  if (value.numerator === 0n || (value.numerator < 0n) !== token.negative) return false;
+  const bound = BigInt(token.coefficient.toString().length + magnitude(value.numerator).toString().length + value.denominator.toString().length);
+  if (magnitude(token.exponent) > bound) return false;
+  const coefficient = token.negative ? -token.coefficient : token.coefficient;
+  return token.exponent >= 0n
+    ? coefficient * 10n ** token.exponent * value.denominator === value.numerator
+    : coefficient * value.denominator === value.numerator * 10n ** -token.exponent;
+}
+
+function literalMatches(value: LiteralValue | LiteralTypeValue): boolean {
+  if (value.kind === "number") {
+    if (!("token" in value)) return normalizedRational(value.value);
+    const parsed = numericToken(value.token);
+    return parsed !== null && tokenMatchesRational(parsed, value.value);
+  }
+  if (value.kind === "bigint" && "token" in value) {
+    if (!/^[+-]?(?:[0-9](?:_?[0-9])*|0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO][0-7](?:_?[0-7])*|0[bB][01](?:_?[01])*)n$/u.test(value.token)) return false;
+    const unsigned = value.token.replace(/_/gu, "").slice(0, -1);
+    const negative = unsigned.startsWith("-");
+    const digits = negative || unsigned.startsWith("+") ? unsigned.slice(1) : unsigned;
+    return (negative ? -BigInt(digits) : BigInt(digits)) === value.value;
+  }
+  return true;
+}
+
+function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
+  for (const node of inventory.nodes) {
+    const metadata = node.tsonic;
+    if (metadata === null || !("literal" in metadata)) continue;
+    const literal = metadata.literal;
+    const site = nodeSite(node, inventory, module);
+    if (!literalMatches(literal)) report("literal-exact", site, "literal must preserve its normalized exact authored value");
+    if (node.kind === "NumericLiteral" && literal.kind !== "number" ||
+      node.kind === "BigIntLiteral" && literal.kind !== "bigint" ||
+      (node.kind === "StringLiteral" || node.kind === "NoSubstitutionTemplateLiteral") &&
+        (literal.kind !== "string" || literal.value !== node.text) ||
+      node.kind === "TrueKeyword" && (literal.kind !== "boolean" || !literal.value) ||
+      node.kind === "FalseKeyword" && (literal.kind !== "boolean" || literal.value) ||
+      node.kind === "NullKeyword" && literal.kind !== "absence")
+      report("literal-exact", site, "literal category and value must match its syntax");
+    if (node.kind === "PrefixUnaryExpression" && (literal.kind === "number" || literal.kind === "bigint")) {
+      const operand = node.operand;
+      const token = operand.kind === "NumericLiteral" || operand.kind === "BigIntLiteral" ?
+        numericToken(`${node.operator === "MinusToken" ? "-" : ""}${operand.kind === "BigIntLiteral" ? operand.text.replace(/n$/u, "") : operand.text}`) : null;
+      if ((node.operator !== "PlusToken" && node.operator !== "MinusToken") || token === null ||
+        (literal.kind === "number" ? !tokenMatchesRational(token, literal.value) : token.exponent !== 0n ||
+          (token.negative ? -token.coefficient : token.coefficient) !== literal.value))
+        report("literal-exact", site, "unary literal must preserve the actual operand and sign");
+    }
+  }
+}
+
+export const verifyHir: VerifyHir = (module, context) => {
+  const violations: Violation<HirRule, HirSite>[] = [];
+  const report: HirReport = (rule, site, reason) => { violations.push({ rule, site, detail: [{ kind: "text", value: reason }] }); };
+  const inventory = createHirInventory(module);
+  syntaxViolations(module, inventory, report);
+  declarationViolations(module, inventory, report);
+  bodyViolations(module, inventory, report);
+  verifyHirReferences(verificationRoots(module, inventory), module, inventory, context, report);
+  const requests: HirBindingRequest[] = [];
+  candidateViolations(module, inventory, context, requests, report);
+  literalViolations(module, inventory, report);
+  obligationViolations(module, inventory, context, report);
+  verifyHirCaptures(inventory.nodes, {
+    nodeOf: reference => localSourceNode(reference, module, inventory),
+    nodeExists: reference => sourceNodeExists(reference, module, inventory, context),
+    referenceOf: node => hirNodeSource(node, inventory, module),
+  }, report);
+  violations.push(...verifyBindingVectors(requests, context));
+  return Object.freeze(violations);
+};

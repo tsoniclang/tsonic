@@ -542,3 +542,58 @@ export function isHirModuleValue(value: unknown, schema: HirSchema,
   reject?: (visit: HirShapeVisit) => void): value is HirModule {
   return checkHirShape(value, "HirModule", schema, reject);
 }
+
+export interface HirDataRoot {
+  readonly value: unknown;
+  readonly shape: HirShape;
+  readonly site: HirSite;
+  readonly node: HirNode | null;
+  readonly body: HirBody | null;
+}
+
+export interface HirDataVisit extends HirDataRoot {
+  readonly selected: HirShape;
+  readonly parent: HirObject | null;
+  readonly field: string | null;
+}
+
+interface PendingData {
+  readonly root: HirDataRoot;
+  readonly parent: HirObject | null;
+  readonly field: string | null;
+  readonly next: PendingData | null;
+}
+
+export function walkHirData(root: HirDataRoot, schema: HirSchema, visit: (data: HirDataVisit) => void): void {
+  let pending: PendingData | null = { root, parent: null, field: null, next: null };
+  const seen = new Map<object, Set<HirShape>>();
+  while (pending !== null) {
+    const frame = pending;
+    pending = frame.next;
+    const data = frame.root.value;
+    const selected = resolveHirShape(frame.root.shape, data, schema);
+    if (selected === null) throw new Error("HIR data must inhabit its declared type.");
+    visit({ ...frame.root, selected, parent: frame.parent, field: frame.field });
+    if (data !== null && typeof data === "object") {
+      const previous = seen.get(data);
+      if (previous?.has(selected)) continue;
+      if (previous === undefined) seen.set(data, new Set([selected]));
+      else previous.add(selected);
+    }
+    if (typeof selected === "string") continue;
+    if (selected.kind === "record" && selected.syntax && data !== root.value) continue;
+    if (selected.kind === "array" && isHirArray(data)) {
+      pending = data.reduceRight<PendingData | null>((next, value) => ({
+        root: { ...frame.root, value, shape: selected.element }, parent: null, field: frame.field, next,
+      }), pending);
+    } else if (selected.kind === "record" && isHirObject(data)) {
+      pending = selected.fields.reduceRight<PendingData | null>((next, [field, shape]) => ({
+        root: { ...frame.root, value: data[field], shape }, parent: data, field, next,
+      }), pending);
+    } else if (selected.kind === "dictionary" && isHirObject(data)) {
+      pending = Object.keys(data).reduceRight<PendingData | null>((next, field) => ({
+        root: { ...frame.root, value: data[field], shape: selected.element }, parent: data, field, next,
+      }), pending);
+    }
+  }
+}

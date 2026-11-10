@@ -3,7 +3,7 @@ import type { HirModule, PrintHir } from "./contract.js";
 import type { HirShape } from "./verify-syntax.js";
 import { isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
 import { hirSchema } from "./verify-captures.js";
-import { indexSyntaxTree } from "./walk.js";
+import { hirSyntaxArena } from "./walk.js";
 
 interface TextTask {
   readonly kind: "text";
@@ -102,6 +102,7 @@ export function printHirRecords(records: readonly TextRecord[]): string {
         break;
       }
       case "record": {
+        if (value.binding !== null) pieces.push("n:", String(value.binding), "=");
         pieces.push(value.label, "(");
         const content: (TextTask | ValueTask)[] = [];
         for (const field of value.fields) {
@@ -123,12 +124,12 @@ interface EncodeValue {
   readonly put: (value: TextValue) => void;
 }
 
-function encodeHirRecord(value: unknown, expected: HirShape): TextRecord {
+function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyMap<object, number>, binding: number | null): TextRecord {
   const shape = resolveHirShape(expected, value, hirSchema);
   if (shape === null || typeof shape === "string" || shape.kind !== "record" || !isHirObject(value))
     throw new Error("HIR text requires the declared record shape.");
   const fields: { name: string; offset: number; value: TextValue }[] = [];
-  const root: TextRecord = { kind: "record", offset: 0, end: 0, label: shape.label, fields };
+  const root: TextRecord = { kind: "record", binding, bindingOffset: 0, offset: 0, end: 0, label: shape.label, fields };
   const pending: EncodeValue[] = [];
   for (const [field, fieldShape] of shape.fields) {
     if (field === "kind") continue;
@@ -152,11 +153,12 @@ function encodeHirRecord(value: unknown, expected: HirShape): TextRecord {
         put: wire => { values.push(wire); } });
     } else if (selected.kind === "record" && isHirObject(data)) {
       if (selected.syntax) {
-        if (typeof data.id !== "number") throw new Error("HIR syntax requires a numeric node identity.");
-        task.put({ kind: "identity", offset: 0, prefix: "n", value: data.id });
+        const position = bindings.get(data);
+        if (position === undefined) throw new Error("HIR syntax object requires its traversal-position wire binding.");
+        task.put({ kind: "identity", offset: 0, prefix: "n", value: position });
       } else {
         const content: { name: string; offset: number; value: TextValue }[] = [];
-        task.put({ kind: "record", offset: 0, end: 0, label: selected.label, fields: content });
+        task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
         for (const [field, fieldShape] of selected.fields) {
           if (field === "kind") continue;
           pending.push({ value: data[field], shape: fieldShape,
@@ -165,7 +167,7 @@ function encodeHirRecord(value: unknown, expected: HirShape): TextRecord {
       }
     } else if (selected.kind === "dictionary" && isHirObject(data)) {
       const content: { name: string; offset: number; value: TextValue }[] = [];
-      task.put({ kind: "record", offset: 0, end: 0, label: selected.label, fields: content });
+      task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
       for (const field of Object.keys(data)) pending.push({ value: data[field], shape: selected.element,
         put: wire => { content.push({ name: field, offset: 0, value: wire }); } });
     }
@@ -174,7 +176,10 @@ function encodeHirRecord(value: unknown, expected: HirShape): TextRecord {
 }
 
 export const printHir: PrintHir = (module: HirModule): string => {
-  const records: TextRecord[] = [encodeHirRecord(module, "HirModule")];
-  for (const node of indexSyntaxTree(module.tree)) records.push(encodeHirRecord(node, "SyntaxNode"));
+  const arena = hirSyntaxArena(module);
+  const bindings = new Map<object, number>();
+  arena.forEach((node, ordinal) => { bindings.set(node, ordinal); });
+  const records: TextRecord[] = [encodeHirRecord(module, "HirModule", bindings, null)];
+  arena.forEach((node, ordinal) => { records.push(encodeHirRecord(node, "SyntaxNode", bindings, ordinal)); });
   return printHirRecords(records);
 };
