@@ -62,13 +62,13 @@ export const verifySummary: VerifySummary = (summary, context) => {
   for (const [index, effect] of summary.parameters.entries()) {
     const position = index - (receiver ? 1 : 0);
     if (receiver && index === 0 ? effect.slot.kind !== "receiver"
-      : effect.slot.kind !== "parameter" || effect.slot.index !== position) {
+      : effect.slot.kind !== "parameter" || effect.slot.index !== position || Object.is(effect.slot.index, -0)) {
       report("parameters-order", "Parameter effects retain receiver-first and declaration parameter order.");
     }
     checkPaths(effect.reads); checkPaths(effect.writes);
   }
   for (const [index, effect] of summary.captures.entries()) {
-    if (effect.index !== index) report("captures-order", "Capture effects retain the actual dense captured-location order.");
+    if (effect.index !== index || !validIndex(effect.index, summary.captures.length)) report("captures-order", "Capture effects retain the actual dense captured-location order.");
     checkPaths(effect.reads); checkPaths(effect.writes);
   }
   if (!validIndex(summary.result, summary.arena.origins.length)) {

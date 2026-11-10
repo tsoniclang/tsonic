@@ -284,6 +284,27 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const before = text.slice(0, offset).split(/[\u2028\u2029]/u);
     malformed(product.parseMetadata, text, offset, ["32", "64"], "0", "Unicode line separator field", before.length, before.at(-1).length + 1);
   });
+  for (const [text, missing] of [["CallGraph(definitions=[])", "edges"], ["CallGraph(definitions=[], edges=[])", "components"]]) {
+    await suite.test(`the actual record cursor rejects missing ${missing} without a fabricated undefined decoder input`, () => {
+      const offset = text.lastIndexOf(")"); malformed(product.parseCallGraph, text, offset, [missing], ")", `missing ${missing}`);
+    });
+  }
+  await suite.test("an earlier typed field error cannot be hidden by a later field-name error", () => {
+    const text = "BodyFacts(instance=0, wrong=[])";
+    malformed(product.parseFacts, text, text.indexOf("0"), ["BodyInstance"], "0", "first typed field");
+  });
+  await suite.test("an earlier invalidation occurrence error cannot be hidden by surplus fields", () => {
+    const row = "ErrorStorageFact(node=n:1, origins=origins:0, writes=[], retention=[], invalidations=[invalidated(at=0, owner=origins:0, cause=\"suspension\", extra=0)])";
+    const text = emptyFactsText.replace("ErrorStorageFacts(errors=[])", `ErrorStorageFacts(errors=${arrayText([row])})`);
+    const offset = text.indexOf("at=0") + "at=".length; const before = text.slice(0, offset).split("\n");
+    malformed(product.parseFacts, text, offset, ["NodeRef"], "0", "first invalidation occurrence", before.length, before.at(-1).length + 1);
+  });
+  await suite.test("pointer-family operation order is checked before its later occurrence", () => {
+    const row = 'PointerBackingFact(node=n:1, returned=false, origins=origins:0, producers=[PointerBackingProducer(producer=bound:0, operation=PointerBackingOperation(family="raw-memory", operation="allocate", at=0))])';
+    const text = emptyFactsText.replace("pointers=[]", `pointers=${arrayText([row])}`);
+    const offset = text.indexOf('"allocate"'); const before = text.slice(0, offset).split("\n");
+    malformed(product.parseFacts, text, offset, ['"reinterpret"'], '"allocate"', "first raw-memory operation", before.length, before.at(-1).length + 1);
+  });
   await suite.test("scalar domains and grammar delimiters retain the complete independent rejection", () => {
     const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), observed=false)";
     const integer = "IntegerFact(node=n:1, range=IntegerRange(minimum=0, maximum=1n), nonnegative=false)";
@@ -891,6 +912,34 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.origins.invocations[0].kind = "native-callback";
   }, input => { input.origins.invocations[0].alternatives[0].arguments.pop(); },
   [violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")]);
+  for (const kind of ["NewExpression", "TaggedTemplateExpression"]) await factOpposite(`the actual ${kind} application arm retains its own typed shape`, (input, supplied) => {
+    invocationFixture(input, supplied); const call = supplied.tir.root;
+    const alternative = input.origins.invocations[0].alternatives[0];
+    supplied.types.signatures[1].parameters = []; alternative.resolution.decision.parameters = [];
+    alternative.arguments = []; input.arena.contexts[0].arguments = []; call.tsonic.application.decision.arguments = [];
+    if (kind === "NewExpression") {
+      supplied.types.signatures[1].kind = "construct"; supplied.types.terms[3] = { kind: "callable", calls: [], constructs: [1] };
+      supplied.tir.root = { ...header(1), kind, expression: call.expression, typeArguments: null, arguments: null, tsonic: call.tsonic };
+      input.origins.invocations[0].kind = "construct";
+      input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
+    } else {
+      supplied.types.terms.push({ kind: "string" });
+      supplied.tir.root = { ...header(1), kind, tag: call.expression, questionDotToken: null, typeArguments: null,
+        template: { ...header(3, 1), kind: "NoSubstitutionTemplateLiteral", text: "", rawText: "", tokenFlags: [], templateFlags: [],
+          tsonic: { ...typedValue(4), role: "value", value: "" } }, tsonic: call.tsonic };
+      input.refinements.integers = [1, 2, 3].map(node => ({ node, range: null, nonnegative: false }));
+    }
+  }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.completion.signature = 99; },
+  [violation("signature-resolves", nodeSite(1), "A fact signature resolves in the actual supplied signature table.")]);
+  await factOpposite("a supplied deferred application outcome is not re-executed by the facts verifier", (input, supplied) => {
+    invocationFixture(input, supplied);
+    const evidence = node => ({ type: 0, component: { kind: "body", value: nodeRef(node) }, category: { kind: "known", category: "number" },
+      numeric: null, sum: null, nominal: null, pointer: null });
+    supplied.tir.root.tsonic.application = { kind: "deferred", deferred: { result: 1, invocation: { rule: "embed", input: {
+      context: { occurrence: nodeRef(1), origin: sourceOrigin(1), bindings: emptyBindings() }, from: evidence(3), to: evidence(4), role: "argument",
+    } } } };
+  }, input => { input.origins.invocations[0].alternatives[0].arguments.pop(); },
+  [violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")]);
   for (const mode of ["empty", "finite", "dynamic", "value", "head"]) await factOpposite(`actual selected rest ${mode}`, (input, supplied) => restFixture(mode, input, supplied),
     input => {
       const alternative = input.origins.invocations[0].alternatives[0];
@@ -1270,6 +1319,47 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     [violation("captures-total", summarySite(), "A summary retains every location in the actual declaration capture inventory.")]);
   await summaryOpposite("missing dependence inventory is not parametric", unchanged, (input, supplied) => { supplied.context.bindingDependentOf = () => null; },
     [violation("summary-binding-dependence", summarySite(), "Summary dependence equals the supplied declaration's actual binding dependence.")]);
+  for (const count of [-0, -1, 0.5, NaN, Infinity]) await summaryOpposite(`actual capture count ${Object.is(count, -0) ? "negative zero" : String(count)} is not an empty inventory`,
+    unchanged, (input, supplied) => { supplied.context.captureCount = () => count; },
+    [violation("captures-total", summarySite(), "A summary retains every location in the actual declaration capture inventory.")]);
+  await summaryOpposite("negative zero does not name the first formal", oneParameter,
+    input => { input.parameters[0].slot.index = -0; },
+    [violation("parameters-order", summarySite(), "Parameter effects retain receiver-first and declaration parameter order.")]);
+  await summaryOpposite("negative zero does not name the first captured location", (input, supplied) => {
+    input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }]; supplied.context.captureCount = () => 1;
+  }, input => { input.captures[0].index = -0; },
+  [violation("captures-order", summarySite(), "Capture effects retain the actual dense captured-location order.")]);
+  await summaryOpposite("a parameter slot cannot occupy the receiver position", (input, supplied) => {
+    oneParameter(input, supplied); supplied.types.signatures[0].receiver = 0;
+    input.parameters.unshift({ slot: { kind: "receiver" }, reads: completePaths(), writes: completePaths() });
+  }, input => { input.parameters[0].slot = { kind: "parameter", index: 0 }; },
+  [violation("parameters-order", summarySite(), "Parameter effects retain receiver-first and declaration parameter order.")]);
+  await summaryOpposite("effect paths retain their actual arena membership", oneParameter,
+    input => { input.parameters[0].reads.paths = [99]; },
+    [violation("summary-finite", summarySite(), "Effect paths are distinct ordered references into the summary's own finite arena.")]);
+  await summaryOpposite("effect path order is independently checked after its first member", (input, supplied) => {
+    oneParameter(input, supplied); input.parameters[0].reads.paths = [0, 1];
+  }, input => { input.parameters[0].reads.paths.reverse(); },
+  [violation("summary-finite", summarySite(), "Effect paths are distinct ordered references into the summary's own finite arena.")]);
+  await summaryOpposite("a signature position does not certify a different signature ID", unchanged,
+    (input, supplied) => { supplied.types.signatures[0].id = 1; },
+    [violation("signature-resolves", summarySite(), "A summary must name an existing declaration-instantiated signature.")]);
+  await suite.test("an anonymous supplied signature retains its declared nullable owner boundary", () => {
+    const supplied = setup(); supplied.types.signatures[0].declaration = null;
+    equal(product.verifySummary(summary(), supplied.context), [], "complete nullable-signature-owner vector");
+  });
+  await summaryOpposite("an invalid callback formal also invalidates its input and rejection channels", oneCallback,
+    input => { input.callbacks[0] = { parameterIndex: 99, timing: "synchronous", inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }], rejection: 0 }; }, [
+      violation("callback-parameter-resolves", summarySite(), "A callback names an actual parameter of the summary signature."),
+      violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."),
+      violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
+    ]);
+  await summaryOpposite("cached unresolved callback data remains unresolved at the repeated occurrence", oneCallback,
+    (input, supplied) => { supplied.callbackSignatures.set(arenaKey([input.key, 0]), null); input.callbacks.push(clone(input.callbacks[0])); }, [
+      violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter."),
+      violation("callbacks-order", summarySite(), "Callback entries retain distinct declaration parameter order."),
+      violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter."),
+    ]);
   for (const signatures of [null, [], [99], [-0]]) {
     await summaryOpposite(`actual callback signatures ${String(signatures)} are not invented from the parameter type`, oneCallback,
       (input, supplied) => { supplied.callbackSignatures.set(arenaKey([input.key, 0]), signatures); },
@@ -1297,6 +1387,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     oneCallback(input, supplied);
     supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
     supplied.callbackSignatures.set(arenaKey([input.key, 0]), [2, 1]);
+    input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+  }, input => { input.callbacks[0].inputs[0].parameterIndex = 1; },
+  [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  await summaryOpposite("a later wider callback signature cannot replace an earlier smaller formal domain", (input, supplied) => {
+    oneCallback(input, supplied);
+    supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
+    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 2]);
     input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
   }, input => { input.callbacks[0].inputs[0].parameterIndex = 1; },
   [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
@@ -1423,6 +1520,58 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings = []; },
     [violation("bindings-complete", { kind: "projection", owner: summaryOwner(summary().key), projection: 2 }, bindingMessage)]);
   }
+  for (const field of ["read", "write"]) await factOpposite(`selected member ${field} uses the actual type-table boundary`, (input, supplied) => {
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: member() } });
+    supplied.scopeRows.body.unshift(emptyScope());
+  }, input => { input.arena.projections[2].projection.member.decision[field] = 99; },
+  [violation("type-resolves", arenaSite("projection", "projection", 2), "A selected member type resolves in the actual supplied type table.")]);
+  await factOpposite("a selected declaration group is a genuine definition boundary", (input, supplied) => {
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: member() } });
+    supplied.scopeRows.body.unshift(emptyScope());
+  }, input => { input.arena.projections[2].projection.member.decision.selectedDeclarations = [definitions.missing]; },
+  [violation("producer-resolves", arenaSite("projection", "projection", 2), "A selected member retains its actual selected declaration group.")]);
+  for (const [name, amend, rule, message] of [
+    ["declaration", endpoint => { endpoint.declaration = definitions.missing; }, "producer-resolves", "A selected member endpoint retains its actual declaration."],
+    ["signature", endpoint => { endpoint.signature = 99; }, "signature-resolves", "A selected member endpoint resolves in the actual supplied signature table."],
+  ]) await factOpposite(`a selected member endpoint retains its actual ${name}`, (input, supplied) => {
+    const selected = member(); selected.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null };
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "method-value", member: selected } });
+    supplied.scopeRows.body.unshift(emptyScope());
+  }, input => amend(input.arena.projections[2].projection.member.decision.getter),
+  [violation(rule, arenaSite("projection", "projection", 2), message)]);
+  const accessorSelection = (input, supplied) => {
+    const formal = parameter(); formal.kind = "optional";
+    supplied.types.signatures.push(signature(1, [formal], null, definitions.callee));
+    const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
+    const selected = member(); selected.decision.getter = endpoint("api-signature");
+    selected.getter = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"),
+      bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [{ kind: "omitted", parameter: 0, type: 0 }],
+      completion: { signature: 1, completion: 1, yielded: null, sent: 0 }, result: 0 }, activation: null, captures: [{ body: otherBody, local: 0 }] };
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "method-value", member: selected } });
+    supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
+  };
+  for (const [name, amend, rule, message] of [
+    ["capture", resolved => { resolved.captures[0].local = 99; }, "capture-locations-exact", "A selected accessor retains its actual captured storage locations."],
+    ["completion signature", resolved => { resolved.decision.completion.signature = 99; }, "signature-resolves", "A selected member completion retains its actual signature."],
+    ["omitted type", resolved => { resolved.decision.parameters[0].type = 99; }, "type-resolves", "A selected member type resolves in the actual supplied type table."],
+    ["sent type", resolved => { resolved.decision.completion.sent = 99; }, "type-resolves", "A selected member type resolves in the actual supplied type table."],
+    ["result type", resolved => { resolved.decision.result = 99; }, "type-resolves", "A selected member type resolves in the actual supplied type table."],
+  ]) await factOpposite(`a selected accessor retains its actual ${name}`, accessorSelection,
+    input => amend(input.arena.projections[2].projection.member.getter), [violation(rule, arenaSite("projection", "projection", 2), message)]);
+  await factOpposite("bound member types fail at the type boundary rather than inventing a scope mismatch", (input, supplied) => {
+    const { selected, scope } = scopedMember();
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 0 }];
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
+    supplied.scopeRows.body = [scope, emptyScope(), emptyScope()];
+  }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings[0].type = 99; },
+  [violation("type-resolves", arenaSite("projection", "projection", 2), "Every bound type resolves in the actual supplied canonical type table.")]);
+  await summaryOpposite("bound member type failures use the existing summary rule domain", (input, supplied) => {
+    const { selected, scope } = scopedMember();
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 0 }];
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
+    supplied.scopeRows.summary = [scope, emptyScope(), emptyScope()];
+  }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings[0].type = 99; },
+  [violation("summary-finite", { kind: "projection", owner: summaryOwner(summary().key), projection: 2 }, "Every bound type resolves in the actual supplied canonical type table.")]);
   await factOpposite("canonical closed-array member scope is not its enclosing body", (input, supplied) => {
     const { scope, selected } = scopedMember();
     input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [selected] }];
@@ -1614,6 +1763,90 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     violation("layout-geometry-consistent", metadataSite(), "A field extent and selected alignment must fit the containing layout."),
     violation("field-offset-exact", metadataSite(), "A field offset must be an exact nonnegative integer."),
     violation("field-offset-exact", metadataSite(), "A field offset must equal its finalized authored value."),
+  ]);
+  for (const [name, amend] of [
+    ["unresolved", (input, supplied) => { supplied.metadataRows.set(definitions.abi64, null); }],
+    ["a different record kind", (input, supplied) => { supplied.metadataRows.set(definitions.abi64, metadata()); }],
+    ["a different declaration", (input, supplied) => { supplied.metadataRows.get(definitions.abi64).key.definition = definitions.abi32; }],
+    ["a different fingerprint", (input, supplied) => { supplied.metadataRows.get(definitions.abi64).fingerprint = "other"; }],
+    ["a different byte order", (input, supplied) => { supplied.metadataRows.get(definitions.abi64).byteOrder = "big"; }],
+    ["a different address width", (input, supplied) => { supplied.metadataRows.get(definitions.abi64).addressWidth = 32; }],
+  ]) await suite.test(`the genuine ABI reader distinguishes ${name}`, () => {
+    const supplied = setup(); const input = abi(64);
+    equal(product.verifyMetadata(input, supplied.context), [], "complete actual ABI positive");
+    amend(input, supplied);
+    equal(product.verifyMetadata(input, supplied.context), [violation("data-layout-reference-resolves", { kind: "metadata", metadata: input.key },
+      "The data-layout record must retain its selected ABI identity and descriptor.")], `complete ABI ${name} vector`);
+  });
+  await suite.test("a data-layout source occurrence is a genuine reader boundary", () => {
+    const supplied = setup(); const input = abi(64);
+    equal(product.verifyMetadata(input, supplied.context), [], "complete actual ABI source positive");
+    input.occurrence.value.node = 99;
+    equal(product.verifyMetadata(input, supplied.context), [violation("occurrence-resolves", { kind: "metadata", metadata: input.key },
+      "The data-layout occurrence must retain its original qualified source identity.")], "complete ABI source vector");
+  });
+  for (const [name, field, value, expected] of [
+    ["negative size", "byteSize", -1n, [
+      ["layout-size-exact", "The exact layout size must fit the selected ABI address domain."],
+      ["layout-size-exact", "Layout size must equal its finalized authored value."],
+    ]],
+    ["negative stride", "stride", -1n, [
+      ["layout-stride-exact", "The exact stride must contain the value, preserve alignment and fit the selected ABI."],
+      ["layout-stride-exact", "Layout stride must equal its finalized authored value."],
+    ]],
+    ["non-power-of-two alignment", "byteAlignment", 3n, [
+      ["layout-alignment-valid", "Layout alignment must be an exact positive power of two in the selected ABI."],
+      ["layout-stride-exact", "The exact stride must contain the value, preserve alignment and fit the selected ABI."],
+      ["layout-alignment-valid", "Layout alignment must equal its finalized authored value."],
+    ]],
+    ["out-of-domain alignment", "byteAlignment", 1n << 64n, [
+      ["layout-alignment-valid", "Layout alignment must be an exact positive power of two in the selected ABI."],
+      ["layout-stride-exact", "The exact stride must contain the value, preserve alignment and fit the selected ABI."],
+      ["layout-alignment-valid", "Layout alignment must equal its finalized authored value."],
+    ]],
+  ]) await metadataOpposite(`exact geometry retains ${name}`, unchanged, input => { input.layouts[0][field] = value; },
+    expected.map(([rule, message]) => violation(rule, metadataSite(), message)));
+  for (const field of ["occurrence", "selector", "selection"]) await metadataOpposite(`physical ${field} retains its actual item occurrence`, withField,
+    input => { input.fields[0][field].value.node = 99; },
+    [violation("occurrence-resolves", metadataSite(), "A field retains its actual authored occurrence, selector and selection.")]);
+  await metadataOpposite("a duplicate physical row does not borrow its first occurrence's coverage", withField,
+    input => { input.layouts[1].fields.push(0); }, [
+      violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order."),
+      violation("layout-fields-resolve", metadataSite(), "A value layout must retain each selected physical field exactly once."),
+    ]);
+  await metadataOpposite("a resolving self element still violates earlier-layout and type correspondence", withArray,
+    input => { input.layouts[1].element = 1; }, [
+      violation("layout-element-precedes", metadataSite(), "An array element must reference an existing earlier layout."),
+      violation("array-extent-exact", metadataSite(), "An array retains its exact fixed extent, runtime base and selected element type."),
+    ]);
+  await metadataOpposite("a missing field child retains all owning-layer violations", withField,
+    input => { input.fields[0].layout = 99; }, [
+      violation("layout-fields-resolve", metadataSite(), "A physical field must name an existing earlier child layout."),
+      violation("layout-fields-resolve", metadataSite(), "Every field must reference an existing selected child layout."),
+      violation("cross-owner-qualified", metadataSite(), "A field cannot borrow another owner, value type or selected child layout."),
+    ]);
+  await metadataOpposite("a self field child is not an earlier physical layout", withField,
+    input => { input.fields[0].layout = 1; }, [
+      violation("layout-fields-resolve", metadataSite(), "A physical field must name an existing earlier child layout."),
+      violation("member-correspondence-exact", metadataSite(), "A field's value type must equal its selected child layout source type."),
+      violation("cross-owner-qualified", metadataSite(), "A field cannot borrow another owner, value type or selected child layout."),
+    ]);
+  await metadataOpposite("zero field alignment is not merely a finalized-value difference", withField,
+    input => { input.fields[0].byteAlignment = 0n; }, [
+      violation("layout-geometry-consistent", metadataSite(), "A field extent and selected alignment must fit the containing layout."),
+      violation("field-alignment-valid", metadataSite(), "A field must preserve its selected positive power-of-two alignment."),
+      violation("field-alignment-valid", metadataSite(), "A field alignment must equal its finalized authored value."),
+    ]);
+  await metadataOpposite("selected member type failures retain the metadata result domain", withField,
+    input => { input.fields[0].member.decision.read = 99; }, [
+      violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+      violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
+    ]);
+  await metadataOpposite("selected member signature failures retain the metadata result domain", (input, supplied) => {
+    withField(input, supplied); input.fields[0].member.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null };
+  }, input => { input.fields[0].member.decision.getter.signature = 99; }, [
+    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    violation("member-correspondence-exact", metadataSite(), "A selected member endpoint resolves in the actual supplied signature table."),
   ]);
   await metadataOpposite("bindings-complete", (input, supplied) => {
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.layout, index: 0 }] });
