@@ -233,7 +233,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     malformed(product.parseCallGraph, "CallGraph()", 10, ["definitions"], ")", "missing first field");
     malformed(product.parseCallGraph, "CallGraph(edges=[])", 10, ["definitions"], "edges", "wrong field order");
     const text = "CallGraph(definitions=[], edges=[], components=[], extra=0)";
-    malformed(product.parseCallGraph, text, text.indexOf("extra"), [")"], "extra", "extra field");
+    malformed(product.parseCallGraph, text, text.indexOf("extra"), ["end of record"], "extra", "extra field");
     const value = "CallGraph(definitions=0, edges=[], components=[])";
     malformed(product.parseCallGraph, value, value.indexOf("0"), ["array"], "0", "wrong array kind");
     const wrongIdentity = "CallGraph(definitions=[n:0], edges=[], components=[])";
@@ -300,12 +300,52 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       ["lexical error precedes later frame error", `${stringPrefix}"\\q" broken @`, stringPrefix.length + 2, ["JSON string escape"], "q"],
       ["identity payload kind precedes later lexical error", `${stringPrefix}0,@)`, stringPrefix.length, ["string"], "0"],
       ["quoted field lexical error precedes later value error", `${root}("\\q"=@)`, fieldOffset + 2, ["JSON string escape"], "q"],
-      ["already wrong quoted field precedes its later escape error", `${root}("wrong\\q"=@)`, fieldOffset, [firstField], '"'],
+      ["already wrong quoted field precedes its later escape error", `${root}("wrong\\q"=@)`, fieldOffset + 1, [firstField], '"'],
       ["later field precedes its later lexical value", `${validHead}, wrong=@)`, validHead.length + 2, [nextField], "wrong"],
       ["later value precedes its later lexical sibling", `${validHead}, ${nextField}=0, later=@)`, validHead.length + nextField.length + 3, nextExpected, "0"],
     ];
     for (const [pair, text, offset, expected, found] of pairs) await suite.test(`${name}: first actual position ${pair}`, () => {
       malformed(parse, text, offset, expected, found, `${name}: complete independent ${pair} vector`);
+    });
+  }
+  for (const [name, parse, , firstField, , , validHead, nextField] of firstPositionPorts) {
+    const prefix = validHead + ", ";
+    const priorPrefix = firstField.slice(0, 2); const requiredPrefix = nextField.slice(0, -1);
+    const matchingPrefix = nextField.slice(0, 2);
+    const priorEscape = "\\u" + firstField.charCodeAt(0).toString(16).padStart(4, "0");
+    const requiredEscape = "\\u" + nextField.charCodeAt(0).toString(16).padStart(4, "0");
+    const escapedPrior = `"${priorEscape}${firstField.slice(1)}"`;
+    const escapedPrefix = `"${requiredEscape}${requiredPrefix.slice(1)}"`;
+    const escapedMatching = `"${requiredEscape}${matchingPrefix.slice(1)}`;
+    const lateEscape = `"${requiredPrefix}\\u0058"`;
+    const wrongFirst = `"\\u0058${nextField.slice(1)}"`;
+    const cases = [
+      ["non-name lexical input", "@", 0, ["field name"], "@"],
+      ["complete unquoted prior name", firstField + "=@", 0, ["unique record field"], firstField],
+      ["complete quoted prior name", `"${firstField}"=@`, 1, ["unique record field"], `"${firstField}"`],
+      ["complete escaped prior name", escapedPrior + "=@", 1, ["unique record field"], escapedPrior],
+      ["unfinished prior-name prefix", `"${priorPrefix}`, 1, [nextField], '"'],
+      ["malformed prior-name prefix", `"${priorPrefix}\\q`, 1, [nextField], '"'],
+      ["unfinished escaped prior-name prefix", `"${priorEscape}${priorPrefix.slice(1)}`, 1, [nextField], '"'],
+      ["malformed escaped prior-name prefix", `"${priorEscape}${priorPrefix.slice(1)}\\q`, 1, [nextField], '"'],
+      ["unquoted prior-name prefix", priorPrefix + "=@", 0, [nextField], priorPrefix],
+      ["complete prior spelling with malformed suffix", `"${firstField}\\q`, 1, [nextField], '"'],
+      ["late unquoted deviation", requiredPrefix + "X=@", requiredPrefix.length, [nextField], requiredPrefix + "X"],
+      ["late quoted deviation", `"${requiredPrefix}X"=@`, requiredPrefix.length + 1, [nextField], `"${requiredPrefix}X"`],
+      ["late escaped deviation", lateEscape + "=@", requiredPrefix.length + 1, [nextField], lateEscape],
+      ["unquoted proper prefix", requiredPrefix + "=@", requiredPrefix.length, [nextField], requiredPrefix],
+      ["quoted proper prefix", `"${requiredPrefix}"=@`, requiredPrefix.length + 1, [nextField], `"${requiredPrefix}"`],
+      ["escaped proper prefix", escapedPrefix + "=@", escapedPrefix.length - 1, [nextField], escapedPrefix],
+      ["unfinished matching prefix", `"${matchingPrefix}`, matchingPrefix.length + 1, ['"'], null],
+      ["lexical failure after matching prefix", `"${matchingPrefix}\\q`, matchingPrefix.length + 2, ["JSON string escape"], "q"],
+      ["lexical failure after escaped matching prefix", escapedMatching + "\\q", escapedMatching.length + 1, ["JSON string escape"], "q"],
+      ["lexical failure before a decoded character", '"\\q', 2, ["JSON string escape"], "q"],
+      ["empty decoded name", '""=@', 1, [nextField], '""'],
+      ["name longer than the next field", nextField + "X=@", nextField.length, [nextField], nextField + "X"],
+      ["escaped first deviation", wrongFirst + "=@", 1, [nextField], wrongFirst],
+    ];
+    for (const [label, suffix, relative, expected, found] of cases) await suite.test(`${name}: decoded next-field ${label}`, () => {
+      malformed(parse, prefix + suffix, prefix.length + relative, expected, found, `${name}: complete decoded next-field ${label}`);
     });
   }
   const projectionRow = "ProjectionPath(id=path:0, parent=null, projection=deref())";
@@ -345,11 +385,79 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["call graph", product.parseCallGraph, graphText, graph()],
   ]) await suite.test(`${name}: surplus quoted field precedes its later escape and value errors`, () => {
     equal(parse(text), { kind: "parsed", value }, `${name}: complete authored valid root`);
-    const closing = text.lastIndexOf(")"); const offset = closing + 2;
+    const closing = text.lastIndexOf(")"); const offset = closing + 3;
     const invalid = text.slice(0, closing) + ', "wrong\\q"=@' + text.slice(closing);
     const before = invalid.slice(0, offset).split("\n");
-    malformed(parse, invalid, offset, [")"], '"', `${name}: complete surplus-field-first vector`, before.length, before.at(-1).length + 1);
+    malformed(parse, invalid, offset, ["end of record"], '"', `${name}: complete surplus-field-first vector`, before.length, before.at(-1).length + 1);
   });
+  for (const [name, parse, text, value, firstField, nextField] of [
+    ["facts", product.parseFacts, emptyFactsText, emptyFacts(), "instance", "arena"],
+    ["summary", product.parseSummary, emptySummaryText, emptySummary(), "key", "signature"],
+    ["metadata", product.parseMetadata, abiText(64), abi(64), "key", "occurrence"],
+    ["call graph", product.parseCallGraph, graphText, graph(), "definitions", "edges"],
+  ]) {
+    const escape = "\\u" + firstField.charCodeAt(0).toString(16).padStart(4, "0");
+    const quoted = `"${firstField}"`; const escaped = `"${escape}${firstField.slice(1)}"`;
+    await suite.test(`${name}: complete quoted and escaped field values retain their declared root`, () => {
+      equal(parse(text.replace(firstField + "=", quoted + "=")), { kind: "parsed", value }, `${name}: entire quoted root`);
+      equal(parse(text.replace(firstField + "=", escaped + "=")), { kind: "parsed", value }, `${name}: entire escaped root`);
+      equal(parse(text.replace(nextField + "=", `"${nextField}"=`)), { kind: "parsed", value }, `${name}: entire quoted next-field root`);
+      const escapedNext = `"\\u${nextField.charCodeAt(0).toString(16).padStart(4, "0")}${nextField.slice(1)}"`;
+      equal(parse(text.replace(nextField + "=", escapedNext + "=")), { kind: "parsed", value }, `${name}: entire escaped next-field root`);
+    });
+    const prefix = text.slice(0, text.lastIndexOf(")")) + ", ";
+    const cases = [
+      ["unquoted extra name", "extra=@", 0, ["end of record"], "extra"],
+      ["quoted extra name", '"extra"=@', 1, ["end of record"], '"extra"'],
+      ["unfinished extra name", '"extra', 1, ["end of record"], '"'],
+      ["malformed extra name", '"extra\\q', 1, ["end of record"], '"'],
+      ["escaped extra name", '"\\u0065xtra"=@', 1, ["end of record"], '"\\u0065xtra"'],
+      ["unfinished escaped extra name", '"\\u0065xtra', 1, ["end of record"], '"'],
+      ["malformed escaped extra name", '"\\u0065xtra\\q', 1, ["end of record"], '"'],
+      ["empty complete name", '""=@', 1, ["end of record"], '""'],
+      ["unquoted prior name", firstField + "=@", 0, ["unique record field"], firstField],
+      ["quoted prior name", quoted + "=@", 1, ["unique record field"], quoted],
+      ["escaped prior name", escaped + "=@", 1, ["unique record field"], escaped],
+      ["unfinished prior name", `"${firstField}`, 1, ["end of record"], '"'],
+      ["malformed prior name", `"${firstField}\\q`, 1, ["end of record"], '"'],
+      ["lexical failure before any name character", '"\\q', 2, ["JSON string escape"], "q"],
+      ["unfinished empty name", '"', 1, ['"'], null],
+    ];
+    for (const [label, suffix, relative, expected, found] of cases) await suite.test(`${name}: decoded no-next-field ${label}`, () => {
+      const invalid = prefix + suffix; const offset = prefix.length + relative; const before = invalid.slice(0, offset).split("\n");
+      malformed(parse, invalid, offset, expected, found, `${name}: complete decoded no-next-field ${label}`,
+        before.length, before.at(-1).length + 1);
+    });
+  }
+  const nestedFieldPrefix = `BodyFacts(instance=BodyInstance(body=body:"${body}", `;
+  for (const [label, suffix, relative, expected, found] of [
+    ["unquoted shared-prefix duplicate", "body=@", 1, ["unique record field"], "body"],
+    ["quoted shared-prefix duplicate", '"body"=@', 2, ["unique record field"], '"body"'],
+    ["escaped differing character", '"b\\u006fdy"=@', 2, ["unique record field"], '"b\\u006fdy"'],
+    ["malformed shared-prefix duplicate", '"bo\\q', 2, ["bindings"], '"'],
+    ["unterminated shared-prefix duplicate", '"bo', 2, ["bindings"], '"'],
+  ]) await suite.test(`nested record: decoded ${label}`, () => {
+    malformed(product.parseFacts, nestedFieldPrefix + suffix, nestedFieldPrefix.length + relative, expected, found, `complete nested ${label}`);
+  });
+  const emptyRecordPrefix = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric(`;
+  for (const [label, suffix, relative, found] of [
+    ["unquoted extra name", "extra=@", 0, "extra"],
+    ["extra name", '"extra', 1, '"'],
+    ["escaped extra name", '"\\u0065xtra"=@', 1, '"\\u0065xtra"'],
+    ["empty name", '""=@', 1, '""'],
+    ["extra name following a separator", ', "extra', 3, '"'],
+  ]) await suite.test(`zero-field record: decoded ${label}`, () => {
+    malformed(product.parseSummary, emptyRecordPrefix + suffix, emptyRecordPrefix.length + relative, ["end of record"], found,
+      `complete zero-field ${label}`);
+  });
+  for (const prior of ["edges", "components"]) for (const spelling of [prior, `"${prior}"`, `"\\u00${prior.charCodeAt(0).toString(16)}${prior.slice(1)}"`]) {
+    await suite.test(`later prior field ${spelling} remains a duplicate after the last field`, () => {
+      const prefix = graphText.slice(0, graphText.lastIndexOf(")")) + ", "; const relative = spelling.startsWith('"') ? 1 : 0;
+      const invalid = prefix + spelling + "=@"; const offset = prefix.length + relative; const before = invalid.slice(0, offset).split("\n");
+      malformed(product.parseCallGraph, invalid, offset, ["unique record field"], spelling,
+        `complete later-prior-field ${spelling}`, before.length, before.at(-1).length + 1);
+    });
+  }
   for (const [name, row, marker, expected, found] of [
     ["unknown projection", "ProjectionPath(id=path:0, parent=null, projection=Unknown())", "Unknown", ["field", "method-value", "element", "index", "deref"], "Unknown"],
     ["wrong projection field kind", "ProjectionPath(id=path:0, parent=null, projection=0)", "projection=0", ["field", "method-value", "element", "index", "deref"], "0"],

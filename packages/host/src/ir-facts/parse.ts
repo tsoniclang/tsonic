@@ -30,15 +30,19 @@ import type {
   WriteFact, WrittenOrigins, WrittenOriginsReason,
 } from "./contract.js";
 
-type Atom = string | number | bigint | boolean | null;
-type Token = { readonly kind: "word" | "punctuation"; readonly text: string; readonly offset: number; readonly end: number }
+type Atom = number | bigint | boolean | null;
+type Token = { readonly kind: "word"; readonly text: string; readonly offset: number; readonly end: number }
+  | { readonly kind: "punctuation"; readonly text: string; readonly offset: number; readonly end: number }
+  | { readonly kind: "string"; readonly text: string; readonly offset: number; readonly end: number;
+    readonly value: string; readonly positions: readonly number[] }
   | { readonly kind: "scalar"; readonly text: string; readonly offset: number; readonly end: number; readonly value: Atom };
 interface Failure { readonly offset: number; readonly expected: readonly string[]; readonly found: string | null }
 type SyntaxValue = Token
-  | { readonly kind: "invalid"; readonly offset: number; readonly text: string; readonly family: "string" | "number" | "other"; readonly prefix: string; readonly failure: Failure }
+  | { readonly kind: "invalid"; readonly offset: number; readonly text: string; readonly family: "string" | "number" | "other";
+    readonly prefix: string; readonly positions: readonly number[]; readonly failure: Failure }
   | { readonly kind: "end"; readonly offset: number; readonly text: null };
 interface State { readonly text: string; offset: number; lookahead: SyntaxValue | null }
-interface RecordReader { first: boolean }
+interface RecordReader { readonly names: Set<string> }
 type Decoded<Value> = { readonly kind: "value"; readonly value: Value } | { readonly kind: "invalid"; readonly failure: Failure };
 type Decode<Value> = (state: State, input: SyntaxValue) => Decoded<Value>;
 
@@ -59,8 +63,9 @@ const scan = (state: State): SyntaxValue => {
   }
   const start = offset;
   if (offset === state.text.length) return { kind: "end", offset, text: null };
-  const invalid = (at: number, expected: readonly string[], family: "string" | "number" | "other", prefix = ""): SyntaxValue => ({
-    kind: "invalid", offset: start, text: state.text.charAt(start), family, prefix,
+  const invalid = (at: number, expected: readonly string[], family: "string" | "number" | "other", prefix = "",
+    positions: readonly number[] = []): SyntaxValue => ({
+    kind: "invalid", offset: start, text: state.text.charAt(start), family, prefix, positions,
     failure: { offset: at, expected, found: at >= state.text.length ? null : state.text.charAt(at) },
   });
   const character = state.text.charAt(offset);
@@ -73,13 +78,16 @@ const scan = (state: State): SyntaxValue => {
   if ("()[]=,:".includes(character)) return { kind: "punctuation", text: character, offset, end: offset + 1 };
   if (character === '"') {
     const parts: string[] = [];
+    const positions: number[] = [];
     offset += 1;
     while (offset < state.text.length) {
+      const characterOffset = offset;
       const current = state.text.charCodeAt(offset);
       offset += 1;
-      if (current === 34) return { kind: "scalar", text: state.text.slice(start, offset), offset: start, end: offset, value: parts.join("") };
-      if (current < 32) return invalid(offset - 1, ["escaped string character"], "string", parts.join(""));
-      if (current !== 92) { parts.push(String.fromCharCode(current)); continue; }
+      if (current === 34) return { kind: "string", text: state.text.slice(start, offset), offset: start, end: offset,
+        value: parts.join(""), positions };
+      if (current < 32) return invalid(offset - 1, ["escaped string character"], "string", parts.join(""), positions);
+      if (current !== 92) { parts.push(String.fromCharCode(current)); positions.push(characterOffset); continue; }
       const escapeOffset = offset;
       const escaped = state.text.charAt(offset);
       offset += 1;
@@ -94,13 +102,14 @@ const scan = (state: State): SyntaxValue => {
         case "t": parts.push("\t"); break;
         case "u": {
           const digits = state.text.slice(offset, offset + 4);
-          if (!/^[0-9a-fA-F]{4}$/.test(digits)) return invalid(offset, ["four hexadecimal digits"], "string", parts.join(""));
+          if (!/^[0-9a-fA-F]{4}$/.test(digits)) return invalid(offset, ["four hexadecimal digits"], "string", parts.join(""), positions);
           parts.push(String.fromCharCode(Number.parseInt(digits, 16))); offset += 4; break;
         }
-        default: return invalid(escapeOffset, ["JSON string escape"], "string", parts.join(""));
+        default: return invalid(escapeOffset, ["JSON string escape"], "string", parts.join(""), positions);
       }
+      positions.push(characterOffset);
     }
-    return invalid(offset, ['"'], "string", parts.join(""));
+    return invalid(offset, ['"'], "string", parts.join(""), positions);
   }
   const unit = state.text.charCodeAt(offset);
   if (unit === 45 || unit >= 48 && unit <= 57) {
@@ -156,23 +165,36 @@ const punctuation = (state: State, text: string): Decoded<null> => {
 const fields = (state: State, input: SyntaxValue, label: string): Decoded<RecordReader> => {
   if (input.kind !== "word" || input.text !== label) return fail(state, input, [label]);
   advance(state, input);
-  return then(punctuation(state, "("), () => accept({ first: true }));
+  return then(punctuation(state, "("), () => accept({ names: new Set<string>() }));
+};
+const fieldNameFailure = (state: State, reader: RecordReader, token: SyntaxValue, name: string): Decoded<never> => {
+  if (token.kind !== "word" && token.kind !== "string" && !(token.kind === "invalid" && token.family === "string")) {
+    return fail(state, token, ["field name"]);
+  }
+  const actual = token.kind === "word" ? token.text : token.kind === "string" ? token.value : token.prefix;
+  let matched = 0;
+  while (matched < actual.length && matched < name.length && actual.charAt(matched) === name.charAt(matched)) matched += 1;
+  if (token.kind === "invalid" && matched === actual.length) {
+    return { kind: "invalid", failure: token.failure };
+  }
+  const offset = token.kind === "word" ? token.offset + matched : token.kind === "invalid"
+    ? token.positions[matched] : matched < token.positions.length ? token.positions[matched] : token.end - 1;
+  return reject(state, offset, token.kind !== "invalid" && reader.names.has(actual)
+    ? ["unique record field"] : [name === "" ? "end of record" : name], token.text);
 };
 const readField = <Value>(state: State, reader: RecordReader, name: string, decode: Decode<Value>): Decoded<Value> => {
   let token = peek(state);
   if (token.kind === "end" || token.kind === "punctuation" && token.text === ")") return fail(state, token, [name]);
-  if (!reader.first) {
+  if (reader.names.size !== 0) {
     if (token.kind !== "punctuation" || token.text !== ",") return fail(state, token, [",", ")"]);
     advance(state, token);
     token = peek(state);
   }
-  if (token.kind === "invalid" && token.family === "string") return name.startsWith(token.prefix)
-    ? { kind: "invalid", failure: token.failure } : fail(state, token, [name]);
-  if (token.kind !== "word" && !(token.kind === "scalar" && typeof token.value === "string")) return fail(state, token, ["field name"]);
+  if (token.kind !== "word" && token.kind !== "string") return fieldNameFailure(state, reader, token, name);
   const actual = token.kind === "word" ? token.text : token.value;
-  if (actual !== name) return fail(state, token, [name]);
+  if (actual !== name) return fieldNameFailure(state, reader, token, name);
   advance(state, token);
-  reader.first = false;
+  reader.names.add(name);
   return then(punctuation(state, "="), () => decode(state, peek(state)));
 };
 const finishRecord = <Value>(state: State, reader: RecordReader, value: Value): Decoded<Value> => {
@@ -181,14 +203,16 @@ const finishRecord = <Value>(state: State, reader: RecordReader, value: Value): 
   if (token.kind === "punctuation" && token.text === ",") {
     advance(state, token);
     token = peek(state);
-    return fail(state, token, token.kind === "word" || token.kind === "scalar" && typeof token.value === "string" ||
-      token.kind === "invalid" && token.family === "string" ? [")"] : ["field name"]);
+    return fieldNameFailure(state, reader, token, "");
   }
-  return fail(state, token, reader.first || token.kind === "end" ? [")"] : [",", ")"]);
+  if (reader.names.size === 0 && (token.kind === "word" || token.kind === "string" || token.kind === "invalid" && token.family === "string")) {
+    return fieldNameFailure(state, reader, token, "");
+  }
+  return fail(state, token, reader.names.size === 0 || token.kind === "end" ? [")"] : [",", ")"]);
 };
 const scalarString: Decode<string> = (state, input) => {
   if (input.kind === "invalid" && input.family === "string") return { kind: "invalid", failure: input.failure };
-  if (input.kind !== "scalar" || typeof input.value !== "string") return fail(state, input, ["string"]);
+  if (input.kind !== "string") return fail(state, input, ["string"]);
   advance(state, input); return accept(input.value);
 };
 const scalarNumber: Decode<number> = (state, input) => {
@@ -208,7 +232,7 @@ const scalarBoolean: Decode<boolean> = (state, input) => {
 const literal = <Value extends string | number>(state: State, input: SyntaxValue, values: readonly Value[]): Decoded<Value> => {
   if (input.kind === "invalid" && (input.family === "string" && values.some(value => typeof value === "string" && value.startsWith(input.prefix)) ||
     input.family === "number" && values.some(value => typeof value === "number"))) return { kind: "invalid", failure: input.failure };
-  if (input.kind === "scalar") for (const value of values) if (value === input.value) {
+  if (input.kind === "scalar" || input.kind === "string") for (const value of values) if (value === input.value) {
     advance(state, input); return accept(value);
   }
   return fail(state, input, values.map(value => typeof value === "string" ? JSON.stringify(value) : String(value)));
