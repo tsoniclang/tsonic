@@ -1,8 +1,8 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue, MemberKey } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
-import type { DeclarationKind, HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext, VerifyHir } from "./contract.js";
+import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
 import { localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
@@ -332,9 +332,57 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
   }
 }
 
+const binaryOperators: { readonly [token: string]: HirBinaryOperator | undefined } = Object.freeze({
+  PlusToken: "+", MinusToken: "-", AsteriskToken: "*", SlashToken: "/", PercentToken: "%", AsteriskAsteriskToken: "**",
+  AmpersandToken: "&", BarToken: "|", CaretToken: "^", LessThanLessThanToken: "<<", GreaterThanGreaterThanToken: ">>",
+  GreaterThanGreaterThanGreaterThanToken: ">>>", LessThanToken: "<", LessThanEqualsToken: "<=", GreaterThanToken: ">",
+  GreaterThanEqualsToken: ">=", EqualsEqualsToken: "==", ExclamationEqualsToken: "!=", EqualsEqualsEqualsToken: "===",
+  ExclamationEqualsEqualsToken: "!==", InKeyword: "in", InstanceOfKeyword: "instanceof",
+  PlusEqualsToken: "+", MinusEqualsToken: "-", AsteriskEqualsToken: "*", SlashEqualsToken: "/", PercentEqualsToken: "%",
+  AsteriskAsteriskEqualsToken: "**", AmpersandEqualsToken: "&", BarEqualsToken: "|", CaretEqualsToken: "^",
+  LessThanLessThanEqualsToken: "<<", GreaterThanGreaterThanEqualsToken: ">>", GreaterThanGreaterThanGreaterThanEqualsToken: ">>>",
+});
+
+interface HirOperation {
+  readonly operator: HirUnaryOperator | HirBinaryOperator;
+  readonly operands: readonly NodeId[];
+}
+
+function operationOf(node: HirNode): HirOperation | null {
+  if (node.kind === "BinaryExpression") {
+    const operator = binaryOperators[node.operatorToken.kind];
+    return operator === undefined ? null : { operator, operands: [node.left.id, node.right.id] };
+  }
+  if (node.kind === "PrefixUnaryExpression" && node.tsonic.role !== "type-literal") {
+    const operator = node.operator === "PlusToken" ? "+" : node.operator === "MinusToken" ? "-" :
+      node.operator === "ExclamationToken" ? "!" : node.operator === "TildeToken" ? "~" : null;
+    return operator === null ? null : { operator, operands: [node.operand.id] };
+  }
+  if (node.kind === "DeleteExpression" || node.kind === "TypeOfExpression" || node.kind === "VoidExpression")
+    return { operator: node.kind === "DeleteExpression" ? "delete" : node.kind === "TypeOfExpression" ? "typeof" : "void", operands: [node.expression.id] };
+  return null;
+}
+
+function requiresWriteFit(node: HirNode): boolean {
+  return node.kind === "BinaryExpression" && node.tsonic.role === "assignment" ||
+    (node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") && node.tsonic.role === "update" ||
+    (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "PropertyDeclaration" || node.kind === "EnumMember") && node.initializer !== null;
+}
+
 function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
   const moduleSite: HirSite = { kind: "module", module: module.module };
   const seen = new Set<number>();
+  const operations: (HirOperation | null)[] = [];
+  const required = inventory.nodes.map(node => {
+    const operation = operationOf(node);
+    operations.push(operation);
+    return [requiresWriteFit(node), operation !== null, node.kind === "ElementAccessExpression"];
+  });
+  const counts: number[][] = [[0, 0, 0]];
+  for (const row of required) {
+    const previous = counts[counts.length - 1];
+    if (previous !== undefined) counts.push(row.map((value, column) => (previous[column] ?? 0) + Number(value)));
+  }
   for (const root of module.obligations) {
     const site: HirSite = { kind: "node", node: root.owner };
     if (!validHirIndex(root.diagnostic) || module.checkerDiagnostics[root.diagnostic] === undefined || seen.has(root.diagnostic))
@@ -349,7 +397,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
         diagnostic.site.origin.start + diagnostic.site.origin.length > owner.loc.end))
       report("diagnostic-root-owner", site, "diagnostic source range must be inside its exact root");
     if (root.obligations.length === 0) report("obligation-complete", site, "a discharge root requires its complete nonempty obligations");
-    const occurrences = new Set<number>();
+    const present = [new Set<HirNode>(), new Set<HirNode>(), new Set<HirNode>()];
     root.obligations.forEach((obligation, ordinal) => {
       if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
       const occurrence = inventory.nodesById.get(obligation.occurrence.node);
@@ -357,21 +405,32 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       if (!sourceNodeExists(reference, module, inventory, context) || owner === undefined || occurrence === undefined ||
         !containsHirNode(owner, occurrence, inventory))
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
-      const key = obligation.occurrence.node;
-      if (occurrences.has(key)) report("obligation-order", site, "an occurrence must not be repeated in one root");
-      occurrences.add(key);
       if (obligation.kind === "operator" && occurrence !== undefined) {
-        const operands = occurrence.kind === "BinaryExpression" ? [occurrence.left.id, occurrence.right.id] :
-          occurrence.kind === "PrefixUnaryExpression" || occurrence.kind === "PostfixUnaryExpression" ? [occurrence.operand.id] : [];
-        if (operands.length === 0 || obligation.operands.length !== operands.length ||
-          obligation.operands.some((operand, index) => operand.body !== obligation.occurrence.body || operand.node !== operands[index]))
+        const position = inventory.starts.get(occurrence);
+        const operation = position === undefined ? null : operations[position];
+        if (operation === null || operation === undefined || obligation.operator !== operation.operator ||
+          obligation.operands.length !== operation.operands.length || obligation.operands.some((operand, index) =>
+            operand.body !== obligation.occurrence.body || operand.node !== operation.operands[index]))
           report("obligation-complete", site, "operator obligation must retain all actual operands in order");
-      } else if (obligation.kind === "index" && occurrence !== undefined &&
-        (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
+        else present[1]?.add(occurrence);
+      } else if (obligation.kind === "index" && occurrence !== undefined) {
+        if (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
           obligation.key.node !== occurrence.argumentExpression.id || obligation.receiver.body !== obligation.occurrence.body ||
-          obligation.key.body !== obligation.occurrence.body))
-        report("obligation-complete", site, "index obligation must retain the actual receiver and key");
+          obligation.key.body !== obligation.occurrence.body)
+          report("obligation-complete", site, "index obligation must retain the actual receiver and key");
+        else present[2]?.add(occurrence);
+      } else if (obligation.kind === "write-fit" && occurrence !== undefined && requiresWriteFit(occurrence)) present[0]?.add(occurrence);
     });
+    if (owner !== undefined && root.obligations.length > 0) {
+      const start = inventory.starts.get(owner);
+      const end = inventory.ends.get(owner);
+      if (start !== undefined && end !== undefined) {
+        const before = counts[start];
+        const after = counts[end];
+        if (before !== undefined && after !== undefined && present.some((values, column) => values.size < (after[column] ?? 0) - (before[column] ?? 0)))
+          report("obligation-complete", site, "root must retain each syntactically required obligation");
+      }
+    }
   }
   for (const diagnostic of module.checkerDiagnostics) if (diagnostic.site.kind === "source" &&
     !validRange(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length))

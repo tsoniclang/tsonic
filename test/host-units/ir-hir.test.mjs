@@ -1181,3 +1181,80 @@ for (const [name, mutate, expected] of [
   mutate(value);
   assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [violation(name, nodeSite(2), expected)]);
 });
+
+function coreCarrier() {
+  const type = syntax("AnyKeyword", 0, { tsonic: { ...typeMetadata(), type: available(0) } });
+  const assertion = syntax("TypeAssertionExpression", 0, { type, expression: nameExpression("argument"), tsonic: expressionMetadata() });
+  const call = callExpression();
+  call.arguments = nodeList([assertion]);
+  return { module: expressionModule(call), call };
+}
+
+const capturedType = () => ({ type: available(0), component: { root: bodySource(6), path: [] } });
+const markerField = (name = "field", readonly = true) => ({ name, typeNode: bodySource(5), type: available(0), readonly });
+
+function coreArmInputs() {
+  const rows = [];
+  const add = (field, name, value) => { rows.push({ field, name, value }); };
+  for (const kind of ["raw-address", "typed-location", "native-pointer", "function-pointer"]) add("pointerType", kind, kind === "raw-address" ? { kind } :
+    kind === "typed-location" ? { kind, pointee: capturedType(), mutability: "readwrite" } :
+      kind === "native-pointer" ? { kind, declaration: definitionIdentity } :
+        { kind, declaration: definitionIdentity, parameters: [capturedType(), capturedType()], result: capturedType(), abi: ["C", "Native"] });
+  for (const mutability of ["readonly", "unspecified"]) add("pointerType", mutability, { kind: "typed-location", pointee: capturedType(), mutability });
+  for (const operation of ["address-of", "allocate", "load", "store", "equal-pointer", "hash-pointer", "bind-pointer", "project-pointer"])
+    for (const [selection, pointee] of [["applicable", "available"], ["conditional-candidates", "unvisited"], ["untyped", "not-applicable"], ["unvisited", "missing"]])
+      add("pointerOperation", `typed-location/${operation}/${selection}`, { family: "typed-location", operation, exportName: operation,
+        arguments: [bodySource(6)], typeArguments: [bodySource(5)], selection, pointee });
+  add("pointerOperation", "typed-location/view", { family: "typed-location", operation: "view", pointer: bodySource(6), read: bodySource(6), write: bodySource(6), optional: true });
+  for (const operation of ["load", "store", "offset"]) add("pointerOperation", `native-pointer/${operation}`, { family: "native-pointer", operation,
+    pointer: bodySource(6), ...(operation === "store" ? { value: bodySource(6) } : operation === "offset" ? { offset: bodySource(6) } : {}) });
+  add("pointerOperation", "raw-address/bind", { family: "raw-address", operation: "bind-raw-pointer", identity: bodySource(6) });
+  add("pointerOperation", "raw-address/equal", { family: "raw-address", operation: "equal-raw-pointer", left: bodySource(6), right: bodySource(6) });
+  add("pointerOperation", "raw-address/hash", { family: "raw-address", operation: "hash-raw-pointer", pointer: bodySource(6) });
+  add("pointerOperation", "raw-memory/to-raw", { family: "raw-memory", operation: "to-raw", pointer: bodySource(6), layout: bodySource(6) });
+  add("pointerOperation", "raw-memory/reinterpret", { family: "raw-memory", operation: "reinterpret", raw: bodySource(6), layout: bodySource(6) });
+  for (const width of [8, 16, 32, 64, 128]) for (const signedness of ["signed", "unsigned"])
+    add("pointerOperation", `raw-memory/offset/${width}/${signedness}`, { family: "raw-memory", operation: "byte-offset", raw: bodySource(6), offset: bodySource(6),
+      integer: { runtimeBase: width < 64 ? "number" : "bigint", signedness, width }, dataLayout: bodySource(6) });
+  for (const width of [32, 64]) for (const operation of ["raw-to-address-integer", "address-integer-to-raw"])
+    add("pointerOperation", `${operation}/${width}`, { family: "raw-memory", operation,
+      ...(operation === "raw-to-address-integer" ? { raw: bodySource(6) } : { address: bodySource(6) }),
+      integer: { width, runtimeBase: width === 32 ? "number" : "bigint", signedness: "unsigned" }, dataLayout: bodySource(6) });
+  add("pointerOperation", "keep-alive", { family: "keep-alive", operation: "keep-alive", value: bodySource(6) });
+  for (const [count, reverse] of [[0, false], [1, false], [3, false], [3, true]]) {
+    const fields = Array.from({ length: count }, (_, ordinal) => markerField(`field${ordinal}`, ordinal % 2 === 0));
+    add("markers", `struct/${count}/${reverse}`, { struct: { valueType: true, fields: available(reverse ? fields.reverse() : fields) },
+      field: markerField(), defaultValue: { typeNode: bodySource(5), type: available(0) }, jsString: true });
+  }
+  for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
+    add("markers", `unavailable-fields/${reason}`, { struct: { valueType: false, fields: unavailable(reason) }, field: null, defaultValue: null, jsString: false });
+  for (const kind of ["builder-state", "application"]) add("attribute", kind, { occurrence: bodySource(2), applicationTarget: bodySource(6),
+    selectedMember: { selectedDeclaration: bodySource(3), declarations: [bodySource(3)] }, applicationMemberKind: "method", applicationPlacement: "constructor",
+    applicationParameterName: "x", applicationTargetSpecifier: "target", kind, ...(kind === "application" ? { invocation: bodySource(2) } : {}) });
+  for (const operation of ["expression", "remaining-block"]) add("safety", `unsafe/${operation}`, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "unsafe-context", operation, ...(operation === "expression" ? { expression: bodySource(6) } : { firstDirectStatement: true }) });
+  for (const form of ["type", "value"]) add("safety", `root/${form}`, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "safety", operation: "root", form, target: form === "type" ? bodySource(5) : null });
+  for (const memberKind of ["indexer", "method", "property"]) add("safety", `select/${memberKind}`, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "safety", operation: "select-member", predecessor: bodySource(6), memberKind,
+    selection: { kind: "selected", expression: bodySource(6), declaration: bodySource(3), declarations: [bodySource(3)] } });
+  for (const reason of ["function-shape", "receiver", "member-evidence"]) add("safety", `unavailable/${reason}`, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "safety", operation: "select-member", predecessor: null, memberKind: "method", selection: { kind: "unavailable", reason } });
+  for (const placement of ["declaration", "constructor", "getter", "setter"]) add("safety", placement, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "safety", operation: "placement", predecessor: null, placement });
+  for (const contract of ["requires-unsafe", "safe"]) add("safety", contract, { occurrence: bodySource(2), provider: definitionIdentity,
+    family: "safety", operation: "apply", predecessor: bodySource(6), contract });
+  for (const value of [null, "moved", "borrowed-shared", "borrowed-mut"]) add("flowState", String(value), value);
+  for (const mode of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"])
+    add("argumentPassing", mode, { role: "argument", mode, storageExpression: bodySource(6) });
+  return rows;
+}
+
+test("HIR complete Core capture arm bank preserves every closed factual family and its own fields", () => {
+  for (const row of coreArmInputs()) {
+    const { module, call } = coreCarrier();
+    call.tsonic.core[row.field] = available(row.value);
+    const decoded = roundtrip(immutableTree(module), `${row.field}/${row.name}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [], `${row.field}/${row.name}`);
+  }
+});
