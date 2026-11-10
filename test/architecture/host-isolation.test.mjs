@@ -254,7 +254,8 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
   assert.equal(JSON.stringify(inspection), "[]", `actual contract findings: ${JSON.stringify(inspection).slice(0, 6000)}`);
   const expectedInventory = [...modules.map(module => module.contract),
-    ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`)].sort();
+    ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
+    ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
