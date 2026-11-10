@@ -128,6 +128,10 @@ test("ids exact public value inventory contains only the thirteen agreed ports",
   assert.deepEqual(Object.keys(product).sort(), ["decodeBodyId", "decodeComponentId", "decodeDefId", "decodeGroupId",
     "decodeModuleId", "decodePackageId", "encodeBodyId", "encodeComponentId", "encodeDefId", "encodeGroupId",
     "encodeKey", "encodeModuleId", "encodePackageId"].sort());
+  assert.deepEqual(casePaths.map(path => basename(path, ".case.json")), ["body-identities", "complete-binding-keys",
+    "component-identities", "deep-identity", "deep-key", "definition-identities", "group-identities", "malformed-bodies",
+    "malformed-components", "malformed-definitions", "malformed-groups", "malformed-modules", "malformed-packages",
+    "module-identities", "ordinal-precision", "package-identities", "scalar-keys", "structural-keys"].sort());
 });
 
 test("kind-specific private construction validates actual text before acquiring each brand", () => {
@@ -140,14 +144,16 @@ test("kind-specific private construction validates actual text before acquiring 
     ["componentIdentity", "C[]", "ids: invalid component identity"],
   ]) assert.throws(() => construction[name](text), { name: "TypeError", message });
   const module = product.encodeModuleId({ package: product.encodePackageId("p"), path: "m" });
-  for (const ordinal of [-1, 0.5, NaN, Infinity, 9007199254740992]) {
+  for (const ordinal of [-1, -0, 0.5, NaN, Infinity]) {
     assert.throws(() => product.encodeDefId({ module, segments: [{ name: "a", ordinal }] }), {
-      name: "TypeError", message: "ids: an ordinal must be a nonnegative safe integer",
+      name: "TypeError", message: "ids: an ordinal must be a canonical nonnegative integer",
     });
   }
   assert.throws(() => product.encodeDefId({ module, segments: [] }), {
     name: "TypeError", message: "ids: a definition path requires at least one segment",
   });
+  const overflowing = `D[M[P[p];m];a#${"9".repeat(400)}]`;
+  assert.deepEqual(product.decodeDefId(overflowing), { kind: "invalid", text: overflowing, offset: 14, reason: "noncanonical" });
 });
 
 test("plain key boundaries reject cycles, accessors, holes, extra fields and unsupported values", () => {

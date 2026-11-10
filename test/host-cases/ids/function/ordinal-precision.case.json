@@ -1,0 +1,1 @@
+{"name":"ordinal-precision","level":"function","rule":"Ordinal transport preserves exact representable nonnegative integers beyond53bits without exponential spelling","input":"test/host-cases/ids/function/ordinal-precision.input.json","expected":"test/host-cases/ids/function/ordinal-precision.expected.json"}

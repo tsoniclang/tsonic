@@ -86,7 +86,8 @@ function unsigned(cursor: Cursor, terminators: string, nonzero: boolean): Read<n
   }
   const digits = cursor.text.slice(start, cursor.offset);
   const ordinal = Number(digits);
-  if (digits.length > 1 && digits.startsWith("0") || !Number.isSafeInteger(ordinal) || nonzero && ordinal === 0) {
+  if (digits.length > 1 && digits.startsWith("0") || !Number.isInteger(ordinal) ||
+      BigInt(ordinal).toString() !== digits || nonzero && ordinal === 0) {
     return invalid(cursor, "noncanonical", start);
   }
   return value(ordinal);
@@ -251,8 +252,10 @@ export function componentIdentity(text: string): ComponentId {
 }
 
 function ordinalText(ordinal: number): string {
-  if (!Number.isSafeInteger(ordinal) || ordinal < 0) throw new TypeError("ids: an ordinal must be a nonnegative safe integer");
-  return String(ordinal);
+  if (!Number.isInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0)) {
+    throw new TypeError("ids: an ordinal must be a canonical nonnegative integer");
+  }
+  return BigInt(ordinal).toString();
 }
 
 export function encodePackageIdentity(rootIdentity: string): PackageId {

@@ -1,0 +1,1 @@
+{"name":"malformed-definitions","level":"function","rule":"Definition chain syntax and canonical ordinal domain with exact complete errors","input":"test/host-cases/ids/function/malformed-definitions.input.json","expected":"test/host-cases/ids/function/malformed-definitions.expected.json"}
