@@ -268,7 +268,7 @@ export function createHirSchema(): HirSchema {
     DeclarationTarget: hirChoice(hirVariant("local", [["local", "LocalRef"]]), hirVariant("definition", [["definition", "DefId"]])),
     CheckedCallable: hirRecord("CheckedCallable", [...declaration, ["parameters", hirArray("TypeParameterData")], ["signatures", hirArray("HirCallableEndpoint")], ["body", hirNullable("BodyId")]]),
     CheckedClass: hirRecord("CheckedClass", classMetadata),
-    CheckedClassExpression: hirRecord("CheckedClassExpression", [...checkedValue, ...core, ...declarationFacts.filter(([field]) => field !== "core"),
+    CheckedClassExpression: hirRecord("CheckedClassExpression", [...checkedValue, ...core, ...declarationFacts.filter(([field]) => field !== "core" && field !== "memory"),
       ["definition", "DefId"], ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")]]),
     HirHeritage: hirRecord("HirHeritage", [["role", hirLiteral("extends", "implements")], ["type", "TyId"]]),
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),

@@ -1,7 +1,7 @@
 import type { TextRecord, TextValue } from "./parse.js";
 import type { HirModule, PrintHir } from "./contract.js";
-import type { HirSchema, HirShape } from "./verify-syntax.js";
-import { isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
+import type { HirDataPath, HirSchema, HirShape } from "./verify-syntax.js";
+import { hirDataPathText, isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
 import { createHirSchema } from "./verify-captures.js";
 import { hirSyntaxArena } from "./walk.js";
 
@@ -119,9 +119,16 @@ export function printHirRecords(records: readonly TextRecord[]): string {
 }
 
 interface EncodeValue {
+  readonly kind: "value";
   readonly value: unknown;
   readonly shape: HirShape;
+  readonly path: HirDataPath;
   readonly put: (value: TextValue) => void;
+}
+
+interface PendingEncode {
+  readonly task: EncodeValue | { readonly kind: "leave"; readonly value: object };
+  readonly next: PendingEncode | null;
 }
 
 function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyMap<object, number>, binding: number | null, hirSchema: HirSchema): TextRecord {
@@ -130,16 +137,32 @@ function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyM
     throw new Error("HIR text requires the declared record shape.");
   const fields: { name: string; offset: number; value: TextValue }[] = [];
   const root: TextRecord = { kind: "record", binding, bindingOffset: 0, offset: 0, end: 0, label: shape.label, fields };
-  const pending: EncodeValue[] = [];
-  for (const [field, fieldShape] of shape.fields) {
-    if (field === "kind") continue;
-    pending.push({ value: value[field], shape: fieldShape,
-      put: wire => { fields.push({ name: field, offset: 0, value: wire }); } });
-  }
-  for (const task of pending) {
+  let pending = shape.fields.reduceRight<PendingEncode | null>((next, [field, fieldShape]) => field === "kind" ? next : ({
+    task: { kind: "value", value: value[field], shape: fieldShape, path: { parent: null, field },
+      put: wire => { fields.push({ name: field, offset: 0, value: wire }); } }, next,
+  }), null);
+  const onPath = new Set<object>([value]);
+  while (pending !== null) {
+    const task = pending.task;
+    pending = pending.next;
+    if (task.kind === "leave") {
+      onPath.delete(task.value);
+      continue;
+    }
     const selected = resolveHirShape(task.shape, task.value, hirSchema);
     if (selected === null) throw new Error("HIR text requires the declared field shape.");
     const data = task.value;
+    if (typeof selected !== "string" && selected.kind === "record" && selected.syntax && isHirObject(data)) {
+      const position = bindings.get(data);
+      if (position === undefined) throw new Error("HIR syntax object requires its traversal-position wire binding.");
+      task.put({ kind: "identity", offset: 0, prefix: "n", value: position });
+      continue;
+    }
+    if (data !== null && typeof data === "object") {
+      if (onPath.has(data)) throw new TypeError(`Inline value cycle at ${hirDataPathText(task.path)}`);
+      onPath.add(data);
+      pending = { task: { kind: "leave", value: data }, next: pending };
+    }
     if (typeof selected === "string" || selected.kind === "literal") {
       if (data === null || typeof data === "string" || typeof data === "number" || typeof data === "bigint" || typeof data === "boolean")
         task.put({ kind: "scalar", offset: 0, value: data });
@@ -149,27 +172,24 @@ function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyM
     } else if (selected.kind === "array" && isHirArray(data)) {
       const values: TextValue[] = [];
       task.put({ kind: "array", offset: 0, end: 0, values });
-      for (const element of data) pending.push({ value: element, shape: selected.element,
-        put: wire => { values.push(wire); } });
+      pending = data.reduceRight<PendingEncode | null>((next, element, ordinal) => ({
+        task: { kind: "value", value: element, shape: selected.element, path: { parent: task.path, field: ordinal },
+          put: wire => { values.push(wire); } }, next,
+      }), pending);
     } else if (selected.kind === "record" && isHirObject(data)) {
-      if (selected.syntax) {
-        const position = bindings.get(data);
-        if (position === undefined) throw new Error("HIR syntax object requires its traversal-position wire binding.");
-        task.put({ kind: "identity", offset: 0, prefix: "n", value: position });
-      } else {
-        const content: { name: string; offset: number; value: TextValue }[] = [];
-        task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
-        for (const [field, fieldShape] of selected.fields) {
-          if (field === "kind") continue;
-          pending.push({ value: data[field], shape: fieldShape,
-            put: wire => { content.push({ name: field, offset: 0, value: wire }); } });
-        }
-      }
+      const content: { name: string; offset: number; value: TextValue }[] = [];
+      task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
+      pending = selected.fields.reduceRight<PendingEncode | null>((next, [field, fieldShape]) => field === "kind" ? next : ({
+        task: { kind: "value", value: data[field], shape: fieldShape, path: { parent: task.path, field },
+          put: wire => { content.push({ name: field, offset: 0, value: wire }); } }, next,
+      }), pending);
     } else if (selected.kind === "dictionary" && isHirObject(data)) {
       const content: { name: string; offset: number; value: TextValue }[] = [];
       task.put({ kind: "record", binding: null, bindingOffset: 0, offset: 0, end: 0, label: selected.label, fields: content });
-      for (const field of Object.keys(data)) pending.push({ value: data[field], shape: selected.element,
-        put: wire => { content.push({ name: field, offset: 0, value: wire }); } });
+      pending = Object.keys(data).reduceRight<PendingEncode | null>((next, field) => ({
+        task: { kind: "value", value: data[field], shape: selected.element, path: { parent: task.path, field },
+          put: wire => { content.push({ name: field, offset: 0, value: wire }); } }, next,
+      }), pending);
     }
   }
   return root;

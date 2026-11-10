@@ -367,11 +367,32 @@ function operationOf(node: HirNode): HirOperation | null {
   return null;
 }
 
-function requiresWriteFit(node: HirNode): boolean {
-  return node.kind === "BinaryExpression" && node.tsonic.role === "assignment" ||
-    (node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") && node.tsonic.role === "update" ||
-    (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "PropertyDeclaration" ||
-      node.kind === "EnumMember" || node.kind === "BindingElement") && node.initializer !== null;
+interface HirWriteFit {
+  readonly value: HirNode;
+  readonly destination: HirNode;
+}
+
+function writeFitOf(node: HirNode): HirWriteFit | null {
+  if (node.kind === "BinaryExpression") {
+    switch (node.operatorToken.kind) {
+      case "EqualsToken": return { value: node.right, destination: node.left };
+      case "PlusEqualsToken": case "MinusEqualsToken": case "AsteriskAsteriskEqualsToken":
+      case "AsteriskEqualsToken": case "SlashEqualsToken": case "PercentEqualsToken":
+      case "AmpersandEqualsToken": case "BarEqualsToken": case "CaretEqualsToken":
+      case "LessThanLessThanEqualsToken": case "GreaterThanGreaterThanGreaterThanEqualsToken":
+      case "GreaterThanGreaterThanEqualsToken": case "BarBarEqualsToken":
+      case "AmpersandAmpersandEqualsToken": case "QuestionQuestionEqualsToken":
+        return { value: node, destination: node.left };
+      default: return null;
+    }
+  }
+  if ((node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") &&
+    (node.operator === "PlusPlusToken" || node.operator === "MinusMinusToken"))
+    return { value: node, destination: node.operand };
+  if ((node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "PropertyDeclaration" ||
+    node.kind === "EnumMember" || node.kind === "BindingElement") && node.initializer !== null)
+    return { value: node.initializer, destination: node };
+  return null;
 }
 
 function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
@@ -381,7 +402,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
   const counts = inventory.nodes.map<[number, number, number]>(node => {
     const operation = operationOf(node);
     operations.push(operation);
-    return [Number(requiresWriteFit(node)), Number(operation !== null), Number(node.kind === "ElementAccessExpression")];
+    return [Number(writeFitOf(node) !== null), Number(operation !== null), Number(node.kind === "ElementAccessExpression")];
   });
   for (let ordinal = inventory.nodes.length - 1; ordinal >= 0; ordinal -= 1) {
     const node = inventory.nodes[ordinal];
@@ -402,11 +423,12 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
     if (!validHirIndex(root.diagnostic) || module.checkerDiagnostics[root.diagnostic] === undefined || seen.has(root.diagnostic))
       report("diagnostic-reference", site, "diagnostic root must name one existing diagnostic");
     seen.add(root.diagnostic);
-    const owner = inventory.nodesById.get(root.owner.value.node);
-    if (!sourceNodeExists(root.owner, module, inventory, context) || owner === undefined)
+    const owner = localSourceNode(root.owner, module, inventory);
+    const actualOwner = owner !== null;
+    if (!actualOwner)
       report("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module");
     const diagnostic = module.checkerDiagnostics[root.diagnostic];
-    if (diagnostic !== undefined && diagnostic.site.kind === "source" && owner !== undefined &&
+    if (diagnostic !== undefined && diagnostic.site.kind === "source" && owner !== null &&
       (diagnostic.site.origin.module !== module.module || diagnostic.site.origin.start < owner.loc.pos ||
         diagnostic.site.origin.start + diagnostic.site.origin.length > owner.loc.end))
       report("diagnostic-root-owner", site, "diagnostic source range must be inside its exact root");
@@ -416,8 +438,9 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
       const occurrence = inventory.nodesById.get(obligation.occurrence.node);
       const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
-      if (!sourceNodeExists(reference, module, inventory, context) || owner === undefined || occurrence === undefined ||
-        !containsHirNode(owner, occurrence, inventory) || inventory.owners.get(owner) !== inventory.owners.get(occurrence))
+      const associated = actualOwner && sourceNodeExists(reference, module, inventory, context) && owner !== null && occurrence !== undefined &&
+        containsHirNode(owner, occurrence, inventory) && inventory.owners.get(owner) === inventory.owners.get(occurrence);
+      if (!associated)
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
       if (obligation.kind === "operator" && occurrence !== undefined) {
         const position = inventory.starts.get(occurrence);
@@ -426,16 +449,27 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
           obligation.operands.length !== operation.operands.length || obligation.operands.some((operand, index) =>
             operand.body !== obligation.occurrence.body || operand.node !== operation.operands[index]))
           report("obligation-complete", site, "operator obligation must retain all actual operands in order");
-        else present[1].add(occurrence);
+        else if (associated) present[1].add(occurrence);
       } else if (obligation.kind === "index" && occurrence !== undefined) {
         if (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
           obligation.key.node !== occurrence.argumentExpression.id || obligation.receiver.body !== obligation.occurrence.body ||
           obligation.key.body !== obligation.occurrence.body)
           report("obligation-complete", site, "index obligation must retain the actual receiver and key");
-        else present[2].add(occurrence);
-      } else if (obligation.kind === "write-fit" && occurrence !== undefined && requiresWriteFit(occurrence)) present[0].add(occurrence);
+        else if (associated) present[2].add(occurrence);
+      } else if (obligation.kind === "write-fit" && occurrence !== undefined) {
+        const expected = writeFitOf(occurrence);
+        const value = localSourceNode({ kind: "body", value: obligation.value }, module, inventory);
+        if (expected !== null) {
+          const body = inventory.owners.get(expected.value);
+          if (body === undefined || !Object.is(obligation.value.node, expected.value.id) || obligation.value.body !== body.body ||
+            localSourceNode(obligation.destination, module, inventory) !== expected.destination)
+            report("obligation-complete", site, "write-fit obligation must retain its actual value and destination");
+          else if (associated) present[0].add(occurrence);
+        } else if (value === null || !containsHirNode(occurrence, value, inventory))
+          report("obligation-complete", site, "write-fit value must belong to its actual occurrence subtree");
+      }
     });
-    if (owner !== undefined && root.obligations.length > 0) {
+    if (owner !== null && root.obligations.length > 0) {
       const start = inventory.starts.get(owner);
       if (start !== undefined) {
         const required = counts[start];

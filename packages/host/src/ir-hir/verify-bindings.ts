@@ -130,7 +130,13 @@ export function localSourceNode(reference: SourceNodeRef, module: HirModule, inv
   if (definition === null) return null;
   const path = decodeDefId(definition);
   if (path.kind === "invalid" || path.value.module !== module.module || !validHirIndex(reference.value.node)) return null;
-  return inventory.nodesById.get(reference.value.node) ?? null;
+  const node = inventory.nodesById.get(reference.value.node);
+  if (node === undefined) return null;
+  if (reference.kind === "body") {
+    const owner = inventory.bodies.get(reference.value.body);
+    return owner !== undefined && inventory.owners.get(node) === owner ? node : null;
+  }
+  return inventory.itemOwners.get(node) === reference.value.owner ? node : null;
 }
 
 interface BodyScopeRange { readonly start: number; readonly end: number }
