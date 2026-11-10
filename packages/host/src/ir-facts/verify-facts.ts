@@ -9,7 +9,7 @@ import type {
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  collectSelectionChecks, declarationOf, escapeData, instanceKey, relationalUsage, sameBindings, validIndex,
+  collectSelectionChecks, escapeData, instanceKey, relationalUsage, sameBindings, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 import type { FactBindingInput } from "./verify-relations.js";
@@ -29,16 +29,16 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     !sameBindings(facts.instance.bindings, mir.bindings) || !sameBindings(facts.instance.bindings, tir.bindings)) {
     report("body-instance-exact", bodySite, "Facts, TIR and MIR retain one exact body and complete binding environment.");
   }
-  const definition = declarationOf(facts.instance);
-  if (definition === null || definition !== tir.owner) {
-    report("cross-owner-qualified", bodySite, "The body identity retains its actual declaration owner.");
+  const definition = tir.owner;
+  if (!context.definitionExists(definition)) {
+    report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner.");
   }
   const bindingInputs: FactBindingInput[] = [];
   const diagnosticSites = new Set<string>();
   for (const diagnostic of context.diagnostics) if (diagnostic.severity === "error" && diagnostic.site.kind === "source") {
     const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
   }
-  if (definition !== null && facts.instance.bindings.kind === "instantiated") {
+  if (facts.instance.bindings.kind === "instantiated") {
     bindingInputs.push({ vector: facts.instance.bindings.bindings, definition, site: bodySite });
   }
   for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
@@ -112,8 +112,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   };
   const nodeOrder = <Value extends { readonly node: NodeId }>(rows: readonly Value[], rule: FactsRule): void =>
     ordered(rows, rule, (left, right) => compare(left.node, right.node), row => at(row.node));
-  const bindings = (vector: BindingVector, site: FactsSite, declaration: DefId | null = definition): void => {
-    if (declaration !== null) bindingInputs.push({ vector, definition: declaration, site });
+  const bindings = (vector: BindingVector, site: FactsSite, declaration: DefId = definition): void => {
+    bindingInputs.push({ vector, definition: declaration, site });
   };
   const target = (value: EscapeTarget, site: FactsSite): void => {
     switch (value.kind) {
@@ -249,7 +249,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
     origins(argument.actual, site); path(argument.projection, site);
     if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
-      !Number.isSafeInteger(argument.effectiveIndex) || argument.effectiveIndex < 0 || Object.is(argument.effectiveIndex, -0) ||
       argument.authoredIndex !== null && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
       report("argument-transports-total", site, "A transport retains actual nonnegative authored, formal and effective indices.");
     }
@@ -282,21 +281,20 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       if (selected !== undefined && receiver !== undefined && (receiver.arguments.length !== selected.parameters.length ||
         (receiver.receiver === null) !== (selected.receiver === null))) report("context-arguments-total", site,
         "Each invocation context retains every actual selected parameter and receiver slot.");
-      const seen = new Set<string>();
-      let previous: ArgumentTransport | null = null;
+      let previousAuthored: number | null = null;
       const supplied = new Map<number, number>();
       for (const argument of alternative.arguments) {
         checkArgument(argument, site);
-        if (previous !== null && (compare(previous.authoredIndex === null ? -1 : previous.authoredIndex, argument.authoredIndex === null ? -1 : argument.authoredIndex) ||
-          compare(previous.effectiveIndex, argument.effectiveIndex) || compare(previous.parameterIndex, argument.parameterIndex)) > 0) report("argument-transports-authored-order", site,
-          "Transports retain authored actual order and effective rest-component order.");
-        previous = argument;
-        const identity = encodeKey([argument.parameterIndex, argument.authoredIndex, argument.effectiveIndex]);
+        if (argument.authoredIndex !== null) {
+          if (previousAuthored !== null && compare(previousAuthored, argument.authoredIndex) > 0) report("argument-transports-authored-order", site,
+            "Transports retain authored actual evaluation order without inventing a flattened runtime slot.");
+          previousAuthored = argument.authoredIndex;
+        }
         const parameter = selected?.parameters[argument.parameterIndex];
-        if (seen.has(identity) || parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
+        if (parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
           argument.repeated !== (parameter.kind === "rest")) report("argument-transports-total", site,
           "Transports retain complete selected formals, passing modes and effective actual components exactly once.");
-        seen.add(identity); supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
+        supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
         if (argument.formal.owner.kind !== "summary" || argument.formal.owner.definition !== alternative.summary.definition ||
           !sameBindings(argument.formal.owner.bindings, alternative.summary.bindings)) report("cross-owner-qualified", site,
           "An argument's formal producer belongs to this exact callee summary and complete binding environment.");
@@ -347,6 +345,14 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     node(construction.node); const site = at(construction.node); nodeRef(construction.root, site, false); nodeRef(construction.allocation, site, false);
     if (construction.implementation !== null && !context.definitionExists(construction.implementation)) report("producer-resolves", site,
       "A construction retains its actual selected implementation declaration.");
+    if (construction.body !== null) {
+      const actual = context.tirBody(construction.body);
+      if (actual.body !== construction.body.body || !sameBindings(actual.bindings, construction.body.bindings) ||
+        construction.implementation !== null && construction.implementation !== actual.owner) {
+        report("cross-owner-qualified", site, "A construction retains its actual selected body, implementation owner and complete artifact environment.");
+      }
+      if (construction.body.bindings.kind === "instantiated") bindings(construction.body.bindings.bindings, site, actual.owner);
+    }
     for (const region of construction.regions) { nodeRef(region.node, site, false); valueContext(region.context, site);
       if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
   }

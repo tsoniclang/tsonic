@@ -355,7 +355,7 @@ const escapeFact = (writer: Writer, value: EscapeFact): void => record(writer, "
 ]);
 const argumentTransport = (writer: Writer, value: ArgumentTransport): void => record(writer, "ArgumentTransport", [
   ["authoredIndex", () => scalar(writer, value.authoredIndex)], ["parameter", () => identity(writer, "def", value.parameter)],
-  ["parameterIndex", () => scalar(writer, value.parameterIndex)], ["effectiveIndex", () => scalar(writer, value.effectiveIndex)],
+  ["parameterIndex", () => scalar(writer, value.parameterIndex)],
   ["repeated", () => scalar(writer, value.repeated)], ["passing", () => scalar(writer, value.passing)],
   ["actual", () => identity(writer, "origins", value.actual)], ["formal", () => producerRef(writer, value.formal)],
   ["projection", () => nullable(writer, value.projection, item => identity(writer, "path", item))],

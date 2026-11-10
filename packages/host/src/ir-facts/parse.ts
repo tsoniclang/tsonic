@@ -193,16 +193,21 @@ const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> =>
   }
   return root === null ? reject(state, state.text.length, ["record"]) : accept(root);
 };
-const fields = (state: State, input: SyntaxValue | undefined, label: string, names: readonly string[]): Decoded<readonly SyntaxValue[]> => {
+const prefixFields = (state: State, input: SyntaxValue | undefined, label: string, names: readonly string[]): Decoded<{
+  readonly values: readonly SyntaxValue[]; readonly extra: SyntaxField | undefined;
+}> => {
   if (input?.kind !== "record" || input.label !== label) return fail(state, input, [label]);
-  for (let index = 0; index < Math.max(input.fields.length, names.length); index += 1) {
+  const values: SyntaxValue[] = [];
+  for (const [index, expected] of names.entries()) {
     const actual = input.fields[index];
-    const expected = names[index];
-    if (actual === undefined) return reject(state, input.end, expected === undefined ? [")"] : [expected]);
-    if (actual.name !== expected) return reject(state, actual.offset, expected === undefined ? [")"] : [expected]);
+    if (actual === undefined) return reject(state, input.end, [expected]);
+    if (actual.name !== expected) return reject(state, actual.offset, [expected]);
+    values.push(actual.value);
   }
-  return accept(input.fields.map(field => field.value));
+  return accept({ values, extra: input.fields[names.length] });
 };
+const fields = (state: State, input: SyntaxValue | undefined, label: string, names: readonly string[]): Decoded<readonly SyntaxValue[]> =>
+  then(prefixFields(state, input, label, names), result => result.extra === undefined ? accept(result.values) : reject(state, result.extra.offset, [")"]));
 const scalarString: Decode<string> = (state, input) => input?.kind === "scalar" && typeof input.value === "string"
   ? accept(input.value) : fail(state, input, ["string"]);
 const scalarNumber: Decode<number> = (state, input) => input?.kind === "scalar" && typeof input.value === "number"
@@ -530,17 +535,16 @@ const escapeFact: Decode<EscapeFact> = (state, input) => then(fields(state, inpu
     then(producerIdentity(state, values[1]), producerValue =>
     then(escapeTarget(state, values[2]), targetValue =>
       accept<EscapeFact>({ node: nodeValue, producer: producerValue, target: targetValue })))));
-const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(fields(state, input, "ArgumentTransport", ["authoredIndex","parameter","parameterIndex","effectiveIndex","repeated","passing","actual","formal","projection"]), values =>
+const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(fields(state, input, "ArgumentTransport", ["authoredIndex","parameter","parameterIndex","repeated","passing","actual","formal","projection"]), values =>
     then(nullable(state, values[0], scalarNumber), authoredIndexValue =>
     then(definition(state, values[1]), parameterValue =>
     then(scalarNumber(state, values[2]), parameterIndexValue =>
-    then(scalarNumber(state, values[3]), effectiveIndexValue =>
-    then(scalarBoolean(state, values[4]), repeatedValue =>
-    then(literal(state, values[5], ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), passingValue =>
-    then(originsIdentity(state, values[6]), actualValue =>
-    then(producerRef(state, values[7]), formalValue =>
-    then(nullable(state, values[8], path), projectionValue =>
-      accept<ArgumentTransport>({ authoredIndex: authoredIndexValue, parameter: parameterValue, parameterIndex: parameterIndexValue, effectiveIndex: effectiveIndexValue, repeated: repeatedValue, passing: passingValue, actual: actualValue, formal: formalValue, projection: projectionValue })))))))))));
+    then(scalarBoolean(state, values[3]), repeatedValue =>
+    then(literal(state, values[4], ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), passingValue =>
+    then(originsIdentity(state, values[5]), actualValue =>
+    then(producerRef(state, values[6]), formalValue =>
+    then(nullable(state, values[7], path), projectionValue =>
+      accept<ArgumentTransport>({ authoredIndex: authoredIndexValue, parameter: parameterValue, parameterIndex: parameterIndexValue, repeated: repeatedValue, passing: passingValue, actual: actualValue, formal: formalValue, projection: projectionValue }))))))))));
 const summaryKey: Decode<SummaryKey> = (state, input) => then(fields(state, input, "SummaryKey", ["definition","bindings"]), values =>
     then(definition(state, values[0]), definitionValue =>
     then(artifact(state, values[1]), bindingsValue =>
@@ -1237,8 +1241,8 @@ const errorInvalidation: Decode<ErrorInvalidationFact> = (state, input) =>
     then(scalarString(state, values[3]), detailValue =>
       accept<ErrorInvalidationFact>({ kind: "unproven", at: atValue, owner: ownerValue, reason: reasonValue, detail: detailValue }))))));
       case "invalidated": {
-        const causeInput = input?.kind === "record" ? input.fields[2]?.value : undefined;
-        return then(literal(state, causeInput, ["suspension", "overlapping-write"]), cause => cause === "suspension"
+        return then(prefixFields(state, input, "invalidated", ["at","owner","cause"]), prefix => {
+        return then(literal(state, prefix.values[2], ["suspension", "overlapping-write"]), cause => cause === "suspension"
           ? then(fields(state, input, "invalidated", ["at","owner","cause"]), values =>
     then(nodeRef(state, values[0]), atValue =>
     then(originsIdentity(state, values[1]), ownerValue =>
@@ -1250,6 +1254,7 @@ const errorInvalidation: Decode<ErrorInvalidationFact> = (state, input) =>
     then(literal(state, values[2], ["overlapping-write"]), causeValue =>
     then(originsIdentity(state, values[3]), affectedValue =>
       accept<ErrorInvalidationFact>({ kind: "invalidated", at: atValue, owner: ownerValue, cause: causeValue, affected: affectedValue })))))));
+        });
       }
     }
   });

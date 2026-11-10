@@ -165,8 +165,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     } else {
       const owner = edge.callee.boundary.owner;
       const arena = context.arenaOf(owner);
-      const definition = owner.kind === "summary" ? owner.definition : decodeBodyId(owner.instance.body);
-      const actualOwner = typeof definition === "string" ? definition : definition.kind === "decoded" ? definition.value.owner : null;
+      const actualOwner = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
       if (arena === null || !validIndex(edge.callee.boundary.boundary, arena.boundaries.length) || actualOwner !== edge.caller) {
         report("cross-owner-qualified", site, "An open call retains its actual caller-owned relational boundary and complete environment.");
       }

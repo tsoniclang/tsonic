@@ -121,6 +121,13 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
         report("layout-alignment-valid", "Layout alignment must equal its finalized authored value.");
       }
       if (captured.stride !== layout.stride) report("layout-stride-exact", "Layout stride must equal its finalized authored value.");
+      if (captured.kind !== layout.kind) {
+        report("layout-geometry-consistent", "A layout retains its actual finalized value or array shape.");
+      }
+      if (captured.kind === "value" && layout.kind === "value" &&
+        (captured.fields.length !== layout.fields.length || captured.fields.some((field, position) => field !== layout.fields[position]))) {
+        report("layout-fields-resolve", "A value layout retains its complete finalized physical field vector in authored order.");
+      }
     }
     if (layout.kind === "array") {
       const element = layoutAt(layout.element);

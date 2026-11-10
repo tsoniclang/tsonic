@@ -142,11 +142,6 @@ export const nodeOwnedBy = (owner: RelationalOwner, node: NodeRef): boolean => {
   return decoded.kind === "decoded" && decoded.value.owner === owner.definition;
 };
 
-export const declarationOf = (instance: BodyInstance): DefId | null => {
-  const decoded = decodeBodyId(instance.body);
-  return decoded.kind === "decoded" ? decoded.value.owner : null;
-};
-
 export interface FactBindingInput {
   readonly vector: BindingVector;
   readonly definition: DefId;
@@ -154,7 +149,7 @@ export interface FactBindingInput {
 }
 
 export const collectSelectionChecks = (
-  selection: MemberSelection, site: FactsSite, definition: DefId | null, context: FactsVerificationContext,
+  selection: MemberSelection, site: FactsSite, definition: DefId, context: FactsVerificationContext,
   bindings: FactBindingInput[], violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
@@ -174,7 +169,7 @@ export const collectSelectionChecks = (
     report("producer-resolves", "A selected member retains its actual selected declaration group.");
   }
   const owner = member.primary ?? definition;
-  if (owner !== null) bindings.push({ vector: member.bindings, definition: owner, site });
+  bindings.push({ vector: member.bindings, definition: owner, site });
   for (const callee of [selection.getter, selection.setter]) {
     if (callee === null) continue;
     const decision = callee.decision;
@@ -186,8 +181,8 @@ export const collectSelectionChecks = (
     bindings.push({ vector: decision.bindings, definition: decision.advertised.declaration, site });
     bindings.push({ vector: decision.implementationBindings, definition: decision.api.declaration, site });
     if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
-      const declaration = declarationOf(callee.activation);
-      if (declaration !== null) bindings.push({ vector: callee.activation.bindings.bindings, definition: declaration, site });
+      const declaration = context.tirBody(callee.activation).owner;
+      bindings.push({ vector: callee.activation.bindings.bindings, definition: declaration, site });
     }
     for (const capture of callee.captures) if (!context.localExists(capture)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
@@ -266,7 +261,7 @@ export const verifyRelationalArena = (
   };
   const projections = new Set<string>();
   const bindings: FactBindingInput[] = [];
-  const ownerDefinition = owner.kind === "summary" ? owner.definition : declarationOf(owner.instance);
+  const ownerDefinition = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
   for (const [index, path] of arena.projections.entries()) {
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
@@ -387,7 +382,7 @@ export const verifyRelationalArena = (
     const producer = arena.producers[bound.producer];
     const definition = producer?.kind === "shared" ? producer.definition
       : producer?.kind === "call-result" && producer.callee.kind === "direct" ? producer.callee.definition : ownerDefinition;
-    if (definition !== null) bindings.push({ vector: bound.bindings, definition, site });
+    bindings.push({ vector: bound.bindings, definition, site });
   }
   for (const [index, origins] of arena.origins.entries()) {
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
@@ -421,7 +416,7 @@ export const verifyRelationalArena = (
     if (!validIndex(boundary.context, arena.contexts.length)) {
       report("context-resolves", site, "A boundary retains its actual value context in the same arena.");
     }
-    if (ownerDefinition !== null) bindings.push({ vector: boundary.bindings, definition: ownerDefinition, site });
+    bindings.push({ vector: boundary.bindings, definition: ownerDefinition, site });
   }
   for (const violation of verifyFactBindings(bindings, context)) violations.push(violation);
   return Object.freeze(violations);

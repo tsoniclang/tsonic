@@ -203,6 +203,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const wrongDurable = 'CallGraph(definitions=[def:"not-a-definition"], edges=[], components=[])';
     malformed(product.parseCallGraph, wrongDurable, wrongDurable.indexOf("def:"), ["canonical DefId"], "def", "malformed durable identity");
   });
+  await suite.test("non-kind discriminants cannot hide the first misordered field", () => {
+    const invalidation = `invalidated(cause="suspension", at=${nodeText(2)}, owner=origins:0)`;
+    const row = `ErrorStorageFact(node=n:1, origins=origins:0, writes=[], retention=[], invalidations=${arrayText([invalidation])})`;
+    const text = emptyFactsText.replace("ErrorStorageFacts(errors=[])", `ErrorStorageFacts(errors=${arrayText([row])})`);
+    const offset = text.indexOf('cause="suspension"'); const before = text.slice(0, offset).split("\n");
+    malformed(product.parseFacts, text, offset, ["at"], "cause", "first invalidation field", before.length, before.at(-1).length + 1);
+  });
+  await suite.test("quoted fields and every admitted JSON escape retain complete values", () => {
+    equal(product.parseCallGraph('CallGraph("definitions"=[], "edges"=[], "components"=[])'), { kind: "parsed", value: { definitions: [], edges: [], components: [] } }, "complete quoted field names");
+    const input = abi(); input.fingerprint = "/";
+    equal(product.parseMetadata(abiText(64).replace('"abi-64"', '"\\/"')), { kind: "parsed", value: input }, "complete JSON escaped slash");
+  });
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["not a number", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"], ["negative infinity", -Infinity, "-Infinity"], ["fractional", 0.5, "0.5"], ["exponent", 1e30, "1e+30"]]) {
     const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, observed: false }];
     const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([`StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=${spelling}), observed=false)`])}`);
@@ -370,8 +382,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [rule, amend, site, message] of basicCases) await factOpposite(rule, unchanged, amend, [violation(rule, site, message)]);
   for (const field of ["mir", "tir"]) await factOpposite(`body-instance-exact ${field} identity`, unchanged,
     (input, supplied) => { supplied[field].body = otherBody; }, [violation("body-instance-exact", bodySite(), "Facts, TIR and MIR retain one exact body and complete binding environment.")]);
-  await factOpposite("body declaration ownership", unchanged, (input, supplied) => { supplied.tir.owner = definitions.other; },
-    [violation("cross-owner-qualified", bodySite(), "The body identity retains its actual declaration owner.")]);
+  await factOpposite("actual checked body declaration must exist", unchanged, (input, supplied) => { supplied.context.definitionExists = selected => selected !== definitions.f; },
+    [violation("cross-owner-qualified", bodySite(), "The actual checked body retains an existing declaration owner.")]);
   await factOpposite("unknown actual relational owner is not an empty arena", unchanged, (input, supplied) => { supplied.context.arenaOf = () => null; },
     [violation("cross-owner-qualified", bodySite(), "The actual relational owner must resolve to its canonical arena.")]);
   for (const [field, rule, kind, key] of [["projections", "projection-id-dense", "projection", "projection"], ["producers", "producer-id-dense", "producer", "producer"],
@@ -400,7 +412,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["writes-order", ["origins", "writes"], node => ({ node, operation: "initialization", destination: "binding", targets: [], owner: null, values: [], boundaries: [] })],
     ["escapes-order", ["origins", "escapes"], node => ({ node, producer: 0, target: { kind: "return" } })],
     ["invocations-order", ["origins", "invocations"], node => ({ node, kind: "call", alternatives: [], boundaries: [] })],
-    ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, effectiveIndex: 0,
+    ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
     ["activations-order", ["origins", "activations"], node => ({ node, definition: definitions.f, context: 0, caller: null, entry: null })],
     ["frontiers-order", ["origins", "frontiers"], node => ({ node, kind: "origin", subject: 0, context: 0 })],
@@ -453,6 +465,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       input => { input.errorStorage.errors[0].invalidations[0].affected = 0; }, nodeSite(1), "A known empty affected origin cannot be claimed as an overlapping write."],
   ];
   for (const [rule, prepare, amend, site, message] of additionalFacts) await factOpposite(rule, prepare, amend, [violation(rule, site, message)]);
+  const actualConstruction = input => { input.origins.constructions = [{ node: 1, root: nodeRef(1), allocation: nodeRef(2),
+    implementation: definitions.f, body: instance(), regions: [] }]; };
+  await factOpposite("constructor body cannot borrow another complete artifact environment", actualConstruction,
+    input => { input.origins.constructions[0].body.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
+    [violation("cross-owner-qualified", nodeSite(1), "A construction retains its actual selected body, implementation owner and complete artifact environment.")]);
+  await factOpposite("constructor implementation retains the actual selected body owner", actualConstruction,
+    input => { input.origins.constructions[0].implementation = definitions.other; },
+    [violation("cross-owner-qualified", nodeSite(1), "A construction retains its actual selected body, implementation owner and complete artifact environment.")]);
   await factOpposite("memory-binding-error-diagnostic", (input, supplied) => {
     input.memoryBindings = [{ kind: "error", node: 1 }];
     supplied.context.diagnostics = [{ code: { kind: "checker", number: 123, rendered: "TS123" }, severity: "error", site: { kind: "source", origin: sourceOrigin(1) },
@@ -573,7 +593,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
       completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1 }, activation: null, captures: [] };
     const selectedOwner = { kind: "summary", definition: definitions.callee, bindings: parametric() };
-    const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index, effectiveIndex: 0,
+    const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
     supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
     input.arena.contexts[0].arguments = [0, 0];
@@ -586,7 +606,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["argument-transports-total", input => { input.origins.invocations[0].alternatives[0].arguments.pop(); },
       "Every non-rest selected formal has its complete actual or explicit omitted transport."],
     ["argument-transports-authored-order", input => { input.origins.invocations[0].alternatives[0].arguments.reverse(); },
-      "Transports retain authored actual order and effective rest-component order."],
+      "Transports retain authored actual evaluation order without inventing a flattened runtime slot."],
     ["invocation-contexts-correlated", input => { input.origins.invocations[0].alternatives[0].resolution.captures = [{ body: otherBody, local: 0 }]; },
       "Each invocation alternative retains its own complete actual captured-location vector."],
     ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
@@ -611,7 +631,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, (input, supplied) => { supplied.context.bindingScopeOf = selected => selected === definitions.callee ? null : emptyScope(); },
     [violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory."),
       violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory.")]);
-  for (const field of ["authoredIndex", "parameterIndex", "effectiveIndex"]) {
+  for (const field of ["authoredIndex", "parameterIndex"]) {
     for (const invalid of [-1, -0, 0.5, NaN, Infinity, -Infinity]) await factOpposite(`transport ${field} retains its actual index domain ${String(invalid)}/${Object.is(invalid, -0)}`,
       invocationFixture, input => { input.origins.invocations[0].alternatives[0].arguments[0][field] = invalid; },
       [violation("argument-transports-total", nodeSite(1), "A transport retains actual nonnegative authored, formal and effective indices."),
@@ -619,7 +639,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
           violation("argument-transports-total", nodeSite(1), "Transports retain complete selected formals, passing modes and effective actual components exactly once."),
           violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")] : []),
         ...(field === "authoredIndex" && (Number.isNaN(invalid) || invalid === Infinity) ? [violation("argument-transports-authored-order", nodeSite(1),
-          "Transports retain authored actual order and effective rest-component order.")] : [])]);
+          "Transports retain authored actual evaluation order without inventing a flattened runtime slot.")] : [])]);
   }
   await factOpposite("actual context origins cannot be independently permuted", (input, supplied) => { invocationFixture(input, supplied); input.arena.contexts[0].arguments = [0, 1]; },
     input => { input.arena.contexts[0].arguments.reverse(); }, [violation("origin-alternatives-correlated", arenaSite("context", "context", 0),
@@ -651,6 +671,91 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await factOpposite("activation validates but never replaces the canonical API environment", bodylessDependentInvocation,
     input => { input.origins.invocations[0].alternatives[0].resolution.activation = { body: ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 }), bindings: parametric() }; },
     [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+
+  const formalInventory = (kind, input, supplied) => {
+    input.arena.producers[0] = kind === "receiver" ? { id: 0, path: null, kind }
+      : { id: 0, path: null, kind, index: 0 };
+    if (kind === "parameter") {
+      supplied.types.signatures[0].parameters = [parameter()];
+      supplied.tir.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+      supplied.tir.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
+      input.arena.contexts[0].arguments = [1];
+    } else if (kind === "capture") {
+      supplied.tir.captures = [{ body: otherBody, local: 0 }];
+      supplied.tir.locals = [{ id: 0, declaration: { kind: "body", value: { body: otherBody, node: 1 } }, name: "captured", role: "capture",
+        capturedFrom: { body: otherBody, local: 0 }, mutable: true, storage: 0 }];
+      input.arena.contexts[0].captures = [{ index: 0, location: 0 }];
+    } else {
+      supplied.types.signatures[0].receiver = 0;
+      input.arena.contexts[0].receiver = 1;
+    }
+  };
+  for (const kind of ["parameter", "capture", "receiver"]) {
+    await factOpposite(`actual ${kind} producer slot is not an unqualified index`, (input, supplied) => formalInventory(kind, input, supplied),
+      (input, supplied) => { if (kind === "receiver") supplied.types.signatures[0].receiver = null; else input.arena.producers[0].index = 1; },
+      [violation("producer-resolves", arenaSite("producer", "producer", 0), "A producer retains its actual body parameter, receiver or captured-location slot.")]);
+    await summaryOpposite(`actual ${kind} producer slot`, (input, supplied) => {
+      formalInventory(kind, input, supplied);
+      if (kind === "parameter") input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
+      if (kind === "receiver") input.parameters = [{ slot: { kind: "receiver" }, reads: completePaths(), writes: completePaths() }];
+      if (kind === "capture") {
+        input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }];
+        supplied.context.captureCount = selected => (assert.equal(selected.definition, definitions.f, "actual checked captured-location inventory"), supplied.tir.captures.length);
+      }
+    }, input => { if (kind === "receiver") input.arena.producers[0] = { id: 0, path: null, kind: "parameter", index: 0 }; else input.arena.producers[0].index = 1; },
+    [violation("summary-finite", summarySite(), "A summary producer retains its actual formal, receiver or captured-location slot.")]);
+  }
+
+  const targetInventory = (kind, input, supplied, isSummary) => {
+    if (kind === "parameter") {
+      supplied.types.signatures[0].parameters = [parameter()];
+      supplied.tir.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+      if (isSummary) input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
+    }
+    if (kind === "capture") {
+      supplied.tir.captures = [{ body: otherBody, local: 0 }];
+      if (isSummary) {
+        input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }];
+        supplied.context.captureCount = selected => (assert.equal(selected.definition, definitions.f, "actual retention captured-location inventory"), supplied.tir.captures.length);
+      }
+    }
+    if (kind === "receiver") {
+      supplied.types.signatures[0].receiver = 0;
+      if (isSummary) input.parameters = [{ slot: { kind: "receiver" }, reads: completePaths(), writes: completePaths() }];
+    }
+  };
+  const retentionTargets = [
+    ["shared", { kind: "shared", definition: definitions.f, path: 0 }, target => { target.definition = definitions.missing; },
+      "producer-resolves", "A shared target retains its actual declaration.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
+    ["parameter", { kind: "parameter", index: 0, path: 1 }, target => { target.index = 1; },
+      "producer-resolves", "An escape retains its actual declaration parameter index.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
+    ["receiver", { kind: "receiver", path: 0 }, target => { target.path = 99; },
+      "producer-resolves", "A projected fact retains its actual projection-path identity.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
+    ["capture", { kind: "capture", index: 0, path: 1 }, target => { target.index = 1; },
+      "capture-locations-exact", "An escape retains its actual captured-location index.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
+    ["callback", { kind: "callback", at: { kind: "node", node: nodeRef(2) } }, target => { target.at.node.node = 99; },
+      "node-resolves", "Every fact retains an actual source occurrence in its declared body domain.", "relational-site-resolves", "A retention target retains its actual source occurrence."],
+    ["suspension", { kind: "suspension", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, target => { target.at.site = 1; },
+      "declared-site-ordinal", "An escape's declared site retains its actual library export and logical allocation ordinal.", "declared-site-ordinal", "A retention target retains its actual declared allocation ordinal."],
+    ["external", { kind: "external", boundary: 0 }, target => { target.boundary = 99; },
+      "boundary-resolves", "A boundary resolves in this exact arena.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
+  ];
+  for (const [kind, target, amend, factsRule, factsMessage, summaryRule, summaryMessage] of retentionTargets) {
+    await factOpposite(`actual complete escape target ${kind}`, (input, supplied) => {
+      targetInventory(kind, input, supplied, false);
+      input.origins.escapes = [{ node: 1, producer: 0, target: clone(target) }];
+    }, input => amend(input.origins.escapes[0].target), [violation(factsRule, nodeSite(1), factsMessage)]);
+    await summaryOpposite(`actual complete retention target ${kind}`, (input, supplied) => {
+      targetInventory(kind, input, supplied, true);
+      input.retention = [{ source: 0, into: clone(target) }];
+    }, input => amend(input.retention[0].into), [violation(summaryRule, summarySite(), summaryMessage)]);
+  }
+  for (const kind of ["return", "throw"]) {
+    await factOpposite(`actual complete escape ${kind}`, input => { input.origins.escapes = [{ node: 1, producer: 0, target: { kind } }]; },
+      input => { input.origins.escapes[0].producer = 99; }, [violation("producer-resolves", nodeSite(1), "A producer reference resolves in its exact declared arena.")]);
+    await summaryOpposite(`actual complete retention ${kind}`, input => { input.retention = [{ source: 0, into: { kind } }]; },
+      input => { input.retention[0].source = 99; }, [violation("retention-source-resolves", summarySite(), "Every retained source is a producer in this exact summary arena.")]);
+  }
 
   const suspend = (kind, input, supplied) => {
     const terminator = { kind, destination: 0, resume: 0, unwind: { kind: "escape" }, origin: sourceOrigin(1), tir: nodeRef(1) };
@@ -779,7 +884,39 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["layout-geometry-consistent", (input, supplied) => { withField(input, supplied); input.fields.push(memoryField(1, definitions.other)); },
       input => { input.layouts[1].fields.push(1); }, "Distinct nonempty physical fields must not overlap."],
   ];
-  for (const [rule, prepare, amend, message] of metadataCases) await metadataOpposite(rule, prepare, amend, [violation(rule, metadataSite(), message)]);
+  for (const [rule, prepare, amend, message] of metadataCases) await metadataOpposite(rule, prepare, amend,
+    [...(rule === "layout-fields-resolve" || rule === "layout-geometry-consistent" ? [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")] : []),
+      violation(rule, metadataSite(), message)]);
+  await metadataOpposite("finalized physical fields cannot disappear", withField, input => { input.layouts[1].fields = []; },
+    [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")]);
+  await metadataOpposite("finalized array cannot be relabelled as an opaque value", withArray, input => {
+    const current = input.layouts[1];
+    input.layouts[1] = { id: current.id, occurrence: current.occurrence, source: current.source, dataLayout: current.dataLayout,
+      byteSize: current.byteSize, byteAlignment: current.byteAlignment, stride: current.stride, kind: "value", fields: [] };
+  }, [violation("layout-geometry-consistent", metadataSite(), "A layout retains its actual finalized value or array shape.")]);
+  for (const width of [32, 64]) await metadataOpposite(`selected ${width}-bit address domain exactly at and one beyond`, input => {
+    input.layouts[0].dataLayout = definitions[`abi${width}`];
+    input.layouts[0].byteSize = (1n << BigInt(width)) - 1n;
+    input.layouts[0].byteAlignment = 1n; input.layouts[0].stride = input.layouts[0].byteSize;
+  }, input => { input.layouts[0].byteSize += 1n; input.layouts[0].stride += 1n; }, [
+    violation("layout-size-exact", metadataSite(), "The exact layout size must fit the selected ABI address domain."),
+    violation("layout-stride-exact", metadataSite(), "The exact stride must contain the value, preserve alignment and fit the selected ABI."),
+    violation("layout-size-exact", metadataSite(), "Layout size must equal its finalized authored value."),
+    violation("layout-stride-exact", metadataSite(), "Layout stride must equal its finalized authored value."),
+  ]);
+  await metadataOpposite("alignment cannot be zero", unchanged, input => { input.layouts[0].byteAlignment = 0n; }, [
+    violation("layout-alignment-valid", metadataSite(), "Layout alignment must be an exact positive power of two in the selected ABI."),
+    violation("layout-alignment-valid", metadataSite(), "Layout alignment must equal its finalized authored value."),
+  ]);
+  await metadataOpposite("stride must contain the value", unchanged, input => { input.layouts[0].stride = 0n; }, [
+    violation("layout-stride-exact", metadataSite(), "The exact stride must contain the value, preserve alignment and fit the selected ABI."),
+    violation("layout-stride-exact", metadataSite(), "Layout stride must equal its finalized authored value."),
+  ]);
+  await metadataOpposite("negative field offset remains an exact signed bigint defect", withField, input => { input.fields[0].byteOffset = -8n; }, [
+    violation("layout-geometry-consistent", metadataSite(), "A field extent and selected alignment must fit the containing layout."),
+    violation("field-offset-exact", metadataSite(), "A field offset must be an exact nonnegative integer."),
+    violation("field-offset-exact", metadataSite(), "A field offset must equal its finalized authored value."),
+  ]);
   await metadataOpposite("bindings-complete", (input, supplied) => {
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.layout, index: 0 }] });
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
@@ -845,7 +982,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     `EscapeFact(node=n:1, producer=producer:0, target=${authored})`);
 
   const endpointText = role => `HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=null)`;
-  const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, effectiveIndex=0, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
+  const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
   const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
   ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1)`;
