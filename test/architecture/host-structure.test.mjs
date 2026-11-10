@@ -180,7 +180,7 @@ test("real public value identities retain stage and library rules through export
   expect([stageContract, [component, 'import type { InferDeps } from "./contract.js";\nconst run: (deps: InferDeps, input: number) => number = (deps, input) => deps.bias + input;\nexport { run };']], [at("contract-shape", component, 2)]);
   expect([stageContract, [component, 'const run: number = 1; export { run };']], [at("contract-shape", component)]);
   expect([[stageContract[0], stageContract[1].replace("export type Run", "type Run")],
-    [component, 'import type { Run } from "./contract.js"; const run: Run = (deps, input) => deps.bias + input; export { run };']], [at("contract-shape", component)]);
+    [component, 'import type { Run } from "./contract.js"; const run: Run = (deps, input) => deps.bias + input; export { run };']], [at("contract-shape", component, 1, 43)]);
   const contract = [file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"];
   const entry = file("ir-types", "index.ts");
   expect([contract, [entry, 'const substitute = (input: number): number => input;\nexport { substitute };']], [at("contract-shape", entry)]);
