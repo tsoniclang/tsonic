@@ -4,4 +4,5 @@ export const suites = Object.freeze([
     "test/architecture/host-structure.test.mjs", "test/architecture/host-isolation.test.mjs", "test/architecture/host-coverage.test.mjs",
   ]) }),
   Object.freeze({ name: "host-cases", files: Object.freeze(["test/host-cases/case.test.mjs"]) }),
+  Object.freeze({ name: "host-units", files: Object.freeze(["test/host-units/diag.test.mjs"]) }),
 ]);
