@@ -1,48 +1,22 @@
 {
   "name": "@tsonic/monorepo",
   "version": "0.1.2",
-  "description": "Source-to-source compiler from TypeScript to target-native projects",
+  "description": "Tsonic Host skeleton workspace",
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "./scripts/build/all.sh --no-format",
-    "build:quick": "./scripts/build/all.sh --no-format",
-    "clean": "./scripts/build/clean.sh",
-    "clean:all": "./scripts/build/clean.sh --all",
-    "test": "bash test/scripts/run-all.sh",
-    "test:build": "bash test/scripts/build.sh",
-    "test:parallel": "bash test/scripts/run-parallel.sh",
-    "test:host:architecture": "node --test --test-concurrency=1 test/architecture/host-gates.test.mjs test/architecture/host-isolated.test.mjs test/architecture/module-imports.test.mjs test/architecture/source-boundary-rules.test.mjs test/architecture/keel-tooling-reuse.test.mjs",
-    "typecheck": "npm run build"
+    "build": "bash scripts/build/all.sh",
+    "test": "bash test/scripts/bounded-run.sh host node --experimental-test-coverage --test-coverage-exclude= --test-coverage-include=test/scripts/quarantine.mjs --test-coverage-include=test/architecture/quarantine.test.mjs --test --test-concurrency=1 test/architecture/quarantine.test.mjs",
+    "test:build": "bash test/scripts/bounded-run.sh host node test/scripts/build.mjs",
+    "test:quarantine": "bash test/scripts/bounded-run.sh host node test/scripts/quarantine.mjs"
   },
-  "workspaces": [
-    "packages/tsts",
-    "packages/source-core",
-    "packages/target-api",
-    "packages/js-source-profile",
-    "packages/host",
-    "packages/cli",
-    "packages/create-tsonic"
-  ],
+  "workspaces": ["packages/tsts", "packages/host"],
   "devDependencies": {
     "@types/node": "25.9.1",
     "@typescript/native-preview": "7.0.0-dev.20260617.2"
   },
-  "engines": {
-    "node": ">=22.18.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/tsoniclang/tsonic.git"
-  },
-  "keywords": [
-    "typescript",
-    "source-to-source",
-    "target-neutral",
-    "compiler",
-    "transpiler"
-  ],
+  "engines": { "node": ">=22.18.0" },
+  "repository": { "type": "git", "url": "https://github.com/tsoniclang/tsonic.git" },
   "author": "Tsonic Project",
-  "license": "MIT",
-  "dependencies": {}
+  "license": "MIT"
 }
