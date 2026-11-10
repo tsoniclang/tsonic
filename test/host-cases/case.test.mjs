@@ -7,6 +7,7 @@ import { runCase } from "./case.mjs";
 import { compareCaseValues } from "./compare.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
+const quarantineData = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
 const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
 const diagnostic = Object.freeze({ code: "FIXTURE_REFUSED", message: "The fixture input is refused.", site: { path: "input", start: 2, length: 1 }, evidence: ["fixture"], related: [] });
 const accepted = Object.freeze({ kind: "accepted", value: { state: { scale: 3 }, output: 12 }, diagnostics: [] });
@@ -65,7 +66,7 @@ test("harness citations never become file reads and all closed formats retain th
   for (const format of ["json", "ts", "hir", "tir", "mir", "facts", "program"]) {
     await fixture("function", async ({ descriptor, descriptorPath, deps, root, write }) => {
       const next = { ...descriptor, input: descriptor.input.replace(/json$/u, format), expected: descriptor.expected.replace(/json$/u, format),
-        oldSource: { area: "modular", path: "test/host-spec/runner/assertions.mjs", test: "ordered domain" } };
+        oldSource: { area: "modular", path: `${quarantineData.oldRoots.tests.hostSpec}/runner/assertions.mjs`, test: "ordered domain" } };
       if (format !== "json") {
         rmSync(resolve(root, descriptor.input));
         rmSync(resolve(root, descriptor.expected));
