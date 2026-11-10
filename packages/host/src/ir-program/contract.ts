@@ -6,7 +6,7 @@ import type {
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
-import type { BodyFacts, MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 
 export interface PackageExport {
   readonly specifier: string;
@@ -157,10 +157,14 @@ export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
-export type VerifyProgramIndex = (index: ProgramIndex) => readonly Violation<ProgramRule, ProgramSite>[];
+export type VerifyProgramIndex = (
+  index: ProgramIndex,
+  context: FactsVerificationContext,
+) => readonly Violation<ProgramRule, ProgramSite>[];
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,
+  context: FactsVerificationContext,
 ) => readonly Violation<ProgramRule, ProgramSite>[];
 export type Instantiate = (
   index: ProgramIndex,

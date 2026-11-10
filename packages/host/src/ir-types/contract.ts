@@ -356,5 +356,28 @@ export type TypeRule = "type-reference" | "signature-reference" | "nominal-defin
 export type TypeSite =
   | { readonly kind: "type"; readonly type: TyId }
   | { readonly kind: "signature"; readonly signature: SigId }
-  | { readonly kind: "source"; readonly source: SourceNodeRef };
-export type VerifyTypes = (table: TypeTable) => readonly Violation<TypeRule, TypeSite>[];
+  | { readonly kind: "source"; readonly source: SourceNodeRef }
+  | { readonly kind: "binding"; readonly vector: number;
+      readonly family: "classBindings" | "methodBindings" | "capturedBindings" | "selfBindings";
+      readonly position: number | null }
+  | { readonly kind: "evidence"; readonly position: number; readonly source: SourceNodeRef };
+
+export interface BindingScope {
+  readonly classParameters: readonly TypeParameterIdentity[];
+  readonly methodParameters: readonly TypeParameterIdentity[];
+  readonly capturedParameters: readonly TypeParameterIdentity[];
+  readonly selfOwners: readonly DefId[];
+}
+
+export interface BindingVerificationInput {
+  readonly vector: BindingVector;
+  readonly scope: BindingScope;
+}
+
+export interface TypeVerificationInput {
+  readonly table: TypeTable;
+  readonly bindings: readonly BindingVerificationInput[];
+  readonly evidence: readonly TypeEvidence[];
+}
+
+export type VerifyTypes = (input: TypeVerificationInput) => readonly Violation<TypeRule, TypeSite>[];

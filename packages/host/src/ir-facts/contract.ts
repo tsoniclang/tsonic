@@ -1,9 +1,9 @@
-import type { TextParseResult, Violation } from "../diag/contract.js";
+import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type {
   BlockId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingVector, BodyInstance, PassingMode, SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, PassingMode, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
@@ -705,11 +705,17 @@ export type FactsSite =
   | { readonly kind: "component"; readonly component: ComponentId };
 
 export interface FactsVerificationContext {
+  readonly limits: AnalysisLimits;
   readonly tirBody: (instance: BodyInstance) => TirBody;
-  readonly typeOf: TypeOf;
-  readonly signatureOf: SignatureOf;
+  readonly types: TypeTable;
+  readonly diagnostics: readonly Diagnostic[];
+  readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly bindingDependentOf: (definition: DefId) => boolean | null;
+  readonly captureCount: (key: SummaryKey) => number | null;
+  readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;
   readonly definitionExists: (definition: DefId) => boolean;
   readonly libraryExportExists: (identity: LibraryExportIdentity) => boolean;
+  readonly declaredSiteCount: (identity: LibraryExportIdentity) => number | null;
   readonly nodeExists: (node: SourceNodeRef) => boolean;
   readonly localExists: (local: LocalRef) => boolean;
   readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
