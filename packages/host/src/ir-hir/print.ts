@@ -1,8 +1,8 @@
 import type { TextRecord, TextValue } from "./parse.js";
 import type { HirModule, PrintHir } from "./contract.js";
-import type { HirShape } from "./verify-syntax.js";
+import type { HirSchema, HirShape } from "./verify-syntax.js";
 import { isHirArray, isHirObject, resolveHirShape } from "./verify-syntax.js";
-import { hirSchema } from "./verify-captures.js";
+import { createHirSchema } from "./verify-captures.js";
 import { hirSyntaxArena } from "./walk.js";
 
 interface TextTask {
@@ -124,7 +124,7 @@ interface EncodeValue {
   readonly put: (value: TextValue) => void;
 }
 
-function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyMap<object, number>, binding: number | null): TextRecord {
+function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyMap<object, number>, binding: number | null, hirSchema: HirSchema): TextRecord {
   const shape = resolveHirShape(expected, value, hirSchema);
   if (shape === null || typeof shape === "string" || shape.kind !== "record" || !isHirObject(value))
     throw new Error("HIR text requires the declared record shape.");
@@ -176,10 +176,11 @@ function encodeHirRecord(value: unknown, expected: HirShape, bindings: ReadonlyM
 }
 
 export const printHir: PrintHir = (module: HirModule): string => {
+  const hirSchema = createHirSchema();
   const arena = hirSyntaxArena(module);
   const bindings = new Map<object, number>();
   arena.forEach((node, ordinal) => { bindings.set(node, ordinal); });
-  const records: TextRecord[] = [encodeHirRecord(module, "HirModule", bindings, null)];
-  arena.forEach((node, ordinal) => { records.push(encodeHirRecord(node, "SyntaxNode", bindings, ordinal)); });
+  const records: TextRecord[] = [encodeHirRecord(module, "HirModule", bindings, null, hirSchema)];
+  arena.forEach((node, ordinal) => { records.push(encodeHirRecord(node, "SyntaxNode", bindings, ordinal, hirSchema)); });
   return printHirRecords(records);
 };

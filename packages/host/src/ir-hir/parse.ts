@@ -2,7 +2,7 @@ import type { TextParseResult } from "../diag/contract.js";
 import type { ParseHir } from "./contract.js";
 import type { HirShape, HirShapeVisit } from "./verify-syntax.js";
 import { isHirModuleValue, resolveHirShape } from "./verify-syntax.js";
-import { hirSchema } from "./verify-captures.js";
+import { createHirSchema } from "./verify-captures.js";
 import { hirSyntaxArena } from "./walk.js";
 
 export interface TextScalar {
@@ -158,15 +158,13 @@ function quoted(reader: TextReader): string | null {
   return fail(reader, ["closing quote"]);
 }
 
-const specialNumbers: readonly (readonly [string, number])[] = Object.freeze([
-  ["NaN", Number.NaN], ["+Infinity", Number.POSITIVE_INFINITY], ["-Infinity", Number.NEGATIVE_INFINITY],
-]);
+const specialNumbers: readonly string[] = Object.freeze(["NaN", "+Infinity", "-Infinity"]);
 
 function numeric(reader: TextReader, offset: number): TextScalar | null {
-  for (const [token, value] of specialNumbers) {
+  for (const token of specialNumbers) {
     if (reader.text.startsWith(token, reader.cursor)) {
       reader.cursor += token.length;
-      return { kind: "scalar", offset, value };
+      return { kind: "scalar", offset, value: token === "NaN" ? Number.NaN : token === "+Infinity" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY };
     }
   }
   while (/[0-9eE+.-]/u.test(reader.text.charAt(reader.cursor))) reader.cursor += 1;
@@ -355,6 +353,7 @@ function textView(wire: TextRecord): MutableRecord {
 }
 
 export const parseHir: ParseHir = text => {
+  const hirSchema = createHirSchema();
   const lexical = readHirText(text);
   if (lexical.kind === "invalid-text") return lexical;
   const [header, ...declarations] = lexical.value;

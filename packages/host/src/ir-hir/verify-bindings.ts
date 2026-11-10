@@ -1,12 +1,11 @@
 import type { Violation } from "../diag/contract.js";
 import type { DefId, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js";
-import { decodeBodyId, decodeDefId, encodeDefId } from "../ids/index.js";
+import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
 import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirReport } from "./verify-syntax.js";
-import { checkHirShape, walkHirData } from "./verify-syntax.js";
-import { hirSchema } from "./verify-captures.js";
+import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
+import { checkHirShape, isHirObject, walkHirData } from "./verify-syntax.js";
 
 export interface HirBindingRequest {
   readonly definition: DefId;
@@ -72,15 +71,15 @@ export function verifyBindingVectors(
   return Object.freeze(requests.flatMap(request => results.get(request) ?? []));
 }
 
-export function isSourceNodeRef(value: unknown): value is SourceNodeRef {
+export function isSourceNodeRef(value: unknown, hirSchema: HirSchema): value is SourceNodeRef {
   return checkHirShape(value, "SourceNodeRef", hirSchema);
 }
 
-function isNodeRef(value: unknown): value is NodeRef {
+function isNodeRef(value: unknown, hirSchema: HirSchema): value is NodeRef {
   return checkHirShape(value, "NodeRef", hirSchema);
 }
 
-function isLocalRef(value: unknown): value is LocalRef {
+function isLocalRef(value: unknown, hirSchema: HirSchema): value is LocalRef {
   return checkHirShape(value, "LocalRef", hirSchema);
 }
 
@@ -129,21 +128,24 @@ export function localSourceNode(reference: SourceNodeRef, module: HirModule, inv
 }
 
 export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
+  inventory: HirInventory, context: HirVerificationContext, report: HirReport, hirSchema: HirSchema): void {
   const definitions = new Set<string>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   const checkedDefinitions = new Set<string>();
   const checkedBodies = new Set<string>();
   const scopeExists = new Map<string, boolean>();
   for (const root of roots) walkHirData(root, hirSchema, data => {
     const value = data.value;
-    if (data.shape === "NodeRef" && isNodeRef(value)) {
+    if (data.shape === "HirResolution" && isHirObject(value) && value.kind === "unresolved" &&
+      typeof value.checkerDiagnostic === "number" && (!validHirIndex(value.checkerDiagnostic) || module.checkerDiagnostics[value.checkerDiagnostic] === undefined))
+      report("diagnostic-reference", data.site, "unresolved resolution must name an existing checker diagnostic");
+    if (data.shape === "NodeRef" && isNodeRef(value, hirSchema)) {
       const reference: SourceNodeRef = { kind: "body", value };
       if (!sourceNodeExists(reference, module, inventory, context))
         report("cross-owner-qualified", data.site, "qualified body node must exist in its named owner");
-    } else if (data.shape === "ItemNodeRef" && data.parent !== null && isSourceNodeRef(data.parent)) {
+    } else if (data.shape === "ItemNodeRef" && data.parent !== null && isSourceNodeRef(data.parent, hirSchema)) {
       if (!sourceNodeExists(data.parent, module, inventory, context))
         report("cross-owner-qualified", data.site, "qualified item node must exist in its named owner");
-    } else if (data.shape === "LocalRef" && isLocalRef(value)) {
+    } else if (data.shape === "LocalRef" && isLocalRef(value, hirSchema)) {
       if (!localExists(value, module, inventory, context))
         report("local-reference", data.site, "qualified local must exist in its named body");
     }
@@ -182,8 +184,13 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         checkedBodies.add(value);
         const path = decodeBodyId(value);
         if (path.kind === "invalid") report("body-owner", data.site, "invalid body identity");
-        else if (!validHirIndex(path.value.ordinal))
-          report("ordinal-domain", data.site, "body ordinal must be a nonnegative safe integer other than negative zero");
+        else {
+          if (!validHirIndex(path.value.ordinal))
+            report("ordinal-domain", data.site, "body ordinal must be a nonnegative safe integer other than negative zero");
+          const owner = decodeDefId(path.value.owner);
+          if (owner.kind === "decoded" && owner.value.module === module.module && !inventory.bodies.has(encodeBodyId(path.value)))
+            report("body-owner", data.site, "body reference must exist in its owning module");
+        }
       }
     }
   });

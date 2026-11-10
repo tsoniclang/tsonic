@@ -1,13 +1,13 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, SourceNodeRef } from "../ids/contract.js";
-import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
+import type { ExactRational, LiteralTypeValue, LiteralValue, MemberKey } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
 import type { DeclarationKind, HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext, VerifyHir } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirReport } from "./verify-syntax.js";
-import { hirArray } from "./verify-syntax.js";
+import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
+import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
 import { localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
-import { verifyHirCaptures } from "./verify-captures.js";
+import { createHirSchema, verifyHirCaptures } from "./verify-captures.js";
 import { childrenOfSyntax } from "./children.js";
 
 interface NodeFrame {
@@ -292,6 +292,18 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
   for (const node of inventory.nodes) {
     const metadata = node.tsonic;
     const site = nodeSite(node, inventory, module);
+    if (metadata !== null && "body" in metadata && metadata.body !== null) {
+      const body = inventory.bodies.get(metadata.body);
+      const root = node.kind === "SourceFile" ? node : "body" in node ? node.body : null;
+      if (body === undefined || body.root !== root || "definition" in metadata && body.owner !== metadata.definition)
+        report("body-owner", site, "body metadata must retain its exact owner and syntax root");
+    }
+    if (metadata !== null && "initializer" in metadata && metadata.initializer !== null) {
+      const body = inventory.bodies.get(metadata.initializer);
+      const root = "initializer" in node ? node.initializer : null;
+      if (body === undefined || body.root !== root)
+        report("body-owner", site, "initializer body must retain its actual syntax initializer");
+    }
     if (metadata !== null && "signatures" in metadata) for (const endpoint of metadata.signatures) {
       const signature = validHirIndex(endpoint.signature) ? context.types.signatures[endpoint.signature] : undefined;
       if ((signature !== undefined && signature.declaration !== null && signature.declaration !== endpoint.declaration) ||
@@ -432,7 +444,12 @@ function literalMatches(value: LiteralValue | LiteralTypeValue): boolean {
   return true;
 }
 
-function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
+function memberKeyValue(value: unknown, schema: HirSchema): value is MemberKey {
+  return checkHirShape(value, "MemberKey", schema);
+}
+
+function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport,
+  roots: readonly HirDataRoot[], schema: HirSchema): void {
   for (const node of inventory.nodes) {
     const metadata = node.tsonic;
     if (metadata === null || !("literal" in metadata)) continue;
@@ -457,25 +474,31 @@ function literalViolations(module: HirModule, inventory: HirInventory, report: H
         report("literal-exact", site, "unary literal must preserve the actual operand and sign");
     }
   }
+  for (const root of roots) walkHirData(root, schema, data => {
+    if (data.shape === "MemberKey" && memberKeyValue(data.value, schema) && data.value.kind === "number" &&
+      !normalizedRational(data.value.value)) report("literal-exact", data.site, "numeric member key must retain a normalized exact rational");
+  });
 }
 
 export const verifyHir: VerifyHir = (module, context) => {
+  const hirSchema = createHirSchema();
   const violations: Violation<HirRule, HirSite>[] = [];
   const report: HirReport = (rule, site, reason) => { violations.push({ rule, site, detail: [{ kind: "text", value: reason }] }); };
   const inventory = createHirInventory(module);
   syntaxViolations(module, inventory, report);
   declarationViolations(module, inventory, report);
   bodyViolations(module, inventory, report);
-  verifyHirReferences(verificationRoots(module, inventory), module, inventory, context, report);
+  const roots = verificationRoots(module, inventory);
+  verifyHirReferences(roots, module, inventory, context, report, hirSchema);
   const requests: HirBindingRequest[] = [];
   candidateViolations(module, inventory, context, requests, report);
-  literalViolations(module, inventory, report);
+  literalViolations(module, inventory, report, roots, hirSchema);
   obligationViolations(module, inventory, context, report);
   verifyHirCaptures(inventory.nodes, {
     nodeOf: reference => localSourceNode(reference, module, inventory),
     nodeExists: reference => sourceNodeExists(reference, module, inventory, context),
     referenceOf: node => hirNodeSource(node, inventory, module),
-  }, report);
+  }, report, hirSchema);
   violations.push(...verifyBindingVectors(requests, context));
   return Object.freeze(violations);
 };
