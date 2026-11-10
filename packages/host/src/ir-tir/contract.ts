@@ -1,6 +1,6 @@
 import type { BodyId, DefId, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
@@ -612,13 +612,18 @@ export interface TirModule {
   readonly bodies: readonly TirBody[];
 }
 
+export type TirMemberOccurrence =
+  | { readonly kind: "selection"; readonly node: NodeId; readonly ordinal: number }
+  | { readonly kind: "construction-part"; readonly node: NodeId; readonly ordinal: number;
+      readonly source: NodeRef; readonly destination: TypeComponent; readonly part: number };
+
 export interface TirVerifierInput {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
-  readonly membersOf: (receiver: TyId) => MemberTable | null;
+  readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberTable | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
