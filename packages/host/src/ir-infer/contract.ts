@@ -384,7 +384,7 @@ export interface ApplicationDecision {
   readonly advertised: HirCallableEndpoint;
   readonly api: HirCallableEndpoint;
   readonly bindings: BindingVector;
-  readonly implementationBindings: BindingVector | null;
+  readonly implementationBindings: BindingVector;
   readonly parameters: readonly ParameterMapping[];
   readonly completion: CompletionEndpoint;
   readonly result: TyId;

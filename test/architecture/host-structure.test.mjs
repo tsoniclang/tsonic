@@ -454,6 +454,58 @@ test("A1 r2 admits only literal canonical record phase slots on their declared t
     [at("contract-shape", file("ir-tir", "contract.ts")), at("contract-shape", file("ir-tir", "contract.ts"), 2)]);
 });
 
+const splitPhaseRecords = Object.freeze([
+  'export interface Phase { readonly ForInOrOfStatement: object | null; readonly CaseOrDefaultClause: object | null; readonly Token: object | null; }',
+  'export interface ForInStatement<P extends Phase> { readonly kind: "ForInStatement"; readonly tsonic: P["ForInOrOfStatement"]; }',
+  'export interface ForOfStatement<P extends Phase> { readonly kind: "ForOfStatement"; readonly tsonic: P["ForInOrOfStatement"]; }',
+  'export interface CaseClause<Q extends Phase> { readonly kind: "CaseClause"; readonly tsonic: Q["CaseOrDefaultClause"]; }',
+  'export interface DefaultClause<Q extends Phase> { readonly kind: "DefaultClause"; readonly tsonic: Q["CaseOrDefaultClause"]; }',
+  'export type ForInOrOfStatement<P extends Phase> = ForInStatement<P> | ForOfStatement<P>;',
+  'export type CaseOrDefaultClause<P extends Phase> = CaseClause<P> | DefaultClause<P>;',
+]);
+
+test("A4 admits both written kind-split Phase families with genuine renamed phase parameters", () => {
+  expect([[file("ir-hir", "contract.ts"), splitPhaseRecords.join("\n")]], []);
+});
+
+test("A4 rejects an arm selecting a key outside its declared Phase family", () => {
+  const path = file("ir-hir", "contract.ts");
+  const records = splitPhaseRecords.map((record, index) => index === 1 ? record.replace('P["ForInOrOfStatement"]', 'P["Token"]') : record);
+  expect([[path, records.join("\n")]], [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
+});
+
+test("A4 rejects a Phase family when one member selects a different key", () => {
+  const path = file("ir-hir", "contract.ts");
+  const records = splitPhaseRecords.map((record, index) => index === 4 ? record.replace('Q["CaseOrDefaultClause"]', 'Q["Token"]') : record);
+  expect([[path, records.join("\n")]], [at("contract-shape", path, 4), at("contract-shape", path, 5)]);
+});
+
+test("A4 rejects a Phase key naming an alias that is not a union", () => {
+  const path = file("ir-hir", "contract.ts");
+  const records = splitPhaseRecords.map((record, index) => index === 5 ? 'export type ForInOrOfStatement<P extends Phase> = ForOfStatement<P>;' : record);
+  expect([[path, records.join("\n")]], [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
+});
+
+test("A4 rejects a Phase key naming a union that does not contain its interface", () => {
+  const path = file("ir-hir", "contract.ts");
+  const records = splitPhaseRecords.map((record, index) => index === 5 ? 'export type ForInOrOfStatement<P extends Phase> = ForOfStatement<P> | CaseClause<P>;' : record);
+  expect([[path, records.join("\n")]], [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
+});
+
+test("A4 rejects a Phase key without its declared family alias", () => {
+  const path = file("ir-hir", "contract.ts");
+  expect([[path, splitPhaseRecords.filter((record, index) => index !== 5).join("\n")]],
+    [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
+});
+
+test("A4 does not borrow a Phase family alias from another contract", () => {
+  const path = file("ir-hir", "contract.ts");
+  const records = splitPhaseRecords.map((record, index) => index === 5 ? 'import type { ForInOrOfStatement } from "../ir-types/contract.js";' : record);
+  const foreign = 'export interface First { readonly kind: "first"; }\nexport interface Second { readonly kind: "second"; }\nexport type ForInOrOfStatement<P> = First | Second;';
+  expect([[path, records.join("\n")], [file("ir-types", "contract.ts"), foreign]],
+    [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
+});
+
 const compositionCases = Object.freeze([
   ['const original = Object.freeze(["first", Object.freeze({ kind: "second" })]);', 'Object.freeze(["prefix", ...selected])', true],
   ['const first = Object.freeze(["first"]); const original = Object.freeze([...first, "second"]);', 'Object.freeze([...selected])', true],

@@ -129,7 +129,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     return arms.length === 2 && arms.includes(node) && arms.some(arm => ast.is.IsLiteralTypeNode(arm) &&
       ast.kindName(ast.as.AsLiteralTypeNode(arm).Literal) === "KindNullKeyword");
   };
-  const phaseSlotSelection = node => {
+  const phaseSlotSelectionData = node => {
     const slot = ast.parent(node);
     const record = ast.parent(slot);
     if (!canonicalSyntax(node) || !ast.is.IsPropertySignatureDeclaration(slot) || !ast.hasModifierKind(slot, "readonly") ||
@@ -138,7 +138,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const access = ast.as.AsIndexedAccessTypeNode(node);
     if (!ast.is.IsTypeReferenceNode(access.ObjectType) || ast.typeArguments(access.ObjectType).length !== 0 || !ast.is.IsLiteralTypeNode(access.IndexType)) return false;
     const key = ast.as.AsLiteralTypeNode(access.IndexType).Literal;
-    if (!ast.is.IsStringLiteral(key) || ast.text(key) !== ast.text(ast.name(record))) return false;
+    if (!ast.is.IsStringLiteral(key)) return false;
     const parameter = ast.typeParameters(record).find(candidate => symbol(ast.name(candidate)) === symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName));
     const constraint = parameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(parameter).Constraint;
     if (constraint === undefined || !ast.is.IsTypeReferenceNode(constraint)) return false;
@@ -146,7 +146,45 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (declarations.length !== 1 || !phaseDeclaration(declarations[0]) ||
       !ast.members(declarations[0]).some(member => ast.is.IsPropertySignatureDeclaration(member) &&
         ast.hasModifierKind(member, "readonly") && memberName(ast.name(member)) === ast.text(key))) return false;
-    return ast.members(record).some(member => memberName(ast.name(member)) === "kind");
+    if (!ast.members(record).some(member => memberName(ast.name(member)) === "kind")) return false;
+    return { record, parameter, phase: declarations[0], key: ast.text(key) };
+  };
+  const phaseSlotSelection = node => {
+    const selected = phaseSlotSelectionData(node);
+    if (selected === false) return false;
+    if (selected.key === ast.text(ast.name(selected.record))) return true;
+    const file = ast.getSourceFile(selected.record);
+    const family = ast.statements(file).find(statement => ast.is.IsTypeAliasDeclaration(statement) &&
+      ast.hasModifierKind(statement, "export") && ast.text(ast.name(statement)) === selected.key);
+    const union = family === undefined ? undefined : ast.typeNode(family);
+    if (union === undefined || !ast.is.IsUnionTypeNode(union) || ast.typeParameters(family).length !== 1) return false;
+    const parameter = ast.typeParameters(family)[0];
+    const constraint = ast.as.AsTypeParameterDeclaration(parameter).Constraint;
+    if (constraint === undefined || !ast.is.IsTypeReferenceNode(constraint)) return false;
+    const phases = checker(family).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(constraint).TypeName));
+    if (phases.length !== 1 || phases[0] !== selected.phase) return false;
+    let containsRecord = false;
+    const complete = ast.children(union).every(arm => {
+      if (!ast.is.IsTypeReferenceNode(arm) || ast.typeArguments(arm).length !== 1) return false;
+      const argument = ast.typeArguments(arm)[0];
+      if (!ast.is.IsTypeReferenceNode(argument) || ast.typeArguments(argument).length !== 0 ||
+        symbol(ast.as.AsTypeReferenceNode(argument).TypeName) !== symbol(ast.name(parameter))) return false;
+      const identity = symbol(ast.as.AsTypeReferenceNode(arm).TypeName);
+      if (identity === undefined) return false;
+      const declarations = checker(arm).getSymbolDeclarations(identity);
+      const record = declarations.length === 1 ? declarations[0] : undefined;
+      if (record === undefined || !ast.is.IsInterfaceDeclaration(record) || ast.getSourceFile(record) !== file ||
+        ast.typeParameters(record).length !== 1) return false;
+      const slot = ast.members(record).find(member => ast.is.IsPropertySignatureDeclaration(member) && memberName(ast.name(member)) === "tsonic");
+      const type = slot === undefined ? undefined : ast.typeNode(slot);
+      if (type === undefined || !ast.is.IsIndexedAccessTypeNode(type)) return false;
+      const member = phaseSlotSelectionData(type);
+      if (member === false || member.key !== selected.key || member.phase !== selected.phase ||
+        member.parameter !== ast.typeParameters(record)[0]) return false;
+      if (record === selected.record) containsRecord = true;
+      return true;
+    });
+    return complete && containsRecord;
   };
   const typeShape = node => {
     const file = ast.getSourceFile(node);

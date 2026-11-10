@@ -1,6 +1,6 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type {
-  BlockId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
+  BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, NominalDefinition, PassingMode, TypeTable } from "../ir-types/contract.js";
@@ -267,7 +267,6 @@ export interface ArgumentTransport {
   readonly authoredIndex: number | null;
   readonly parameter: DefId;
   readonly parameterIndex: number;
-  readonly effectiveIndex: number;
   readonly repeated: boolean;
   readonly passing: PassingMode;
   readonly actual: OriginsId;
@@ -707,12 +706,14 @@ export type FactsSite =
 export interface FactsVerificationContext {
   readonly limits: AnalysisLimits;
   readonly tirBody: (instance: BodyInstance) => TirBody;
+  readonly bodyOwner: (body: BodyId) => DefId | null;
   readonly types: TypeTable;
   readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;
+  readonly callbackSignaturesOf: (key: SummaryKey, parameter: number) => readonly SigId[] | null;
   readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;
   readonly definitionExists: (definition: DefId) => boolean;
   readonly libraryExportExists: (identity: LibraryExportIdentity) => boolean;

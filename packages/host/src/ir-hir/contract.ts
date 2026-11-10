@@ -909,14 +909,25 @@ export interface ForStatement<P extends Phase> extends NodeHeader {
   readonly tsonic: P["ForStatement"];
 }
 
-export interface ForInOrOfStatement<P extends Phase, K extends "ForInStatement" | "ForOfStatement" = "ForInStatement" | "ForOfStatement"> extends NodeHeader {
-  readonly kind: K;
+export interface ForInStatement<P extends Phase> extends NodeHeader {
+  readonly kind: "ForInStatement";
+  readonly awaitModifier: null;
+  readonly initializer: ForInitializer<P>;
+  readonly expression: Expression<P>;
+  readonly statement: Statement<P>;
+  readonly tsonic: P["ForInOrOfStatement"];
+}
+
+export interface ForOfStatement<P extends Phase> extends NodeHeader {
+  readonly kind: "ForOfStatement";
   readonly awaitModifier: AwaitKeyword<P> | null;
   readonly initializer: ForInitializer<P>;
   readonly expression: Expression<P>;
   readonly statement: Statement<P>;
   readonly tsonic: P["ForInOrOfStatement"];
 }
+
+export type ForInOrOfStatement<P extends Phase> = ForInStatement<P> | ForOfStatement<P>;
 
 export interface BreakStatement<P extends Phase> extends NodeHeader {
   readonly kind: "BreakStatement";
@@ -956,12 +967,21 @@ export interface CaseBlock<P extends Phase> extends NodeHeader {
   readonly tsonic: P["CaseBlock"];
 }
 
-export interface CaseOrDefaultClause<P extends Phase, K extends "CaseClause" | "DefaultClause" = "CaseClause" | "DefaultClause"> extends NodeHeader {
-  readonly kind: K;
-  readonly expression: Expression<P> | null;
+export interface CaseClause<P extends Phase> extends NodeHeader {
+  readonly kind: "CaseClause";
+  readonly expression: Expression<P>;
   readonly statements: NodeList<Statement<P>>;
   readonly tsonic: P["CaseOrDefaultClause"];
 }
+
+export interface DefaultClause<P extends Phase> extends NodeHeader {
+  readonly kind: "DefaultClause";
+  readonly expression: null;
+  readonly statements: NodeList<Statement<P>>;
+  readonly tsonic: P["CaseOrDefaultClause"];
+}
+
+export type CaseOrDefaultClause<P extends Phase> = CaseClause<P> | DefaultClause<P>;
 
 export interface ThrowStatement<P extends Phase> extends NodeHeader {
   readonly kind: "ThrowStatement";
@@ -3924,8 +3944,7 @@ export type HirProtocolFact =
   | { readonly kind: "await"; readonly subject: NodeId; readonly completion: TyId }
   | { readonly kind: "yield" | "delegate"; readonly subject: NodeId | null; readonly yielded: TyId;
       readonly sent: TyId; readonly completion: TyId }
-  | { readonly kind: "dispose"; readonly subject: NodeId; readonly asynchronous: boolean; readonly signature: SigId }
-  | { readonly kind: "completion"; readonly endpoint: HirCallableEndpoint; readonly result: TyId };
+  | { readonly kind: "dispose"; readonly subject: NodeId; readonly asynchronous: boolean; readonly signature: SigId };
 
 export interface HirStoragePlace {
   readonly base:
@@ -4577,7 +4596,8 @@ export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-
   | "scope-parent" | "literal-exact" | "type-reference" | "signature-reference" | "candidate-original-order"
   | "candidate-endpoints" | "binding-vector-complete" | "contribution-parameter" | "protocol-kind"
   | "diagnostic-reference" | "diagnostic-root-owner" | "obligation-complete" | "obligation-order" | "stable-order"
-  | "cross-owner-qualified" | "candidate-list-dense" | "candidate-list-reference" | "place-parent-precedes"
+  | "cross-owner-qualified" | "candidate-list-dense" | "candidate-list-reference"
+  | "place-base-acyclic" | "place-access-base-in-receiver"
   | "memory-capture-owner" | "memory-capture-reference" | "memory-layout-acyclic" | "observation-capture-owner";
 
 export type HirSite =
@@ -4593,7 +4613,7 @@ export interface HirVerificationContext {
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopeAt: (node: SourceNodeRef) => BindingScope | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
-  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
   readonly localExists: (local: LocalRef) => boolean;
 }
 export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
