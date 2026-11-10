@@ -802,12 +802,63 @@ test("HIR actual local resolution keeps its body qualifier and rejects a missing
   ]);
 });
 
-test("HIR projected storage places require their real parent to precede the projection", () => {
+test("HIR place-base-acyclic rejects an actual place-reference cycle without using numeric node order", () => {
   const expression = nameExpression();
   expression.tsonic.value.place = available({ base: { kind: "place", node: 2 }, step: null, read: available(0), write: available(null) });
   const value = expressionModule(expression);
   assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [
-    violation("place-parent-precedes", nodeSite(2), "parent storage place must precede its projection"),
+    violation("place-base-acyclic", nodeSite(2), "place base chain must not revisit a place"),
+  ]);
+});
+
+function indexPlaceModule(base = "receiver", capturedReceiver = true) {
+  const receiver = nameExpression("receiver");
+  const key = nameExpression("key");
+  if (capturedReceiver) receiver.tsonic.value.place = available(rootPlace());
+  key.tsonic.value.place = available(rootPlace());
+  const expression = syntax("ElementAccessExpression", 0, { expression: receiver, questionDotToken: null, argumentExpression: key,
+    tsonic: { core: absentCore(), role: "value", value: emptyValue(), origins: available([]), accessor: available(null) } });
+  const value = expressionModule(expression);
+  expression.tsonic.value.place = available({ base: { kind: "place", node: base === "receiver" ? receiver.id : key.id },
+    step: { kind: "index", expression: key.id }, read: available(0), write: available(0) });
+  return value;
+}
+
+test("HIR element base place is its later-preorder receiver, not an invented earlier node", () => {
+  const value = immutableTree(indexPlaceModule());
+  const decoded = roundtrip(value, "genuine indexed place");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+  const outside = immutableTree(indexPlaceModule("key"));
+  assert.deepStrictEqual(product.verifyHir(outside, contextFor(outside)), [
+    violation("place-access-base-in-receiver", nodeSite(2), "access base place must lie inside its actual receiver subtree"),
+  ]);
+  const missing = immutableTree(indexPlaceModule("receiver", false));
+  assert.deepStrictEqual(product.verifyHir(missing, contextFor(missing)), [
+    violation("place-base-acyclic", nodeSite(2), "place base must name an actual place in the same body and end at a root"),
+  ]);
+});
+
+test("HIR member-place receiver ancestry includes transparent syntax and preserves the real base reference", () => {
+  const receiver = nameExpression("receiver");
+  receiver.tsonic.value.place = available(rootPlace());
+  const parenthesized = syntax("ParenthesizedExpression", 0, { expression: receiver, tsonic: expressionMetadata() });
+  const name = syntax("Identifier", 0, { text: "field", tsonic: { core: absentCore(), role: "property-name", key: available({ kind: "text", value: "field" }), origins: available([]) } });
+  const expression = syntax("PropertyAccessExpression", 0, { expression: parenthesized, questionDotToken: null, name,
+    tsonic: { core: absentCore(), role: "value", value: emptyValue(), origins: available([]), accessor: available(null) } });
+  const value = expressionModule(expression);
+  expression.tsonic.value.place = available({ base: { kind: "place", node: receiver.id },
+    step: { kind: "member", key: { kind: "text", value: "field" }, origins: memberOrigins() }, read: available(0), write: available(0) });
+  const decoded = roundtrip(immutableTree(value), "parenthesized member receiver");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+});
+
+test("HIR place reference refuses missing nodes and retains the whole coupled reference vector", () => {
+  const expression = nameExpression();
+  expression.tsonic.value.place = available({ base: { kind: "place", node: 99 }, step: { kind: "deref" }, read: available(0), write: unavailable() });
+  const value = immutableTree(expressionModule(expression));
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), [
+    violation("node-reference", nodeSite(2), "node must exist in the module arena"),
+    violation("place-base-acyclic", nodeSite(2), "place base must name an actual place in the same body and end at a root"),
   ]);
 });
 
@@ -1588,5 +1639,91 @@ test("HIR signed zero parent and implicit definition ordinals inside foreign bod
       assert.deepStrictEqual(reference, local, "only the actual supplied foreign local is read");
       return true;
     } })), [violation("ordinal-domain", nodeSite(2), "definition segment ordinal must be a nonnegative safe integer other than negative zero")]);
+  }
+});
+
+function declarationFacts(parent = definitionIdentity) {
+  return { core: absentCore(), parent, attributes: [], memory: available(null) };
+}
+
+function functionModule(roles = ["required"], nested = false) {
+  const definition = `D[${moduleIdentity};fn]`;
+  const bodyId = `B[${definition};function;0]`;
+  const parameters = roles.map((role, ordinal) => {
+    const parameterDefinition = `D[${moduleIdentity};fn/p${ordinal}]`;
+    const initializerId = role === "default" ? `B[${parameterDefinition};default-argument;0]` : null;
+    const initializer = role === "default" ? nameExpression("first") : null;
+    if (initializer !== null) initializer.tsonic.resolution = { kind: "local", local: { body: bodyId, local: 0 } };
+    return syntax("Parameter", 0, { modifiers: null, dotDotDotToken: role === "rest" ? syntax("DotDotDotToken", 0) : null,
+      name: syntax("Identifier", 0, { text: role === "this" ? "this" : `p${ordinal}`, tsonic: { core: absentCore(), role: "declaration-name",
+        declaration: { kind: "definition", definition: parameterDefinition } } }), questionToken: role === "optional" ? syntax("QuestionToken", 0) : null,
+      type: null, initializer, tsonic: { ...declarationFacts(definition), declaration: { kind: "definition", definition: parameterDefinition },
+        declaredType: available(0), initializer: initializerId } });
+  });
+  const block = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  const declaration = syntax("FunctionDeclaration", 0, { modifiers: null, typeParameters: null, parameters: nodeList(parameters), type: null,
+    fullSignature: null, asteriskToken: null, body: block, name: syntax("Identifier", 0, { text: "fn", tsonic: { core: absentCore(),
+      role: "declaration-name", declaration: { kind: "definition", definition } } }),
+    tsonic: { ...declarationFacts(), definition, parameters: [], signatures: [], body: bodyId } });
+  let inner = null;
+  const innerDefinition = `D[${moduleIdentity};fn/inner]`;
+  const innerBodyId = `B[${innerDefinition};function;0]`;
+  if (nested) {
+    inner = syntax("FunctionDeclaration", 0, { modifiers: null, typeParameters: null, parameters: nodeList([]), type: null, fullSignature: null,
+      asteriskToken: null, body: syntax("Block", 0, { statements: nodeList([]), multiLine: false }), name: syntax("Identifier", 0, { text: "inner",
+        tsonic: { core: absentCore(), role: "declaration-name", declaration: { kind: "definition", definition: innerDefinition } } }),
+      tsonic: { ...declarationFacts(definition), definition: innerDefinition, parameters: [], signatures: [], body: innerBodyId } });
+    block.statements.nodes.push(inner);
+  }
+  const value = moduleWith([declaration]);
+  const body = { body: bodyId, owner: definition, params: parameters.map((parameter, ordinal) => ({ local: ordinal,
+    declaration: parameter.tsonic.declaration.definition, role: roles[ordinal], passing: "by-value", initializer: parameter.tsonic.initializer })),
+  locals: parameters.map((parameter, ordinal) => ({ id: ordinal, declaration: bodySource(parameter.id), name: parameter.name.text,
+    role: "parameter", checkerSlot: available(0), capturedFrom: null, mutable: false })), root: block, captures: [], scopes: [], asynchronous: false,
+  generator: false, candidateLists: [], nestedBodies: inner === null ? [] : [innerBodyId] };
+  value.bodies.push(body);
+  value.items.push({ definition, node: declaration.id }, ...parameters.map(parameter => ({ definition: parameter.tsonic.declaration.definition, node: parameter.id })));
+  const initializers = [];
+  for (const parameter of parameters) if (parameter.initializer !== null) {
+    const captured = { body: bodyId, local: 0 };
+    const initializer = { body: parameter.tsonic.initializer, owner: parameter.tsonic.declaration.definition, params: [],
+      locals: [{ id: 0, declaration: bodySource(parameters[0].id), name: parameters[0].name.text, role: "capture", checkerSlot: available(0),
+        capturedFrom: captured, mutable: false }], root: parameter.initializer, captures: [captured], scopes: [], asynchronous: false,
+      generator: false, candidateLists: [], nestedBodies: [] };
+    initializers.push(initializer);
+    value.bodies.push(initializer);
+  }
+  value.bodies[0].nestedBodies = [...initializers.map(initializer => initializer.body), bodyId];
+  if (inner !== null) {
+    const captures = parameters.map((_, local) => ({ body: bodyId, local }));
+    value.bodies.push({ body: innerBodyId, owner: innerDefinition, params: [], locals: captures.map((reference, ordinal) => ({ id: ordinal,
+      declaration: bodySource(parameters[ordinal].id), name: parameters[ordinal].name.text, role: "capture", checkerSlot: available(0), capturedFrom: reference,
+      mutable: false })), root: inner.body, captures, scopes: [], asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] });
+    value.items.push({ definition: innerDefinition, node: inner.id });
+  }
+  value.items.sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
+  value.bodies.sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
+  return { value, declaration, body, parameters, initializers, inner };
+}
+
+test("HIR parameter, default initializer and nested capture bodies retain real declaration identities and distinct roots", () => {
+  for (const roles of [[], ["required"], ["required", "optional", "default", "rest"], ["this", "required", "optional", "rest"]])
+    for (const nested of [false, true]) {
+      const { value, body, initializers } = functionModule(roles, nested);
+      const decoded = roundtrip(immutableTree(value), `params/${roles.join("/")}/${nested}`);
+      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+      assertNodes(walkSyntaxTree(body.root, []), [body.root, ...(nested ? [body.root.statements.nodes[0], body.root.statements.nodes[0].name,
+        body.root.statements.nodes[0].body] : [])], "complete original function subtree");
+      for (const initializer of initializers) assert.equal(body.root === initializer.root, false, "a default initializer remains outside the body block");
+    }
+});
+
+test("HIR actual declaration passing captures preserve every closed mode on the original Parameter", () => {
+  for (const mode of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
+    const { value, parameters, body } = functionModule();
+    parameters[0].tsonic.core.argumentPassing = available({ role: "declaration", mode });
+    body.params[0].passing = mode;
+    const decoded = roundtrip(immutableTree(value), `declaration passing/${mode}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
   }
 });

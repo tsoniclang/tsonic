@@ -5,9 +5,10 @@ import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
 import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
-import { localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import { hirLexicalBodyRanges, localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
-import { createHirSchema, verifyHirCaptures } from "./verify-captures.js";
+import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
+import type { HirCaptureReaders } from "./verify-captures.js";
 import { childrenOfSyntax } from "./children.js";
 
 interface NodeFrame {
@@ -160,6 +161,7 @@ const declarationKinds: readonly DeclarationKind[] = Object.freeze([
 ]);
 
 function bodyViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
+  const lexicalRanges = hirLexicalBodyRanges(module, inventory);
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   const seen = new Set<BodyId>();
   const actualNested = new Map<HirBody, BodyId[]>();
@@ -215,8 +217,10 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     for (const capture of body.captures) {
       const key = `${capture.body.length}:${capture.body}:${capture.local}`;
       const owner = inventory.bodies.get(capture.body);
-      if (captureKeys.has(key) || owner === undefined || owner === body ||
-        !containsHirNode(owner.root, body.root, inventory))
+      const outer = owner === undefined ? undefined : lexicalRanges.get(owner);
+      const inner = lexicalRanges.get(body);
+      if (captureKeys.has(key) || owner === undefined || owner === body || outer === undefined || inner === undefined ||
+        inner.start < outer.start || inner.start >= outer.end)
         report("capture-owner", site, "capture must name one distinct enclosing body's local");
       captureKeys.add(key);
       if (owner !== undefined && (!Number.isSafeInteger(capture.local) || capture.local < 0 ||
@@ -329,11 +333,6 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
     if (metadata !== null && "disposal" in metadata) for (const fact of metadata.disposal)
       if (fact.kind === "available" && fact.value.kind !== "dispose")
         report("protocol-kind", site, "disposal list must contain disposal protocols");
-    const place = metadata !== null && "place" in metadata ? metadata.place :
-      metadata !== null && "value" in metadata && "place" in metadata.value ? metadata.value.place : null;
-    if (place !== null && place.kind === "available" && place.value !== null && place.value.base.kind === "place" &&
-      (!validHirIndex(place.value.base.node) || place.value.base.node >= node.id))
-      report("place-parent-precedes", site, "parent storage place must precede its projection");
   }
 }
 
@@ -566,11 +565,13 @@ export const verifyHir: VerifyHir = (module, context) => {
   candidateViolations(module, inventory, context, requests, report);
   literalViolations(module, inventory, report, roots, hirSchema);
   obligationViolations(module, inventory, context, report);
-  verifyHirCaptures(inventory.nodes, {
+  const readers: HirCaptureReaders = {
     nodeOf: reference => localSourceNode(reference, module, inventory),
     nodeExists: reference => sourceNodeExists(reference, module, inventory, context),
     referenceOf: node => hirNodeSource(node, inventory, module),
-  }, report, hirSchema, requests);
+  };
+  verifyHirCaptures(inventory.nodes, readers, report, hirSchema, requests);
+  verifyHirPlaces(inventory, readers, report);
   violations.push(...verifyBindingVectors(requests, context));
   return Object.freeze(violations);
 };

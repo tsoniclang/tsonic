@@ -3,7 +3,7 @@ import type { DefId, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js
 import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
 import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
-import type { HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
+import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, isHirObject, walkHirData } from "./verify-syntax.js";
 
@@ -131,6 +131,63 @@ export function localSourceNode(reference: SourceNodeRef, module: HirModule, inv
   const path = decodeDefId(definition);
   if (path.kind === "invalid" || path.value.module !== module.module || !validHirIndex(reference.value.node)) return null;
   return inventory.nodesById.get(reference.value.node) ?? null;
+}
+
+interface BodyScopeRange { readonly start: number; readonly end: number }
+interface BodyScopeVisit {
+  readonly body: HirBody;
+  readonly leaving: boolean;
+  readonly next: BodyScopeVisit | null;
+}
+
+export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory): ReadonlyMap<HirBody, BodyScopeRange> {
+  const declarations = new Map<DefId, HirNode>();
+  for (const item of module.items) {
+    const node = inventory.nodesById.get(item.node);
+    if (node !== undefined) declarations.set(item.definition, node);
+  }
+  const parents = new Map<HirBody, HirBody | null>();
+  for (const body of module.bodies) parents.set(body, inventory.bodyParents.get(body) ?? null);
+  for (const body of module.bodies) for (const parameter of body.params) {
+    if (parameter.initializer === null) continue;
+    const initializer = inventory.bodies.get(parameter.initializer);
+    const node = declarations.get(parameter.declaration);
+    if (initializer === undefined || initializer.owner !== parameter.declaration || node?.kind !== "Parameter" ||
+      node.initializer !== initializer.root || node.tsonic.initializer !== parameter.initializer || node.tsonic.parent !== body.owner) continue;
+    const declaration = inventory.parents.get(node);
+    const identity = decodeBodyId(initializer.body);
+    if (identity.kind === "decoded" && identity.value.role === "default-argument" && declaration !== undefined &&
+      declaration !== null && declaration.tsonic !== null && "body" in declaration.tsonic && declaration.tsonic.body === body.body)
+      parents.set(initializer, body);
+  }
+  const children = new Map<HirBody | null, HirBody[]>();
+  for (const [body, parent] of parents) {
+    const previous = children.get(parent);
+    if (previous === undefined) children.set(parent, [body]);
+    else previous.push(body);
+  }
+  const ranges = new Map<HirBody, { start: number; end: number }>();
+  let ordinal = 0;
+  const roots = [...(children.get(null) ?? []), ...module.bodies];
+  for (const root of roots) {
+    if (ranges.has(root)) continue;
+    let pending: BodyScopeVisit | null = { body: root, leaving: false, next: null };
+    while (pending !== null) {
+      const frame = pending;
+      pending = frame.next;
+      if (frame.leaving) {
+        const range = ranges.get(frame.body);
+        if (range !== undefined) range.end = ordinal;
+        continue;
+      }
+      if (ranges.has(frame.body)) continue;
+      ranges.set(frame.body, { start: ordinal, end: ordinal });
+      ordinal += 1;
+      pending = { body: frame.body, leaving: true, next: pending };
+      for (const body of children.get(frame.body) ?? []) pending = { body, leaving: false, next: pending };
+    }
+  }
+  return ranges;
 }
 
 export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirModule,
