@@ -1,0 +1,26 @@
+{
+  "operation": "invariant",
+  "failure": {
+    "pass": "pipeline",
+    "query": {
+      "name": "body-result",
+      "encodedKey": "{\"body\":\"B[exact]\"}"
+    },
+    "origin": {
+      "module": "M[P[project];failure.ts]",
+      "start": 12,
+      "length": 3,
+      "derived": [
+        {
+          "kind": "lowering",
+          "pass": "infer"
+        },
+        {
+          "kind": "expansion",
+          "expansion": "expansion-exact"
+        }
+      ]
+    },
+    "message": "internal invariant\r\n\udfff"
+  }
+}
