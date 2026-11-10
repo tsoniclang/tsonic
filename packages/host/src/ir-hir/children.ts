@@ -129,7 +129,7 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "JSTypeAliasDeclaration":
       return children<PhaseType>(node.modifiers, node.name, node.typeParameters, node.type);
     case "EnumMember":
-      return children<PhaseType>(node.name, node.initializer);
+      return children<PhaseType>(node.modifiers, node.name, node.postfixToken, node.initializer);
     case "EnumDeclaration":
       return children<PhaseType>(node.modifiers, node.name, node.members);
     case "ImportDeclaration":
@@ -154,21 +154,22 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
       return children<PhaseType>(node.propertyName, node.name);
     case "CallSignature":
     case "ConstructSignature":
-    case "FunctionType":
     case "JSDocSignature":
-      return children<PhaseType>(node.typeParameters, node.parameters, node.type);
+      return children<PhaseType>(node.typeParameters, node.parameters, node.type, node.fullSignature);
+    case "FunctionType":
+      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
     case "Constructor":
       return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters,
-        node.type, node.fullSignature, node.body);
+        node.type, node.fullSignature, node.asteriskToken, node.body);
     case "GetAccessor":
     case "SetAccessor":
-      return children<PhaseType>(node.modifiers, node.name, node.typeParameters,
-        node.parameters, node.type, node.fullSignature, node.body);
+      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.postfixToken,
+        node.typeParameters, node.parameters, node.type, node.fullSignature, node.body);
     case "IndexSignature":
-      return children<PhaseType>(node.modifiers, node.parameters, node.type);
+      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
     case "MethodSignature":
       return children<PhaseType>(node.modifiers, node.name, node.postfixToken,
-        node.typeParameters, node.parameters, node.type);
+        node.typeParameters, node.parameters, node.type, node.fullSignature);
     case "MethodDeclaration":
       return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.postfixToken,
         node.typeParameters, node.parameters, node.type, node.fullSignature, node.body);
@@ -187,7 +188,7 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
       return children<PhaseType>(node.asteriskToken, node.expression);
     case "ArrowFunction":
       return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters,
-        node.type, node.fullSignature, node.equalsGreaterThanToken, node.body);
+        node.type, node.fullSignature, node.asteriskToken, node.equalsGreaterThanToken, node.body);
     case "AsExpression":
     case "SatisfiesExpression":
       return children<PhaseType>(node.expression, node.type);
@@ -264,7 +265,7 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "NamedTupleMember":
       return children<PhaseType>(node.dotDotDotToken, node.name, node.questionToken, node.type);
     case "ConstructorType":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type);
+      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
     case "TemplateLiteralTypeSpan":
       return children<PhaseType>(node.type, node.literal);
     case "JsxElement":
@@ -302,8 +303,9 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "JSDocReadonlyTag":
     case "JSDocOverrideTag":
     case "JSDocDeprecatedTag":
-    case "JSDocSeeTag":
       return children<PhaseType>(node.tagName, node.comment);
+    case "JSDocSeeTag":
+      return children<PhaseType>(node.tagName, node.nameExpression, node.comment);
     case "JSDocTemplateTag":
       return children<PhaseType>(node.tagName, node.constraint, node.typeParameters, node.comment);
     case "JSDocImplementsTag":
@@ -318,7 +320,7 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "SourceFile":
       return children<PhaseType>(node.statements, node.endOfFileToken);
     case "ModuleDeclaration":
-      return children<PhaseType>(node.modifiers, node.name, node.body);
+      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.body);
     case "ImportEqualsDeclaration":
       return children<PhaseType>(node.modifiers, node.name, node.moduleReference);
     case "ExportDeclaration":
