@@ -249,13 +249,13 @@ function constructorInputs(count, nullOptionals, reversed) {
   add("WhileStatement", { statement: statement(), expression: expression() }, ["expression", "statement"]);
   add("ForStatement", { statement: statement(), initializer: initializer(), condition: initializer(), incrementor: initializer() }, ["initializer", "condition", "incrementor", "statement"]);
   for (const kind of ["ForInStatement", "ForOfStatement"])
-    add(kind, { awaitModifier: optional(() => child("AwaitKeyword")), initializer: expression(), expression: expression(), statement: statement() }, ["awaitModifier", "initializer", "expression", "statement"]);
+    add(kind, { awaitModifier: kind === "ForInStatement" ? null : optional(() => child("AwaitKeyword")), initializer: expression(), expression: expression(), statement: statement() }, ["awaitModifier", "initializer", "expression", "statement"]);
   for (const kind of ["BreakStatement", "ContinueStatement"]) add(kind, { label: optional(expression) }, ["label"]);
   add("ReturnStatement", { expression: initializer() }, ["expression"]);
   add("WithStatement", { expression: expression(), statement: statement() }, ["expression", "statement"]);
   add("SwitchStatement", { expression: expression(), caseBlock: child("CaseBlock") }, ["expression", "caseBlock"]);
   add("CaseBlock", { clauses: list(() => child("CaseClause")) }, ["clauses"]);
-  for (const kind of ["CaseClause", "DefaultClause"]) add(kind, { expression: initializer(), statements: list(statement) }, ["expression", "statements"]);
+  for (const kind of ["CaseClause", "DefaultClause"]) add(kind, { expression: kind === "CaseClause" ? expression() : null, statements: list(statement) }, ["expression", "statements"]);
   add("ThrowStatement", { expression: expression() }, ["expression"]);
   add("TryStatement", { tryBlock: child("Block"), catchClause: optional(() => child("CatchClause")), finallyBlock: optional(() => child("Block")) }, ["tryBlock", "catchClause", "finallyBlock"]);
   add("CatchClause", { variableDeclaration: optional(() => child("VariableDeclaration")), block: child("Block") }, ["variableDeclaration", "block"]);
@@ -483,6 +483,9 @@ function fixtureChildren(node) {
     case "PrefixUnaryExpression": case "PostfixUnaryExpression": return [node.operand];
     case "YieldExpression": return [...(node.asteriskToken === null ? [] : [node.asteriskToken]), ...(node.expression === null ? [] : [node.expression])];
     case "ForInStatement": case "ForOfStatement": return [...(node.awaitModifier === null ? [] : [node.awaitModifier]), node.initializer, node.expression, node.statement];
+    case "SwitchStatement": return [node.expression, node.caseBlock];
+    case "CaseBlock": return node.clauses.nodes;
+    case "CaseClause": case "DefaultClause": return [...(node.expression === null ? [] : [node.expression]), ...node.statements.nodes];
     case "VariableStatement": return [...(node.modifiers?.nodes ?? []), node.declarationList];
     case "VariableDeclarationList": return node.declarations.nodes;
     case "VariableDeclaration": return [node.name, ...(node.exclamationToken === null ? [] : [node.exclamationToken]),
@@ -511,28 +514,38 @@ function fixtureChildren(node) {
   }
 }
 
-function contextFor(value, additions = {}) {
-  const declarations = new Set([value.tree.tsonic.definition, ...value.items.map(item => item.definition)]);
+function contextFor(value, additions = {}, additionalModules = []) {
+  const declarations = new Set();
   const lexicalScopes = new Map();
-  const bodyRoots = new Map(value.bodies.map(body => [body.root, body.body]));
-  const itemRoots = new Map(value.items.map(item => [item.node, item.definition]));
-  const pending = [{ node: value.tree, body: null, definition: value.tree.tsonic.definition }];
-  const visited = new Set();
-  while (pending.length > 0) {
-    const frame = pending.pop();
-    if (visited.has(frame.node)) continue;
-    visited.add(frame.node);
-    const body = bodyRoots.get(frame.node) ?? frame.body;
-    const definition = itemRoots.get(frame.node.id) ?? frame.definition;
-    const reference = body === null ? { kind: "item", value: { owner: definition, node: frame.node.id } } : bodySource(frame.node.id, body);
-    lexicalScopes.set(JSON.stringify(reference), emptyScope());
-    for (const node of fixtureChildren(frame.node)) pending.push({ node, body, definition });
+  const checkedNodes = new Map();
+  for (const module of [value, ...additionalModules]) {
+    declarations.add(module.tree.tsonic.definition);
+    for (const item of module.items) declarations.add(item.definition);
+    const bodyRoots = new Map(module.bodies.map(body => [body.root, body.body]));
+    const itemRoots = new Map(module.items.map(item => [item.node, item.definition]));
+    const pending = [{ node: module.tree, body: null, definition: module.tree.tsonic.definition }];
+    const visited = new Set();
+    while (pending.length > 0) {
+      const frame = pending.pop();
+      if (visited.has(frame.node)) continue;
+      visited.add(frame.node);
+      const body = bodyRoots.get(frame.node) ?? frame.body;
+      const definition = itemRoots.get(frame.node.id) ?? frame.definition;
+      const item = { kind: "item", value: { owner: definition, node: frame.node.id } };
+      const reference = body === null ? item : bodySource(frame.node.id, body);
+      lexicalScopes.set(JSON.stringify(reference), emptyScope());
+      lexicalScopes.set(JSON.stringify(item), emptyScope());
+      checkedNodes.set(JSON.stringify(reference), frame.node);
+      checkedNodes.set(JSON.stringify(item), frame.node);
+      const children = fixtureChildren(frame.node);
+      for (let ordinal = children.length - 1; ordinal >= 0; ordinal -= 1) pending.push({ node: children[ordinal], body, definition });
+    }
   }
   return { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [] },
     bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
     bindingScopeAt: reference => lexicalScopes.get(JSON.stringify(reference)) ?? null,
     nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
-    nodeExists: reference => { assert.fail(`unexpected external node lookup: ${JSON.stringify(reference)}`); },
+    nodeOf: reference => checkedNodes.get(JSON.stringify(reference)) ?? null,
     localExists: reference => { assert.fail(`unexpected external local lookup: ${JSON.stringify(reference)}`); }, ...additions };
 }
 
@@ -726,6 +739,27 @@ function replaceModuleOwner(value, definition, body) {
   value.tree.tsonic.body = body;
   value.bodies[0].owner = definition;
   value.bodies[0].body = body;
+}
+
+function foreignModuleWith(statements) {
+  const value = moduleWith(statements);
+  value.module = "M[P[%002Fproject];foreign.ts]";
+  const definition = `D[${value.module}]`;
+  replaceModuleOwner(value, definition, `B[${definition};module;0]`);
+  const pending = [value.tree];
+  const seen = new Set();
+  for (const node of pending) {
+    if (seen.has(node)) continue;
+    seen.add(node);
+    node.origin.module = value.module;
+    pending.push(...fixtureChildren(node));
+  }
+  return value;
+}
+
+function referenceIn(value, node, kind = "body") {
+  return kind === "body" ? bodySource(node.id, value.bodies[0].body) :
+    { kind: "item", value: { owner: value.tree.tsonic.definition, node: node.id } };
 }
 
 for (const family of ["definition", "body"]) {
@@ -1082,7 +1116,11 @@ nodes.push(block); return block; }
     ["mutable-capture.ts", 'import type { HirCoreCapture } from "./ir-hir/contract.js"; export function bad(value:HirCoreCapture){ value.flowState={kind:"available",value:null}; }', 2540],
     ["mutable-range.ts", 'import type { TextRange } from "./ir-hir/contract.js"; export function bad(value:TextRange){ value.pos=0; }', 2540],
     ["missing-context.ts", 'import { verifyHir } from "./ir-hir/index.js"; import type { HirModule } from "./ir-hir/contract.js"; export function bad(value:HirModule){ return verifyHir(value); }', 2554],
-    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2741],
+    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
+    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
+    ["retired-for-kind-parameter.ts", 'import type { ForInOrOfStatement, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=ForInOrOfStatement<SyntaxPhase,"ForInStatement">;', 2314],
+    ["retired-clause-kind-parameter.ts", 'import type { CaseOrDefaultClause, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=CaseOrDefaultClause<SyntaxPhase,"CaseClause">;', 2314],
     ["missing-child.ts", 'import type { SyntaxList, SyntaxPhase } from "./ir-hir/contract.js"; export const incomplete:SyntaxList<SyntaxPhase>={kind:"SyntaxList"};', 2740],
     ["unknown-kind.ts", 'import type { HirNode } from "./ir-hir/contract.js"; export function bad(value:HirNode){ value.kind="InventedNode"; }', 2540],
     ["private-helper.ts", 'import { createHirSchema } from "./ir-hir/index.js"; export const helper=createHirSchema;', 2305],
@@ -1170,8 +1208,7 @@ test("HIR memory-capture-owner rejects one nonexistent original occurrence witho
   const value = expressionModule(expression);
   assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), [
     violation("cross-owner-qualified", nodeSite(2), "qualified body node must exist in its named owner"),
-    violation("node-reference", nodeSite(2), "node must exist in the module arena"),
-    violation("memory-capture-owner", nodeSite(2), "capture occurrence must exist in this module"),
+    violation("memory-capture-owner", nodeSite(2), "capture occurrence must exist in the canonical checked-node inventory"),
   ]);
 });
 
@@ -1200,6 +1237,120 @@ test("HIR memory-layout-acyclic detects a type-correct value-to-field-to-value r
   const decoded = roundtrip(immutableTree(value), "metadata reference cycle");
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
     violation("memory-layout-acyclic", nodeSite(2), "captured layout graph must be acyclic"),
+  ]);
+});
+
+function foreignMemoryFixture(kind = "body") {
+  const expressions = [callExpression(), callExpression(), callExpression()];
+  const foreign = foreignModuleWith(expressions.map(expression => syntax("ExpressionStatement", 0, { expression })));
+  const references = expressions.map(expression => referenceIn(foreign, expression, kind));
+  const layout = layoutCapture("value", references[0]);
+  layout.fields = available([references[1]]);
+  const field = layoutCapture("field", references[1]);
+  field.selector = referenceIn(foreign, expressions[1].expression, kind);
+  field.fieldLayout = available(references[2]);
+  const leaf = layoutCapture("value", references[2]);
+  expressions[0].tsonic.memory = available(layout);
+  expressions[1].tsonic.memory = available(field);
+  expressions[2].tsonic.memory = available(leaf);
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  const array = layoutCapture("array");
+  array.element = available(references[0]);
+  expression.tsonic.memory = available(array);
+  return { value, foreign, expressions, references, expression, array, layout, field, leaf };
+}
+
+for (const kind of ["body", "item"]) test(`HIR ${kind}-qualified foreign descriptor graph uses the actual checked snapshots`, () => {
+  const { value, foreign, expressions, references } = foreignMemoryFixture(kind);
+  immutableTree(foreign);
+  const decoded = roundtrip(immutableTree(value), `foreign memory/${kind}`);
+  const context = contextFor(decoded.value, {}, [foreign]);
+  assert.equal(context.nodeOf(references[0]) === expressions[0], true, "the reader returns the genuine checked node, not an existence placeholder");
+  assert.equal(context.nodeOf(references[1]) === expressions[1], true);
+  assert.equal(context.nodeOf(references[2]) === expressions[2], true);
+  assert.deepStrictEqual(product.verifyHir(foreign, contextFor(foreign, {}, [decoded.value])), []);
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value, {}, [foreign])), []);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, context), []);
+});
+
+test("HIR a real foreign descriptor edge may close a cycle through the local descriptor", () => {
+  const { value, foreign, field } = foreignMemoryFixture();
+  field.fieldLayout = available(bodySource(2));
+  const decoded = roundtrip(immutableTree(value), "foreign to local layout cycle");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), [
+    violation("memory-layout-acyclic", nodeSite(2), "captured layout graph must be acyclic"),
+  ]);
+});
+
+test("HIR shared inline descriptor records retain value semantics and complete lexical binding reads after parsing", () => {
+  const first = callExpression();
+  const second = callExpression();
+  const value = moduleWith([syntax("ExpressionStatement", 0, { expression: first }), syntax("ExpressionStatement", 0, { expression: second })]);
+  const shared = layoutCapture("value", bodySource(first.id));
+  shared.bindings = available(emptyBindings());
+  first.tsonic.memory = available(shared);
+  second.tsonic.memory = available(shared);
+  const decoded = roundtrip(immutableTree(value), "shared inline memory record");
+  const decodedFirst = decoded.value.tree.statements.nodes[0].expression;
+  const decodedSecond = decoded.value.tree.statements.nodes[1].expression;
+  assert.equal(decodedFirst.tsonic.memory.value === decodedSecond.tsonic.memory.value, false,
+    "inline descriptor identity is not an arena identity");
+  for (const input of [value, decoded.value]) {
+    const reads = [];
+    const context = contextFor(input, { bindingScopeAt: reference => {
+      reads.push(reference);
+      return emptyScope();
+    } });
+    assert.deepStrictEqual(product.verifyHir(input, context), []);
+    assert.deepStrictEqual(reads, [bodySource(first.id), bodySource(first.id)], "every complete published value retains its lexical scope pair");
+  }
+});
+
+test("HIR incompatible descriptor views of one actual occurrence retain the complete owner violation", () => {
+  for (const reversed of [false, true]) {
+    const first = callExpression();
+    const second = callExpression();
+    const value = moduleWith([syntax("ExpressionStatement", 0, { expression: first }), syntax("ExpressionStatement", 0, { expression: second })]);
+    first.tsonic.memory = available(layoutCapture(reversed ? "array" : "value", bodySource(first.id)));
+    second.tsonic.memory = available(layoutCapture(reversed ? "value" : "array", bodySource(first.id)));
+    const decoded = roundtrip(immutableTree(value), `incompatible descriptor views/${reversed}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), [
+      violation("memory-capture-owner", nodeSite(second.id), "one occurrence cannot own incompatible descriptor kinds"),
+    ]);
+  }
+});
+
+for (const missing of [true, false]) test(`HIR foreign descriptor endpoint checks ${missing ? "absent" : "wrong-kind"} actual metadata`, () => {
+  const { value, foreign, expressions, layout } = foreignMemoryFixture();
+  if (missing) expressions[1].tsonic.memory = available(null);
+  else layout.fields = available([referenceIn(foreign, expressions[2])]);
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value, {}, [immutableTree(foreign)])), [
+    violation("memory-capture-reference", { kind: "node", node: referenceIn(foreign, expressions[0]) },
+      "layout edge must name the required captured descriptor kind"),
+  ]);
+});
+
+for (const operation of ["size", "alignment", "stride", "field-offset"])
+  test(`HIR ${operation} observation resolves genuine foreign layout and field facts`, () => {
+    const { value, foreign, expression, references } = foreignMemoryFixture();
+    const observation = observationCapture(operation);
+    observation.layout = available(references[0]);
+    if (operation === "field-offset") observation.field = available(references[1]);
+    expression.tsonic.observation = available(observation);
+    const decoded = roundtrip(immutableTree(value), `foreign observation/${operation}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), []);
+  });
+
+for (const operation of ["size", "field-offset"]) test(`HIR ${operation} refuses an existing foreign node with the wrong descriptor kind`, () => {
+  const { value, foreign, expression, references } = foreignMemoryFixture();
+  const observation = observationCapture(operation);
+  if (operation === "size") observation.layout = available(references[1]);
+  else observation.field = available(references[0]);
+  expression.tsonic.observation = available(observation);
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value, {}, [immutableTree(foreign)])), [
+    violation("memory-capture-reference", nodeSite(2), operation === "size" ?
+      "observation layout must name a value or array descriptor" : "observation field must name a field descriptor"),
   ]);
 });
 
@@ -1315,6 +1466,53 @@ function assertInvalidText(text, offset, expected) {
     line: prefix.length, column: prefix[prefix.length - 1].length + 1, expected,
     found: offset === text.length ? null : text.slice(offset, offset + 1) });
 }
+
+function switchModule() {
+  const clause = syntax("CaseClause", 0, { expression: nameExpression("match"), statements: nodeList([syntax("EmptyStatement", 0)]) });
+  const fallback = syntax("DefaultClause", 0, { expression: null, statements: nodeList([]) });
+  const block = syntax("CaseBlock", 0, { clauses: nodeList([clause, fallback]) });
+  const statement = syntax("SwitchStatement", 0, { expression: nameExpression("subject"), caseBlock: block });
+  return { value: moduleWith([statement]), clause, fallback };
+}
+
+test("HIR kind-fixed case and default fields roundtrip as their declared arms and refuse the opposite field shape", () => {
+  const { value, clause, fallback } = switchModule();
+  const decoded = roundtrip(immutableTree(value), "CaseClause expression/DefaultClause null");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  const caseDeclaration = decoded.text.indexOf(`n:${clause.id}=CaseClause(`);
+  const caseField = decoded.text.indexOf(`expression=n:${clause.expression.id}`, caseDeclaration);
+  assert.equal(caseDeclaration >= 0 && caseField > caseDeclaration, true, "the error belongs to the real CaseClause expression field");
+  const missing = decoded.text.slice(0, caseField) + decoded.text.slice(caseField).replace(`expression=n:${clause.expression.id}`, "expression=null");
+  assertInvalidText(missing, caseField + "expression=".length, ["Expression"]);
+  const defaultDeclaration = decoded.text.indexOf(`n:${fallback.id}=DefaultClause(`);
+  const defaultField = decoded.text.indexOf("expression=null", defaultDeclaration);
+  assert.equal(defaultDeclaration >= 0 && defaultField > defaultDeclaration, true, "the opposite belongs to DefaultClause, not a different null field");
+  const extra = decoded.text.slice(0, defaultField) + decoded.text.slice(defaultField).replace("expression=null", `expression=n:${clause.expression.id}`);
+  assertInvalidText(extra, defaultField + "expression=".length, ["null"]);
+});
+
+function iterationModule(kind, awaited) {
+  const statement = syntax(kind, 0, { awaitModifier: awaited ? syntax("AwaitKeyword", 0) : null,
+    initializer: nameExpression("binding"), expression: nameExpression("source"), statement: syntax("EmptyStatement", 0),
+    tsonic: { core: absentCore(), protocol: unavailable() } });
+  return { value: moduleWith([statement]), statement };
+}
+
+for (const [kind, awaited] of [["ForInStatement", false], ["ForOfStatement", false], ["ForOfStatement", true]])
+  test(`HIR kind-fixed ${kind} retains ${awaited ? "await" : "null"} without manufacturing an illegal ForIn arm`, () => {
+    const { value } = iterationModule(kind, awaited);
+    const decoded = roundtrip(immutableTree(value), `${kind}/${awaited}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  });
+
+test("HIR ForIn rejects the real nonnull await field with an exact invalid-text offset", () => {
+  const { value, statement } = iterationModule("ForOfStatement", true);
+  const text = product.printHir(immutableTree(value)).replace("=ForOfStatement(", "=ForInStatement(");
+  const declaration = text.indexOf(`n:${statement.id}=ForInStatement(`);
+  const field = text.indexOf(`awaitModifier=n:${statement.awaitModifier.id}`, declaration);
+  assert.equal(declaration >= 0 && field > declaration, true);
+  assertInvalidText(text, field + "awaitModifier=".length, ["null"]);
+});
 
 test("HIR malformed typed fields retain exact independently selected record and element offsets", () => {
   const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
@@ -1658,6 +1856,50 @@ function coreCarrier() {
   call.arguments = nodeList([assertion]);
   return { module: expressionModule(call), call };
 }
+
+for (const kind of ["body", "item"]) test(`HIR Core markers inspect the ${kind}-qualified foreign type kind rather than a Boolean`, () => {
+  const type = syntax("AnyKeyword", 0, { tsonic: typeMetadata() });
+  const assertion = syntax("TypeAssertionExpression", 0, { type, expression: nameExpression("argument"), tsonic: expressionMetadata() });
+  const invocation = callExpression();
+  invocation.arguments = nodeList([assertion]);
+  const foreign = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: invocation })]);
+  for (const target of [type, assertion.expression, foreign.tree.endOfFileToken]) {
+    const { module: value, call } = coreCarrier();
+    call.tsonic.core.markers = available({ struct: null,
+      field: { name: "field", typeNode: referenceIn(foreign, target, kind), type: available(0), readonly: true },
+      defaultValue: null, jsString: false });
+    const decoded = roundtrip(immutableTree(value), `foreign marker/${kind}/${target.kind}`);
+    const expected = target === type ? [] : [violation("core-capture-kind", nodeSite(2), "marker type reference must point to a type syntax node")];
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), expected);
+  }
+});
+
+for (const kind of ["body", "item"]) test(`HIR attribute occurrence checks the genuine foreign ${kind} invocation and declaration group`, () => {
+  const invocation = callExpression();
+  const foreign = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: invocation })]);
+  for (const target of [invocation, invocation.expression]) {
+    const { module: value, call } = coreCarrier();
+    call.tsonic.core.attribute = available({ occurrence: referenceIn(foreign, target, kind), applicationTarget: bodySource(6),
+      selectedMember: null, applicationMemberKind: null, applicationPlacement: null,
+      applicationParameterName: null, applicationTargetSpecifier: null, kind: "builder-state" });
+    const decoded = roundtrip(immutableTree(value), `foreign attribute/${kind}/${target.kind}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), target === invocation ? [] : [
+      violation("core-capture-kind", nodeSite(2), "attribute capture occurrence must name its invocation"),
+    ]);
+  }
+});
+
+for (const kind of ["body", "item"]) test(`HIR missing foreign ${kind} data has the complete qualified-reference and Core-reference result`, () => {
+  const foreign = foreignModuleWith([]);
+  const { module: value, call } = coreCarrier();
+  const reference = referenceIn(foreign, { id: 99 }, kind);
+  call.tsonic.core.markers = available({ struct: null, field: null,
+    defaultValue: { typeNode: reference, type: available(0) }, jsString: false });
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value, {}, [immutableTree(foreign)])), [
+    violation("cross-owner-qualified", nodeSite(2), `qualified ${kind} node must exist in its named owner`),
+    violation("core-capture-reference", nodeSite(2), "Core capture reference must retain an existing qualified source node"),
+  ]);
+});
 
 const capturedType = () => ({ type: available(0), component: { root: bodySource(6), path: [] } });
 const markerField = (name = "field", readonly = true) => ({ name, typeNode: bodySource(5), type: available(0), readonly });

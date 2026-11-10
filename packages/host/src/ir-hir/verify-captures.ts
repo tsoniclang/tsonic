@@ -308,7 +308,6 @@ export function createHirSchema(): HirSchema {
 
 export interface HirCaptureReaders {
   readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
-  readonly nodeExists: (reference: SourceNodeRef) => boolean;
   readonly referenceOf: (node: HirNode) => SourceNodeRef;
 }
 
@@ -388,7 +387,7 @@ interface CaptureEntry {
 }
 
 interface MemoryVisit {
-  readonly entry: CaptureEntry;
+  readonly node: HirNode;
   readonly leaving: boolean;
   readonly next: MemoryVisit | null;
 }
@@ -400,10 +399,15 @@ function sourceReferenceValue(value: unknown, hirSchema: HirSchema): value is So
 function sameNode(left: SourceNodeRef, right: SourceNodeRef, readers: HirCaptureReaders): boolean {
   const first = readers.nodeOf(left);
   const second = readers.nodeOf(right);
-  if (first !== null && second !== null) return first === second;
-  return left.kind === right.kind && Object.is(left.value.node, right.value.node) &&
-    (left.kind === "body" && right.kind === "body" ? left.value.body === right.value.body :
-      left.kind === "item" && right.kind === "item" && left.value.owner === right.value.owner);
+  return first !== null && second !== null && first === second;
+}
+
+function memoryAt(node: HirNode): MemoryCapture | null {
+  const metadata = node.tsonic;
+  if (metadata === null) return null;
+  const value = "value" in metadata ? metadata.value : metadata;
+  if (!("memory" in value)) return null;
+  return value.memory.kind === "available" ? value.memory.value : null;
 }
 
 function memoryEdges(capture: MemoryCapture): readonly SourceNodeRef[] {
@@ -415,45 +419,65 @@ function memoryEdges(capture: MemoryCapture): readonly SourceNodeRef[] {
   }
 }
 
-function verifyMemoryGraph(entries: readonly CaptureEntry[], captures: ReadonlyMap<HirNode, CaptureEntry>,
-  readers: HirCaptureReaders, report: HirReport): void {
-  const colors = new Map<CaptureEntry, "active" | "complete">();
-  for (const root of entries) {
+function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCaptureReaders, report: HirReport): void {
+  const pendingEntries = [...entries];
+  const readNodes = new Set<HirNode>();
+  const edges = new Map<HirNode, Set<HirNode>>();
+  const kinds = new Map<HirNode, MemoryCapture["kind"]>();
+  const sites = new Map<HirNode, HirSite>();
+  for (const entry of pendingEntries) {
+    const owner = readers.nodeOf(entry.value.occurrence);
+    if (owner === null) continue;
+    const previous = kinds.get(owner);
+    if (previous !== undefined && previous !== entry.value.kind)
+      report("memory-capture-owner", entry.site, "one occurrence cannot own incompatible descriptor kinds");
+    if (previous === undefined) kinds.set(owner, entry.value.kind);
+    if (!sites.has(owner)) sites.set(owner, entry.site);
+    let targets = edges.get(owner);
+    if (targets === undefined) { targets = new Set(); edges.set(owner, targets); }
+    for (const reference of memoryEdges(entry.value)) {
+      const node = readers.nodeOf(reference);
+      const captured = node === null ? null : memoryAt(node);
+      const occurrence = captured === null ? null : readers.nodeOf(captured.occurrence);
+      if (captured === null || occurrence === null || (entry.value.kind === "value" ? captured.kind !== "field" :
+        captured.kind !== "value" && captured.kind !== "array"))
+        report("memory-capture-reference", entry.site, "layout edge must name the required captured descriptor kind");
+      if (occurrence !== null) targets.add(occurrence);
+      if (node !== null && captured !== null && !readNodes.has(node)) {
+        readNodes.add(node);
+        pendingEntries.push({ value: captured, site: { kind: "node", node: captured.occurrence } });
+      }
+    }
+  }
+  const colors = new Map<HirNode, "active" | "complete">();
+  for (const root of edges.keys()) {
     if (colors.has(root)) continue;
-    let pending: MemoryVisit | null = { entry: root, leaving: false, next: null };
+    let pending: MemoryVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
-      if (frame.leaving) { colors.set(frame.entry, "complete"); continue; }
-      const previous = colors.get(frame.entry);
+      if (frame.leaving) { colors.set(frame.node, "complete"); continue; }
+      const previous = colors.get(frame.node);
       if (previous === "complete") continue;
       if (previous === "active") {
-        report("memory-layout-acyclic", frame.entry.site, "captured layout graph must be acyclic");
+        const site = sites.get(frame.node);
+        if (site !== undefined) report("memory-layout-acyclic", site, "captured layout graph must be acyclic");
         continue;
       }
-      colors.set(frame.entry, "active");
-      pending = { entry: frame.entry, leaving: true, next: pending };
-      const edges = memoryEdges(frame.entry.value);
-      for (let ordinal = edges.length - 1; ordinal >= 0; ordinal -= 1) {
-        const reference = edges[ordinal];
-        if (reference === undefined) continue;
-        const node = readers.nodeOf(reference);
-        const child = node === null ? undefined : captures.get(node);
-        if (!readers.nodeExists(reference) || (node !== null && child === undefined) ||
-          (child !== undefined && (frame.entry.value.kind === "value" ? child.value.kind !== "field" :
-            child.value.kind !== "value" && child.value.kind !== "array"))) {
-          report("memory-capture-reference", frame.entry.site, "layout edge must name the required captured descriptor kind");
-        }
-        if (child !== undefined) pending = { entry: child, leaving: false, next: pending };
+      colors.set(frame.node, "active");
+      pending = { node: frame.node, leaving: true, next: pending };
+      const targets = [...(edges.get(frame.node) ?? [])];
+      for (let ordinal = targets.length - 1; ordinal >= 0; ordinal -= 1) {
+        const node = targets[ordinal];
+        if (node !== undefined) pending = { node, leaving: false, next: pending };
       }
     }
   }
 }
 
-function verifyObservation(observation: HirObservationCapture, node: HirNode, captures: ReadonlyMap<HirNode, CaptureEntry>,
-  site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
+function verifyObservation(observation: HirObservationCapture, node: HirNode, site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
   const occurrence: SourceNodeRef = { kind: "body", value: observation.occurrence };
-  if (!sameNode(occurrence, readers.referenceOf(node), readers) || !readers.nodeExists(occurrence))
+  if (!sameNode(occurrence, readers.referenceOf(node), readers))
     report("observation-capture-owner", site, "observation must retain its exact owning occurrence");
   if (observation.operation === "field-offset") {
     if (observation.selector === null || observation.field.kind === "available" && observation.field.value === null)
@@ -462,15 +486,14 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, ca
     report("observation-capture-owner", site, "non-field observation cannot carry a field selection");
   if (observation.layout.kind === "available") {
     const layout = readers.nodeOf(observation.layout.value);
-    const captured = layout === null ? undefined : captures.get(layout);
-    if (!readers.nodeExists(observation.layout.value) || layout !== null && captured === undefined || captured !== undefined &&
-      captured.value.kind !== "value" && captured.value.kind !== "array")
+    const captured = layout === null ? null : memoryAt(layout);
+    if (captured === null || captured.kind !== "value" && captured.kind !== "array")
       report("memory-capture-reference", site, "observation layout must name a value or array descriptor");
   }
   if (observation.field.kind === "available" && observation.field.value !== null) {
     const field = readers.nodeOf(observation.field.value);
-    const captured = field === null ? undefined : captures.get(field);
-    if (!readers.nodeExists(observation.field.value) || field !== null && captured === undefined || captured !== undefined && captured.value.kind !== "field")
+    const captured = field === null ? null : memoryAt(field);
+    if (captured === null || captured.kind !== "field")
       report("memory-capture-reference", site, "observation field must name a field descriptor");
   }
 }
@@ -478,8 +501,6 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, ca
 export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCaptureReaders, report: HirReport,
   hirSchema: HirSchema, bindings: HirBindingRequest[]): void {
   const entries: CaptureEntry[] = [];
-  const captures = new Map<HirNode, CaptureEntry>();
-  const seen = new Set<MemoryCapture>();
   const observations: { readonly value: HirObservationCapture; readonly node: HirNode; readonly site: HirSite }[] = [];
   for (const node of nodes) {
     const metadata = node.tsonic;
@@ -487,22 +508,15 @@ export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCapture
     const site: HirSite = { kind: "node", node: readers.referenceOf(node) };
     const value = "value" in metadata ? metadata.value : metadata;
     const memory = "memory" in value ? value.memory : null;
-    if (memory !== null && memory.kind === "available" && memory.value !== null && !seen.has(memory.value)) {
+    if (memory !== null && memory.kind === "available" && memory.value !== null) {
       const capture = memory.value;
-      seen.add(capture);
       const entry: CaptureEntry = { value: capture, site };
       entries.push(entry);
       if (capture.bindings.kind === "available")
         bindings.push({ kind: "occurrence", occurrence: capture.occurrence, vector: capture.bindings.value, site });
       const occurrence = readers.nodeOf(capture.occurrence);
-      if (occurrence === null || !readers.nodeExists(capture.occurrence))
-        report("memory-capture-owner", site, "capture occurrence must exist in this module");
-      else {
-        const previous = captures.get(occurrence);
-        if (previous !== undefined && previous.value.kind !== capture.kind)
-          report("memory-capture-owner", site, "one occurrence cannot own incompatible descriptor kinds");
-        else if (previous === undefined) captures.set(occurrence, entry);
-      }
+      if (occurrence === null)
+        report("memory-capture-owner", site, "capture occurrence must exist in the canonical checked-node inventory");
       if (capture.kind === "field" && capture.primary.kind === "available" && capture.primary.value !== null &&
         capture.selectedDeclarations.kind === "available" && !capture.selectedDeclarations.value.includes(capture.primary.value))
         report("memory-capture-reference", site, "primary field declaration must belong to its selected declaration group");
@@ -516,7 +530,7 @@ export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCapture
     if (!("core" in metadata)) continue;
     const coreCapture = metadata.core;
     walkHirData({ value: coreCapture, shape: "HirCoreCapture", node, body: null, site }, hirSchema, data => {
-      if (data.shape === "SourceNodeRef" && sourceReferenceValue(data.value, hirSchema) && !readers.nodeExists(data.value))
+      if (data.shape === "SourceNodeRef" && sourceReferenceValue(data.value, hirSchema) && readers.nodeOf(data.value) === null)
         report("core-capture-reference", site, "Core capture reference must retain an existing qualified source node");
     });
     if (coreCapture.markers.kind === "available") {
@@ -540,11 +554,14 @@ export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCapture
       const occurrence = readers.nodeOf(attribute.occurrence);
       if (occurrence !== null && occurrence.kind !== "CallExpression")
         report("core-capture-kind", site, "attribute capture occurrence must name its invocation");
-      if (attribute.selectedMember !== null && attribute.selectedMember.selectedDeclaration !== null &&
-        !attribute.selectedMember.declarations.some(reference => sameNode(reference, attribute.selectedMember?.selectedDeclaration ?? reference, readers)))
-        report("core-capture-reference", site, "attribute selected declaration must belong to its declaration group");
+      const selected = attribute.selectedMember;
+      if (selected !== null) {
+        const declaration = selected.selectedDeclaration;
+        if (declaration !== null && !selected.declarations.some(reference => sameNode(reference, declaration, readers)))
+          report("core-capture-reference", site, "attribute selected declaration must belong to its declaration group");
+      }
     }
   }
-  verifyMemoryGraph(entries, captures, readers, report);
-  for (const observation of observations) verifyObservation(observation.value, observation.node, captures, observation.site, readers, report);
+  verifyMemoryGraph(entries, readers, report);
+  for (const observation of observations) verifyObservation(observation.value, observation.node, observation.site, readers, report);
 }

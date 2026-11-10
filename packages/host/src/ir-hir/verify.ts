@@ -5,7 +5,7 @@ import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
 import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
-import { hirLexicalBodyRanges, localSourceNode, sourceNodeExists, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import { hirLexicalBodyRanges, localSourceNode, sourceNodeExists, sourceNodeOf, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
@@ -600,12 +600,11 @@ export const verifyHir: VerifyHir = (module, context) => {
   literalViolations(module, inventory, report, roots, hirSchema);
   obligationViolations(module, inventory, context, report);
   const readers: HirCaptureReaders = {
-    nodeOf: reference => localSourceNode(reference, module, inventory),
-    nodeExists: reference => sourceNodeExists(reference, module, inventory, context),
+    nodeOf: reference => sourceNodeOf(reference, module, inventory, context),
     referenceOf: node => hirNodeSource(node, inventory, module),
   };
   verifyHirCaptures(inventory.nodes, readers, report, hirSchema, requests);
   verifyHirPlaces(inventory, readers, report);
-  violations.push(...verifyBindingVectors(requests, context));
+  violations.push(...verifyBindingVectors(requests, context, readers.nodeOf));
   return Object.freeze(violations);
 };

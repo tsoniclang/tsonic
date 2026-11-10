@@ -34,6 +34,7 @@ function bindingRule(rule: TypeRule): HirRule {
 export function verifyBindingVectors(
   requests: readonly HirBindingRequest[],
   context: HirVerificationContext,
+  nodeOf: (reference: SourceNodeRef) => HirNode | null,
 ): readonly Violation<HirRule, HirSite>[] {
   const selected: HirBindingRequest[] = [];
   const inputs: BindingVerificationInput[] = [];
@@ -55,7 +56,7 @@ export function verifyBindingVectors(
   if (inputs.length > 0) {
     const grouped = new Map<number, BindingFailure[]>();
     for (const violation of verifyTypes({ table: context.types, bindings: inputs, evidence: [],
-      nominalOf: context.nominalOf, nodeExists: context.nodeExists, localExists: context.localExists })) {
+      nominalOf: context.nominalOf, nodeExists: reference => nodeOf(reference) !== null, localExists: context.localExists })) {
       if (violation.site.kind !== "binding") continue;
       const failure: BindingFailure = { rule: violation.rule, family: violation.site.family,
         position: violation.site.position, detail: violation.detail };
@@ -95,22 +96,18 @@ export function validHirIndex(value: number): boolean {
 
 export function sourceNodeExists(reference: SourceNodeRef, module: HirModule,
   inventory: HirInventory, context: HirVerificationContext): boolean {
-  if (!validHirIndex(reference.value.node)) return false;
-  if (reference.kind === "body") {
-    const path = decodeBodyId(reference.value.body);
-    if (path.kind === "invalid") return false;
-    const owner = decodeDefId(path.value.owner);
-    if (owner.kind === "invalid") return false;
-    if (owner.value.module !== module.module) return context.nodeExists(reference);
-    const body = inventory.bodies.get(reference.value.body);
-    const node = inventory.nodesById.get(reference.value.node);
-    return body !== undefined && node !== undefined && inventory.owners.get(node) === body;
-  }
-  const path = decodeDefId(reference.value.owner);
-  if (path.kind === "invalid") return false;
-  if (path.value.module !== module.module) return context.nodeExists(reference);
-  const node = inventory.nodesById.get(reference.value.node);
-  return node !== undefined && inventory.itemOwners.get(node) === reference.value.owner;
+  return sourceNodeOf(reference, module, inventory, context) !== null;
+}
+
+export function sourceNodeOf(reference: SourceNodeRef, module: HirModule,
+  inventory: HirInventory, context: HirVerificationContext): HirNode | null {
+  if (!validHirIndex(reference.value.node)) return null;
+  const body = reference.kind === "body" ? decodeBodyId(reference.value.body) : null;
+  const definition = reference.kind === "item" ? reference.value.owner : body?.kind === "decoded" ? body.value.owner : null;
+  if (definition === null) return null;
+  const owner = decodeDefId(definition);
+  if (owner.kind === "invalid") return null;
+  return owner.value.module === module.module ? localSourceNode(reference, module, inventory) : context.nodeOf(reference);
 }
 
 export function localExists(reference: LocalRef, module: HirModule,
@@ -238,6 +235,8 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         else if (prefix === "sig" && (!validHirIndex(value) || context.types.signatures[value] === undefined))
           report("signature-reference", data.site, "signature must exist in the supplied table");
         else if (prefix === "n" && data.field !== "id" && data.shape === "NodeId" &&
+          !(data.field === "node" && data.parent !== null &&
+            (isNodeRef(data.parent, hirSchema) || checkHirShape(data.parent, "ItemNodeRef", hirSchema))) &&
           (!validHirIndex(value) || !inventory.nodesById.has(value)))
           report("node-reference", data.site, "node must exist in the module arena");
         else if (prefix === "cand" && data.field !== "id" &&
