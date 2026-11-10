@@ -1,7 +1,7 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
@@ -153,6 +153,7 @@ export type ProgramSite =
   | { readonly kind: "body"; readonly instance: BodyInstance }
   | { readonly kind: "artifact"; readonly artifact: ArtifactReference; readonly bindings: ArtifactBindings };
 
+export type CanonicalizeProgram = (program: HostProgram, publication: TypePublication) => HostProgram;
 export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;

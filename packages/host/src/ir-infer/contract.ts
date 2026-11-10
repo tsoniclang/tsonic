@@ -1,6 +1,6 @@
-import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, TyId } from "../ids/contract.js";
+import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, Result, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, PassingMode, TypeComponent, TypeEvidence, TypeOf, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator } from "../ir-hir/contract.js";
 
 export type InferredPart =
@@ -620,9 +620,9 @@ export interface Solution {
 export type InferRule = "group-order" | "group-ownership" | "inferred-part-identity" | "variable-id-dense" | "variable-order"
   | "constraint-reference" | "candidate-reference" | "candidate-order" | "open-term-resolves" | "open-term-owner"
   | "contribution-key-unique" | "contribution-order" | "contribution-role"
-  | "contribution-reads-bounds-declared" | "contribution-footprint-complete" | "selection-precedes-candidate"
-  | "final-reads-only" | "one-publication-per-variable" | "solution-total" | "solution-order"
-  | "no-open-in-solution" | "check-recorded" | "check-no-republication" | "decision-kind"
+  | "contribution-reads-bounds-declared" | "contribution-footprint-complete"
+  | "one-publication-per-variable" | "solution-total" | "solution-order"
+  | "no-open-in-solution" | "check-recorded" | "decision-kind"
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
   | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation";
@@ -636,11 +636,23 @@ export type InferSite =
   | { readonly kind: "body"; readonly body: BodyId }
   | { readonly kind: "proof"; readonly constraint: ConstraintRef; readonly step: number };
 
+export interface InferenceDeclaration {
+  readonly scope: BindingScope;
+  readonly parameterCount: number | null;
+  readonly endpoints: readonly HirCallableEndpoint[];
+}
+
 export interface InferVerificationInput {
   readonly group: InferenceGroup;
   readonly constraints: readonly ConstraintSet[];
   readonly contributions: readonly AtomicContribution[];
   readonly solution: Solution | null;
+  readonly types: TypeTable;
+  readonly bindingScopes: readonly BindingScope[];
+  readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly localExists: (local: LocalRef) => boolean;
 }
 
 export type PrintConstraints = (constraints: ConstraintSet) => string;
@@ -651,4 +663,4 @@ export type PrintInferenceGroup = (group: InferenceGroup) => string;
 export type ParseInferenceGroup = (text: string) => TextParseResult<InferenceGroup>;
 export type PrintSolution = (solution: Solution) => string;
 export type ParseSolution = (text: string) => TextParseResult<Solution>;
-export type VerifyInference = (typeOf: TypeOf, input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];
+export type VerifyInference = (input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];

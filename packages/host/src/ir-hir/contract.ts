@@ -4591,6 +4591,7 @@ export type ParseHir = (text: string) => TextParseResult<HirModule>;
 export interface HirVerificationContext {
   readonly types: TypeTable;
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly bindingScopeAt: (node: SourceNodeRef) => BindingScope | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeExists: (node: SourceNodeRef) => boolean;
   readonly localExists: (local: LocalRef) => boolean;
