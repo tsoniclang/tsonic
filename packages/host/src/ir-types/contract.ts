@@ -347,7 +347,14 @@ export interface TypePublication {
   readonly types: readonly TyId[];
   readonly signatures: readonly SigId[];
 }
-export type ExportTypes = (interner: TypeInterner) => TypePublication;
+export interface TypePublicationLimits {
+  readonly maximumWork: number;
+  readonly maximumCreatedRecords: number;
+}
+export type TypePublicationResult =
+  | { readonly kind: "complete"; readonly value: TypePublication }
+  | { readonly kind: "resource-limit"; readonly dimension: "work" | "created-records"; readonly maximum: number };
+export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
 export type Substitute = (interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<TyId>;
 export type PrintTypes = (table: TypeTable) => string;
 export type ParseTypes = (text: string) => TextParseResult<TypeTable>;
