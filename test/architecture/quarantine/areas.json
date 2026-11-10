@@ -1,0 +1,32 @@
+{
+  "areas": [
+    {
+      "directory": "_old/reference",
+      "manifest": "test/architecture/quarantine/reference.paths",
+      "count": 1556,
+      "digest": "f596f4d11c42fb54b99572983715c990c5d24286d65da3ebc7fece4b714caa24"
+    },
+    {
+      "directory": "_old/host-modular-20261109",
+      "manifest": "test/architecture/quarantine/host-modular.paths",
+      "count": 61,
+      "digest": "d0f9f06b330f935b0e4fe72934af682f55f1aabb95e96c4d40f55becddf5fdd8"
+    }
+  ],
+  "oldPackages": ["cli", "create-tsonic", "source-core", "target-api", "js-source-profile"],
+  "oldRoots": {
+    "hostSource": "packages/host/src",
+    "packages": ["packages/cli", "packages/create-tsonic", "packages/source-core", "packages/target-api", "packages/js-source-profile"],
+    "tests": {
+      "host": "test/host",
+      "hostSpec": "test/host-spec",
+      "cliBuild": "test/cli-build",
+      "sourceCore": "test/source-core",
+      "targetApi": "test/target-api",
+      "jsSourceProfile": "test/js-source-profile",
+      "fixtures": "test/fixtures",
+      "helpers": "test/helpers",
+      "infrastructure": "test/infrastructure"
+    }
+  }
+}

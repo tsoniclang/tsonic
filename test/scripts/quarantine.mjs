@@ -4,16 +4,12 @@ import { lstatSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
 import { isAbsolute, posix, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const referencePin = "e9a3764bc1291823d9ef97ffe2879c7d58d87cfd";
-const modularPin = "ad9beca6c46dd5bdb9c3ed302e26fbd9f9975363";
-const areas = Object.freeze([
-  Object.freeze({ directory: "_old/reference", pin: referencePin,
-    manifest: "test/architecture/quarantine/reference.paths", count: 1556,
-    digest: "f596f4d11c42fb54b99572983715c990c5d24286d65da3ebc7fece4b714caa24" }),
-  Object.freeze({ directory: "_old/host-modular-20261109", pin: modularPin,
-    manifest: "test/architecture/quarantine/host-modular.paths", count: 61,
-    digest: "d0f9f06b330f935b0e4fe72934af682f55f1aabb95e96c4d40f55becddf5fdd8" }),
+const pins = Object.freeze([
+  "e9a3764bc1291823d9ef97ffe2879c7d58d87cfd",
+  "ad9beca6c46dd5bdb9c3ed302e26fbd9f9975363",
 ]);
+const dataPath = "test/architecture/quarantine/areas.json";
+const dataDigest = "f54dd587361c0a0100d2376391a53a2534e83407c93b8250e02e3d3ae2543473";
 const guards = Object.freeze([
   "scripts/check-branch-hygiene.sh", "scripts/run-bounded.sh",
   ...["bounded-run.sh", "bounded-test-scope.sh", "guard-command.mjs", "guard-cgroup.mjs",
@@ -26,15 +22,9 @@ const configuration = Object.freeze([
   "test/scripts/build.mjs", "test/scripts/build.sh", "test/scripts/suite-definition.mjs",
   "test/scripts/smoke-set.json", "scripts/release/npm-wave.json",
 ]);
-const oldPackages = Object.freeze(["cli", "create-tsonic", "source-core", "target-api", "js-source-profile"]);
-const oldRoots = Object.freeze([
-  ...oldPackages.map(name => `packages/${name}`), "packages/host/src",
-  ...["host", "host-spec", "cli-build", "source-core", "target-api", "js-source-profile",
-    "fixtures", "helpers", "infrastructure"].map(name => `test/${name}`),
-]);
-const currentFiles = Object.freeze([
+const activeFiles = Object.freeze([
   ...guards, ...configuration, "test/scripts/quarantine.mjs", "test/architecture/quarantine.test.mjs",
-  ...areas.map(area => area.manifest),
+  dataPath,
 ]);
 const workspaces = Object.freeze(["packages/tsts", "packages/host"]);
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
@@ -53,30 +43,67 @@ function collectFiles(deps, root, path) {
   });
 }
 
-function oldEdge(text, owner, originals) {
-  const value = text.replaceAll("\\", "/");
-  for (const token of value.split(/[\s"'`;,()[\]{}=]+/u)) {
-    if (token.length === 0 || token.startsWith("--")) continue;
-    if (token === "_old" || token.startsWith("_old/") || token.includes("/_old/")) return true;
-    const packageToken = token.replace(/^node_modules\//u, "");
-    if (oldPackages.some(name => packageToken === `@tsonic/${name}` || packageToken.startsWith(`@tsonic/${name}/`))) return true;
-    const candidates = [posix.normalize(token), posix.normalize(posix.join(posix.dirname(owner), token))];
-    if (candidates.some(path => within(path, "_old") || oldRoots.some(directory => within(path, directory))
-      || originals.has(path) && !currentFiles.includes(path))) return true;
-  }
+function retiredRoots(data) {
+  return [data.oldRoots.hostSource, ...data.oldRoots.packages, ...Object.values(data.oldRoots.tests)];
+}
+
+function referencePolicy(data, originals, currentFiles) {
+  const roots = retiredRoots(data);
+  const names = [data.areas[0].directory.split("/")[0],
+    ...data.oldPackages.map(name => `@tsonic/${name}`),
+    ...roots,
+    ...[...originals].filter(path => !currentFiles.has(path) && !roots.some(directory => within(path, directory))),
+  ];
+  const alternatives = [...new Set(names)].map(name => name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+  const expression = new RegExp(`(?<![A-Za-z0-9._~-])(?:${alternatives.join("|")})(?![A-Za-z0-9._~-])`, "u");
+  return text => expression.test(text.replaceAll("\\", "/"));
+}
+
+function jsonReferences(value, forbidden, key = "") {
+  if (key === "exclude") return false;
+  if (typeof value === "string") return forbidden(value);
+  if (Array.isArray(value)) return value.some(item => jsonReferences(item, forbidden, key));
+  if (value !== null && typeof value === "object")
+    return Object.entries(value).some(([name, item]) => forbidden(name) || jsonReferences(item, forbidden, name));
   return false;
 }
 
-function configurationEdges(deps, root, originals, add) {
+function textReferences(text, path, forbidden) {
+  if (/\.jsonc?$/u.test(path)) {
+    try { return jsonReferences(JSON.parse(text), forbidden); } catch { return forbidden(text); }
+  }
+  return forbidden(text);
+}
+
+function activeEntries(deps, root, archiveRoot) {
+  const entries = [];
+  const directories = ["."];
+  while (directories.length > 0) {
+    const directory = directories.pop();
+    for (const name of deps.children(root, directory)) {
+      if (!canonical(name) || name.includes("/")) throw new Error(`Invalid directory entry: ${directory}`);
+      const path = directory === "." ? name : `${directory}/${name}`;
+      if (path === archiveRoot || within(path, "packages/tsts")
+        || path.split("/").some(part => [".git", "node_modules", "dist", ".analysis", ".temp"].includes(part))) continue;
+      const entry = deps.entry(root, path);
+      if (entry === null) continue;
+      if (entry.kind === "directory") directories.push(path);
+      else entries.push({ path, kind: entry.kind });
+    }
+  }
+  return entries;
+}
+
+function configurationEdges(deps, root, forbidden, add) {
   const inspect = (value, owner, key = "") => {
     if (key === "exclude") return;
     if (typeof value === "string") {
-      if (oldEdge(value, owner, originals)) add("old-config-edge", owner);
+      if (forbidden(value)) add("old-config-edge", owner);
     } else if (Array.isArray(value)) {
       for (const item of value) inspect(item, owner, key);
     } else if (value !== null && typeof value === "object") {
       for (const [name, item] of Object.entries(value)) {
-        if (oldEdge(name, owner, originals)) add("old-config-edge", owner);
+        if (forbidden(name)) add("old-config-edge", owner);
         inspect(item, owner, name);
       }
     }
@@ -97,7 +124,7 @@ function configurationEdges(deps, root, originals, add) {
       } catch {
         add("old-config-edge", owner);
       }
-    } else if (oldEdge(text, owner, originals)) {
+    } else if (forbidden(text)) {
       add("old-config-edge", owner);
     }
   }
@@ -122,8 +149,18 @@ function configurationEdges(deps, root, originals, add) {
 export function verifyQuarantine(deps, root) {
   const findings = new Map();
   const add = (code, path) => findings.set(`${code}\0${path}`, Object.freeze({ code, path }));
+  if (deps.entry(root, dataPath)?.kind !== "regular") return Object.freeze([Object.freeze({ code: "bad-pin", path: dataPath })]);
+  const dataBytes = deps.bytes(root, dataPath);
+  if (createHash("sha256").update(dataBytes).digest("hex") !== dataDigest)
+    return Object.freeze([Object.freeze({ code: "bad-pin", path: dataPath })]);
+  const data = JSON.parse(dataBytes.toString("utf8"));
+  const areas = data.areas.map((area, index) => ({ ...area, pin: pins[index] }));
+  const archiveRoot = areas[0].directory.split("/")[0];
+  const dataFiles = new Set([dataPath, ...areas.map(area => area.manifest)]);
+  const currentFiles = new Set([...activeFiles, ...dataFiles]);
+  const oldRoots = retiredRoots(data);
   const originals = new Set();
-  for (const entry of collectFiles(deps, root, "_old")) {
+  for (const entry of collectFiles(deps, root, archiveRoot)) {
     if (!areas.some(area => within(entry.path, area.directory))) add("unexpected-file", entry.path);
   }
   for (const area of areas) {
@@ -170,22 +207,19 @@ export function verifyQuarantine(deps, root) {
       }
     }
   }
-  for (const directory of ["packages", "scripts", "test"]) {
-    for (const entry of collectFiles(deps, root, directory)) {
-      const path = entry.path;
-      if (within(path, "packages/tsts")
-        || path.split("/").some(part => ["node_modules", "dist", ".analysis", ".temp"].includes(part))) continue;
-      if (!currentFiles.includes(path) && (originals.has(path) || oldRoots.some(oldRoot => within(path, oldRoot))))
-        add("active-old-source", path);
-      if (["regular", "executable"].includes(entry.kind) && /\.(?:[cm]?[jt]s|sh)$/u.test(path)) {
-        const text = deps.bytes(root, path).toString("utf8");
-        const imports = [...text.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:import|export)\s+(?:[^;\n]*?\s+from\s+)?["']([^"']+)["']|\b(?:import|require)\s*\(\s*["']([^"']+)["']/gu)]
-          .filter(match => match[1] !== undefined || match[2] !== undefined);
-        if (imports.some(match => oldEdge(match[1] ?? match[2], path, originals))) add("old-config-edge", path);
-      }
+  const forbidden = referencePolicy(data, originals, currentFiles);
+  for (const entry of activeEntries(deps, root, archiveRoot)) {
+    const path = entry.path;
+    if (!currentFiles.has(path) && (originals.has(path) || oldRoots.some(oldRoot => within(path, oldRoot))))
+      add("active-old-source", path);
+    if (entry.kind === "symlink") {
+      if (forbidden(deps.bytes(root, path).toString("utf8"))) add("old-config-edge", path);
+    } else if (!dataFiles.has(path) && ["regular", "executable"].includes(entry.kind)
+      && /\.(?:js|mjs|cjs|ts|mts|cts|sh|json|jsonc|yaml|yml|toml)$/u.test(path)) {
+      if (textReferences(deps.bytes(root, path).toString("utf8"), path, forbidden)) add("old-config-edge", path);
     }
   }
-  configurationEdges(deps, root, originals, add);
+  configurationEdges(deps, root, forbidden, add);
   return Object.freeze([...findings.values()].sort((left, right) => compareText(left.code, right.code) || compareText(left.path, right.path)));
 }
 
