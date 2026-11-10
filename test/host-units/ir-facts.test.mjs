@@ -35,6 +35,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     (error, result) => error === null ? done(result) : reject(error)));
   await post("Debugger.enable"); await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+  suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
   const ids = await import("../../packages/host/dist/ids/index.js");
   const packageId = ids.encodePackageId("facts");
@@ -1108,6 +1109,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     oneCallback(input, supplied); supplied.types.signatures[1].parameters = [];
   }, input => { input.callbacks[0].rejection = 0; },
   [violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal.")]);
+  for (const kind of ["receiver-element", "receiver-rejection"]) {
+    await summaryOpposite(`actual ${kind} channel requires its receiver slot`, (input, supplied) => {
+      oneCallback(input, supplied); supplied.types.signatures[0].receiver = 0;
+      input.parameters.unshift({ slot: { kind: "receiver" }, reads: completePaths(), writes: completePaths() });
+      input.callbacks[0].inputs = [{ kind, parameterIndex: 0 }];
+    }, (input, supplied) => { supplied.types.signatures[0].receiver = null; input.parameters.shift(); },
+    [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
+  }
+  await summaryOpposite("callback argument source retains the actual summary formal", (input, supplied) => {
+    oneCallback(input, supplied); input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
+  }, input => { input.callbacks[0].inputs[0].sourceParameterIndex = 1; },
+  [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
   for (const [field, limit] of [["maximumProjectionDepth", 2], ["maximumOriginAlternatives", 1],
     ["maximumRelationalRecordsPerBody", 8], ["maximumRelationalReferencesPerBody", 6]]) {
     await summaryOpposite(`published limit ${field}`, (input, supplied) => { supplied.context.limits[field] = limit; },
@@ -1125,6 +1138,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       input.retention = [{ source: 0, into: { kind, at: { kind: "node", node: nodeRef(1) } } }];
     }, input => { input.retention[0].into.at.node.body = otherBody; },
     [violation("cross-owner-qualified", summarySite(), "A retention target retains its actual summary declaration owner.")]);
+  }
+  for (const [field, prepare, amend] of [
+    ["maximumProjectionDepth", input => { input.arena.projections = []; },
+      input => { input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }]; }],
+    ["maximumOriginAlternatives", input => { input.arena.origins[1].producers = []; },
+      input => { input.arena.origins[1].producers = [0]; }],
+    ["maximumRelationalReferencesPerBody", input => { input.arena.projections = []; input.arena.boundProducers = []; input.arena.boundaries = [];
+      for (const origins of input.arena.origins) origins.producers = []; },
+    input => { input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }, { id: 1, parent: 0, projection: { kind: "element" } }]; }],
+  ]) {
+    await summaryOpposite(`known zero published ${field} is not unknown`, (input, supplied) => { prepare(input); supplied.context.limits[field] = 0; },
+      amend, [violation("summary-finite", summarySite(), "The published summary arena respects the actual producer's finite record, reference, path and alternative limits.")]);
   }
   await summaryOpposite("bindings-complete", (input, supplied) => {
     Object.assign(input, emptySummary());
@@ -1197,7 +1222,20 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, prepare, amend, message] of metadataCases) await metadataOpposite(rule, prepare, amend,
     [...(rule === "layout-fields-resolve" || rule === "layout-geometry-consistent" ? [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")] : []),
-      violation(rule, metadataSite(), message)]);
+      violation(rule, metadataSite(), message), ...(rule === "selected-declarations-order"
+        ? [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")] : [])]);
+  const mappedField = (input, supplied) => {
+    withField(input, supplied);
+    const field = input.fields[0]; field.primary = null; field.selectedDeclarations = [];
+    field.member.decision.primary = null; field.member.decision.selectedDeclarations = [];
+    field.member.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "text", value: "value" } }];
+  };
+  await metadataOpposite("a genuine mapped field retains its known empty declaration group", mappedField,
+    input => { input.fields[0].member.decision.read = 1; },
+    [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+  await metadataOpposite("self-consistent field data cannot replace the finalized captured selection", withField,
+    input => { input.fields[0].member.decision.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
+    [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   await metadataOpposite("finalized physical fields cannot disappear", withField, input => { input.layouts[1].fields = []; },
     [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")]);
   await metadataOpposite("finalized array cannot be relabelled as an opaque value", withArray, input => {
@@ -1223,6 +1261,24 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     violation("layout-stride-exact", metadataSite(), "The exact stride must contain the value, preserve alignment and fit the selected ABI."),
     violation("layout-stride-exact", metadataSite(), "Layout stride must equal its finalized authored value."),
   ]);
+  await metadataOpposite("negative array length is not an empty exact extent", withArray,
+    input => { input.layouts[1].length = -1n; },
+    [violation("array-extent-exact", metadataSite(), "An array retains its exact fixed extent, runtime base and selected element type.")]);
+  await metadataOpposite("nonempty array geometry cannot borrow a zero-length layout", withArray,
+    input => { input.layouts[1].length = 1n; }, [
+      violation("array-extent-exact", metadataSite(), "An array retains its exact fixed extent, runtime base and selected element type."),
+      violation("layout-geometry-consistent", metadataSite(), "Array size and alignment must contain every selected element at its exact stride."),
+    ]);
+  await metadataOpposite("an array retains its element ABI identity", withArray,
+    input => { input.layouts[1].dataLayout = definitions.abi32; }, [
+      violation("cross-owner-qualified", metadataSite(), "A layout cannot borrow another source type or ABI identity."),
+      violation("data-layout-reference-resolves", metadataSite(), "An array and its selected element must retain the same ABI declaration."),
+    ]);
+  await metadataOpposite("a field retains its child ABI identity", withField,
+    input => { input.layouts[0].dataLayout = definitions.abi32; }, [
+      violation("cross-owner-qualified", metadataSite(), "A layout cannot borrow another source type or ABI identity."),
+      violation("data-layout-reference-resolves", metadataSite(), "A physical field cannot select a child from a different ABI declaration."),
+    ]);
   await metadataOpposite("negative field offset remains an exact signed bigint defect", withField, input => { input.fields[0].byteOffset = -8n; }, [
     violation("layout-geometry-consistent", metadataSite(), "A field extent and selected alignment must fit the containing layout."),
     violation("field-offset-exact", metadataSite(), "A field offset must be an exact nonnegative integer."),
@@ -1410,6 +1466,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["errorStorage", "errors"], "errors=[]", { node: 1, origins: 1, writes: [2], retention: [], invalidations: [row] },
     `ErrorStorageFact(node=n:1, origins=origins:1, writes=${arrayText(["n:2"])}, retention=[], invalidations=${arrayText([authored])})`);
   for (const [family, operation] of [["typed-location", "allocate"], ["typed-location", "address-of"], ["typed-location", "bind-pointer"], ["typed-location", "project-pointer"], ["raw-memory", "reinterpret"]]) {
+    await factOpposite(`actual pointer backing ${family}/${operation} keeps its own qualified source`, input => {
+      input.pointerBacking.pointers = [{ node: 1, returned: true, origins: 1,
+        producers: [{ producer: 0, operation: { family, operation, at: nodeRef(2) } }] }];
+    }, input => { input.pointerBacking.pointers[0].producers[0].operation.at.body = otherBody; },
+    [violation("cross-owner-qualified", nodeSite(1), "A local fact cannot borrow the same numeric node index from another body.")]);
     await factTransport(`pointer backing transport ${family}/${operation}`, ["pointerBacking", "pointers"], "pointers=[]", { node: 1, returned: true, origins: 1, producers: [{ producer: 0, operation: { family, operation, at: nodeRef(2) } }] },
       `PointerBackingFact(node=n:1, returned=true, origins=origins:1, producers=${arrayText([`PointerBackingProducer(producer=bound:0, operation=PointerBackingOperation(family="${family}", operation="${operation}", at=${nodeText(2)}))`])})`);
   }
@@ -1564,7 +1625,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const recursiveGraph = () => ({ definitions: [definitions.f, definitions.other], edges: [edge("f", "other"), edge("other", "f")],
     components: [{ id: ids.encodeComponentId([definitions.f, definitions.other]), definitions: [definitions.f, definitions.other], dependencies: [] }] });
   const graphOpposite = async (name, make, amend, expected) => suite.test(`call graph ${name}`, () => {
-    const supplied = setup(); const input = make();
+    const supplied = setup(); const input = make(supplied);
     equal(product.verifyCallGraph(input, supplied.context), [], `call graph ${name}: complete valid graph`);
     const invalid = clone(input); amend(invalid, supplied);
     equal(product.verifyCallGraph(invalid, supplied.context), expected, `call graph ${name}: complete opposite vector`);
@@ -1602,6 +1663,31 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await graphOpposite("actual missing caller body ownership is not reconstructed from an ID", directedGraph,
     (input, supplied) => { supplied.bodyOwners.set(body, null); },
     [violation("cross-owner-qualified", nodeSite(1), "The call occurrence must belong to its actual caller definition.")]);
+  const edgeOrder = [violation("edges-order", nodeSite(1), "Call edges must be distinct and ordered by caller, occurrence and callee.")];
+  await graphOpposite("same-occurrence kind order", () => {
+    const input = graph(); input.edges = [{ ...edge("f", "f"), kind: "callback" }, edge("f", "f")]; return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
+  await graphOpposite("same-occurrence closed callee order", () => {
+    const input = directedGraph(); input.edges.unshift(edge("f", "f")); return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
+  await graphOpposite("same-occurrence closed versus open callee order", () => {
+    const input = graph(); input.edges = [edge("f", "f"), { ...edge("f", "f"),
+      callee: { kind: "open", boundary: { owner: owner(), boundary: 0 } } }]; return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
+  await graphOpposite("same-occurrence open owner order", () => {
+    const input = graph(); input.edges = [owner(), summaryOwner(summary().key)].map(selectedOwner => ({ ...edge("f", "f"),
+      callee: { kind: "open", boundary: { owner: selectedOwner, boundary: 0 } } })); return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
+  await graphOpposite("same-occurrence open boundary order", supplied => {
+    const actual = clone(supplied.canonicalArenas.get(arenaKey(owner())));
+    actual.boundaries.push({ ...clone(actual.boundaries[0]), id: 1, kind: "opaque-write", detail: "second actual boundary" });
+    supplied.canonicalArenas.set(arenaKey(owner()), actual);
+    const input = graph(); input.edges = [0, 1].map(boundary => ({ ...edge("f", "f"),
+      callee: { kind: "open", boundary: { owner: owner(), boundary } } })); return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
+  await graphOpposite("same-occurrence complete artifact environment order", () => {
+    const input = graph(); input.edges = [edge("f", "f"), { ...edge("f", "f"), bindings: { kind: "instantiated", bindings: emptyBindings() } }]; return input;
+  }, input => { input.edges.reverse(); }, edgeOrder);
   await suite.test("legal recursion remains wholly inside one real component", () => equal(product.verifyCallGraph(recursiveGraph(), setup().context), [], "mutual recursion is not a condensation cycle"));
   await suite.test("parser line and column locations use UTF-16 code units and CRLF counts once", () => {
     malformed(product.parseCallGraph, " \r\n  Unknown()", 5, ["CallGraph"], "Unknown", "CRLF record location", 2, 3);
@@ -1821,5 +1907,4 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       { path: realpathSync(resolve(repository, "packages/host/src/ir-facts/contract.ts")), sourceHash: sourceHashes[0][1], status: "not-applicable", lines: null, branches: null, functions: null }],
     "every actual runtime product owner is nonempty 100/100/100; only the type-only contract is N/A");
   });
-  await post("Profiler.stopPreciseCoverage"); inspector.disconnect();
 });

@@ -1,9 +1,10 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { DefId, MemoryFieldId } from "../ids/contract.js";
+import { encodeKey } from "../ids/index.js";
 import type {
   FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { collectSelectionChecks, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
+import { collectSelectionChecks, memberData, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 import type { FactBindingInput } from "./verify-relations.js";
 
 interface OccupiedField {
@@ -228,14 +229,15 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       }
       previous = declaration;
     }
-    if (field.selectedDeclarations.length === 0 || selected.primary !== field.primary ||
+    const captured = canonicalFields?.[index];
+    if (selected.primary !== field.primary ||
       selected.selectedDeclarations.length !== field.selectedDeclarations.length ||
       selected.selectedDeclarations.some((declaration, position) => declaration !== field.selectedDeclarations[position]) ||
       field.primary !== null && !field.selectedDeclarations.includes(field.primary) ||
-      selected.read !== field.value && selected.write !== field.value) {
+      selected.read !== field.value && selected.write !== field.value ||
+      captured !== undefined && captured.id === field.id && encodeKey(memberData(captured.member)) !== encodeKey(memberData(field.member))) {
       report("member-correspondence-exact", "A field retains its complete selected member group, primary and value correspondence.");
     }
-    const captured = canonicalFields?.[index];
     if (captured !== undefined && captured.id === field.id) {
       if (captured.owner !== field.owner || captured.value !== field.value || captured.layout !== field.layout) {
         report("cross-owner-qualified", "A field cannot borrow another owner, value type or selected child layout.");
