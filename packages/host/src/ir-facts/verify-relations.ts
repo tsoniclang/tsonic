@@ -78,7 +78,7 @@ const parameterData = (parameter: ParameterMapping): KeyData => {
 export const calleeData = (callee: ResolvedCallee | null): KeyData => callee === null ? null : [
   callee.decision.candidate, endpointData(callee.decision.advertised), endpointData(callee.decision.api),
   bindingsData(callee.decision.bindings),
-  callee.decision.implementationBindings === null ? null : bindingsData(callee.decision.implementationBindings),
+  bindingsData(callee.decision.implementationBindings),
   callee.decision.parameters.map(parameterData),
   [callee.decision.completion.signature, callee.decision.completion.completion,
     callee.decision.completion.yielded, callee.decision.completion.sent],
@@ -184,7 +184,7 @@ export const collectSelectionChecks = (
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
     bindings.push({ vector: decision.bindings, definition: decision.advertised.declaration, site });
-    if (decision.implementationBindings !== null) bindings.push({ vector: decision.implementationBindings, definition: decision.api.declaration, site });
+    bindings.push({ vector: decision.implementationBindings, definition: decision.api.declaration, site });
     if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
       const declaration = declarationOf(callee.activation);
       if (declaration !== null) bindings.push({ vector: callee.activation.bindings.bindings, definition: declaration, site });
@@ -221,14 +221,14 @@ export const verifyFactBindings = (
   if (inputs.length !== 0) {
     const checked = verifyTypes({ table: context.types, bindings: inputs, evidence: [],
       nominalOf: context.nominalOf, nodeExists: context.nodeExists, localExists: context.localExists });
-    const reported = new Set<number>();
+    const invalid = new Set<number>();
     for (const violation of checked) {
-      if (violation.site.kind !== "binding" || violation.rule === "type-reference" || reported.has(violation.site.vector)) continue;
-      const site = sites[violation.site.vector];
-      if (site !== undefined) {
+      if (violation.site.kind === "binding" && violation.rule !== "type-reference") invalid.add(violation.site.vector);
+    }
+    for (const [index, site] of sites.entries()) {
+      if (invalid.has(index)) {
         violations.push({ rule: "bindings-complete", site, detail: [{ kind: "text",
           value: "A binding vector retains every expected class, method, captured and self binding in canonical owner order." }] });
-        reported.add(violation.site.vector);
       }
     }
   }

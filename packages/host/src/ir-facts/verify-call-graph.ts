@@ -1,6 +1,6 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { ComponentId, DefId } from "../ids/contract.js";
-import { decodeBodyId, decodeComponentId, encodeKey } from "../ids/index.js";
+import { decodeBodyId, encodeComponentId, encodeKey } from "../ids/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
@@ -12,19 +12,22 @@ const definitionSite = (definition: DefId): FactsSite => ({
 
 const componentSite = (component: CallComponent): FactsSite => ({ kind: "component", component: component.id });
 
+interface ComponentWork {
+  readonly component: CallComponent;
+  readonly expected: Set<ComponentId>;
+  readonly dependents: ComponentWork[];
+  remaining: number;
+}
+
 const compareEdges = (left: CallEdge, right: CallEdge): number => {
   const leftDefinition = left.callee.kind === "definition" ? left.callee.definition : "";
   const rightDefinition = right.callee.kind === "definition" ? right.callee.definition : "";
-  const leftFields = [left.caller, left.at.body, left.kind, left.callee.kind, leftDefinition];
-  const rightFields = [right.caller, right.at.body, right.kind, right.callee.kind, rightDefinition];
-  for (let field = 0; field < leftFields.length; field += 1) {
-    const leftValue = leftFields[field];
-    const rightValue = rightFields[field];
-    if (leftValue !== undefined && rightValue !== undefined && leftValue !== rightValue) {
-      return leftValue < rightValue ? -1 : 1;
-    }
-    if (field === 1 && left.at.node !== right.at.node) return left.at.node < right.at.node ? -1 : 1;
-  }
+  if (left.caller !== right.caller) return left.caller < right.caller ? -1 : 1;
+  if (left.at.body !== right.at.body) return left.at.body < right.at.body ? -1 : 1;
+  if (left.at.node !== right.at.node) return left.at.node < right.at.node ? -1 : 1;
+  if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
+  if (left.callee.kind !== right.callee.kind) return left.callee.kind < right.callee.kind ? -1 : 1;
+  if (leftDefinition !== rightDefinition) return leftDefinition < rightDefinition ? -1 : 1;
   if (left.callee.kind === "open" && right.callee.kind === "open") {
     const leftOwner = ownerKey(left.callee.boundary.owner);
     const rightOwner = ownerKey(right.callee.boundary.owner);
@@ -39,19 +42,18 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
 const reachedMembers = (
   first: DefId,
   component: ComponentId,
-  membership: ReadonlyMap<DefId, ComponentId>,
+  membership: ReadonlyMap<DefId, ComponentWork>,
   edges: ReadonlyMap<DefId, readonly DefId[]>,
 ): number => {
   const pending: DefId[] = [first];
   const visited = new Set<DefId>();
-  for (let cursor = 0; cursor < pending.length; cursor += 1) {
-    const definition = pending[cursor];
-    if (definition === undefined || visited.has(definition)) continue;
+  for (const definition of pending) {
+    if (visited.has(definition)) continue;
     visited.add(definition);
     const targets = edges.get(definition);
     if (targets === undefined) continue;
     for (const target of targets) {
-      if (membership.get(target) === component && !visited.has(target)) pending.push(target);
+      if (membership.get(target)?.component.id === component && !visited.has(target)) pending.push(target);
     }
   }
   return visited.size;
@@ -76,8 +78,9 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     definitions.add(definition);
   }
 
-  const components = new Map<ComponentId, CallComponent>();
-  const membership = new Map<DefId, ComponentId>();
+  const components = new Map<ComponentId, ComponentWork>();
+  const membership = new Map<DefId, ComponentWork>();
+  const work: ComponentWork[] = [];
   let previousComponent: ComponentId | undefined;
   for (const component of graph.components) {
     const site = componentSite(component);
@@ -85,10 +88,11 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       report("components-order", site, "Components must be distinct and ordered by identity.");
     }
     previousComponent = component.id;
-    components.set(component.id, component);
-    const decoded = decodeComponentId(component.id);
-    if (decoded.kind !== "decoded" || decoded.value.length !== component.definitions.length ||
-      decoded.value.some((definition, index) => definition !== component.definitions[index])) {
+    const state: ComponentWork = { component, expected: new Set(), dependents: [], remaining: 0 };
+    work.push(state);
+    components.set(component.id, state);
+    const [first, ...rest] = component.definitions;
+    if (first === undefined || encodeComponentId([first, ...rest]) !== component.id) {
       report("component-identity", site, "The component identity must encode exactly its canonical member vector.");
     }
     if (component.definitions.length === 0) {
@@ -103,7 +107,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       if (!definitions.has(definition) || membership.has(definition)) {
         report("component-membership-exact", site, "Each graph definition must belong to exactly one component.");
       }
-      if (!membership.has(definition)) membership.set(definition, component.id);
+      if (!membership.has(definition)) membership.set(definition, state);
     }
     let previousDependency: ComponentId | undefined;
     for (const dependency of component.dependencies) {
@@ -121,12 +125,10 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
 
   const forward = new Map<DefId, DefId[]>();
   const reverse = new Map<DefId, DefId[]>();
-  const dependencies = new Map<ComponentId, Set<ComponentId>>();
   for (const definition of definitions) {
     forward.set(definition, []);
     reverse.set(definition, []);
   }
-  for (const component of components.values()) dependencies.set(component.id, new Set());
   let previousEdge: CallEdge | undefined;
   for (const edge of graph.edges) {
     const site: FactsSite = { kind: "node", at: edge.at };
@@ -157,8 +159,8 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       }
       const callerComponent = membership.get(edge.caller);
       const calleeComponent = membership.get(callee);
-      if (callerComponent !== undefined && calleeComponent !== undefined && callerComponent !== calleeComponent) {
-        dependencies.get(callerComponent)?.add(calleeComponent);
+      if (callerComponent !== undefined && calleeComponent !== undefined && callerComponent.component.id !== calleeComponent.component.id) {
+        callerComponent.expected.add(calleeComponent.component.id);
       }
     } else {
       const owner = edge.callee.boundary.owner;
@@ -171,53 +173,46 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     }
   }
 
-  for (const component of graph.components) {
+  for (const state of work) {
+    const component = state.component;
     const site = componentSite(component);
-    const expected = dependencies.get(component.id);
     const actual = new Set(component.dependencies);
-    if (expected === undefined || expected.size !== actual.size ||
-      component.dependencies.some(dependency => !components.has(dependency) || !expected.has(dependency))) {
+    if (state.expected.size !== actual.size ||
+      component.dependencies.some(dependency => !components.has(dependency) || !state.expected.has(dependency))) {
       report("component-dependencies-exact", site, "Dependencies must be exactly the other components named by closed call edges.");
     }
     const first = component.definitions[0];
-    if (first !== undefined && membership.get(first) === component.id &&
+    if (first !== undefined && membership.get(first) === state &&
       (reachedMembers(first, component.id, membership, forward) !== component.definitions.length ||
         reachedMembers(first, component.id, membership, reverse) !== component.definitions.length)) {
       report("component-membership-exact", site, "The members of a component must be mutually reachable through actual call edges.");
     }
   }
 
-  const remaining = new Map<ComponentId, number>();
-  const dependents = new Map<ComponentId, ComponentId[]>();
-  const pending: ComponentId[] = [];
-  for (const component of graph.components) {
-    const selected = new Set(component.dependencies.filter(dependency => components.has(dependency)));
-    remaining.set(component.id, selected.size);
-    if (selected.size === 0) pending.push(component.id);
+  const pending: ComponentWork[] = [];
+  for (const state of work) {
+    const selected = new Set<ComponentWork>();
+    for (const identity of state.component.dependencies) {
+      const dependency = components.get(identity);
+      if (dependency !== undefined) selected.add(dependency);
+    }
+    state.remaining = selected.size;
+    if (selected.size === 0) pending.push(state);
     for (const dependency of selected) {
-      const current = dependents.get(dependency);
-      if (current === undefined) dependents.set(dependency, [component.id]);
-      else current.push(component.id);
+      dependency.dependents.push(state);
     }
   }
-  const completed = new Set<ComponentId>();
-  for (let cursor = 0; cursor < pending.length; cursor += 1) {
-    const component = pending[cursor];
-    if (component === undefined || completed.has(component)) continue;
-    completed.add(component);
-    const incoming = dependents.get(component);
-    if (incoming === undefined) continue;
-    for (const dependent of incoming) {
-      const count = remaining.get(dependent);
-      if (count !== undefined) {
-        remaining.set(dependent, count - 1);
-        if (count === 1) pending.push(dependent);
-      }
+  const completed = new Set<ComponentWork>();
+  for (const state of pending) {
+    completed.add(state);
+    for (const dependent of state.dependents) {
+      dependent.remaining -= 1;
+      if (dependent.remaining === 0) pending.push(dependent);
     }
   }
-  for (const component of graph.components) {
-    if (!completed.has(component.id)) {
-      report("component-acyclic", componentSite(component), "The condensation graph must be acyclic; recursion belongs inside one component.");
+  for (const state of work) {
+    if (!completed.has(state)) {
+      report("component-acyclic", componentSite(state.component), "The condensation graph must be acyclic; recursion belongs inside one component.");
     }
   }
   return Object.freeze(violations);

@@ -115,7 +115,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       bindingScopeOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named binding inventory"); return selected === definitions.missing ? null : emptyScope(); },
       nominalOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named nominal declaration inventory");
         return [definitions.layout, definitions.field].includes(selected) ? { kind: "declared", facets: ["instance", "value"] } : null; },
-      bindingDependentOf: selected => { assert.equal(selected, definitions.f, "actual dependence inventory"); return false; },
+      bindingDependentOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "actual named dependence inventory"); return selected === definitions.missing ? null : false; },
       captureCount: selected => { assert.equal(selected.definition, definitions.f, "actual independent capture inventory"); return 0; },
       arenaOf: selected => {
         assert.equal(selected.kind === "body" ? [body, otherBody].includes(selected.instance.body)
@@ -280,6 +280,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const kind of ["external-input", "external-write", "opaque-write", "opaque-result", "unclassified-exposure", "opaque-invocation", "unresolved-transport"]) {
     const row = { id: 0, kind, at: { kind: "node", node: nodeRef(1) }, subject: 0, owner: 1, bindings: emptyBindings(), context: 0, detail: "unknown" };
     await arenaTextCase(`open boundary transport ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=${nodeText(1)}), subject=producer:0, owner=producer:1, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
+    row.owner = null;
+    await arenaTextCase(`open boundary without invented owner ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=${nodeText(1)}), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
   }
   const fullBindings = {
     classBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }, { kind: "rigid", parameter: { owner: definitions.f, index: 1 } }],
@@ -298,6 +300,23 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = emptyFacts(); input.instance.bindings = { kind: "instantiated", bindings: fullBindings };
     await textCase("complete instantiated body identity transport", input,
       emptyFactsText.replace("bindings=parametric()", `bindings=instantiated(bindings=${fullBindingsText})`), product.printFacts, product.parseFacts);
+  }
+  {
+    const input = emptySummary(); input.key.bindings = { kind: "instantiated", bindings: fullBindings };
+    await textCase("complete instantiated summary identity transport", input,
+      emptySummaryText.replace("bindings=parametric()", `bindings=instantiated(bindings=${fullBindingsText})`), product.printSummary, product.parseSummary);
+  }
+  {
+    const input = abi(); input.key.bindings = { kind: "instantiated", bindings: fullBindings };
+    await textCase("complete instantiated metadata identity transport", input,
+      abiText(64).replace("bindings=parametric()", `bindings=instantiated(bindings=${fullBindingsText})`), product.printMetadata, product.parseMetadata);
+  }
+  {
+    const input = graph(); input.edges = [{ caller: definitions.f, at: nodeRef(1), kind: "direct", callee: { kind: "definition", definition: definitions.f },
+      bindings: { kind: "instantiated", bindings: fullBindings } }];
+    await textCase("complete instantiated call edge identity transport", input, graphText.replace("edges=[]", `edges=${arrayText([
+      `direct(caller=def:"${definitions.f}", at=${nodeText(1)}, callee=definition(definition=def:"${definitions.f}"), bindings=instantiated(bindings=${fullBindingsText}))`,
+    ])}`), product.printCallGraph, product.parseCallGraph);
   }
 
   const factOpposite = async (name, prepare, amend, expected) => suite.test(name, () => {
@@ -468,6 +487,28 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     checkedValues(input, supplied); input.refinements.integers[0].range = { minimum: -1n, maximum: 9007199254740993n };
   }, input => { input.refinements.integers[0].nonnegative = true; }, [violation("integer-proofs-consistent", nodeSite(2),
     "A published interval and nonnegative proof cannot contradict one another.")]);
+  await factOpposite("nested callable and default initializer values belong only to their actual bodies", (input, supplied) => {
+    const callableBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
+    const defaultBody = ids.encodeBodyId({ owner: definitions.parameter, role: "default-argument", ordinal: 0 });
+    supplied.types.signatures.push(signature(1, [{ declaration: definitions.parameter, kind: "default", type: 0, passing: "by-value", initializer: defaultBody }], null, definitions.callee));
+    supplied.types.terms.push({ kind: "callable", calls: [1], constructs: [] });
+    const value = (id, parent) => ({ ...header(id, parent), kind: "Identifier", text: "outer", tsonic: {
+      ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local: 0 } },
+    } });
+    supplied.tir.root.statements.nodes = [{ ...header(1), kind: "ExpressionStatement", tsonic: null, expression: {
+      ...header(2, 1), kind: "ArrowFunction", modifiers: null, typeParameters: null, type: null, fullSignature: null, asteriskToken: null,
+      parameters: { loc: { pos: 3, end: 6 }, nodes: [{ ...header(3, 2), kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null, type: null,
+        name: { ...header(4, 3), kind: "Identifier", text: "argument", tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: definitions.parameter }, storage: 0 } },
+        initializer: value(5, 3), tsonic: { declaration: definitions.parameter, local: { body: callableBody, local: 0 }, storage: 0, passing: "by-value", initializer: defaultBody } }] },
+      equalsGreaterThanToken: { ...header(6, 2), kind: "EqualsGreaterThanToken", tsonic: null }, body: value(7, 2),
+      tsonic: { ...typedValue(3), callable: { definition: definitions.callee, parameters: [], signatures: [
+        { declaration: definitions.callee, role: "api-signature", signature: 1, body: callableBody },
+      ], template: { body: callableBody, lexicalBindings: emptyBindings(), dependence: "parametric" }, attributes: [] }, captures: [{ body, local: 0 }] },
+    } }];
+    supplied.tir.nestedBodies = [callableBody, defaultBody];
+    input.refinements.integers = [{ node: 2, range: null, nonnegative: false }];
+  }, input => { input.refinements.integers.push({ node: 5, range: null, nonnegative: false }, { node: 7, range: null, nonnegative: false }); },
+    [violation("integer-facts-domain-exact", bodySite(), "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.")]);
   const countedLoop = (input, supplied) => {
     supplied.types.terms.push({ kind: "primitive", primitive: "bool" });
     const name = (id, parent) => ({ ...header(id, parent), kind: "Identifier", text: "counter", tsonic: { ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local: 0 } } } });
@@ -528,7 +569,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const invocationFixture = (input, supplied) => {
     supplied.types.signatures.push(signature(1, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.callee));
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
-    const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: null,
+    const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: emptyBindings(),
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
       completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1 }, activation: null, captures: [] };
     const selectedOwner = { kind: "summary", definition: definitions.callee, bindings: parametric() };
@@ -562,11 +603,54 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const scope = { ...emptyScope(), classParameters: [{ owner: definitions.callee, index: 0 }] };
     supplied.context.bindingScopeOf = selected => selected === definitions.callee ? scope : emptyScope();
     input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
+    input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = []; },
     [violation("bindings-complete", nodeSite(1), "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
+  await factOpposite("missing lexical scope is not an empty environment", (input, supplied) => {
+    invocationFixture(input, supplied);
+  }, (input, supplied) => { supplied.context.bindingScopeOf = selected => selected === definitions.callee ? null : emptyScope(); },
+    [violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory."),
+      violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory.")]);
+  for (const field of ["authoredIndex", "parameterIndex", "effectiveIndex"]) {
+    for (const invalid of [-1, -0, 0.5, NaN, Infinity, -Infinity]) await factOpposite(`transport ${field} retains its actual index domain ${String(invalid)}/${Object.is(invalid, -0)}`,
+      invocationFixture, input => { input.origins.invocations[0].alternatives[0].arguments[0][field] = invalid; },
+      [violation("argument-transports-total", nodeSite(1), "A transport retains actual nonnegative authored, formal and effective indices."),
+        ...(field === "parameterIndex" && !Object.is(invalid, -0) ? [violation("argument-transports-total", nodeSite(1), "A transport's formal producer retains its actual declaration parameter position."),
+          violation("argument-transports-total", nodeSite(1), "Transports retain complete selected formals, passing modes and effective actual components exactly once."),
+          violation("argument-transports-total", nodeSite(1), "Every non-rest selected formal has its complete actual or explicit omitted transport.")] : []),
+        ...(field === "authoredIndex" && (Number.isNaN(invalid) || invalid === Infinity) ? [violation("argument-transports-authored-order", nodeSite(1),
+          "Transports retain authored actual order and effective rest-component order.")] : [])]);
+  }
   await factOpposite("actual context origins cannot be independently permuted", (input, supplied) => { invocationFixture(input, supplied); input.arena.contexts[0].arguments = [0, 1]; },
     input => { input.arena.contexts[0].arguments.reverse(); }, [violation("origin-alternatives-correlated", arenaSite("context", "context", 0),
       "A value context retains its actual receiver and parameter origins without mixing alternatives.")]);
+  const bodylessDependentInvocation = (input, supplied) => {
+    invocationFixture(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const identity = { owner: definitions.callee, index: 0 };
+    const environment = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type: 0 }] };
+    supplied.types.signatures[1].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
+    alternative.resolution.decision.advertised = { declaration: definitions.other, role: "advertised", signature: 2, body: null };
+    alternative.resolution.decision.implementationBindings = environment;
+    alternative.summary.bindings = { kind: "instantiated", bindings: clone(environment) };
+    const selectedOwner = summaryOwner(alternative.summary);
+    for (const transport of alternative.arguments) transport.formal.owner = clone(selectedOwner);
+    supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: [
+      { id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 },
+    ], contexts: [], boundProducers: [], origins: [], boundaries: [] });
+    supplied.context.bindingScopeOf = definition => definition === definitions.callee ? { ...emptyScope(), methodParameters: [identity] } : emptyScope();
+    supplied.context.bindingDependentOf = definition => definition === definitions.callee;
+  };
+  await factOpposite("bodyless API environment never borrows the advertised namespace", bodylessDependentInvocation,
+    input => { input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.methodBindings[0].type = 1; },
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+  await factOpposite("unknown actual API dependence is not parametric", invocationFixture,
+    (input, supplied) => { supplied.context.bindingDependentOf = definition => definition === definitions.callee ? null : false; },
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+  await factOpposite("activation validates but never replaces the canonical API environment", bodylessDependentInvocation,
+    input => { input.origins.invocations[0].alternatives[0].resolution.activation = { body: ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 }), bindings: parametric() }; },
+    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
 
   const suspend = (kind, input, supplied) => {
     const terminator = { kind, destination: 0, resume: 0, unwind: { kind: "escape" }, origin: sourceOrigin(1), tir: nodeRef(1) };
@@ -762,10 +846,20 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
 
   const endpointText = role => `HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=null)`;
   const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, effectiveIndex=0, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
-  const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=null, parameters=${arrayText([
+  const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
   ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1)`;
   const resolvedText = `ResolvedCallee(decision=${applicationText}, activation=null, captures=[])`;
+  await suite.test("superseded null API environment is rejected at its exact typed field", () => {
+    const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}), getter=${resolvedText}, setter=null)`;
+    const expected = emptyFactsText.replace("projections=[]", `projections=${arrayText([
+      `ProjectionPath(id=path:0, parent=null, projection=field(member=${decision}))`,
+    ])}`);
+    const invalid = expected.replace(`implementationBindings=${bindingsText}`, "implementationBindings=null");
+    const offset = invalid.indexOf("implementationBindings=null") + "implementationBindings=".length;
+    const before = invalid.slice(0, offset).split("\n");
+    malformed(product.parseFacts, invalid, offset, ["BindingVector"], "null", "null API environment", before.length, before.at(-1).length + 1);
+  });
   for (const kind of ["call", "construct", "getter", "setter", "native-callback"]) {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     const row = input.origins.invocations[0]; row.kind = kind;
@@ -785,7 +879,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     row.activation = { body, bindings: { kind: "instantiated", bindings: fullBindings } }; row.captures = [{ body: otherBody, local: 0 }];
     const selected = member(); selected.getter = row; selected.setter = clone(row);
     const decision = `MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText})`;
-    const application = applicationText.replace("implementationBindings=null", `implementationBindings=${fullBindingsText}`)
+    const application = applicationText.replace(`implementationBindings=${bindingsText}`, `implementationBindings=${fullBindingsText}`)
       .replace(`parameters=${arrayText(['argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")'])}`, `parameters=${arrayText([authored])}`)
       .replace("yielded=null, sent=null", "yielded=t:0, sent=t:1");
     const resolved = `ResolvedCallee(decision=${application}, activation=BodyInstance(body=body:"${body}", bindings=instantiated(bindings=${fullBindingsText})), captures=${arrayText([`LocalRef(body=body:"${otherBody}", local=l:0)`])})`;
@@ -881,6 +975,22 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
     await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },
       `closed(node=n:1, declarations=${arrayText([`def:"${definitions.field}"`])}, references=${arrayText([nodeText(2)])}, literals=${arrayText([nodeText(3)])}, elements=${arrayText([expected])})`);
+  }
+  {
+    const selected = member();
+    selected.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "symbol", declaration: definitions.field } }];
+    selected.decision.primary = null; selected.decision.read = null; selected.decision.write = null;
+    const expected = selectionText('text(value="value")', [`mapped(owner=item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0)), key=symbol(declaration=def:"${definitions.field}"))`], "null")
+      .replace("read=t:0, write=t:0", "read=null, write=null");
+    await arenaTextCase("item-owned mapped member with genuine absent primary and read/write slots", "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
+      [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
+  }
+  for (const accessor of ["getter", "setter"]) {
+    const selected = member(); selected.decision[accessor] = { declaration: definitions.callee, role: "api-signature", signature: 1, body };
+    const expected = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`])
+      .replace(`${accessor}=null`, `${accessor}=HirCallableEndpoint(declaration=def:"${definitions.callee}", role="api-signature", signature=sig:1, body=body:"${body}")`);
+    await arenaTextCase(`member ${accessor} endpoint retains its actual body identity`, "projections", [{ id: 0, parent: null, projection: { kind: "method-value", member: selected } }],
+      [`ProjectionPath(id=path:0, parent=null, projection=method-value(member=${expected}))`]);
   }
   for (const timing of ["synchronous", "deferred"]) {
     const input = emptySummary(); input.parameters = [{ slot: { kind: "receiver" }, reads: { kind: "open", paths: [0], boundaries: [0] }, writes: completePaths() },
@@ -990,7 +1100,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["component-membership-exact", directedGraph, input => { input.components.shift(); }, [{ rule: "component-membership-exact", site: summarySite(), message: "Each graph definition must belong to exactly one component." }]],
     ["component-dependencies-exact", directedGraph, input => { input.components[0].dependencies = []; }, [{ rule: "component-dependencies-exact", site: componentSite(componentId("f")), message: "Dependencies must be exactly the other components named by closed call edges." }]],
     ["component-members-order", recursiveGraph, input => { input.components[0].definitions.reverse(); }, [
-      { rule: "component-identity", site: componentSite(ids.encodeComponentId([definitions.f, definitions.other])), message: "The component identity must encode exactly its canonical member vector." },
       { rule: "component-members-order", site: componentSite(ids.encodeComponentId([definitions.f, definitions.other])), message: "Component members must be distinct and ordered by definition identity." },
     ]],
     ["component-dependencies-order", () => ({ definitions: [definitions.f, definitions.other, definitions.parameter], edges: [edge("f", "other", 1), edge("f", "parameter", 2)],
@@ -1039,7 +1148,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
             message: value.detail.map(part => part.value).join(""), site: value.site })) }; },
       },
     };
-    for (const [level, name] of [["function", "callgraph-empty"], ["function", "callgraph-invalid"], ["verifier", "callgraph-empty"]]) {
+    for (const [level, name] of [["function", "callgraph-empty"], ["function", "callgraph-invalid"], ["verifier", "callgraph-empty"], ["verifier", "callgraph-missing-component"]]) {
       const path = `test/host-cases/ir-facts/${level}/${name}.case.json`;
       const expected = JSON.parse(readFileSync(resolve(repository, `test/host-cases/ir-facts/${level}/${name}.expected.json`), "utf8"));
       equal(await runCase(deps, path), { status: "passed", path, outcome: expected }, `${level}/${name}: full real owning result`);

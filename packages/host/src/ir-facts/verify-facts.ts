@@ -3,7 +3,7 @@ import type { DefId, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
-import type { BindingVector } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingVector } from "../ir-types/contract.js";
 import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
@@ -14,14 +14,7 @@ import {
 } from "./verify-relations.js";
 import type { FactBindingInput } from "./verify-relations.js";
 
-type OrderPart = string | number;
-const compare = (left: readonly OrderPart[], right: readonly OrderPart[]): number => {
-  for (let index = 0; index < left.length; index += 1) {
-    const first = left[index]; const second = right[index];
-    if (first !== undefined && second !== undefined && first !== second) return first < second ? -1 : 1;
-  }
-  return left.length - right.length;
-};
+const compare = (left: string | number, right: string | number): number => left === right ? 0 : left < right ? -1 : 1;
 
 export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const violations: Violation<FactsRule, FactsSite>[] = [];
@@ -53,8 +46,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const valueNodes = new Set<NodeId>();
   const nestedBodies = new Set(tir.nestedBodies);
   const pending: TirNode[] = [tir.root];
-  while (pending.length !== 0) {
-    const node = pending.pop(); if (node === undefined || nodes.has(node.id)) continue;
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    if (nodes.has(node.id)) continue;
     nodes.set(node.id, node);
     const annotation = node.tsonic;
     if (annotation !== null && "convertedType" in annotation) valueNodes.add(node.id);
@@ -110,16 +103,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       report("signature-resolves", site, "A fact signature resolves in the actual supplied signature table.");
     }
   };
-  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, key: (row: Value) => readonly OrderPart[], site: (row: Value) => FactsSite): void => {
-    let previous: readonly OrderPart[] | null = null;
+  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): void => {
+    let previous: Value | null = null;
     for (const row of rows) {
-      const current = key(row);
-      if (previous !== null && compare(previous, current) >= 0) report(rule, site(row), "Fact rows retain distinct canonical endpoint order.");
-      previous = current;
+      if (previous !== null && comparator(previous, row) >= 0) report(rule, site(row), "Fact rows retain distinct canonical endpoint order.");
+      previous = row;
     }
   };
   const nodeOrder = <Value extends { readonly node: NodeId }>(rows: readonly Value[], rule: FactsRule): void =>
-    ordered(rows, rule, row => [row.node], row => at(row.node));
+    ordered(rows, rule, (left, right) => compare(left.node, right.node), row => at(row.node));
   const bindings = (vector: BindingVector, site: FactsSite, declaration: DefId | null = definition): void => {
     if (declaration !== null) bindingInputs.push({ vector, definition: declaration, site });
   };
@@ -162,14 +154,16 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     }
   }
 
-  ordered(facts.liveness.stores, "stores-order", row => [row.node, row.point.block, row.point.statement === null ? Number.MAX_SAFE_INTEGER : row.point.statement], row => at(row.node));
+  ordered(facts.liveness.stores, "stores-order", (left, right) => compare(left.node, right.node) || compare(left.point.block, right.point.block) ||
+    compare(left.point.statement === null ? Number.MAX_SAFE_INTEGER : left.point.statement,
+      right.point.statement === null ? Number.MAX_SAFE_INTEGER : right.point.statement), row => at(row.node));
   for (const store of facts.liveness.stores) { node(store.node); point(store.point, at(store.node)); }
-  ordered(facts.liveness.locals, "locals-order", row => [row.local], row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
-  ordered(facts.liveness.bindings, "locals-order", row => [row.local], row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
+  ordered(facts.liveness.locals, "locals-order", (left, right) => compare(left.local, right.local), row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
+  ordered(facts.liveness.bindings, "locals-order", (left, right) => compare(left.local, right.local), row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
   for (const local of facts.liveness.locals) {
     const site: FactsSite = { kind: "local", local: { body: facts.instance.body, local: local.local } };
     if (!validIndex(local.local, mir.locals.length)) report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
-    ordered(local.segments, "live-segments-order", row => [row.block, row.first, row.last], () => site);
+    ordered(local.segments, "live-segments-order", (left, right) => compare(left.block, right.block) || compare(left.first, right.first) || compare(left.last, right.last), () => site);
     for (const segment of local.segments) {
       const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
       if (block === undefined || block.id !== segment.block || !validIndex(segment.first, block.statements.length + 1) ||
@@ -180,7 +174,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const storage of facts.liveness.bindings) if (!validIndex(storage.local, mir.locals.length)) {
     report("cross-owner-qualified", { kind: "local", local: { body: facts.instance.body, local: storage.local } }, "A binding-storage row belongs to this actual MIR local table.");
   }
-  ordered(facts.liveness.captures, "captures-order", row => [row.local.body, row.local.local], row => ({ kind: "local", local: row.local }));
+  ordered(facts.liveness.captures, "captures-order", (left, right) => compare(left.local.body, right.local.body) || compare(left.local.local, right.local.local), row => ({ kind: "local", local: row.local }));
   for (const capture of facts.liveness.captures) if (!context.localExists(capture.local)) {
     report("capture-locations-exact", { kind: "local", local: capture.local }, "A capture retains its actual qualified outer local.");
   }
@@ -232,11 +226,14 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     }
   }
 
-  ordered(facts.origins.points, "points-order", row => [row.point.block, row.point.statement === null ? Number.MAX_SAFE_INTEGER : row.point.statement, row.place], () => bodySite);
+  ordered(facts.origins.points, "points-order", (left, right) => compare(left.point.block, right.point.block) ||
+    compare(left.point.statement === null ? Number.MAX_SAFE_INTEGER : left.point.statement,
+      right.point.statement === null ? Number.MAX_SAFE_INTEGER : right.point.statement) || compare(left.place, right.place), () => bodySite);
   for (const entry of facts.origins.points) { point(entry.point, bodySite, "point-refs-resolve"); place(entry.place, bodySite); origins(entry.origins, bodySite); }
-  ordered(facts.origins.reads, "reads-order", row => [row.node, row.place], row => at(row.node));
+  ordered(facts.origins.reads, "reads-order", (left, right) => compare(left.node, right.node) || compare(left.place, right.place), row => at(row.node));
   for (const read of facts.origins.reads) { node(read.node); place(read.place, at(read.node)); origins(read.origins, at(read.node)); }
-  ordered(facts.origins.subjects, "subjects-order", row => [row.node, row.role, row.path === null ? -1 : row.path], row => at(row.node));
+  ordered(facts.origins.subjects, "subjects-order", (left, right) => compare(left.node, right.node) || compare(left.role, right.role) ||
+    compare(left.path === null ? -1 : left.path, right.path === null ? -1 : right.path), row => at(row.node));
   for (const subject of facts.origins.subjects) { node(subject.node); path(subject.path, at(subject.node)); origins(subject.origins, at(subject.node)); }
   nodeOrder(facts.origins.writes, "writes-order");
   for (const write of facts.origins.writes) {
@@ -246,7 +243,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     for (const value of write.values) { if (value.source !== null) nodeRef(value.source, site); origins(value.origins, site); }
     for (const id of write.boundaries) boundary(id, site);
   }
-  ordered(facts.origins.escapes, "escapes-order", row => [row.node, row.producer, encodeKey(escapeData(row.target))], row => at(row.node));
+  ordered(facts.origins.escapes, "escapes-order", (left, right) => compare(left.node, right.node) || compare(left.producer, right.producer) ||
+    compare(encodeKey(escapeData(left.target)), encodeKey(escapeData(right.target))), row => at(row.node));
   for (const escape of facts.origins.escapes) { node(escape.node); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node)); }
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
     origins(argument.actual, site); path(argument.projection, site);
@@ -278,21 +276,21 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       if (decision.completion.yielded !== null) type(decision.completion.yielded, site);
       if (decision.completion.sent !== null) type(decision.completion.sent, site);
       bindings(decision.bindings, site, decision.advertised.declaration);
-      if (decision.implementationBindings !== null) bindings(decision.implementationBindings, site, decision.api.declaration);
+      bindings(decision.implementationBindings, site, decision.api.declaration);
       const selected = context.types.signatures[decision.api.signature];
       const receiver = facts.arena.contexts[alternative.context];
       if (selected !== undefined && receiver !== undefined && (receiver.arguments.length !== selected.parameters.length ||
         (receiver.receiver === null) !== (selected.receiver === null))) report("context-arguments-total", site,
         "Each invocation context retains every actual selected parameter and receiver slot.");
       const seen = new Set<string>();
-      let previous: readonly OrderPart[] | null = null;
+      let previous: ArgumentTransport | null = null;
       const supplied = new Map<number, number>();
       for (const argument of alternative.arguments) {
         checkArgument(argument, site);
-        const key = [argument.authoredIndex === null ? -1 : argument.authoredIndex, argument.effectiveIndex, argument.parameterIndex];
-        if (previous !== null && compare(previous, key) > 0) report("argument-transports-authored-order", site,
+        if (previous !== null && (compare(previous.authoredIndex === null ? -1 : previous.authoredIndex, argument.authoredIndex === null ? -1 : argument.authoredIndex) ||
+          compare(previous.effectiveIndex, argument.effectiveIndex) || compare(previous.parameterIndex, argument.parameterIndex)) > 0) report("argument-transports-authored-order", site,
           "Transports retain authored actual order and effective rest-component order.");
-        previous = key;
+        previous = argument;
         const identity = encodeKey([argument.parameterIndex, argument.authoredIndex, argument.effectiveIndex]);
         const parameter = selected?.parameters[argument.parameterIndex];
         if (seen.has(identity) || parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
@@ -309,8 +307,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           "Every non-rest selected formal has its complete actual or explicit omitted transport.");
       }
       const activation = alternative.resolution.activation;
-      if (alternative.summary.definition !== decision.api.declaration || alternative.summary.bindings.kind !== (activation?.bindings.kind ?? "parametric") ||
-        activation !== null && !sameBindings(alternative.summary.bindings, activation.bindings)) report("summary-reference-exact", site,
+      const dependent = context.bindingDependentOf(decision.api.declaration);
+      const environment: ArtifactBindings | null = dependent === null ? null : dependent
+        ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
+      if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
+        activation !== null && !sameBindings(activation.bindings, environment)) report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment.");
       const captureSet = new Set(alternative.resolution.captures.map(capture => encodeKey([capture.body, capture.local])));
       if (captureSet.size !== alternative.resolution.captures.length || receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
@@ -335,10 +336,13 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     if (activation.entry !== null) checkArgument(activation.entry, site);
     if (!context.definitionExists(activation.definition)) report("producer-resolves", site, "An activation retains its actual execution declaration.");
   }
-  ordered(facts.origins.frontiers, "frontiers-order", row => [row.node, row.kind, row.subject, row.context], row => at(row.node));
+  ordered(facts.origins.frontiers, "frontiers-order", (left, right) => compare(left.node, right.node) || compare(left.kind, right.kind) ||
+    compare(left.subject, right.subject) || compare(left.context, right.context), row => at(row.node));
   for (const frontier of facts.origins.frontiers) { node(frontier.node); producer(frontier.subject, at(frontier.node)); valueContext(frontier.context, at(frontier.node)); }
-  ordered(facts.origins.constructions, "constructions-order", row => [row.node, row.root.body, row.root.node, row.allocation.body, row.allocation.node,
-    row.implementation === null ? "" : row.implementation, row.body === null ? "" : instanceKey(row.body)], row => at(row.node));
+  ordered(facts.origins.constructions, "constructions-order", (left, right) => compare(left.node, right.node) || compare(left.root.body, right.root.body) ||
+    compare(left.root.node, right.root.node) || compare(left.allocation.body, right.allocation.body) || compare(left.allocation.node, right.allocation.node) ||
+    compare(left.implementation === null ? "" : left.implementation, right.implementation === null ? "" : right.implementation) ||
+    compare(left.body === null ? "" : instanceKey(left.body), right.body === null ? "" : instanceKey(right.body)), row => at(row.node));
   for (const construction of facts.origins.constructions) {
     node(construction.node); const site = at(construction.node); nodeRef(construction.root, site, false); nodeRef(construction.allocation, site, false);
     if (construction.implementation !== null && !context.definitionExists(construction.implementation)) report("producer-resolves", site,
@@ -346,7 +350,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     for (const region of construction.regions) { nodeRef(region.node, site, false); valueContext(region.context, site);
       if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
   }
-  ordered(facts.origins.instanceRegions, "regions-order", row => [row.owner, row.node.body, row.node.node, row.context], row => ({ kind: "node", at: row.node }));
+  ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compare(left.owner, right.owner) || compare(left.node.body, right.node.body) ||
+    compare(left.node.node, right.node.node) || compare(left.context, right.context), row => ({ kind: "node", at: row.node }));
   for (const region of facts.origins.instanceRegions) { nodeRef(region.node, { kind: "node", at: region.node }, false); valueContext(region.context, bodySite); }
 
   nodeOrder(facts.suspension.suspensions, "suspensions-order");
@@ -376,7 +381,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const error of facts.errorStorage.errors) {
     node(error.node); const site = at(error.node); origins(error.origins, site); retention(error.retention, site);
     for (const write of error.writes) node(write);
-    ordered(error.invalidations, "error-invalidations-order", row => [row.at.body, row.at.node, row.kind], () => site);
+    ordered(error.invalidations, "error-invalidations-order", (left, right) => compare(left.at.body, right.at.body) || compare(left.at.node, right.at.node) || compare(left.kind, right.kind), () => site);
     for (const invalidation of error.invalidations) {
       nodeRef(invalidation.at, site);
       if (!validIndex(invalidation.owner, facts.arena.origins.length)) report("error-invalidation-origins-resolve", site,
@@ -486,7 +491,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       }
     }
   }
-  ordered(facts.selectedMemoryDeclarations, "selected-declarations-order", row => [row], () => bodySite);
+  ordered(facts.selectedMemoryDeclarations, "selected-declarations-order", compare, () => bodySite);
   for (const selected of facts.selectedMemoryDeclarations) if (!context.definitionExists(selected)) report("cross-owner-qualified", bodySite,
     "Every selected memory declaration retains its actual declaration identity.");
   nodeOrder(facts.closedArrays, "closed-arrays-order");

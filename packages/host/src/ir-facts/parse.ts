@@ -335,7 +335,7 @@ const application: Decode<ApplicationDecision> = (state, input) => then(fields(s
     then(endpoint(state, values[1]), advertisedValue =>
     then(endpoint(state, values[2]), apiValue =>
     then(bindings(state, values[3]), bindingsValue =>
-    then(nullable(state, values[4], bindings), implementationBindingsValue =>
+    then(bindings(state, values[4]), implementationBindingsValue =>
     then(sequence(state, values[5], parameterMapping), parametersValue =>
     then(completion(state, values[6]), completionValue =>
     then(typeIdentity(state, values[7]), resultValue =>

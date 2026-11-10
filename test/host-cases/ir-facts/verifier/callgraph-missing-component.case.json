@@ -1,0 +1,7 @@
+{
+  "name": "callgraph-missing-component",
+  "level": "verifier",
+  "rule": "component-membership-exact",
+  "input": "test/host-cases/ir-facts/verifier/callgraph-missing-component.input.facts",
+  "expected": "test/host-cases/ir-facts/verifier/callgraph-missing-component.expected.json"
+}

@@ -174,7 +174,7 @@ const completion = (writer: Writer, value: CompletionEndpoint): void => record(w
 const application = (writer: Writer, value: ApplicationDecision): void => record(writer, "ApplicationDecision", [
   ["candidate", () => scalar(writer, value.candidate)], ["advertised", () => endpoint(writer, value.advertised)],
   ["api", () => endpoint(writer, value.api)], ["bindings", () => bindings(writer, value.bindings)],
-  ["implementationBindings", () => nullable(writer, value.implementationBindings, item => bindings(writer, item))],
+  ["implementationBindings", () => bindings(writer, value.implementationBindings)],
   ["parameters", () => sequence(writer, value.parameters, item => parameterMapping(writer, item))],
   ["completion", () => completion(writer, value.completion)], ["result", () => identity(writer, "t", value.result)],
 ]);
