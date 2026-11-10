@@ -154,14 +154,57 @@ test("kind-specific private construction validates actual text before acquiring 
     ["groupIdentity", "G[P[x]]", "ids: invalid group identity"],
     ["componentIdentity", "C[]", "ids: invalid component identity"],
   ]) assert.throws(() => construction[name](text), { name: "TypeError", message });
-  const module = product.encodeModuleId({ package: product.encodePackageId("p"), path: "m" });
-  for (const ordinal of [-1, -0, 0.5, NaN, Infinity, -Infinity]) {
-    assert.throws(() => product.encodeDefId({ module, segments: [{ name: "a", ordinal }] }), {
-      name: "TypeError", message: "ids: an ordinal must be a canonical nonnegative integer",
-    });
-  }
   const overflowing = `D[M[P[p];m];a#${"9".repeat(400)}]`;
   assert.deepEqual(product.decodeDefId(overflowing), { kind: "invalid", text: overflowing, offset: 14, reason: "noncanonical" });
+});
+
+test("all host number ordinals have distinct complete canonical round trips without domain refusals", () => {
+  const module = product.encodeModuleId({ package: product.encodePackageId("p"), path: "m" });
+  const owner = product.encodeDefId({ module, segments: [{ name: "a", ordinal: 0 }] });
+  for (const [ordinal, definitionSuffix, bodyOrdinal] of [
+    [0, "", "0"], [1, "#1", "1"], [9007199254740991, "#9007199254740991", "9007199254740991"],
+    [-1, "#F-1:", "F-1:"], [-0, "#F-0:", "F-0:"], [0.5, "#F0.5:", "F0.5:"],
+    [NaN, "#FNaN:", "FNaN:"], [Infinity, "#F+Infinity:", "F+Infinity:"], [-Infinity, "#F-Infinity:", "F-Infinity:"],
+    [9007199254740992, "#F9007199254740992:", "F9007199254740992:"], [1e21, "#F1e+21:", "F1e+21:"],
+    [5e-324, "#F5e-324:", "F5e-324:"], [1.7976931348623157e308, "#F1.7976931348623157e+308:", "F1.7976931348623157e+308:"],
+  ]) {
+    const expectedDefinition = `D[M[P[p];m];a${definitionSuffix}]`;
+    const path = { module, segments: [{ name: "a", ordinal }] };
+    assert.equal(product.encodeDefId(path), expectedDefinition);
+    const decodedDefinition = product.decodeDefId(expectedDefinition);
+    assert.deepEqual(decodedDefinition, { kind: "decoded", value: { module: "M[P[p];m]", segments: [{ name: "a", ordinal }] } });
+    assert.equal(product.encodeDefId(decodedDefinition.value), expectedDefinition);
+    const expectedBody = `B[D[M[P[p];m];a];function;${bodyOrdinal}]`;
+    assert.equal(product.encodeBodyId({ owner, role: "function", ordinal }), expectedBody);
+    const decodedBody = product.decodeBodyId(expectedBody);
+    assert.deepEqual(decodedBody, { kind: "decoded", value: { owner: "D[M[P[p];m];a]", role: "function", ordinal } });
+    assert.equal(product.encodeBodyId(decodedBody.value), expectedBody);
+  }
+  const segments = [{ name: "a", ordinal: NaN }, { name: "b", ordinal: -0 }, { name: "c", ordinal: -0.5 }];
+  const expected = "D[M[P[p];m];a#FNaN:/b#F-0:/c#F-0.5:]";
+  assert.equal(product.encodeDefId({ module, segments }), expected);
+  assert.deepEqual(product.decodeDefId(expected), { kind: "decoded", value: { module: "M[P[p];m]", segments } });
+});
+
+test("ordinal framing rejects every noncanonical number spelling with complete original-text errors", () => {
+  for (const [spelling, reason, relativeOffset] of [
+    ["F:", "syntax", 1], ["FNaN", "syntax", 4], ["Fwat:", "syntax", 1],
+    ["F1:", "noncanonical", 0], ["F0:", "noncanonical", 0], ["F+0:", "noncanonical", 0],
+    ["F01:", "noncanonical", 0], ["F0.50:", "noncanonical", 0], ["F.5:", "noncanonical", 0],
+    ["FInfinity:", "noncanonical", 0], ["F1e+999:", "noncanonical", 0],
+    ["F9007199254740993:", "noncanonical", 0], ["F1e21:", "noncanonical", 0], ["FNaN:x", "syntax", 5],
+    ["9007199254740992", "noncanonical", 0], ["1000000000000000000000", "noncanonical", 0],
+  ]) {
+    const definition = `D[M[P[x];m];a#${spelling}]`;
+    assert.deepEqual(product.decodeDefId(definition), { kind: "invalid", text: definition, offset: 14 + relativeOffset, reason });
+    const body = `B[D[M[P[x];m];a];function;${spelling}]`;
+    assert.deepEqual(product.decodeBodyId(body), { kind: "invalid", text: body, offset: 26 + relativeOffset, reason });
+  }
+  for (const [text, offset] of [["D[M[P[x];m];a#FNaN:", 19], ["B[D[M[P[x];m];a];function;FNaN:", 31],
+    ["D[M[P[x];m];a#FNaN", 18], ["B[D[M[P[x];m];a];function;FNaN", 30]]) {
+    const decoded = text.startsWith("D") ? product.decodeDefId(text) : product.decodeBodyId(text);
+    assert.deepEqual(decoded, { kind: "invalid", text, offset, reason: "syntax" });
+  }
 });
 
 test("plain key boundaries reject cycles, accessors, holes, extra fields and unsupported values", () => {

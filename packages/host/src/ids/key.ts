@@ -12,6 +12,10 @@ function dataField(value: object, name: string): unknown {
   return descriptor.value;
 }
 
+export function encodeCanonicalNumber(value: number): string {
+  return `F${Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value)}:`;
+}
+
 export function encodeCanonicalKey(key: KeyData): string {
   const output: string[] = [];
   const active = new Set<object>();
@@ -27,7 +31,7 @@ export function encodeCanonicalKey(key: KeyData): string {
     } else if (typeof value === "boolean") {
       output.push(value ? "B1" : "B0");
     } else if (typeof value === "number") {
-      output.push(`F${Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value)}:`);
+      output.push(encodeCanonicalNumber(value));
     } else if (typeof value === "bigint") {
       output.push(`I${value}:`);
     } else if (typeof value === "string") {

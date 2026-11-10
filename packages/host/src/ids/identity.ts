@@ -2,6 +2,7 @@ import type {
   BodyId, BodyPath, BodyRole, ComponentId, DecodedIdentity, DefId, DefinitionPath,
   DefinitionSegment, GroupId, ModuleId, ModulePath, PackageId,
 } from "./contract.js";
+import { encodeCanonicalNumber } from "./key.js";
 
 interface Cursor {
   readonly text: string;
@@ -78,16 +79,28 @@ function escaped(cursor: Cursor, terminators: string): Read<string> {
   return invalid(cursor, "syntax");
 }
 
-function unsigned(cursor: Cursor, terminators: string, nonzero: boolean): Read<number> {
+function readOrdinal(cursor: Cursor, terminators: string, nonzero: boolean): Read<number> {
   const start = cursor.offset;
-  while (/^[0-9]$/u.test(cursor.text.charAt(cursor.offset))) cursor.offset += 1;
-  if (cursor.offset === start || !terminators.includes(cursor.text.charAt(cursor.offset)) || cursor.offset === cursor.text.length) {
+  let ordinal: number;
+  if (cursor.text.charAt(cursor.offset) === "F") {
+    cursor.offset += 1;
+    const numberStart = cursor.offset;
+    while (cursor.offset < cursor.text.length && cursor.text.charAt(cursor.offset) !== ":" &&
+        !terminators.includes(cursor.text.charAt(cursor.offset))) cursor.offset += 1;
+    if (cursor.offset === numberStart || cursor.text.charAt(cursor.offset) !== ":") return invalid(cursor, "syntax");
+    const text = cursor.text.slice(numberStart, cursor.offset);
+    ordinal = Number(text);
+    if (Number.isNaN(ordinal) && text !== "NaN") return invalid(cursor, "syntax", numberStart);
+    cursor.offset += 1;
+  } else {
+    while (/^[0-9]$/u.test(cursor.text.charAt(cursor.offset))) cursor.offset += 1;
+    if (cursor.offset === start) return invalid(cursor, "syntax");
+    ordinal = Number(cursor.text.slice(start, cursor.offset));
+  }
+  if (!terminators.includes(cursor.text.charAt(cursor.offset)) || cursor.offset === cursor.text.length) {
     return invalid(cursor, "syntax");
   }
-  const digits = cursor.text.slice(start, cursor.offset);
-  const ordinal = Number(digits);
-  if (digits.length > 1 && digits.startsWith("0") || !Number.isInteger(ordinal) ||
-      BigInt(ordinal).toString() !== digits || nonzero && ordinal === 0) {
+  if (cursor.text.slice(start, cursor.offset) !== ordinalText(ordinal) || nonzero && Object.is(ordinal, 0)) {
     return invalid(cursor, "noncanonical", start);
   }
   return value(ordinal);
@@ -137,7 +150,7 @@ function definitionPart(cursor: Cursor): Read<DefinitionPath> {
     let ordinal = 0;
     if (cursor.text.charAt(cursor.offset) === "#") {
       cursor.offset += 1;
-      const parsed = unsigned(cursor, "/]", true);
+      const parsed = readOrdinal(cursor, "/]", true);
       if (parsed.kind === "invalid") return parsed;
       ordinal = parsed.value;
     }
@@ -169,7 +182,7 @@ function bodyPart(cursor: Cursor): Read<BodyPath> {
   if (!bodyRole(role)) return invalid(cursor, "syntax", roleStart);
   const ordinalSeparator = take(cursor, ";");
   if (ordinalSeparator !== null) return ordinalSeparator;
-  const ordinal = unsigned(cursor, "]", false);
+  const ordinal = readOrdinal(cursor, "]", false);
   if (ordinal.kind === "invalid") return ordinal;
   cursor.offset += 1;
   return value(Object.freeze({ owner: definitionIdentity(definitionText), role, ordinal: ordinal.value }));
@@ -256,10 +269,8 @@ export function componentIdentity(text: string): ComponentId {
 }
 
 function ordinalText(ordinal: number): string {
-  if (!Number.isInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0)) {
-    throw new TypeError("ids: an ordinal must be a canonical nonnegative integer");
-  }
-  return BigInt(ordinal).toString();
+  return Number.isSafeInteger(ordinal) && ordinal >= 0 && !Object.is(ordinal, -0)
+    ? String(ordinal) : encodeCanonicalNumber(ordinal);
 }
 
 export function encodePackageIdentity(rootIdentity: string): PackageId {
@@ -281,7 +292,7 @@ export function decodeModuleIdentity(text: string): DecodedIdentity<ModulePath> 
 export function encodeDefinitionIdentity(path: DefinitionPath): DefId {
   const segments = path.segments.map(segment => {
     const ordinal = ordinalText(segment.ordinal);
-    return `${escape(segment.name)}${segment.ordinal === 0 ? "" : `#${ordinal}`}`;
+    return `${escape(segment.name)}${Object.is(segment.ordinal, 0) ? "" : `#${ordinal}`}`;
   });
   return definitionIdentity(`D[${path.module}${segments.length === 0 ? "" : `;${segments.join("/")}`}]`);
 }
