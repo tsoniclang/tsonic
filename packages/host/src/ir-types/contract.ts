@@ -374,10 +374,18 @@ export interface BindingVerificationInput {
   readonly scope: BindingScope;
 }
 
+export interface NominalDefinition {
+  readonly kind: "declared" | "enum";
+  readonly facets: readonly ("instance" | "value")[];
+}
+
 export interface TypeVerificationInput {
   readonly table: TypeTable;
   readonly bindings: readonly BindingVerificationInput[];
   readonly evidence: readonly TypeEvidence[];
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly localExists: (local: LocalRef) => boolean;
 }
 
 export type VerifyTypes = (input: TypeVerificationInput) => readonly Violation<TypeRule, TypeSite>[];

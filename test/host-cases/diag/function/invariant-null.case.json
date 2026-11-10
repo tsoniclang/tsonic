@@ -1,0 +1,7 @@
+{
+  "name": "invariant-null",
+  "level": "function",
+  "rule": "diag.invariant-preserve-null-query-origin",
+  "input": "test/host-cases/diag/function/invariant-null.input.json",
+  "expected": "test/host-cases/diag/function/invariant-null.expected.json"
+}

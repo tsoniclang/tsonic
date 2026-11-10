@@ -1,0 +1,7 @@
+{
+  "name": "stable-equal-key",
+  "level": "function",
+  "rule": "diag.order-stable-no-deduplication",
+  "input": "test/host-cases/diag/function/stable-equal-key.input.json",
+  "expected": "test/host-cases/diag/function/stable-equal-key.expected.json"
+}

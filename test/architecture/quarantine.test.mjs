@@ -174,8 +174,8 @@ test("the actual active tree has no reference into the reading tree", () => {
   assert.equal(scalar(verifyQuarantine(real, resolve(repository))), "[]");
 });
 
-test("normal build entries strictly check the real Host contracts without claiming runtime capability", () => {
-  const reports = mkdtempSync(join(repository, ".temp/contracts-only-build-"));
+test("normal build entries strictly emit the current Host modules without claiming compiler capability", () => {
+  const reports = mkdtempSync(join(repository, ".temp/host-build-"));
   const reportPath = join(reports, "build.guard.json");
   for (const [command, argumentsList] of [["npm", ["run", "build"]], [process.execPath, ["test/scripts/build.mjs"]]]) {
     const guarded = command === "npm";
@@ -189,6 +189,6 @@ test("normal build entries strictly check the real Host contracts without claimi
       assert.equal(report.scopeDrained, true);
       output = readFileSync(report.log, "utf8");
     }
-    assert.equal(output.includes("Host contracts: strict type-check passed; no Host runtime or compiler capability is implemented."), true);
+    assert.equal(output.includes("Host modules: strict build passed; current JavaScript and declarations emitted."), true);
   }
 });

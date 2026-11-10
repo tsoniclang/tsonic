@@ -3,7 +3,7 @@ import type {
   BlockId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, PassingMode, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, NominalDefinition, PassingMode, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
@@ -651,7 +651,7 @@ export type FactsRule =
   | "producer-id-dense" | "context-id-dense" | "bound-producer-id-dense" | "origins-id-dense" | "boundary-id-dense"
   | "projection-id-dense" | "projection-parent-precedes" | "projection-unique" | "producer-unique" | "producer-resolves"
   | "context-resolves" | "bound-producer-resolves" | "origins-resolves" | "boundary-resolves"
-  | "origin-alternatives-order" | "origin-alternatives-correlated" | "open-boundaries-nonempty"
+  | "origin-alternatives-order" | "origin-alternatives-correlated"
   | "capture-locations-exact" | "context-arguments-total" | "node-resolves" | "place-resolves"
   | "mir-point-resolves" | "stores-order" | "locals-order" | "captures-order" | "initialization-order"
   | "live-segments-order" | "live-segments-bounds" | "points-order" | "point-refs-resolve"
@@ -710,6 +710,7 @@ export interface FactsVerificationContext {
   readonly types: TypeTable;
   readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;
   readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;

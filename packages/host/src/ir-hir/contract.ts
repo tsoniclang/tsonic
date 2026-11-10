@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 
 export interface TextRange {
   readonly pos: number;
@@ -4571,8 +4571,8 @@ export interface HirModule {
   readonly obligations: readonly HirDiagnosticRoot[];
 }
 
-export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-type-child" | "kind-children-shape" | "node-in-body-range" | "module-owner" | "definition-unique" | "definition-parent" | "definition-reference"
-  | "body-owner" | "body-unique" | "node-dense-preorder" | "node-kind" | "node-reference" | "lexical-parent"
+export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-type-child" | "node-in-body-range" | "module-owner" | "definition-unique" | "definition-parent" | "definition-reference" | "ordinal-domain"
+  | "body-owner" | "body-unique" | "node-dense-preorder" | "node-reference" | "lexical-parent"
   | "origin-range" | "local-dense" | "local-reference" | "capture-owner" | "parameter-order"
   | "scope-parent" | "literal-exact" | "type-reference" | "signature-reference" | "candidate-original-order"
   | "candidate-endpoints" | "binding-vector-complete" | "contribution-parameter" | "protocol-kind"
@@ -4591,6 +4591,9 @@ export type ParseHir = (text: string) => TextParseResult<HirModule>;
 export interface HirVerificationContext {
   readonly types: TypeTable;
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly localExists: (local: LocalRef) => boolean;
 }
 export type VerifyHir = (module: HirModule, context: HirVerificationContext) => readonly Violation<HirRule, HirSite>[];
 export type WalkSyntaxTree = <P extends Phase>(
