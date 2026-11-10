@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "build": "bash scripts/build/all.sh",
-    "test": "bash test/scripts/bounded-run.sh host node --experimental-test-coverage --test-coverage-exclude= --test-coverage-include=test/scripts/quarantine.mjs --test-coverage-include=test/architecture/quarantine.test.mjs --test --test-concurrency=1 test/architecture/quarantine.test.mjs",
+    "test": "bash test/scripts/bounded-run.sh host node --experimental-test-coverage --test-coverage-exclude=**/node_modules/** --test-coverage-include=test/scripts/quarantine.mjs --test-coverage-include=test/architecture/quarantine.test.mjs --test --test-concurrency=1 test/architecture/quarantine.test.mjs",
     "test:build": "bash test/scripts/bounded-run.sh host node test/scripts/build.mjs",
     "test:quarantine": "bash test/scripts/bounded-run.sh host node test/scripts/quarantine.mjs"
   },
