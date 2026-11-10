@@ -124,6 +124,10 @@ function definitionPart(cursor: Cursor): Read<DefinitionPath> {
   const module = modulePart(cursor);
   if (module.kind === "invalid") return module;
   const moduleText = cursor.text.slice(moduleStart, cursor.offset);
+  if (cursor.text.charAt(cursor.offset) === "]") {
+    cursor.offset += 1;
+    return value(Object.freeze({ module: moduleIdentity(moduleText), segments: Object.freeze([]) }));
+  }
   const separator = take(cursor, ";");
   if (separator !== null) return separator;
   const segments: DefinitionSegment[] = [];
@@ -275,12 +279,11 @@ export function decodeModuleIdentity(text: string): DecodedIdentity<ModulePath> 
 }
 
 export function encodeDefinitionIdentity(path: DefinitionPath): DefId {
-  if (path.segments.length === 0) throw new TypeError("ids: a definition path requires at least one segment");
   const segments = path.segments.map(segment => {
     const ordinal = ordinalText(segment.ordinal);
     return `${escape(segment.name)}${segment.ordinal === 0 ? "" : `#${ordinal}`}`;
   });
-  return definitionIdentity(`D[${path.module};${segments.join("/")}]`);
+  return definitionIdentity(`D[${path.module}${segments.length === 0 ? "" : `;${segments.join("/")}`}]`);
 }
 
 export function decodeDefinitionIdentity(text: string): DecodedIdentity<DefinitionPath> {

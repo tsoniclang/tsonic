@@ -134,6 +134,17 @@ test("ids exact public value inventory contains only the thirteen agreed ports",
     "module-identities", "ordinal-precision", "package-identities", "scalar-keys", "structural-keys"].sort());
 });
 
+test("zero definition segments and one empty-name segment are distinct complete round trips", () => {
+  const module = product.encodeModuleId({ package: product.encodePackageId("p"), path: "m" });
+  for (const [segments, expected] of [[[], "D[M[P[p];m]]"], [[{ name: "", ordinal: 0 }], "D[M[P[p];m];]"]]) {
+    const encoded = product.encodeDefId({ module, segments });
+    assert.equal(encoded, expected);
+    const decoded = product.decodeDefId(expected);
+    assert.deepEqual(decoded, { kind: "decoded", value: { module: "M[P[p];m]", segments } });
+    assert.equal(product.encodeDefId(decoded.value), expected);
+  }
+});
+
 test("kind-specific private construction validates actual text before acquiring each brand", () => {
   for (const [name, text, message] of [
     ["packageIdentity", "P[%0061]", "ids: invalid package identity"],
@@ -144,14 +155,11 @@ test("kind-specific private construction validates actual text before acquiring 
     ["componentIdentity", "C[]", "ids: invalid component identity"],
   ]) assert.throws(() => construction[name](text), { name: "TypeError", message });
   const module = product.encodeModuleId({ package: product.encodePackageId("p"), path: "m" });
-  for (const ordinal of [-1, -0, 0.5, NaN, Infinity]) {
+  for (const ordinal of [-1, -0, 0.5, NaN, Infinity, -Infinity]) {
     assert.throws(() => product.encodeDefId({ module, segments: [{ name: "a", ordinal }] }), {
       name: "TypeError", message: "ids: an ordinal must be a canonical nonnegative integer",
     });
   }
-  assert.throws(() => product.encodeDefId({ module, segments: [] }), {
-    name: "TypeError", message: "ids: a definition path requires at least one segment",
-  });
   const overflowing = `D[M[P[p];m];a#${"9".repeat(400)}]`;
   assert.deepEqual(product.decodeDefId(overflowing), { kind: "invalid", text: overflowing, offset: 14, reason: "noncanonical" });
 });
