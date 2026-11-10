@@ -1,13 +1,30 @@
 import type { KeyData } from "./contract.js";
 
+interface KeyPath {
+  readonly parent: KeyPath | null;
+  readonly component: string | number;
+}
+
 type KeyTask =
-  | { readonly kind: "value"; readonly value: unknown }
+  | { readonly kind: "value"; readonly value: unknown; readonly path: KeyPath | null }
   | { readonly kind: "leave"; readonly value: object };
 
-function dataField(value: object, name: string): unknown {
+function keyError(path: KeyPath | null, reason: string): TypeError {
+  const components: string[] = [];
+  for (let current = path; current !== null; current = current.parent) {
+    components.push(typeof current.component === "number"
+      ? `[${current.component}]` : `[${JSON.stringify(current.component)}]`);
+  }
+  return new TypeError(`ids: ${reason} at $root${components.reverse().join("")}`);
+}
+
+function dataField(value: object, name: string, path: KeyPath): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(value, name);
   if (descriptor === undefined || !("value" in descriptor)) {
-    throw new TypeError("ids: a key field must be an own data property");
+    throw keyError(path, "a key field must be an own data property");
+  }
+  if (descriptor.enumerable !== true) {
+    throw keyError(path, "a key field must be enumerable");
   }
   return descriptor.value;
 }
@@ -19,7 +36,7 @@ export function encodeCanonicalNumber(value: number): string {
 export function encodeCanonicalKey(key: KeyData): string {
   const output: string[] = [];
   const active = new Set<object>();
-  const tasks: KeyTask[] = [{ kind: "value", value: key }];
+  const tasks: KeyTask[] = [{ kind: "value", value: key, path: null }];
   for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
     if (task.kind === "leave") {
       active.delete(task.value);
@@ -37,34 +54,36 @@ export function encodeCanonicalKey(key: KeyData): string {
     } else if (typeof value === "string") {
       output.push(`S${value.length}:${value}`);
     } else if (typeof value === "object") {
-      if (active.has(value)) throw new TypeError("ids: cyclic key data");
+      if (active.has(value)) throw keyError(task.path, "cyclic key data");
       if (Object.getOwnPropertySymbols(value).length !== 0) {
-        throw new TypeError("ids: key data cannot contain symbol fields");
+        throw keyError(task.path, "key data cannot contain symbol fields");
       }
       active.add(value);
       tasks.push({ kind: "leave", value });
       if (Array.isArray(value)) {
         if (Object.getOwnPropertyNames(value).length !== value.length + 1) {
-          throw new TypeError("ids: a key array must be dense with no extra fields");
+          throw keyError(task.path, "a key array must be dense with no extra fields");
         }
         output.push(`A${value.length}:`);
         for (let index = value.length - 1; index >= 0; index -= 1) {
-          tasks.push({ kind: "value", value: dataField(value, String(index)) });
+          const path: KeyPath = { parent: task.path, component: index };
+          tasks.push({ kind: "value", value: dataField(value, String(index), path), path });
         }
       } else {
         const prototype: unknown = Object.getPrototypeOf(value);
         if (prototype !== Object.prototype && prototype !== null) {
-          throw new TypeError("ids: a key record must be plain data");
+          throw keyError(task.path, "a key record must be plain data");
         }
         const names = Object.getOwnPropertyNames(value).sort();
         output.push(`O${names.length}:`);
         for (const name of names.reverse()) {
-          tasks.push({ kind: "value", value: dataField(value, name) });
-          tasks.push({ kind: "value", value: name });
+          const path: KeyPath = { parent: task.path, component: name };
+          tasks.push({ kind: "value", value: dataField(value, name, path), path });
+          tasks.push({ kind: "value", value: name, path });
         }
       }
     } else {
-      throw new TypeError("ids: unsupported key data");
+      throw keyError(task.path, "unsupported key data");
     }
   }
   return output.join("");

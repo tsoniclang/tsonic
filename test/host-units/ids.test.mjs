@@ -207,7 +207,7 @@ test("ordinal framing rejects every noncanonical number spelling with complete o
   }
 });
 
-test("plain key boundaries reject cycles, accessors, holes, extra fields and unsupported values", () => {
+test("plain key boundaries reject every outside form with its complete actual path", () => {
   const arrayCycle = []; arrayCycle.push(arrayCycle);
   const recordCycle = {}; recordCycle.self = recordCycle;
   const accessorArray = [0]; let reads = 0;
@@ -215,27 +215,56 @@ test("plain key boundaries reject cycles, accessors, holes, extra fields and uns
   const accessorRecord = { get field() { reads += 1; return 0; } };
   const holeAndExtra = Array(1); holeAndExtra.extra = 1;
   const extraArray = []; extraArray.extra = 1;
+  const hidden = {}; Object.defineProperty(hidden, "a", { value: 1 });
+  const hiddenArray = [1]; Object.defineProperty(hiddenArray, "0", { enumerable: false });
+  const symbolArray = [1]; symbolArray[Symbol("field")] = 0;
+  let writes = 0;
+  const setterRecord = { set field(value) { writes += value; } };
+  for (const [input, reason, path] of [
+    [arrayCycle, "cyclic key data", "[0]"], [recordCycle, "cyclic key data", '["self"]'],
+    [accessorArray, "a key field must be an own data property", "[0]"],
+    [accessorRecord, "a key field must be an own data property", '["field"]'],
+    [setterRecord, "a key field must be an own data property", '["field"]'],
+    [holeAndExtra, "a key field must be an own data property", "[0]"],
+    [Array(1), "a key array must be dense with no extra fields", ""],
+    [extraArray, "a key array must be dense with no extra fields", ""],
+    [{ [Symbol("field")]: 0 }, "key data cannot contain symbol fields", ""],
+    [symbolArray, "key data cannot contain symbol fields", ""],
+    [new Date(0), "a key record must be plain data", ""],
+    [Object.create({ inherited: 1 }), "a key record must be plain data", ""],
+    [hidden, "a key field must be enumerable", '["a"]'],
+    [hiddenArray, "a key field must be enumerable", "[0]"],
+    [undefined, "unsupported key data", ""], [Symbol("value"), "unsupported key data", ""],
+    [() => 0, "unsupported key data", ""], [{ field: undefined }, "unsupported key data", '["field"]'],
+  ]) {
+    assert.throws(() => product.encodeKey(input), { name: "TypeError", message: `ids: ${reason} at $root${path}` });
+    assert.throws(() => product.encodeKey({ payload: [input] }), {
+      name: "TypeError", message: `ids: ${reason} at $root["payload"][0]${path}`,
+    });
+  }
   for (const [input, message] of [
-    [arrayCycle, "ids: cyclic key data"], [recordCycle, "ids: cyclic key data"],
-    [accessorArray, "ids: a key field must be an own data property"],
-    [accessorRecord, "ids: a key field must be an own data property"],
-    [holeAndExtra, "ids: a key field must be an own data property"],
-    [Array(1), "ids: a key array must be dense with no extra fields"],
-    [extraArray, "ids: a key array must be dense with no extra fields"],
-    [{ [Symbol("field")]: 0 }, "ids: key data cannot contain symbol fields"],
-    [new Date(0), "ids: a key record must be plain data"],
-    [undefined, "ids: unsupported key data"], [Symbol("value"), "ids: unsupported key data"],
-    [() => 0, "ids: unsupported key data"], [{ field: undefined }, "ids: unsupported key data"],
+    [{ 'a"b': [undefined] }, 'ids: unsupported key data at $root["a\\"b"][0]'],
+    [{ "a\\b": [undefined] }, 'ids: unsupported key data at $root["a\\\\b"][0]'],
+    [{ "a\nb": [undefined] }, 'ids: unsupported key data at $root["a\\nb"][0]'],
+    [{ "\ud800": [undefined] }, 'ids: unsupported key data at $root["\\ud800"][0]'],
+    [{ "": [undefined] }, 'ids: unsupported key data at $root[""][0]'],
   ]) assert.throws(() => product.encodeKey(input), { name: "TypeError", message });
   assert.equal(reads, 0, "a rejected accessor is never invoked");
+  assert.equal(writes, 0, "a rejected setter is never invoked");
   const plain = Object.create(null); plain.a = 1;
   assert.equal(product.encodeKey(plain), "O1:S1:aF1:");
-  const hidden = {}; Object.defineProperty(hidden, "a", { value: 1 });
-  assert.equal(product.encodeKey(hidden), "O1:S1:aF1:", "all own string fields are represented");
   const shared = { value: [1, 2] };
   const actual = product.encodeKey([shared, shared]);
   assert.equal(actual, "A2:O1:S5:valueA2:F1:F2:O1:S5:valueA2:F1:F2:");
   assert.equal(product.encodeKey([{ value: [1, 2] }, { value: [1, 2] }]), actual);
+  let deepInvalid;
+  for (let depth = 0; depth < 100000; depth += 1) deepInvalid = [deepInvalid];
+  const expectedError = `ids: unsupported key data at $root${"[0]".repeat(100000)}`;
+  assert.throws(() => product.encodeKey(deepInvalid), error => {
+    assert.equal(error instanceof TypeError, true, "deep outside-domain value has the exact invariant type");
+    assert.equal(error.message === expectedError, true, "the complete deep error path is built iteratively");
+    return true;
+  });
 });
 
 test("canonical keys and durable grouping are independent of record allocation and member permutation", () => {
