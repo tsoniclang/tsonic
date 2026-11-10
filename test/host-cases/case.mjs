@@ -12,7 +12,10 @@ export async function runCase(deps, descriptorPath) {
   if (!canonical(descriptorPath) || !descriptorPath.startsWith("test/host-cases/") || !descriptorPath.endsWith(".case.json"))
     return failed("descriptor", "A canonical module/level/name.case.json path is required.");
   let descriptor;
-  try { descriptor = JSON.parse(await deps.readText(descriptorPath)); }
+  try {
+    if (await deps.canonical(descriptorPath) !== descriptorPath) return failed("descriptor", "The descriptor must be its original owned file.");
+    descriptor = JSON.parse(await deps.readText(descriptorPath));
+  }
   catch { return failed("descriptor", "The authored descriptor is missing or invalid JSON."); }
   if (descriptor === null || typeof descriptor !== "object" || Array.isArray(descriptor) ||
     Object.keys(descriptor).sort().join(",") !== "expected,input,level,name,oldSource,rule")

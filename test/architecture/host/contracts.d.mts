@@ -29,7 +29,7 @@ export interface HostModule {
 
 export interface ImportEdge {
   readonly source: string;
-  readonly specifier: string;
+  readonly specifier: string | null;
   readonly target: string | null;
   readonly start: number;
   readonly line: number;
@@ -37,6 +37,7 @@ export interface ImportEdge {
 }
 
 export interface InspectionDeps {
+  readonly quarantineRoots: readonly string[];
   readonly readText: (path: string) => string;
   readonly canonical: (path: string) => string;
   readonly parse: (files: ReadonlyMap<string, string>) => CheckedSourceProgram;
@@ -157,8 +158,8 @@ export interface CoverageReport {
 export type CheckCoverage = (deps: CoverageDeps, productFiles: readonly string[], rawV8: readonly CoverageCapture[]) => CoverageReport;
 
 export declare const hostCatalogue: readonly HostModule[];
-export declare const inspectionDeps: InspectionDeps;
+export declare function createInspectionDeps(quarantineRoots: readonly string[]): InspectionDeps;
 export declare function inspectHost(deps: InspectionDeps, inputs: InspectionInputs): readonly GateFinding[];
-export declare function isolationDeps(toolingRoot: string): IsolationDeps;
+export declare function isolationDeps(toolingRoot: string, quarantineRoots: readonly string[]): IsolationDeps;
 export declare function compileIsolated(deps: IsolationDeps, module: HostModule, inputs: IsolationInputs): Promise<IsolationReport>;
 export declare function checkCoverage(deps: CoverageDeps, productFiles: readonly string[], rawV8: readonly CoverageCapture[]): CoverageReport;

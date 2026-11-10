@@ -18,19 +18,26 @@ export function readImportGraph(source, files) {
     const path = ast.getFileName(file).slice("/host-gate/".length);
     if (!files.has(path)) continue;
     const reference = (node, literal) => {
-      const kind = ast.kindName(literal);
-      if (!["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind)) return;
-      const specifier = ast.text(literal);
+      while (literal !== undefined) {
+        const operand = ast.is.IsParenthesizedExpression(literal) ? ast.as.AsParenthesizedExpression(literal).Expression
+          : ast.is.IsAsExpression(literal) ? ast.as.AsAsExpression(literal).Expression
+            : ast.is.IsSatisfiesExpression(literal) ? ast.as.AsSatisfiesExpression(literal).Expression
+              : ast.is.IsNonNullExpression(literal) ? ast.as.AsNonNullExpression(literal).Expression
+                : ast.is.IsTypeAssertion(literal) ? ast.as.AsTypeAssertion(literal).Expression : undefined;
+        if (operand === undefined) break;
+        literal = operand;
+      }
+      const specifier = ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(literal)) ? ast.text(literal) : null;
       const range = ast.authoredRange(node);
       if (range.kind !== "authored") throw new Error("Import edges require original authored source sites.");
       const before = files.get(path).slice(0, range.start).split("\n");
       edges.push(Object.freeze({ source: path, specifier,
-        target: specifier.startsWith(".") ? resolveImport(path, specifier, files) : null,
+        target: specifier !== null && specifier.startsWith(".") ? resolveImport(path, specifier, files) : null,
         line: before.length, column: before[before.length - 1].length + 1, start: range.start }));
     };
     const visit = node => {
       if (ast.is.IsImportDeclaration(node)) reference(node, ast.as.AsImportDeclaration(node).ModuleSpecifier);
-      else if (ast.is.IsExportDeclaration(node)) reference(node, ast.as.AsExportDeclaration(node).ModuleSpecifier);
+      else if (ast.is.IsExportDeclaration(node) && ast.as.AsExportDeclaration(node).ModuleSpecifier !== undefined) reference(node, ast.as.AsExportDeclaration(node).ModuleSpecifier);
       else if (ast.is.IsImportTypeNode(node)) {
         const argument = ast.as.AsImportTypeNode(node).Argument;
         if (ast.is.IsLiteralTypeNode(argument)) reference(node, ast.as.AsLiteralTypeNode(argument).Literal);
@@ -42,6 +49,14 @@ export function readImportGraph(source, files) {
     visit(file);
   }
   return Object.freeze(edges.sort((left, right) => left.source.localeCompare(right.source) || left.start - right.start));
+}
+
+export function quarantineReference(value, roots) {
+  const parts = value.replaceAll("\\", "/").split("/");
+  return roots.some(root => {
+    const namespace = root.split("/")[0];
+    return parts.some(part => part === namespace || part.endsWith(`:${namespace}`));
+  });
 }
 
 function resolveImport(path, specifier, files) {

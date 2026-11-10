@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -9,6 +10,8 @@ import { compileIsolated, isolationDeps } from "./host/isolation.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
+const quarantineDataPath = process.env.TSONIC_HOST_QUARANTINE_AREAS ?? resolve(repository, "test/architecture/quarantine/areas.json");
+const quarantineRoots = JSON.parse(readFileSync(quarantineDataPath, "utf8")).areas.map(area => area.directory);
 const host = "packages/host/src";
 const module = name => hostCatalogue.find(candidate => candidate.name === name);
 const path = (name, file = "contract.ts") => `${host}/${name}/${file}`;
@@ -32,7 +35,7 @@ async function fixture(entries, action) {
     writeFileSync(resolve(root, file), text);
   };
   for (const [file, text] of entries) write(file, text);
-  const deps = isolationDeps(tooling);
+  const deps = isolationDeps(tooling, quarantineRoots);
   try { await action({ root, deps, write }); }
   finally { rmSync(root, { recursive: true }); }
 }
@@ -84,14 +87,31 @@ test("real Node platform declarations remain available only to the explicitly al
   });
 });
 
-test("front uses the actual pinned SDK declarations while its contract stays checker-free", async () => {
+const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
+
+test("front uses actual pinned SDK declarations and the sole closed ExtensionOf contract value port", async () => {
   const contract = path("front");
   const entry = path("front", "capture.ts");
-  await fixture([[contract, "export interface Observation { readonly flags: number; }"],
+  await fixture([[contract, sdkContract],
     [entry, 'import type { Type } from "@tsonic/tsts"; export function flags(deps: { readonly type: Type }, input: number): number { return deps.type.flags + input; }']], async ({ root, deps }) => {
     const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/packages/tsts/dist/")), true);
+  });
+});
+
+test("real pipeline isolation emits only permitted component query types and the identical front brand", async () => {
+  const contract = path("pipeline");
+  const entry = path("pipeline", "index.ts");
+  await fixture([[path("front"), sdkContract], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
+    [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
+    [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
+    assert.equal(report.status, "passed", label(report));
+    assert.equal(report.provenance.length, 2);
+    assert.equal(report.loadedInventory.some(file => file.endsWith("/isolated/packages/host/src/front/contract.d.ts")), true);
+    assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
+    assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
   });
 });
 
@@ -155,4 +175,16 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
     symlinkSync(resolve(root, inferContract), resolve(root, path("infer", "alias.ts")));
     await assert.rejects(compileIsolated(deps, module("infer"), input), /symlinks/u);
   });
+});
+
+test("the real MJS public entrypoints and readonly tooling declarations pass the pinned strict compiler", () => {
+  const deps = isolationDeps(tooling, quarantineRoots);
+  const files = ["test/architecture/host/contracts.d.mts", "test/host-cases/contracts.d.mts",
+    ...["catalogue", "import-graph", "inspect", "source-rules", "isolation", "coverage"].map(name => `test/architecture/host/${name}.mjs`),
+    "test/host-cases/case.mjs", "test/host-cases/compare.mjs"];
+  const result = spawnSync(process.execPath, [deps.compiler, "--ignoreConfig", "--strict", "--allowJs", "--checkJs", "false", "--noEmit",
+    "--skipLibCheck", "false", "--types", "node", "--typeRoots", deps.nodeTypes, "--target", "es2022", "--module", "nodenext",
+    ...files.map(file => resolve(repository, file))], { cwd: repository, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000 });
+  if (result.error !== undefined) throw result.error;
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`.slice(-6000));
 });

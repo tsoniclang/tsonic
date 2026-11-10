@@ -1,14 +1,17 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { SymbolFlagsAlias } from "../../../packages/tsts/dist/src/index.js";
 import { hostCatalogue, publicEntry, sourceOwner, testOwner } from "./catalogue.mjs";
-import { cyclicSources, parseSources, readImportGraph } from "./import-graph.mjs";
+import { cyclicSources, parseSources, quarantineReference, readImportGraph } from "./import-graph.mjs";
 import { sourceFindings } from "./source-rules.mjs";
 
-export const inspectionDeps = Object.freeze({
-  readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
-  parse: parseSources, graph: readImportGraph,
-});
+export function createInspectionDeps(quarantineRoots) {
+  if (quarantineRoots.length === 0 || quarantineRoots.some(root => typeof root !== "string" || root.split("/").some(part => ["", ".", ".."].includes(part))))
+    throw new Error("The explicit admitted quarantine area roots are required.");
+  return Object.freeze({ readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
+    parse: parseSources, graph: readImportGraph, quarantineRoots: Object.freeze([...quarantineRoots]) });
+}
 
 /** @type {import("./contracts.d.mts").InspectHost} */
 export function inspectHost(deps, inputs) {
@@ -36,15 +39,61 @@ export function inspectHost(deps, inputs) {
   for (const path of files.keys()) if (sourceOwner(catalogue, path) === undefined && testOwner(catalogue, path) === undefined) add("unknown-module", path);
   const source = deps.parse(files);
   const graph = deps.graph(source, files);
+  const compositionPort = (edge, from, to) => {
+    if (![from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) ||
+      ![to.contract, to.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.target)) return false;
+    const { ast } = source;
+    const file = source.sourceFiles.find(node => node !== undefined && ast.getFileName(node) === `/host-gate/${edge.source}`);
+    const statement = ast.statements(file).find(node => ast.authoredRange(node).start === edge.start);
+    const imported = ast.is.IsImportDeclaration(statement);
+    const exported = ast.is.IsExportDeclaration(statement);
+    if (!imported && !exported) return false;
+    const typeOnly = imported ? ast.isTypeOnlyImportDeclaration(statement) : ast.as.AsExportDeclaration(statement).IsTypeOnly;
+    const bindings = [];
+    let invalid = false;
+    const collect = node => {
+      if (ast.is.IsImportSpecifier(node) || ast.is.IsExportSpecifier(node)) bindings.push(node);
+      if (["KindNamespaceImport", "KindNamespaceExport"].includes(ast.kindName(node)) ||
+        ast.is.IsImportClause(node) && ast.name(node) !== undefined) invalid = true;
+      ast.forEachChild(node, child => { if (child !== undefined) collect(child); });
+    };
+    collect(statement);
+    const queries = source.getSourceFileQueries(file).checker;
+    return !invalid && bindings.length > 0 && bindings.every(binding => {
+      const selected = ast.is.IsImportSpecifier(binding) ? ast.as.AsImportSpecifier(binding) : ast.as.AsExportSpecifier(binding);
+      if (!typeOnly && !selected.IsTypeOnly) return false;
+      const name = ast.text(selected.PropertyName ?? ast.name(binding));
+      let identity = queries.getSymbolAtLocation(ast.name(binding));
+      const active = new Set();
+      while (identity !== undefined && (identity.Flags & SymbolFlagsAlias) !== 0 && !active.has(identity)) {
+        active.add(identity); identity = queries.getAliasedSymbol(identity);
+      }
+      const declarations = identity === undefined ? [] : queries.getSymbolDeclarations(identity);
+      const brand = name === "CheckerExtensions" && declarations.length === 1 && declarations.every(declaration =>
+        sourceOwner(catalogue, ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length))?.name === "front" &&
+        ast.is.IsTypeAliasDeclaration(declaration) && ast.text(ast.name(declaration)) === "CheckerExtensions");
+      if (brand && (!exported || ast.text(ast.name(binding)) === "CheckerExtensions"))
+        return from.kind === "pipeline" && to.name === "front" || from.kind === "orchestration" && to.kind === "pipeline";
+      if (from.kind === "orchestration" && ["pipeline", "driver"].includes(to.kind))
+        return declarations.length > 0 && declarations.every(declaration =>
+          ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}`);
+      return from.kind === "pipeline" && to.kind === "component" && declarations.length > 0 && declarations.every(declaration => {
+        const type = ast.typeNode(declaration);
+        return ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}` &&
+          ast.is.IsFunctionTypeNode(type) && ast.text(ast.name(ast.parameters(type)[0])) === "deps";
+      });
+    });
+  };
   for (const edge of graph) {
+    if (edge.specifier === null) { add("unsafe-type-escape", edge.source, edge.line, edge.column); continue; }
     const ownTest = testOwner(catalogue, edge.source);
     const from = sourceOwner(catalogue, edge.source) ?? ownTest;
     const to = edge.target === null ? undefined : sourceOwner(catalogue, edge.target);
     let allowed = false;
     if (from !== undefined) {
-      if (edge.specifier.split("/").includes("_old")) allowed = false;
+      if (quarantineReference(edge.specifier, deps.quarantineRoots)) allowed = false;
       else if (!edge.specifier.startsWith(".")) {
-        allowed = edge.specifier === "@tsonic/tsts" && from.name === "front" && edge.source !== from.contract ||
+        allowed = edge.specifier === "@tsonic/tsts" && from.name === "front" ||
           isBuiltin(edge.specifier) && (ownTest !== undefined || ["front", "project", "packages", "plugins", "artifacts", "orchestration", "cli", "create-tsonic"].includes(from.name))
             && edge.source !== from.contract;
       } else if (to !== undefined && from.name === to.name) allowed = true;
@@ -53,20 +102,23 @@ export function inspectHost(deps, inputs) {
           : from.kind === "pipeline" && to.kind === "component" ||
             from.kind === "orchestration" && ["pipeline", "driver"].includes(to.kind) || from.kind === "cli" && to.kind === "orchestration";
       }
-      if (edge.source === from.contract && to !== undefined && to.kind !== "library" && to.name !== from.name) allowed = false;
+      if ([from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) &&
+        to !== undefined && to.kind !== "library" && to.name !== from.name) allowed = compositionPort(edge, from, to);
     }
     if (!allowed) add("forbidden-import", edge.source, edge.line, edge.column);
   }
   const cycles = cyclicSources(graph);
   for (const edge of graph) if (cycles.has(edge.source) && cycles.get(edge.source) === cycles.get(edge.target)) add("source-cycle", edge.source, edge.line, edge.column);
-  for (const finding of sourceFindings(source, files, catalogue, graph)) add(finding.code, finding.path, finding.line, finding.column);
+  for (const finding of sourceFindings(source, files, catalogue, graph, deps.quarantineRoots)) add(finding.code, finding.path, finding.line, finding.column);
   const expected = new Set(inputs.files.map(path => deps.canonical(resolve(root, path))));
   for (const loaded of inputs.loadedFiles) if (!expected.has(deps.canonical(loaded))) add("loaded-source-escape", loaded);
   for (const path of inputs.configurations) {
     const data = JSON.parse(deps.readText(ownedPath(path)));
     const visit = (value, key) => {
-      if (key === "oldSource") return;
-      if (typeof value === "string" && value.replaceAll("\\", "/").split("/").includes("_old")) add("forbidden-import", path);
+      if (key === "oldSource" && value !== null && typeof value === "object" && !Array.isArray(value) &&
+        Object.keys(value).sort().join(",") === "area,path,test" && ["reference", "modular"].includes(value.area) &&
+        typeof value.path === "string" && typeof value.test === "string") return;
+      if (typeof value === "string" && quarantineReference(value, deps.quarantineRoots)) add("forbidden-import", path);
       else if (Array.isArray(value)) value.forEach(child => visit(child, ""));
       else if (value !== null && typeof value === "object") for (const [name, child] of Object.entries(value)) visit(child, name);
     };

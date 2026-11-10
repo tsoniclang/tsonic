@@ -3,9 +3,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { hostCatalogue, publicEntry, sourceOwner } from "./catalogue.mjs";
-import { inspectHost, inspectionDeps } from "./inspect.mjs";
+import { createInspectionDeps, inspectHost } from "./inspect.mjs";
 
-export function isolationDeps(toolingRoot) {
+export function isolationDeps(toolingRoot, quarantineRoots) {
+  const inspectionDeps = createInspectionDeps(quarantineRoots);
   const root = realpathSync(toolingRoot);
   const compiler = resolve(root, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const version = JSON.parse(readFileSync(resolve(root, "node_modules/@typescript/native-preview/package.json"), "utf8")).version;
@@ -79,19 +80,21 @@ export async function compileIsolated(deps, module, inputs) {
   const stage = deps.fresh(output);
   if (!deps.canonical(stage).startsWith(`${root}${sep}`)) throw new Error("Isolation stage escaped its source root.");
   const diagnostics = [];
+  const sourceText = new Map([...sources, ...inputs.interfaceSources].map(path => [path, deps.readText(original(path))]));
   const expectedInventory = new Set();
   const loadedInventory = new Set();
   const provenance = [];
   const findings = [];
+  const sdk = module.name === "front" || inputs.interfaceSources.includes(hostCatalogue.find(candidate => candidate.name === "front").contract);
   const platform = [...deps.platform.language,
-    ...(["front", "driver", "orchestration", "cli"].includes(module.name) || ["driver", "orchestration", "cli"].includes(module.kind) ? deps.platform.node : []),
-    ...(module.name === "front" ? deps.platform.sdk : [])];
+    ...(sdk || ["driver", "orchestration", "cli"].includes(module.kind) ? deps.platform.node : []),
+    ...(sdk ? deps.platform.sdk : [])];
   const report = status => Object.freeze({ status, diagnostics: Object.freeze(diagnostics), findings: Object.freeze(findings),
     expectedInventory: Object.freeze([...expectedInventory].sort()), loadedInventory: Object.freeze([...loadedInventory].sort()),
     provenance: Object.freeze(provenance) });
   const compile = (directory, files, outDir) => {
     const config = resolve(directory, "tsconfig.json");
-    const node = module.name === "front" || ["driver", "orchestration", "cli"].includes(module.kind);
+    const node = sdk || ["driver", "orchestration", "cli"].includes(module.kind);
     deps.writeText(resolve(directory, "package.json"), JSON.stringify({ type: "module", private: true }));
     deps.writeText(config, JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true,
@@ -99,7 +102,7 @@ export async function compileIsolated(deps, module, inputs) {
       forceConsistentCasingInFileNames: true, noEmitOnError: true, skipLibCheck: false,
       declaration: true, emitDeclarationOnly: true, target: "es2022", lib: ["es2022"], module: "nodenext", moduleResolution: "nodenext",
       types: node ? ["node"] : [], ...(node ? { typeRoots: [deps.nodeTypes] } : {}),
-      paths: module.name === "front" ? { "@tsonic/tsts": [deps.sdkEntry] } : {}, rootDir: directory, outDir,
+      paths: sdk ? { "@tsonic/tsts": [deps.sdkEntry] } : {}, rootDir: directory, outDir,
     }, files: files.map(path => resolve(directory, path)) }));
     const domain = new Set([...files.map(path => deps.canonical(resolve(directory, path))), ...platform.map(path => deps.canonical(path))]);
     for (const path of domain) expectedInventory.add(path);
@@ -121,7 +124,7 @@ export async function compileIsolated(deps, module, inputs) {
     const interfaces = resolve(stage, "interface-source");
     const emitted = resolve(stage, "interface-declarations");
     const staged = resolve(stage, "isolated");
-    for (const path of inputs.interfaceSources) deps.writeText(resolve(interfaces, path), deps.readText(original(path)));
+    for (const path of inputs.interfaceSources) deps.writeText(resolve(interfaces, path), sourceText.get(path));
     if (inputs.interfaceSources.length > 0) {
       if (!compile(interfaces, inputs.interfaceSources, emitted)) return report("failed");
       const actual = deps.enumerate(emitted).map(path => relative(emitted, path).split(sep).join("/")).sort();
@@ -140,10 +143,11 @@ export async function compileIsolated(deps, module, inputs) {
       const bytes = deps.readText(resolve(emitted, declaration));
       deps.writeText(resolve(staged, declaration), bytes);
       declarations.push(declaration);
-      provenance.push(Object.freeze({ source: original(path), sourceHash: createHash("sha256").update(deps.readText(original(path))).digest("hex"),
+      provenance.push(Object.freeze({ source: original(path), sourceHash: createHash("sha256").update(sourceText.get(path)).digest("hex"),
         declaration: resolve(staged, declaration), declarationHash: createHash("sha256").update(bytes).digest("hex") }));
     }
-    for (const path of sources) deps.writeText(resolve(staged, path), deps.readText(original(path)));
+    for (const path of sources) deps.writeText(resolve(staged, path), sourceText.get(path));
+    if ([...sourceText].some(([path, text]) => deps.readText(original(path)) !== text)) throw new Error("Original source changed during isolation.");
     if (!compile(staged, [...sources, ...declarations], resolve(stage, "owner-declarations"))) return report("failed");
     return report("passed");
   } finally {

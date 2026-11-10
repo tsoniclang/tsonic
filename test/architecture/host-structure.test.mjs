@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { hostCatalogue } from "./host/catalogue.mjs";
-import { inspectHost, inspectionDeps } from "./host/inspect.mjs";
+import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
+const quarantineDataPath = process.env.TSONIC_HOST_QUARANTINE_AREAS ?? resolve(repository, "test/architecture/quarantine/areas.json");
+const quarantineRoots = JSON.parse(readFileSync(quarantineDataPath, "utf8")).areas.map(area => area.directory);
+const inspectionDeps = createInspectionDeps(quarantineRoots);
+const referenceRoot = quarantineRoots[0];
 const host = "packages/host/src";
 const file = (module, name = "unit.ts") => `${host}/${module}/${name}`;
 const data = "export interface Data { readonly value: number; }";
@@ -117,6 +121,36 @@ test("pipeline imports real component implementations; components do not import 
   expect([[otherTest, 'import { infer } from "../../../../packages/host/src/infer/unit.js";'], [component, implementation]], [at("forbidden-import", otherTest)]);
 });
 
+test("front's sole SDK-value port is the complete tagged ExtensionOf return union", () => {
+  const imports = 'import type { CompilerExtension as Compiler, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";';
+  const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
+  const contract = file("front", "contract.ts");
+  expect([[contract, `${imports}\nexport type Payload = ${union};\nexport type ExtensionOf = (table: number, reference: number) => Payload;`]], []);
+  expect([[contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${union};`]], []);
+  for (const changed of [union.replace('"semantics-module"', '"wrong"'), union.replace("SourceSemanticsModule", "number"), `${union} | null`]) {
+    const findings = inspect([[contract, `${imports}\nexport type ExtensionOf = (table: number, reference: number) => ${changed};`]]);
+    assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.line === 2), true);
+  }
+  expect([[contract, `${imports}\nexport type Exposed = Compiler;`]], [at("forbidden-import", contract, 2)]);
+});
+
+test("raw capture provenance belongs to front; pipeline may store it only privately", () => {
+  const contract = file("front", "contract.ts");
+  const raw = 'export interface RawNode { readonly text: string; }\nexport interface RawModule { readonly nodes: readonly RawNode[]; }\nexport type Renamed = RawModule;';
+  expect([[contract, raw]], []);
+  expect([[contract, raw], [file("pipeline"), 'import type { Renamed } from "../front/contract.js"; export type Stored = { readonly rawModule: Renamed };']], []);
+  for (const owner of ["decls", "pipeline"]) {
+    const path = file(owner, "contract.ts");
+    expect([[contract, raw], [path, 'import type { RawNode as Node } from "../front/contract.js";\nexport type Stored = Node;']],
+      [at("forbidden-import", path), at("forbidden-import", path, 2)]);
+  }
+  const query = `${raw}\nexport type Query = (deps: { readonly limit: number }, input: number) => Renamed;`;
+  expect([[contract, query], [file("pipeline", "contract.ts"), 'import type { Query } from "../front/contract.js";\nexport interface Wiring { readonly capture: Query; }']],
+    [at("forbidden-import", file("pipeline", "contract.ts")), at("forbidden-import", file("pipeline", "contract.ts"), 2)]);
+  expect([[file("ir-hir", "contract.ts"), 'export interface RawModule { readonly text: string; }'],
+    [file("decls", "contract.ts"), 'import type { RawModule } from "../ir-hir/contract.js"; export type Ordinary = RawModule;']], []);
+});
+
 test("allowed callers directly use contract-typed library values but never deep paths", () => {
   const contract = file("ir-types", "contract.ts");
   const entry = file("ir-types", "index.ts");
@@ -125,18 +159,39 @@ test("allowed callers directly use contract-typed library values but never deep 
   expect([...values, [file("infer"), 'import { substitute } from "../ir-types/index.js"; export function infer(deps: { readonly bias: number }, input: number): number { return substitute(input) + deps.bias; }']], []);
   expect([[file("ir-types", "index.ts"), "export const substitute = (input: number): number => input + 1;"]],
     [at("contract-shape", file("ir-types", "index.ts"))]);
+  expect([...values, [file("infer", "contract.ts"), 'import type { Substitute } from "../ir-types/contract.js";\nexport interface InferDeps { readonly substitute: Substitute; }\nexport type Infer = (deps: InferDeps, input: number) => number;']],
+    [at("impure-component", file("infer", "contract.ts"), 2)]);
+});
+
+test("composition contracts preserve the one front brand and only named genuine component function types", () => {
+  const front = [file("front", "contract.ts"), 'export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };'];
+  const pipeline = [file("pipeline", "contract.ts"), 'export type { CheckerExtensions } from "../front/contract.js";'];
+  expect([front, pipeline, [file("orchestration", "contract.ts"), 'import type { CheckerExtensions } from "../pipeline/contract.js"; export interface Input { readonly extensions: CheckerExtensions; }']], []);
+  const query = [file("infer", "contract.ts"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'];
+  expect([query, [file("pipeline", "contract.ts"), 'import type { Infer } from "../infer/contract.js"; export interface Wiring { readonly infer: Infer; }']], []);
+  for (const [owner, target, text] of [
+    ["orchestration", front, 'import type { CheckerExtensions } from "../front/contract.js";'],
+    ["decls", front, 'import type { CheckerExtensions } from "../front/contract.js";'],
+    ["pipeline", query, 'import { Infer } from "../infer/contract.js";'],
+    ["pipeline", query, 'import type * as Infer from "../infer/contract.js";'],
+  ]) expect([target, [file(owner, "contract.ts"), text]], [at("forbidden-import", file(owner, "contract.ts"))]);
+  const raw = [file("front", "contract.ts"), 'export interface RawModule { readonly text: string; }'];
+  expect([raw, [file("pipeline", "contract.ts"), 'export type { RawModule } from "../front/contract.js";']], [at("forbidden-import", file("pipeline", "contract.ts"))]);
 });
 
 test("quarantined code is never executable input; ordinary source and citation data remain ordinary data", () => {
-  expect([[file("infer"), 'import type { Data } from "../../../../_old/reference/contract.js";']], [at("forbidden-import", file("infer"))]);
-  expect([[file("ids"), 'export const path = "_old/reference/source.ts";']], [at("forbidden-import", file("ids"))]);
+  expect([[file("infer"), `import type { Data } from "../../../../${referenceRoot}/contract.js";`]], [at("forbidden-import", file("infer"))]);
+  expect([[file("ids"), `export const path = "${referenceRoot}/source.ts";`]], [at("forbidden-import", file("ids"))]);
   expect([[file("ids"), 'export const text = "pending lease authenticate questionView";']], []);
   const config = "config.json";
-  const result = inspect([[file("ids"), data], [config, JSON.stringify({ references: ["_old/reference/program.ts"] })]], { files: [file("ids")], configurations: [config] });
+  const result = inspect([[file("ids"), data], [config, JSON.stringify({ references: [`${referenceRoot}/program.ts`] })]], { files: [file("ids")], configurations: [config] });
   assert.equal(JSON.stringify(result), JSON.stringify([at("forbidden-import", config)]));
-  const citation = inspect([[file("ids"), data], [config, JSON.stringify({ oldSource: { area: "reference", path: "_old/reference/program.ts", test: "citation" } })]],
+  const citation = inspect([[file("ids"), data], [config, JSON.stringify({ oldSource: { area: "reference", path: `${referenceRoot}/program.ts`, test: "citation" } })]],
     { files: [file("ids")], configurations: [config] });
   assert.equal(citation.length, 0);
+  const disguised = inspect([[file("ids"), data], [config, JSON.stringify({ oldSource: { script: `${referenceRoot}/program.ts` } })]],
+    { files: [file("ids")], configurations: [config] });
+  assert.equal(JSON.stringify(disguised), JSON.stringify([at("forbidden-import", config)]));
 });
 
 test("pure stages require deps first, typed immutable inputs and no captured module state", () => {
@@ -147,6 +202,18 @@ test("pure stages require deps first, typed immutable inputs and no captured mod
   expect([[file("infer"), "let count = 0;\nexport function run(deps: { readonly bias: number }, input: number): number { count += 1; return input + deps.bias + count; }"]],
     [at("module-state", file("infer"))]);
   expect([[file("infer"), "export function run(deps: { readonly bias: number }, input: number): number { return input + deps.bias; }"]], []);
+  expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): { readonly kind: "refused"; readonly value: number } { return { kind: "refused", value: input + deps.limit }; }']], []);
+  expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
+});
+
+test("only the four explicit owner-qualified opaque brands admit an object intersection", () => {
+  for (const [owner, name, tag] of [["ir-types", "TypeInterner", "type-interner"], ["front", "CheckerExtensions", "checker-extensions"],
+    ["plugins", "PluginModule", "plugin-module"], ["orchestration", "TargetSession", "target-session"]]) {
+    const source = `export type ${name} = object & { readonly identityKind: "${tag}" };`;
+    expect([[file(owner, "contract.ts"), source]], []);
+    expect([[file("ids", "contract.ts"), source]], [at("contract-shape", file("ids", "contract.ts"))]);
+  }
+  expect([[file("ids", "contract.ts"), 'export type Mystery = object & { readonly identityKind: "mystery" };']], [at("contract-shape", file("ids", "contract.ts"))]);
 });
 
 test("strict unsafe and removed concepts retain their original opposites without banning authored text", () => {
@@ -169,7 +236,7 @@ const immutableTypes = Object.freeze([
   "readonly [number, ...Array<string>]", "{ readonly [key: string]: readonly number[] }", "{ get value(): number; }",
 ]);
 const mutableTypes = Object.freeze([
-  "number[]", "[number, string?]", "Array<number>", "globalThis.Array<number>", "ReadonlyArray<number[]>",
+  "number[]", "[number, string?]", "Array<number>", "globalThis.Array<number>", "ReadonlyArray<number[]>", "ReadonlyMap<string, number>", "ReadonlySet<number>",
   "readonly [number[]]", "readonly (number[])[]", "readonly [...number[][]]", "{ value: number }",
   "{ [index: number]: number }", "{ set value(next: number); }", '{ -readonly [Key in "value"]: number }',
   '{ [Key in "value"]: number }', '{ [Key in never]: number }',
@@ -209,10 +276,20 @@ export interface Recursive { readonly next?: Recursive; readonly first: Shared; 
 export type Generic<Value> = Copy<Readonly<Value>>;`;
   for (const type of ["Copy<Input>", "Through<Input>", "Generic<{ value: number }>", "Partial<Readonly<{ value: number }>>",
     "Copy<Recursive>", "Copy<Input | { readonly other: boolean }>", "Copy<{ readonly child: Input & { readonly other: boolean } }>"])
-    expect([[origin, mapped], [consumer, `import type { Copy, Through, Generic, Partial, Readonly, Input, Recursive } from "../ids/contract.js"; export interface View { readonly values: ${type}; }`]], []);
+    expect([[file("infer", "shape.ts"), mapped], [file("infer"), `import type { Copy, Through, Generic, Partial, Readonly, Input, Recursive } from "./shape.js"; export function read(deps: { readonly values: ${type} }, input: number): number { return deps.values === null ? 0 : input; }`]], []);
   const removed = 'export type Readonly<Value> = { readonly [Key in keyof Value]: Value[Key] };\nexport interface Authority { readonly seed: (value: number) => void; }';
   const result = inspect([[origin, removed], [consumer, 'import type { Readonly, Authority } from "../ids/contract.js"; export interface View { readonly source: Readonly<Authority>; }']]);
   assert.equal(result.some(finding => finding.path === consumer && finding.code === "removed-concept"), true);
+});
+
+test("contract records are declared by named arms, never derived by record operators", () => {
+  const path = file("ids", "contract.ts");
+  expect([[path, 'export interface First { readonly kind: "first"; readonly value: number; }\nexport interface Second { readonly kind: "second"; readonly value: string; }\nexport type Answer = First | Second;']], []);
+  expect([[path, 'export type Passing = "value" | "place"; export type NonValue = Exclude<Passing, "value">;']], []);
+  for (const expression of ['Omit<{ readonly value: number }, "value">', 'Pick<{ readonly value: number }, "value">',
+    'Exclude<{ readonly value: number }, { readonly kind: "other" }>', '{ readonly [Key in "value"]: number }',
+    'number extends string ? { readonly value: number } : { readonly other: string }', '{ readonly value: number }["value"]'])
+    expect([[path, `export type Derived = ${expression};`]], [at("contract-shape", path)]);
 });
 
 const compositionCases = Object.freeze([
@@ -265,4 +342,7 @@ test("actual compiler-loaded files, inventories and catalogue inputs cannot wide
   assert.throws(() => inspect([[path, data]], { files: [path, path] }), /Distinct complete/u);
   assert.throws(() => inspect([[path, data]], { catalogue: [] }), /exact agreed/u);
   assert.throws(() => inspect([[path, data]], { files: ["../outside.ts"] }), /Canonical/u);
+  const dynamic = 'export function load(deps: { readonly value: string }, input: string): Promise<unknown> { return import(input + deps.value); }';
+  const expected = [at("unsafe-type-escape", file("front"), 1, dynamic.indexOf("import(") + 1)];
+  expect([[file("front"), dynamic]], expected);
 });

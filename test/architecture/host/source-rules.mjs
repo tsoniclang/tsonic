@@ -1,10 +1,12 @@
 import { SymbolFlagsAlias } from "../../../packages/tsts/dist/src/index.js";
 import { sourceOwner } from "./catalogue.mjs";
-
+import { quarantineReference } from "./import-graph.mjs";
 const producerMembers = Object.freeze(["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
-const scopedOwners = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-
-export function sourceFindings(source, files, catalogue, graph) {
+const scopedOwners = Object.freeze(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
+const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", PluginModule: "plugins", TargetSession: "orchestration" });
+const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral", "RawImportPreparation"]);
+const sdkPayloads = Object.freeze({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
+export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
   const owner = path => sourceOwner(catalogue, path);
   const findings = [];
@@ -46,13 +48,24 @@ export function sourceFindings(source, files, catalogue, graph) {
     return name !== undefined && (ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name) || ast.is.IsNumericLiteral(name))
       ? ast.text(name) : undefined;
   };
-
+  const opaqueBrand = (node, module, file) => {
+    const intersection = ast.parent(node);
+    const declaration = ast.parent(intersection);
+    if (!ast.is.IsIntersectionTypeNode(intersection) || !ast.is.IsTypeAliasDeclaration(declaration) ||
+      ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(file) ||
+      opaqueOwners[ast.text(ast.name(declaration))] !== module.name) return false;
+    const children = ast.children(intersection).filter(child => child !== undefined);
+    const brand = children.find(child => ast.is.IsTypeLiteralNode(child));
+    if (children.length !== 2 || brand === undefined || !children.includes(node)) return false;
+    const members = ast.members(brand);
+    return members.length > 0 && members.every(member => ast.is.IsPropertySignatureDeclaration(member) &&
+      ast.hasModifierKind(member, "readonly") && ast.is.IsLiteralTypeNode(ast.typeNode(member)));
+  };
   const callableType = original => {
     let node = original;
     while (node !== undefined && ast.is.IsParenthesizedTypeNode(node)) node = ast.as.AsParenthesizedTypeNode(node)?.Type;
     return node !== undefined && ast.is.IsFunctionTypeNode(node);
   };
-
   const productionMember = node => {
     const name = ast.name(node);
     const type = ast.typeNode(node);
@@ -61,19 +74,18 @@ export function sourceFindings(source, files, catalogue, graph) {
       (ast.is.IsMethodSignatureDeclaration(node) || callableType(type));
   };
   const rawSymbols = new Set();
-
+  const libraryFunctionTypes = new Set();
+  const depsTypes = new Set();
   const productionSymbols = new Set();
-
   const mutableSymbols = new Set();
-
   const aliases = new Map();
-
+  const sdkSymbols = new Map();
+  const sdkPorts = new Set();
   const checker = node => {
     const file = ast.getSourceFile(node);
     if (file === undefined) throw new Error("An architecture reference requires its original source file.");
     return source.getSourceFileQueries(file).checker;
   };
-
   const symbol = node => {
     if (node === undefined) return undefined;
     const queries = checker(node);
@@ -88,17 +100,13 @@ export function sourceFindings(source, files, catalogue, graph) {
     }
     return selected;
   };
-
   const typeShape = node => {
     const file = ast.getSourceFile(node);
     if (file === undefined) throw new Error("An architecture type requires its original source file.");
     return source.getSourceFileQueries(file).typeShape;
   };
-
   const mappedDeclarations = new Map();
-
   const argumentBearingType = node => ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node);
-
   const mappedDeclaration = node => {
     if (mappedDeclarations.has(node)) return mappedDeclarations.get(node);
     if (ast.is.IsMappedTypeNode(node)) return node;
@@ -112,9 +120,7 @@ export function sourceFindings(source, files, catalogue, graph) {
     mappedDeclarations.set(node, declaration);
     return declaration;
   };
-
   const mappedInputs = new Map();
-
   const mappedInput = node => {
     const cached = mappedInputs.get(node);
     if (cached !== undefined) return cached;
@@ -142,11 +148,9 @@ export function sourceFindings(source, files, catalogue, graph) {
     mappedInputs.set(node, false);
     return false;
   };
-
   const mappedKeySource = node => {
     const mapped = ast.as.AsMappedTypeNode(node);
     let constraint = mapped?.TypeParameter === undefined ? undefined : ast.as.AsTypeParameterDeclaration(mapped.TypeParameter)?.Constraint;
-
     const active = new Set();
     while (constraint !== undefined && !active.has(constraint)) {
       active.add(constraint);
@@ -163,21 +167,16 @@ export function sourceFindings(source, files, catalogue, graph) {
     }
     return undefined;
   };
-
   const mutableMapped = node => {
     const shape = typeShape(node);
     const queries = checker(node);
-
     const parameter = type => queries.getSymbolDeclarations(queries.getTypeSymbol(type))
       .some(declaration => declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration));
     const input = ast.is.IsMappedTypeNode(node) ? mappedKeySource(node) : undefined;
     if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)) ||
       argumentBearingType(node) && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
-
     const active = new Set();
-
     const completed = new Map();
-
     const visit = type => {
       if (type === undefined || active.has(type) || parameter(type)) return false;
       const cached = completed.get(type);
@@ -199,7 +198,6 @@ export function sourceFindings(source, files, catalogue, graph) {
     };
     return visit(shape.getTypeFromTypeNode(node));
   };
-
   const readonlySequence = original => {
     let parent = ast.parent(original);
     while (parent !== undefined && ast.is.IsParenthesizedTypeNode(parent)) parent = ast.parent(parent);
@@ -212,7 +210,6 @@ export function sourceFindings(source, files, catalogue, graph) {
     }
     return false;
   };
-
   const mutableCollection = node => {
     const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName
       : ast.is.IsExpressionWithTypeArguments(node) ? ast.as.AsExpressionWithTypeArguments(node)?.Expression : undefined;
@@ -224,7 +221,6 @@ export function sourceFindings(source, files, catalogue, graph) {
     if (declaration !== undefined && checker(node).getSymbolDeclarations(declaration).length > 0) return false;
     return text !== "Array" || !readonlySequence(node);
   };
-
   const mutableData = node => {
     if (mutableCollection(node)) return true;
     if (mappedInput(node)) return false;
@@ -251,32 +247,63 @@ export function sourceFindings(source, files, catalogue, graph) {
     const collect = current => {
       if (current === undefined) return;
       const range = ast.authoredRange(current);
-      if (range.kind === "authored" && graph.some(edge => edge.source === file && edge.start === range.start &&
-        (edge.specifier === "@tsonic/tsts" || edge.specifier.startsWith("@tsonic/tsts/")))) {
-
+      if (module.name === "front" && closedFiles.has(file) && range.kind === "authored" &&
+        graph.some(edge => edge.source === file && edge.start === range.start && edge.specifier === "@tsonic/tsts")) {
+        if (!ast.is.IsImportDeclaration(current)) add("forbidden-import", file, current);
+        let count = 0;
         const gather = child => {
-          if (child === undefined) return;
-          if (ast.is.IsIdentifier(child)) {
-            const selected = symbol(child);
-            if (selected !== undefined) rawSymbols.add(selected);
+          if (ast.is.IsImportSpecifier(child)) {
+            const imported = ast.as.AsImportSpecifier(child);
+            const name = ast.text(imported.PropertyName ?? ast.name(child));
+            const selected = symbol(ast.name(child));
+            if (selected !== undefined && Object.hasOwn(sdkPayloads, name)) { sdkSymbols.set(selected, name); count += 1; }
+            else add("forbidden-import", file, current);
           }
-          ast.forEachChild(child, gather);
+          ast.forEachChild(child, nested => { if (nested !== undefined) gather(nested); });
         };
         gather(current);
+        if (count === 0) add("forbidden-import", file, current);
+      }
+      if (module.kind === "library" && file === module.entry && ast.is.IsVariableDeclaration(current)) {
+        const annotation = ast.typeNode(current);
+        const selected = ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+        if (selected !== undefined) libraryFunctionTypes.add(selected);
+      }
+      if (module.kind === "component" && (ast.is.IsFunctionTypeNode(current) || ast.is.IsFunctionDeclaration(current))) {
+        const parameter = ast.parameters(current)[0];
+        const annotation = ast.typeNode(parameter);
+        const selected = ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+        if (ast.text(ast.name(parameter)) === "deps" && selected !== undefined) depsTypes.add(selected);
       }
       if (ast.is.IsTypeAliasDeclaration(current) || ast.is.IsInterfaceDeclaration(current) || ast.is.IsClassDeclaration(current)) {
         const selected = symbol(ast.name(current));
         if (selected !== undefined) aliases.set(selected, current);
+        if (selected !== undefined && module.name === "front" &&
+          [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(file) && rawCaptureTypes.includes(ast.text(ast.name(current))))
+          rawSymbols.add(selected);
       }
       ast.forEachChild(current, collect);
     };
     collect(node);
   }
-  for (let previous = -1; previous !== rawSymbols.size + productionSymbols.size + mutableSymbols.size;) {
-    previous = rawSymbols.size + productionSymbols.size + mutableSymbols.size;
+  for (const selected of rawSymbols) {
+    const declaration = aliases.get(selected);
+    if (declaration === undefined) continue;
+    const captureFile = ast.getSourceFile(declaration);
+    const visit = node => {
+      if (ast.is.IsIdentifier(node)) {
+        const reference = symbol(node);
+        const target = aliases.get(reference);
+        if (target !== undefined && ast.getSourceFile(target) === captureFile) rawSymbols.add(reference);
+      }
+      ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+    };
+    visit(declaration);
+  }
+  for (let previous = -1; previous !== rawSymbols.size + productionSymbols.size + mutableSymbols.size + libraryFunctionTypes.size;) {
+    previous = rawSymbols.size + productionSymbols.size + mutableSymbols.size + libraryFunctionTypes.size;
     for (const [selected, node] of aliases) {
       let raw = false, production = false, mutable = false;
-
       const visit = current => {
         if (current === undefined) return;
         const reference = symbol(current);
@@ -293,16 +320,63 @@ export function sourceFindings(source, files, catalogue, graph) {
       if (raw) rawSymbols.add(selected);
       if (production) productionSymbols.add(selected);
       if (mutable) mutableSymbols.add(selected);
+      const annotation = ast.typeNode(node);
+      if (ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName)))
+        libraryFunctionTypes.add(selected);
     }
   }
-
+  const resolveType = original => {
+    let node = original;
+    const active = new Set();
+    while (ast.is.IsTypeReferenceNode(node)) {
+      const declaration = aliases.get(symbol(ast.as.AsTypeReferenceNode(node).TypeName));
+      if (declaration === undefined || active.has(declaration)) break;
+      active.add(declaration); node = ast.typeNode(declaration);
+    }
+    return node;
+  };
+  for (const declaration of aliases.values()) {
+    const path = ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length);
+    const module = owner(path);
+    if (module?.name !== "front" || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path) ||
+      ast.text(ast.name(declaration)) !== "ExtensionOf") continue;
+    const callable = ast.typeNode(declaration);
+    const result = ast.is.IsFunctionTypeNode(callable) ? resolveType(ast.typeNode(callable)) : undefined;
+    if (!ast.is.IsUnionTypeNode(result)) continue;
+    const arms = ast.children(result);
+    const admitted = [];
+    const seen = new Set();
+    for (const arm of arms) {
+      if (!ast.is.IsTypeLiteralNode(arm)) break;
+      const members = ast.members(arm);
+      const tag = members.find(member => memberName(ast.name(member)) === "kind");
+      const value = members.find(member => memberName(ast.name(member)) === "value");
+      const payload = ast.typeNode(value);
+      const name = ast.is.IsTypeReferenceNode(payload) ? ast.as.AsTypeReferenceNode(payload).TypeName : undefined;
+      const imported = sdkSymbols.get(symbol(name));
+      const literal = ast.typeNode(tag);
+      if (members.length !== 2 || !members.every(member => ast.hasModifierKind(member, "readonly")) || imported === undefined ||
+        !ast.is.IsLiteralTypeNode(literal) || ast.text(ast.children(literal)[0]) !== sdkPayloads[imported] || seen.has(imported)) break;
+      seen.add(imported); admitted.push(name);
+    }
+    if (arms.length === 3 && seen.size === 3) for (const node of admitted) sdkPorts.add(node);
+  }
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
     if (module === undefined) continue;
     const isContract = closedFiles.has(file);
-    const rawAllowed = module.name === "front" && !isContract;
+    const rawAllowed = module.name === "front" || module.name === "pipeline" && !isContract;
     const visit = current => {
       const kind = ast.kindName(current);
+      if (module.kind === "component" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
+      if (module.kind === "component" && ast.is.IsPropertySignatureDeclaration(current)) {
+        const annotation = ast.typeNode(current);
+        if (ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName))) {
+          let container = ast.parent(current);
+          while (container !== undefined && !ast.is.IsInterfaceDeclaration(container) && !ast.is.IsTypeAliasDeclaration(container)) container = ast.parent(container);
+          if (container !== undefined && depsTypes.has(symbol(ast.name(container)))) add("impure-component", file, current);
+        }
+      }
       if (["KindClassDeclaration", "KindClassExpression"].includes(kind)) add("class", file, current);
       if (["KindAnyKeyword", "KindAsExpression", "KindTypeAssertionExpression", "KindNonNullExpression",
         "KindEnumDeclaration", "KindModuleDeclaration", "KindImportEqualsDeclaration", "KindExportAssignment"].includes(kind))
@@ -315,6 +389,8 @@ export function sourceFindings(source, files, catalogue, graph) {
       if ((file === module.contract || file === module.contract.replace(/\.ts$/u, ".d.ts")) && ast.is.IsFunctionDeclaration(current))
         add("contract-shape", file, current);
       const selected = ast.is.IsIdentifier(current) ? symbol(current) : undefined;
+      if (isContract && selected !== undefined && sdkSymbols.has(selected) && !sdkPorts.has(current) &&
+        !ast.is.IsImportSpecifier(ast.parent(current))) add("forbidden-import", file, current);
       if (selected !== undefined && !rawAllowed && rawSymbols.has(selected)) add("forbidden-import", file, current);
       if (isContract && (mutableData(current) || selected !== undefined && mutableSymbols.has(selected) && !mappedInput(current)))
         add("contract-shape", file, current);
@@ -324,12 +400,24 @@ export function sourceFindings(source, files, catalogue, graph) {
         const name = ast.as.AsTypeReferenceNode(current).TypeName;
         if (ast.is.IsIdentifier(name) && ["ReturnType", "Parameters", "InstanceType"].includes(ast.text(name)))
           add("contract-shape", file, current);
+        const operator = ast.is.IsIdentifier(name) ? ast.text(name) : "";
+        if (["Omit", "Pick"].includes(operator)) add("contract-shape", file, current);
+        if (operator === "Exclude") {
+          const argument = ast.typeArguments(current)[0];
+          const shape = typeShape(current);
+          const literalUnion = type => shape.getStringLiteralTypeValue(type) !== undefined ||
+            shape.isUnion(type) && shape.getUnionOrIntersectionTypes(type).every(literalUnion);
+          if (argument === undefined || !literalUnion(shape.getTypeFromTypeNode(argument))) add("contract-shape", file, current);
+        }
       }
+      if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current)))
+        add("contract-shape", file, current);
       if (isContract && ["KindUnknownKeyword", "KindObjectKeyword"].includes(kind)) {
         const parent = ast.parent(current);
         const condition = ast.is.IsConditionalTypeNode(parent) ? ast.as.AsConditionalTypeNode(parent) : undefined;
         const parameter = ast.is.IsTypeParameterDeclaration(parent) ? ast.as.AsTypeParameterDeclaration(parent) : undefined;
-        if (condition?.CheckType !== current && condition?.ExtendsType !== current && parameter?.Constraint !== current)
+        if (condition?.CheckType !== current && condition?.ExtendsType !== current && parameter?.Constraint !== current &&
+          !(kind === "KindObjectKeyword" && opaqueBrand(current, module, file)))
           add("contract-shape", file, current);
       }
       if (ast.is.IsFunctionDeclaration(current) || ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) {
@@ -338,7 +426,7 @@ export function sourceFindings(source, files, catalogue, graph) {
         let exported = ast.hasModifierKind(current, "export");
         for (let ancestor = declaration; ancestor !== undefined && ancestor !== node; ancestor = ast.parent(ancestor)) {
           if (ast.hasModifierKind(ancestor, "export")) exported = true;
-          if (ancestor !== declaration && scopedOwners.has(ast.kindName(ancestor))) break;
+          if (ancestor !== declaration && scopedOwners.includes(ast.kindName(ancestor))) break;
         }
         if (exported && module.kind === "component") {
           const parameters = ast.parameters(current);
@@ -365,7 +453,7 @@ export function sourceFindings(source, files, catalogue, graph) {
         }
       }
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind) &&
-        ast.text(current).replaceAll("\\", "/").split("/").includes("_old")) add("forbidden-import", file, current);
+        quarantineReference(ast.text(current), quarantineRoots)) add("forbidden-import", file, current);
       ast.forEachChild(current, child => { if (child !== undefined) visit(child); });
     };
     visit(node);
@@ -375,7 +463,6 @@ export function sourceFindings(source, files, catalogue, graph) {
   }
   return Object.freeze(findings);
 }
-
 function moduleLifetimeFindings(source, file) {
   const immutableData = true;
   const ast = source.ast;
@@ -405,7 +492,7 @@ function moduleLifetimeFindings(source, file) {
   };
   const moduleOwned = node => {
     for (let parent = ast.parent(node); parent !== undefined; parent = ast.parent(parent)) {
-      if (scopedOwners.has(ast.kindName(parent)) && !invoked(parent)) return false;
+      if (scopedOwners.includes(ast.kindName(parent)) && !invoked(parent)) return false;
       if (ast.is.IsPropertyDeclaration(parent) && !ast.hasModifierKind(parent, "static")) return false;
     }
     return true;

@@ -107,10 +107,11 @@ test("harness rejects the whole independently authored descriptor opposite table
 
 test("harness refuses missing, unexpected, aliased and malformed authored files without golden generation", async () => {
   await fixture("function", async ({ descriptorPath, descriptor, deps, root, write }) => {
-    const invalid = ["../escape.case.json", "test/host-cases/case.mjs", "test/host-cases//fixture.case.json", "test/host-cases/_old/function/fixture.case.json"];
+    const invalid = ["../escape.case.json", "test/host-cases/case.mjs", "test/host-cases//fixture.case.json", "test/host-cases/unknown/function/fixture.case.json"];
     for (const path of invalid) assert.equal((await runCase(deps, path)).code, "descriptor");
     assert.equal((await runCase({ ...deps, modules: [] }, descriptorPath)).code, "location");
-    assert.equal((await runCase({ ...deps, canonical: () => "elsewhere" }, descriptorPath)).code, "location");
+    assert.equal((await runCase({ ...deps, canonical: path => path === descriptorPath ? path : "elsewhere" }, descriptorPath)).code, "location");
+    assert.equal((await runCase({ ...deps, canonical: () => "elsewhere" }, descriptorPath)).code, "descriptor");
     assert.equal((await runCase({ ...deps, adapters: {} }, descriptorPath)).code, "adapter");
     write(descriptor.expected, "{");
     assert.equal((await runCase(deps, descriptorPath)).code, "expected");
