@@ -74,16 +74,16 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   }
   const layoutAt = (id: number): MemoryLayout | undefined => {
     const selected = validIndex(id, layouts.length) ? layouts[id] : undefined;
-    return selected?.id === id ? selected : undefined;
+    return Object.is(selected?.id, id) ? selected : undefined;
   };
   const fieldAt = (id: number): MemoryField | undefined => {
     const selected = validIndex(id, fields.length) ? fields[id] : undefined;
-    return selected?.id === id ? selected : undefined;
+    return Object.is(selected?.id, id) ? selected : undefined;
   };
   const dataLayouts = new Map<DefId, { readonly width: 32 | 64; readonly maximum: bigint } | null>();
   for (const [index, layout] of layouts.entries()) {
     if (layout.id !== index || !validIndex(layout.id, layouts.length)) report("layout-id-dense", "Layout IDs must equal their dense arena positions.");
-    if (!validIndex(layout.source, context.types.terms.length)) {
+    if (!validIndex(layout.source, context.types.terms.length) || context.types.terms[layout.source] === undefined) {
       report("type-resolves", "A layout source type must exist in the supplied canonical type table.");
     }
     if (!context.nodeExists(layout.occurrence)) {
@@ -111,7 +111,10 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       report("layout-stride-exact", "The exact stride must contain the value, preserve alignment and fit the selected ABI.");
     }
     const captured = canonicalLayouts?.[index];
-    if (captured !== undefined && captured.id === layout.id) {
+    if (canonicalLayouts !== null && (captured === undefined || !Object.is(captured.id, layout.id))) {
+      report("cross-owner-qualified", "A layout retains its actual finalized row and local identity in the selected metadata.");
+    }
+    if (captured !== undefined && Object.is(captured.id, layout.id)) {
       if (captured.source !== layout.source || captured.dataLayout !== layout.dataLayout) {
         report("cross-owner-qualified", "A layout cannot borrow another source type or ABI identity.");
       }
@@ -198,7 +201,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
 
   for (const [index, field] of fields.entries()) {
     if (field.id !== index || !validIndex(field.id, fields.length)) report("field-id-dense", "Memory-field IDs must equal their dense arena positions.");
-    if (!validIndex(field.owner, context.types.terms.length) || !validIndex(field.value, context.types.terms.length)) {
+    if (!validIndex(field.owner, context.types.terms.length) || context.types.terms[field.owner] === undefined ||
+      !validIndex(field.value, context.types.terms.length) || context.types.terms[field.value] === undefined) {
       report("type-resolves", "A field owner and value must resolve in the supplied canonical type table.");
     }
     if (!context.nodeExists(field.occurrence) || !context.nodeExists(field.selector) || !context.nodeExists(field.selection)) {
@@ -226,15 +230,18 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       previous = declaration;
     }
     const captured = canonicalFields?.[index];
+    if (canonicalFields !== null && (captured === undefined || !Object.is(captured.id, field.id))) {
+      report("cross-owner-qualified", "A field retains its actual finalized row and local identity in the selected metadata.");
+    }
     if (selected.primary !== field.primary ||
       selected.selectedDeclarations.length !== field.selectedDeclarations.length ||
       selected.selectedDeclarations.some((declaration, position) => declaration !== field.selectedDeclarations[position]) ||
       field.primary !== null && !field.selectedDeclarations.includes(field.primary) ||
       selected.read !== field.value && selected.write !== field.value ||
-      captured !== undefined && captured.id === field.id && encodeKey(memberData(captured.member)) !== encodeKey(memberData(field.member))) {
+      captured !== undefined && Object.is(captured.id, field.id) && encodeKey(memberData(captured.member)) !== encodeKey(memberData(field.member))) {
       report("member-correspondence-exact", "A field retains its complete selected member group, primary and value correspondence.");
     }
-    if (captured !== undefined && captured.id === field.id) {
+    if (captured !== undefined && Object.is(captured.id, field.id)) {
       if (captured.owner !== field.owner || captured.value !== field.value || captured.layout !== field.layout) {
         report("cross-owner-qualified", "A field cannot borrow another owner, value type or selected child layout.");
       }

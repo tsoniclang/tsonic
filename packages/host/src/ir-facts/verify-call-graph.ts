@@ -177,7 +177,8 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       const owner = edge.callee.boundary.owner;
       const arena = context.arenaOf(owner);
       const actualOwner = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
-      if (arena === null || !validIndex(edge.callee.boundary.boundary, arena.boundaries.length) || actualOwner !== edge.caller) {
+      if (arena === null || !validIndex(edge.callee.boundary.boundary, arena.boundaries.length) ||
+        !Object.is(arena.boundaries[edge.callee.boundary.boundary]?.id, edge.callee.boundary.boundary) || actualOwner !== edge.caller) {
         report("cross-owner-qualified", site, "An open call retains its actual caller-owned relational boundary and complete environment.");
       }
     }

@@ -592,7 +592,23 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["live-segments-bounds", value => { value.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 1, last: 0 }] }]; }, { kind: "local", local: { body, local: 0 } },
       "A live interval contains ordered actual statement or terminator positions in its own block."],
   ];
-  for (const [rule, amend, site, message] of basicCases) await factOpposite(rule, unchanged, amend, [violation(rule, site, message)]);
+  for (const [rule, amend, site, message] of basicCases) {
+    const before = rule === "origin-alternatives-correlated" ? [violation("context-resolves", arenaSite("context", "context", 1),
+      "A value context retains its actual canonical owner and local identity.")] : [];
+    const after = rule === "producer-id-dense" ? [
+      violation("producer-resolves", arenaSite("bound-producer", "producer", 0), "A bound alternative must reference an actual producer in its own arena."),
+      violation("producer-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer."),
+    ] : rule === "context-id-dense" ? [
+      violation("context-resolves", arenaSite("context", "context", 9), "A value context retains its actual canonical owner and local identity."),
+      violation("context-resolves", arenaSite("bound-producer", "producer", 0), "A bound alternative must retain its actual value context in the same arena."),
+      violation("context-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual value context in the same arena."),
+    ] : rule === "bound-producer-id-dense" ? [
+      violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 9), "Producer, complete type bindings and value context remain one canonical correlated alternative."),
+      violation("bound-producer-resolves", arenaSite("origins", "origins", 1), "An origin alternative must reference an actual bound producer in its own arena."),
+    ] : rule === "projection-id-dense" ? [violation("projection-parent-precedes", arenaSite("projection", "projection", 1),
+      "A projection parent must reference an earlier row of the same arena.")] : [];
+    await factOpposite(rule, unchanged, amend, [...before, violation(rule, site, message), ...after]);
+  }
   for (const [field, rule, message] of [["producer", "producer-resolves", "A bound alternative must reference an actual producer in its own relational arena."],
     ["context", "context-resolves", "A bound alternative must retain its actual value context in the same arena."]]) {
     await factOpposite(`a bound alternative retains its actual ${field} reference`, unchanged,
@@ -628,8 +644,20 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["contexts", "context-id-dense", "context", "context"], ["boundProducers", "bound-producer-id-dense", "bound-producer", "producer"],
     ["origins", "origins-id-dense", "origins", "origins"], ["boundaries", "boundary-id-dense", "boundary", "boundary"]]) {
     const message = basicCases.find(entry => entry[0] === rule)[3];
+    const following = field === "projections" ? [violation("projection-parent-precedes", arenaSite("projection", "projection", 1),
+      "A projection parent must reference an earlier row of the same arena.")] : field === "producers" ? [
+      violation("producer-resolves", arenaSite("bound-producer", "producer", 0), "A bound alternative must reference an actual producer in its own arena."),
+      violation("producer-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer."),
+    ] : field === "contexts" ? [
+      violation("context-resolves", arenaSite("context", "context", -0), "A value context retains its actual canonical owner and local identity."),
+      violation("context-resolves", arenaSite("bound-producer", "producer", 0), "A bound alternative must retain its actual value context in the same arena."),
+      violation("context-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual value context in the same arena."),
+    ] : field === "boundProducers" ? [
+      violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", -0), "Producer, complete type bindings and value context remain one canonical correlated alternative."),
+      violation("bound-producer-resolves", arenaSite("origins", "origins", 1), "An origin alternative must reference an actual bound producer in its own arena."),
+    ] : [];
     await factOpposite(`${rule} negative zero is not dense positive zero`, unchanged, input => { input.arena[field][0].id = -0; },
-      [violation(rule, arenaSite(kind, key, -0), message)]);
+      [violation(rule, arenaSite(kind, key, -0), message), ...following]);
   }
   await factOpposite("declared-site-ordinal", value => { value.arena.producers[0].at = { kind: "declared", identity: clone(libraryIdentity), site: 0 }; },
     value => { value.arena.producers[0].at.site = 1; }, [violation("declared-site-ordinal", { kind: "declared-site", owner: owner(), identity: libraryIdentity, site: 1 },
@@ -806,9 +834,32 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, input => { input.refinements.integers[0].range = { minimum: -1n, maximum: -2n }; },
     [violation("integer-range-valid", nodeSite(2), "An exact integer interval has ordered bigint endpoints.")]);
   await factOpposite("integer-proofs-consistent", (input, supplied) => {
-    checkedValues(input, supplied); input.refinements.integers[0].range = { minimum: -1n, maximum: 9007199254740993n };
-  }, input => { input.refinements.integers[0].nonnegative = true; }, [violation("integer-proofs-consistent", nodeSite(2),
+    checkedValues(input, supplied); input.refinements.integers[0].range = { minimum: -5n, maximum: 4n };
+    input.refinements.integers[0].nonnegative = true;
+  }, input => { input.refinements.integers[0].range = { minimum: -5n, maximum: -1n }; }, [violation("integer-proofs-consistent", nodeSite(2),
     "A published interval and nonnegative proof cannot contradict one another.")]);
+  for (const [name, range, nonnegative] of [
+    ["zero without an independent guard", { minimum: 0n, maximum: 0n }, false],
+    ["positive interval without an independent guard", { minimum: 1n, maximum: 9007199254740993n }, false],
+    ["straddling interval with a true guard", { minimum: -5n, maximum: 4n }, true],
+    ["straddling interval without a guard", { minimum: -5n, maximum: 4n }, false],
+    ["negative interval without a guard", { minimum: -5n, maximum: -1n }, false],
+    ["zero with a guard", { minimum: 0n, maximum: 0n }, true],
+    ["guard without an interval", null, true],
+  ]) await suite.test(`independent integer proofs retain ${name}`, () => {
+    const input = bodyFacts(); const supplied = setup(input); checkedValues(input, supplied);
+    input.refinements.integers[0] = { node: 2, range, nonnegative };
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete independently valid proof vector");
+  });
+  await suite.test("the approved occurrence96 zero interval does not manufacture an independent guard proof", () => {
+    const input = bodyFacts(); const supplied = setup(input);
+    supplied.tir.root.statements.nodes = [{ ...header(1), kind: "ExpressionStatement", tsonic: null,
+      expression: { ...header(96, 1), kind: "NumericLiteral", text: "0", tokenFlags: [], tsonic: { ...typedValue(), role: "value",
+        value: { numerator: 0n, denominator: 1n, negativeZero: false } } } }];
+    supplied.context.nodeExists = selected => selected.kind === "body" && selected.value.body === body && [0, 1, 96].includes(selected.value.node);
+    input.refinements.integers = [{ node: 96, range: { minimum: 0n, maximum: 0n }, nonnegative: false }];
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete literal retained zero/false proof vector");
+  });
   await factOpposite("nested callable and default initializer values belong only to their actual bodies", (input, supplied) => {
     const callableBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
     const defaultBody = ids.encodeBodyId({ owner: definitions.parameter, role: "default-argument", ordinal: 0 });
@@ -1891,7 +1942,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, prepare, amend, message] of metadataCases) await metadataOpposite(rule, prepare, amend,
     [...(rule === "layout-fields-resolve" || rule === "layout-geometry-consistent" ? [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")] : []),
-      violation(rule, metadataSite(), message), ...(rule === "selected-declarations-order"
+      violation(rule, metadataSite(), message), ...(rule === "layout-id-dense"
+        ? [violation("cross-owner-qualified", metadataSite(), "A layout retains its actual finalized row and local identity in the selected metadata.")]
+        : rule === "field-id-dense" ? [violation("cross-owner-qualified", metadataSite(), "A field retains its actual finalized row and local identity in the selected metadata.")] : []), ...(rule === "selected-declarations-order"
         ? [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")] : [])]);
   const mappedField = (input, supplied) => {
     withField(input, supplied);
@@ -2515,6 +2568,328 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await suite.test(`open call edge ${selectedOwner.kind} resolves actual canonical arena`, () => equal(product.verifyCallGraph(input, setup().context), [], "complete resolving open graph"));
   }
 
+  for (const kind of ["live", "storage"]) for (const mode of ["missing", "wrong-id", "negative-zero"]) {
+    await factOpposite(`${kind} local requires an actual ${mode} row rather than its in-range position`, input => {
+      if (kind === "live") input.liveness.locals = [{ local: 0, segments: [] }];
+      else input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }];
+    }, (input, supplied) => {
+      if (mode === "missing") supplied.mir.locals = new Array(1);
+      else supplied.mir.locals[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("cross-owner-qualified", localSite(0), kind === "live"
+      ? "A live local belongs to this actual MIR local table." : "A binding-storage row belongs to this actual MIR local table.")]);
+  }
+  for (const kind of ["store", "origin", "segment"]) await factOpposite(`${kind} point cannot resolve to an in-range sparse statement`, (input, supplied) => {
+    withMirEndpoints(supplied);
+    if (kind === "store") input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }];
+    if (kind === "origin") input.origins.points = [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }];
+    if (kind === "segment") input.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 0, last: 2 }] }];
+  }, (input, supplied) => { supplied.mir.blocks[0].statements = new Array(2); }, [violation(
+    kind === "segment" ? "live-segments-bounds" : kind === "store" ? "mir-point-resolves" : "point-refs-resolve",
+    kind === "segment" ? localSite(0) : kind === "store" ? nodeSite(1) : bodySite(), kind === "segment"
+      ? "A live interval contains ordered actual statement or terminator positions in its own block."
+      : "A MIR point names an actual block and statement, or that block's terminator.")]);
+  await factOpposite("a selected in-range sparse MIR block is absent without dereferencing unrelated peer rows", input => {
+    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }];
+  }, (input, supplied) => { supplied.mir.blocks = new Array(1); },
+  [violation("mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator.")]);
+  await factOpposite("a live segment's later endpoint requires its own actual statement", (input, supplied) => {
+    withMirEndpoints(supplied); input.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 0, last: 1 }] }];
+  }, (input, supplied) => { delete supplied.mir.blocks[0].statements[1]; },
+  [violation("live-segments-bounds", localSite(0), "A live interval contains ordered actual statement or terminator positions in its own block.")]);
+  for (const mode of ["missing", "wrong-id", "negative-zero"]) await factOpposite(`a place requires its actual ${mode} selected row`, input => {
+    input.initialization.reads = [{ node: 1, place: 0, assigned: true }];
+  }, (input, supplied) => {
+    if (mode === "missing") supplied.mir.places = new Array(1); else supplied.mir.places[0].id = mode === "negative-zero" ? -0 : 1;
+  }, [violation("place-resolves", nodeSite(1), "A place reference resolves in this exact MIR body.")]);
+  for (const kind of ["parameter", "capture", "receiver"]) {
+    for (const mode of kind === "receiver" ? ["missing", "wrong-id", "negative-zero"] : ["missing"]) {
+      await factOpposite(`actual ${kind} producer and escape reject the ${mode} selected slot`, (input, supplied) => {
+        formalInventory(kind, input, supplied);
+        input.origins.escapes = [{ node: 1, producer: 0, target: kind === "receiver" ? { kind, path: null } : { kind, index: 0, path: null } }];
+      }, (input, supplied) => {
+        if (kind === "parameter") supplied.tir.params = new Array(1);
+        if (kind === "capture") supplied.tir.captures = new Array(1);
+        if (kind === "receiver") {
+          if (mode === "missing") supplied.types.signatures = new Array(1); else supplied.types.signatures[0].id = mode === "negative-zero" ? -0 : 1;
+        }
+      }, [violation("producer-resolves", arenaSite("producer", "producer", 0), "A producer retains its actual body parameter, receiver or captured-location slot."),
+        violation(kind === "capture" ? "capture-locations-exact" : "producer-resolves", nodeSite(1), kind === "capture"
+          ? "An escape retains its actual captured-location index." : kind === "parameter"
+            ? "An escape retains its actual declaration parameter index." : "A receiver escape retains an actual receiver slot.")]);
+    }
+  }
+  await factOpposite("a fact type cannot resolve to an in-range missing term", input => {
+    input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: { metadata: metadata().key, layout: 0 }, context: 0, bindings: emptyBindings() }];
+  }, (input, supplied) => { supplied.types.terms = new Array(1); },
+  [violation("type-resolves", nodeSite(1), "A fact type resolves in the actual supplied type table.")]);
+  for (const field of ["read", "write", "result", "completion", "yielded", "sent", "omitted"]) {
+    await factOpposite(`selected ${field} requires an existing in-range type term`, (input, supplied) => {
+      accessorSelection(input, supplied); supplied.types.terms.push({ kind: "primitive", primitive: "int32" });
+      const selected = input.arena.projections[2].projection.member;
+      if (field === "read" || field === "write") selected.decision[field] = 3;
+      else if (field === "result") selected.getter.decision.result = 3;
+      else if (field === "omitted") selected.getter.decision.parameters[0].type = 3;
+      else selected.getter.decision.completion[field] = 3;
+    }, (input, supplied) => { delete supplied.types.terms[3]; },
+    [violation("type-resolves", arenaSite("projection", "projection", 2), "A selected member type resolves in the actual supplied type table.")]);
+  }
+  for (const field of ["endpoint", "advertised", "api", "completion"]) for (const mode of ["missing", "wrong-id"]) {
+    await factOpposite(`selected ${field} requires an actual ${mode} signature row`, (input, supplied) => {
+      accessorSelection(input, supplied); supplied.types.signatures.push(signature(2, [], null, definitions.callee));
+      const selected = input.arena.projections[2].projection.member;
+      if (field === "endpoint") selected.decision.getter.signature = 2;
+      else selected.getter.decision[field].signature = 2;
+    }, (input, supplied) => {
+      if (mode === "missing") delete supplied.types.signatures[2]; else supplied.types.signatures[2].id = 3;
+    }, [violation("signature-resolves", arenaSite("projection", "projection", 2), field === "completion"
+      ? "A selected member completion retains its actual signature." : "A selected member endpoint resolves in the actual supplied signature table.")]);
+  }
+  await factOpposite("bound member type lookup cannot confuse an in-range hole with a supplied term", (input, supplied) => {
+    const { selected, scope } = scopedMember();
+    supplied.types.terms.push({ kind: "primitive", primitive: "int32" });
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 3 }];
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
+    supplied.scopeRows.body = [scope, emptyScope(), emptyScope()];
+  }, (input, supplied) => { delete supplied.types.terms[3]; },
+  [violation("type-resolves", arenaSite("projection", "projection", 2), "Every bound type resolves in the actual supplied canonical type table.")]);
+  for (const mode of ["missing", "wrong-id"]) await factOpposite(`an invocation completion requires an actual ${mode} signature row`, (input, supplied) => {
+    invocationFixture(input, supplied); supplied.types.signatures.push(signature(2, [], null, definitions.callee));
+    input.origins.invocations[0].alternatives[0].resolution.decision.completion.signature = 2;
+  }, (input, supplied) => {
+    if (mode === "missing") delete supplied.types.signatures[2]; else supplied.types.signatures[2].id = 3;
+  }, [violation("signature-resolves", nodeSite(1), "A fact signature resolves in the actual supplied signature table.")]);
+  await metadataOpposite("a value layout requires its actual in-range source term without any binding inputs", unchanged,
+    (input, supplied) => { supplied.types.terms = new Array(1); },
+    [violation("type-resolves", metadataSite(), "A layout source type must exist in the supplied canonical type table.")]);
+  for (const field of ["owner", "value"]) await metadataOpposite(`a physical field requires its actual ${field} term`, withField,
+    (input, supplied) => { delete supplied.types.terms[field === "owner" ? 3 : 0]; }, [
+      violation("type-resolves", metadataSite(), "A layout source type must exist in the supplied canonical type table."),
+      violation("type-resolves", metadataSite(), "A field owner and value must resolve in the supplied canonical type table."),
+      ...(field === "value" ? [
+        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
+        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
+      ] : []),
+    ]);
+  for (const mode of ["missing", "wrong-id", "negative-zero"]) {
+    await factOpposite(`a foreign formal requires its actual ${mode} producer row`, invocationFixture, (input, supplied) => {
+      const actual = supplied.canonicalArenas.get(arenaKey(summaryOwner(input.origins.invocations[0].alternatives[0].summary)));
+      if (mode === "missing") delete actual.producers[0]; else actual.producers[0].id = mode === "negative-zero" ? -0 : 2;
+    }, [violation("producer-resolves", nodeSite(1), "The actual formal producer resolves in its declared foreign arena.")]);
+    for (const selectedOwner of [owner(), summaryOwner(summary().key)]) await graphOpposite(`an open ${selectedOwner.kind} boundary requires its actual ${mode} row`, () => {
+      const input = graph(); input.edges = [{ ...edge("f", "f"), callee: { kind: "open", boundary: { owner: clone(selectedOwner), boundary: 0 } } }]; return input;
+    }, (input, supplied) => {
+      const actual = supplied.canonicalArenas.get(arenaKey(selectedOwner));
+      if (mode === "missing") actual.boundaries = new Array(1); else actual.boundaries[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("cross-owner-qualified", nodeSite(1), "An open call retains its actual caller-owned relational boundary and complete environment.")]);
+  }
+
+  const contextIdentityMessage = "A value context retains its actual canonical owner and local identity.";
+  const boundIdentityMessage = "Producer, complete type bindings and value context remain one canonical correlated alternative.";
+  const layoutIdentityMessage = "A layout retains its actual finalized row and local identity in the selected metadata.";
+  const fieldIdentityMessage = "A field retains its actual finalized row and local identity in the selected metadata.";
+  const summaryArenaSite = (kind, key, id) => ({ kind, owner: summaryOwner(summary().key), [key]: id });
+  for (const [kind, prepare, amend, expected] of [
+    ["effect path", oneParameter, input => { input.arena.projections[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("projection", "projection", 9), "Projection IDs must equal their dense arena positions."),
+      violation("summary-finite", summaryArenaSite("projection", "projection", 1), "A projection parent must reference an earlier row of the same arena."),
+      violation("summary-finite", summarySite(), "Effect paths are distinct ordered references into the summary's own finite arena."),
+    ]],
+    ["result origins", unchanged, input => { input.arena.origins[1].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("origins", "origins", 9), "Origins IDs must equal their dense arena positions."),
+      violation("result-origins-resolves", summarySite(), "Result origins resolve in this exact summary arena."),
+    ]],
+    ["thrown origins", unchanged, input => { input.arena.origins[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("origins", "origins", 9), "Origins IDs must equal their dense arena positions."),
+      violation("thrown-origins-resolves", summarySite(), "Thrown origins resolve in this exact summary arena."),
+    ]],
+    ["write producer", input => { input.writes = [{ target: 0, value: 0 }]; }, input => { input.arena.producers[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("producer", "producer", 9), "Producer IDs must equal their dense arena positions."),
+      violation("summary-finite", summaryArenaSite("bound-producer", "producer", 0), "A bound alternative must reference an actual producer in its own arena."),
+      violation("summary-finite", summaryArenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer."),
+      violation("write-origins-resolves", summarySite(), "A summary write retains its actual producer and value origins in this arena."),
+    ]],
+    ["retained producer", input => { input.retention = [{ source: 0, into: { kind: "return" } }]; }, input => { input.arena.producers[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("producer", "producer", 9), "Producer IDs must equal their dense arena positions."),
+      violation("summary-finite", summaryArenaSite("bound-producer", "producer", 0), "A bound alternative must reference an actual producer in its own arena."),
+      violation("summary-finite", summaryArenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer."),
+      violation("retention-source-resolves", summarySite(), "Every retained source is a producer in this exact summary arena."),
+    ]],
+    ["unknown effect boundary", (input, supplied) => {
+      oneParameter(input, supplied); input.parameters[0].reads = { kind: "open", paths: [], boundaries: [0] };
+    }, input => { input.arena.boundaries[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("boundary", "boundary", 9), "Boundary IDs must equal their dense arena positions."),
+      violation("known-negative-distinct", summarySite(), "An unknown effect retains its real boundary rather than pretending to be no effect."),
+    ]],
+    ["external retention boundary", input => { input.retention = [{ source: 0, into: { kind: "external", boundary: 0 } }]; }, input => { input.arena.boundaries[0].id = 9; }, [
+      violation("summary-finite", summaryArenaSite("boundary", "boundary", 9), "Boundary IDs must equal their dense arena positions."),
+      violation("cross-owner-qualified", summarySite(), "A retention target retains its actual declaration, formal, capture, path or boundary owner."),
+    ]],
+  ]) await summaryOpposite(`an in-range ${kind} still requires the actual row identity`, (input, supplied) => {
+    prepare(input, supplied); if (kind === "effect path") input.parameters[0].reads.paths = [0];
+  }, amend, expected);
+  await factOpposite("an actually selected added context cannot invent canonical arity or captures", input => {
+    input.origins.frontiers = [{ node: 1, kind: "origin", subject: 0, context: 0 }];
+  }, input => {
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [1], captures: [] });
+    input.origins.frontiers[0].context = 1;
+  }, [violation("context-resolves", arenaSite("context", "context", 1), contextIdentityMessage)]);
+  for (const mode of ["missing", "wrong-id", "negative-zero"]) {
+    await factOpposite(`a used context requires its ${mode} canonical row`, input => {
+      input.origins.frontiers = [{ node: 1, kind: "origin", subject: 0, context: 0 }];
+    }, (input, supplied) => {
+      const actual = supplied.canonicalArenas.get(arenaKey(owner()));
+      if (mode === "missing") actual.contexts = new Array(1); else actual.contexts[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("context-resolves", arenaSite("context", "context", 0), contextIdentityMessage)]);
+    await factOpposite(`an actual origin requires its ${mode} canonical bound alternative`, unchanged, (input, supplied) => {
+      const actual = supplied.canonicalArenas.get(arenaKey(owner()));
+      if (mode === "missing") actual.boundProducers = new Array(1); else actual.boundProducers[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 0), boundIdentityMessage)]);
+    await summaryOpposite(`a used context requires its ${mode} canonical summary row`, input => {
+      input.arena.boundProducers[0].context = 0;
+    }, (input, supplied) => {
+      const actual = supplied.canonicalArenas.get(arenaKey(summaryOwner(input.key)));
+      if (mode === "missing") actual.contexts = new Array(1); else actual.contexts[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("summary-finite", { kind: "context", owner: summaryOwner(summary().key), context: 0 }, contextIdentityMessage)]);
+    await metadataOpposite(`a selected layout requires its ${mode} canonical identity`, unchanged, (input, supplied) => {
+      const actual = supplied.metadataRows.get(definitions.layout);
+      if (mode === "missing") actual.layouts = new Array(1); else actual.layouts[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("cross-owner-qualified", metadataSite(), layoutIdentityMessage)]);
+    await metadataOpposite(`a selected physical field requires its ${mode} canonical identity`, (input, supplied) => {
+      withField(input, supplied); input.kind = "memory-field"; input.root = 0;
+    }, (input, supplied) => {
+      const actual = supplied.metadataRows.get(definitions.layout);
+      if (mode === "missing") actual.fields = new Array(1); else actual.fields[0].id = mode === "negative-zero" ? -0 : 1;
+    }, [violation("cross-owner-qualified", metadataSite(), fieldIdentityMessage)]);
+  }
+  await metadataOpposite("a locally valid selected new root cannot supply unauthored geometry", unchanged, input => {
+    input.layouts.push({ ...clone(input.layouts[0]), id: 1, byteSize: 16n, stride: 16n }); input.root = 1;
+  }, [violation("cross-owner-qualified", metadataSite(), layoutIdentityMessage)]);
+  await metadataOpposite("a newly selected field remains subject to canonical identity and scope occurrence", (input, supplied) => {
+    withField(input, supplied); input.kind = "memory-field"; input.root = 0;
+  }, input => {
+    input.fields.push(memoryField(1, definitions.other)); input.root = 1;
+  }, [violation("cross-owner-qualified", metadataSite(), fieldIdentityMessage),
+    violation("bindings-complete", metadataSite(), missingScopeMessage)]);
+
+  const captureLocations = () => [{ body: otherBody, local: 0 }, { body, local: 0 }, { body, local: 1 }];
+  const capturedActivation = (input, supplied, reversed = false) => {
+    actualDependentActivation(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const actual = supplied.bodyRows.get(alternative.resolution.activation.body);
+    const locations = captureLocations(); const selected = reversed ? [locations[1], locations[0]] : [locations[0], locations[1]];
+    actual.captures = clone(selected); alternative.resolution.captures = clone(selected);
+    for (const [index, capturedFrom] of selected.entries()) actual.locals.push({ id: index + 2, declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } },
+      name: `capture${index}`, role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 });
+    supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
+    input.arena.producers.push({ id: 1, path: null, kind: "shared", definition: definitions.other });
+    input.arena.boundProducers.push({ id: 1, producer: 1, bindings: emptyBindings(), context: 0 });
+    input.arena.contexts[0].captures = [{ index: 0, location: reversed ? 1 : 0 }, { index: 1, location: reversed ? 0 : 1 }];
+    supplied.scopeRows.body.splice(1, 0, emptyScope());
+  };
+  const invocationCaptureMessage = "Each invocation alternative retains its own complete actual captured-location vector.";
+  for (const reversed of [false, true]) for (const mode of ["permutation", "replacement", "missing", "sparse-body", "sparse-resolution", "negative-zero"]) {
+    await factOpposite(`selected invocation capture ${mode} in actual ${reversed ? "reverse" : "forward"} order`,
+      (input, supplied) => capturedActivation(input, supplied, reversed), (input, supplied) => {
+        const resolution = input.origins.invocations[0].alternatives[0].resolution;
+        if (mode === "permutation") resolution.captures.reverse();
+        if (mode === "replacement") resolution.captures[1] = captureLocations()[2];
+        if (mode === "missing") resolution.captures.pop();
+        if (mode === "sparse-body") supplied.bodyRows.get(resolution.activation.body).captures = new Array(2);
+        if (mode === "sparse-resolution") resolution.captures = new Array(2);
+        if (mode === "negative-zero") resolution.captures[1].local = -0;
+      }, [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage),
+        ...(mode === "sparse-resolution" ? [
+          violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location."),
+          violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location."),
+        ] : mode === "negative-zero" ? [violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location.")] : []),
+      ]);
+  }
+  await suite.test("bodyless alternatives retain supplied captures without inventing an activation environment", () => {
+    const input = bodyFacts(); const supplied = setup(input); capturedActivation(input, supplied);
+    const resolution = input.origins.invocations[0].alternatives[0].resolution;
+    resolution.activation = null; resolution.decision.api.body = null; supplied.scopeRows.body.splice(5, 1);
+    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete bodyless actual-capture vector");
+  });
+  await factOpposite("each dynamic alternative retains its own selected body's capture order rather than the syntax candidate's", (input, supplied) => {
+    invocationFixture(input, supplied);
+    const locations = captureLocations(); const first = input.origins.invocations[0].alternatives[0];
+    const selectedBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
+    supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
+    input.arena.producers.push({ id: 1, path: null, kind: "shared", definition: definitions.other });
+    input.arena.boundProducers.push({ id: 1, producer: 1, bindings: emptyBindings(), context: 0 });
+    input.arena.contexts[0].captures = [{ index: 0, location: 0 }, { index: 1, location: 1 }];
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1 }, { index: 1, location: 0 }] });
+    first.resolution.activation = { body: selectedBody, bindings: parametric() }; first.resolution.decision.api.body = selectedBody;
+    first.resolution.captures = [clone(locations[0]), clone(locations[1])];
+    const second = clone(first); second.context = 1; second.summary.definition = definitions.other;
+    second.resolution.activation.body = otherBody; second.resolution.decision.advertised.declaration = definitions.other;
+    second.resolution.decision.advertised.signature = 2; second.resolution.decision.api.declaration = definitions.other;
+    second.resolution.decision.api.signature = 2; second.resolution.decision.api.body = otherBody;
+    second.resolution.decision.completion.signature = 2; second.resolution.captures.reverse();
+    for (const argument of second.arguments) argument.formal.owner.definition = definitions.other;
+    input.origins.invocations[0].alternatives.push(second);
+    for (const [selected, bodyId, definitionId, signatureId] of [[first, selectedBody, definitions.callee, 1], [second, otherBody, definitions.other, 2]]) {
+      const actual = tir(); actual.body = bodyId; actual.owner = definitionId; actual.signature = signatureId;
+      actual.params = [definitions.parameter, definitions.capture].map((declaration, local) => ({ local, declaration,
+        role: "required", passing: "by-value", initializer: null, storage: 0 }));
+      actual.captures = clone(selected.resolution.captures);
+      actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
+        name: `parameter${parameter.local}`, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
+      for (const [index, capturedFrom] of actual.captures.entries()) actual.locals.push({ id: index + 2,
+        declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } }, name: `capture${index}`,
+        role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 });
+      supplied.bodyRows.set(bodyId, actual); supplied.bodyOwners.set(bodyId, definitionId);
+    }
+    supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
+    supplied.canonicalArenas.set(arenaKey(summaryOwner(second.summary)), { projections: [],
+      producers: [{ id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 }],
+      contexts: [], boundProducers: [], origins: [], boundaries: [] });
+    supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
+  }, input => { input.origins.invocations[0].alternatives[1].resolution.captures.reverse(); },
+  [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]);
+  const capturedAccessor = (kind, reversed, input, supplied) => {
+    accessorSelection(input, supplied);
+    const selected = input.arena.projections[2].projection.member;
+    if (kind === "setter") {
+      selected.setter = selected.getter; selected.getter = null;
+      selected.decision.setter = selected.decision.getter; selected.decision.getter = null;
+    }
+    const resolution = selected[kind]; const locations = captureLocations();
+    const captures = reversed ? [locations[1], locations[0]] : [locations[0], locations[1]];
+    const selectedBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
+    const actual = tir(); actual.body = selectedBody; actual.owner = definitions.callee; actual.signature = 1;
+    actual.params = [{ local: 0, declaration: definitions.parameter, role: "optional", passing: "by-value", initializer: null, storage: 0 }];
+    actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 },
+      ...captures.map((capturedFrom, index) => ({ id: index + 1, declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } },
+        name: `capture${index}`, role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 }))];
+    actual.captures = clone(captures); supplied.bodyRows.set(selectedBody, actual); supplied.bodyOwners.set(selectedBody, definitions.callee);
+    resolution.activation = { body: selectedBody, bindings: parametric() }; resolution.decision.api.body = selectedBody;
+    resolution.captures = clone(captures);
+    supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
+  };
+  const accessorCaptureMessage = "A selected accessor retains its actual ordered captured-location vector.";
+  for (const kind of ["getter", "setter"]) for (const reversed of [false, true]) {
+    for (const mode of ["permutation", "replacement", "missing", "sparse-body", "sparse-resolution", "negative-zero"]) {
+      await factOpposite(`selected ${kind} capture ${mode} in actual ${reversed ? "reverse" : "forward"} order`,
+        (input, supplied) => capturedAccessor(kind, reversed, input, supplied), (input, supplied) => {
+          const resolution = input.arena.projections[2].projection.member[kind];
+          if (mode === "permutation") resolution.captures.reverse();
+          if (mode === "replacement") resolution.captures[1] = captureLocations()[2];
+          if (mode === "missing") resolution.captures.pop();
+          if (mode === "sparse-body") supplied.bodyRows.get(resolution.activation.body).captures = new Array(2);
+          if (mode === "sparse-resolution") resolution.captures = new Array(2);
+          if (mode === "negative-zero") resolution.captures[1].local = -0;
+        }, [...(mode === "sparse-resolution" ? [
+          violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
+          violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
+        ] : mode === "negative-zero" ? [violation("capture-locations-exact", arenaSite("projection", "projection", 2),
+          "A selected accessor retains its actual captured storage locations.")] : []),
+          violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage)]);
+    }
+  }
+
   await suite.test("every numeric identity decoder rejects a different prefix, string payload and bare scalar at its actual field", () => {
     const read = emptyFactsText.replace("reads=[]", `reads=${arrayText(["InitializationFact(node=n:0, place=p:0, assigned=false)"])}`);
     const bound = emptyFactsText.replace("boundProducers=[]", `boundProducers=${arrayText([
@@ -2670,6 +3045,21 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "const parameters: readonly SignatureParameter[] = new Array<SignatureParameter>(1);",
         "const suppliedSignature: Signature = { ...actualSignature, parameters };",
         "verifySummary(summary, { ...context, types: { ...context.types, signatures: [suppliedSignature] } });",
+      ].join("\n"), []], ["sparse-verifier-peer-rows", [
+        'import type { TypeTerm, Signature } from "./packages/host/src/ir-types/contract.js";',
+        'import type { LocalRef } from "./packages/host/src/ids/contract.js";',
+        'import type { TirBody, TirParam } from "./packages/host/src/ir-tir/contract.js";',
+        'import type { MirBlock, MirLocal, MirStatement } from "./packages/host/src/ir-mir/contract.js";',
+        "declare const actualBlock: MirBlock; declare const actualTir: TirBody;",
+        "const terms: readonly TypeTerm[] = new Array<TypeTerm>(1);",
+        "const signatures: readonly Signature[] = new Array<Signature>(1);",
+        "const blocks: readonly MirBlock[] = new Array<MirBlock>(1);",
+        "const locals: readonly MirLocal[] = new Array<MirLocal>(1);",
+        "const statements: readonly MirStatement[] = new Array<MirStatement>(1);",
+        "const peerBlock: MirBlock = { ...actualBlock, statements };",
+        "const peerTir: TirBody = { ...actualTir, params: new Array<TirParam>(1), captures: new Array<LocalRef>(2) };",
+        "verifyFacts(facts, { ...mir, blocks: [peerBlock], locals }, { ...context, types: { ...context.types, terms, signatures }, tirBody: () => peerTir });",
+        "verifyFacts(facts, { ...mir, blocks }, context);",
       ].join("\n"), []], ["facts-readonly", "facts.instance.body = facts.instance.body;", [2540]],
         ["summary-readonly", "summary.result = summary.result;", [2540]], ["metadata-readonly", "metadata.key.definition = metadata.key.definition;", [2540]],
         ["graph-readonly", "graph.edges = [];", [2540]], ["producer-vector-readonly", "facts.arena.producers.push(facts.arena.producers[0]);", [2339]],

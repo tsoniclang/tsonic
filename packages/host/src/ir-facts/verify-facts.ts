@@ -10,7 +10,7 @@ import type {
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  collectSelectionChecks, escapeData, factBindingInputs, instanceKey, relationalUsage, sameBindings, validIndex,
+  collectSelectionChecks, escapeData, factBindingInputs, instanceKey, relationalUsage, sameBindings, sameCaptures, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 
@@ -71,37 +71,40 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const node = (id: NodeId): void => nodeRef({ body: facts.instance.body, node: id }, at(id));
   const point = (value: MirPoint, site: FactsSite, rule: "mir-point-resolves" | "point-refs-resolve" = "mir-point-resolves"): void => {
     const block = validIndex(value.block, mir.blocks.length) ? mir.blocks[value.block] : undefined;
-    if (block === undefined || block.id !== value.block || value.statement !== null && !validIndex(value.statement, block.statements.length)) {
+    if (block === undefined || !Object.is(block.id, value.block) || value.statement !== null &&
+      (!validIndex(value.statement, block.statements.length) || block.statements[value.statement] === undefined)) {
       report(rule, site, "A MIR point names an actual block and statement, or that block's terminator.");
     }
   };
   const place = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, mir.places.length) || mir.places[id]?.id !== id) report("place-resolves", site, "A place reference resolves in this exact MIR body.");
+    if (!validIndex(id, mir.places.length) || !Object.is(mir.places[id]?.id, id)) report("place-resolves", site, "A place reference resolves in this exact MIR body.");
   };
   const origins = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.origins.length) || facts.arena.origins[id]?.id !== id) report("origins-resolves", site, "Origins resolve in this exact relational arena.");
+    if (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id)) report("origins-resolves", site, "Origins resolve in this exact relational arena.");
   };
   const producer = (id: number, site: FactsSite, bound = false): void => {
     const rows = bound ? facts.arena.boundProducers : facts.arena.producers;
-    if (!validIndex(id, rows.length) || rows[id]?.id !== id) report(bound ? "bound-producer-resolves" : "producer-resolves", site,
+    if (!validIndex(id, rows.length) || !Object.is(rows[id]?.id, id)) report(bound ? "bound-producer-resolves" : "producer-resolves", site,
       "A producer reference resolves in its exact declared arena.");
   };
   const valueContext = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.contexts.length) || facts.arena.contexts[id]?.id !== id) report("context-resolves", site, "A value context resolves in this exact arena.");
+    if (!validIndex(id, facts.arena.contexts.length) || !Object.is(facts.arena.contexts[id]?.id, id)) report("context-resolves", site, "A value context resolves in this exact arena.");
   };
   const boundary = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.boundaries.length) || facts.arena.boundaries[id]?.id !== id) report("boundary-resolves", site, "A boundary resolves in this exact arena.");
+    if (!validIndex(id, facts.arena.boundaries.length) || !Object.is(facts.arena.boundaries[id]?.id, id)) report("boundary-resolves", site, "A boundary resolves in this exact arena.");
   };
   const path = (id: number | null, site: FactsSite): void => {
-    if (id !== null && (!validIndex(id, facts.arena.projections.length) || facts.arena.projections[id]?.id !== id)) {
+    if (id !== null && (!validIndex(id, facts.arena.projections.length) || !Object.is(facts.arena.projections[id]?.id, id))) {
       report("producer-resolves", site, "A projected fact retains its actual projection-path identity.");
     }
   };
   const type = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, context.types.terms.length)) report("type-resolves", site, "A fact type resolves in the actual supplied type table.");
+    if (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined) {
+      report("type-resolves", site, "A fact type resolves in the actual supplied type table.");
+    }
   };
   const signature = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, context.types.signatures.length) || context.types.signatures[id]?.id !== id) {
+    if (!validIndex(id, context.types.signatures.length) || !Object.is(context.types.signatures[id]?.id, id)) {
       report("signature-resolves", site, "A fact signature resolves in the actual supplied signature table.");
     }
   };
@@ -121,13 +124,14 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         if (!context.definitionExists(value.definition)) report("producer-resolves", site, "A shared target retains its actual declaration.");
         path(value.path, site); break;
       case "parameter":
-        if (!validIndex(value.index, tir.params.length)) report("producer-resolves", site, "An escape retains its actual declaration parameter index.");
+        if (!validIndex(value.index, tir.params.length) || tir.params[value.index] === undefined) report("producer-resolves", site, "An escape retains its actual declaration parameter index.");
         path(value.path, site); break;
       case "capture":
-        if (!validIndex(value.index, tir.captures.length)) report("capture-locations-exact", site, "An escape retains its actual captured-location index.");
+        if (!validIndex(value.index, tir.captures.length) || tir.captures[value.index] === undefined) report("capture-locations-exact", site, "An escape retains its actual captured-location index.");
         path(value.path, site); break;
       case "receiver":
-        if (context.types.signatures[tir.signature]?.receiver === null) report("producer-resolves", site, "A receiver escape retains an actual receiver slot.");
+        if (!validIndex(tir.signature, context.types.signatures.length) || !Object.is(context.types.signatures[tir.signature]?.id, tir.signature) ||
+          context.types.signatures[tir.signature]?.receiver === null) report("producer-resolves", site, "A receiver escape retains an actual receiver slot.");
         path(value.path, site); break;
       case "callback": case "suspension":
         if (value.at.kind === "node") nodeRef(value.at.node, site);
@@ -146,9 +150,10 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   };
   for (const row of facts.arena.producers) {
     const site: FactsSite = { kind: "producer", owner, producer: row.id };
-    if (row.kind === "parameter" && !validIndex(row.index, tir.params.length) ||
-      row.kind === "capture" && !validIndex(row.index, tir.captures.length) ||
-      row.kind === "receiver" && context.types.signatures[tir.signature]?.receiver === null) {
+    if (row.kind === "parameter" && (!validIndex(row.index, tir.params.length) || tir.params[row.index] === undefined) ||
+      row.kind === "capture" && (!validIndex(row.index, tir.captures.length) || tir.captures[row.index] === undefined) ||
+      row.kind === "receiver" && (!validIndex(tir.signature, context.types.signatures.length) ||
+        !Object.is(context.types.signatures[tir.signature]?.id, tir.signature) || context.types.signatures[tir.signature]?.receiver === null)) {
       report("producer-resolves", site, "A producer retains its actual body parameter, receiver or captured-location slot.");
     }
   }
@@ -161,16 +166,20 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   ordered(facts.liveness.bindings, "locals-order", (left, right) => compare(left.local, right.local), row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
   for (const local of facts.liveness.locals) {
     const site: FactsSite = { kind: "local", local: { body: facts.instance.body, local: local.local } };
-    if (!validIndex(local.local, mir.locals.length)) report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
+    if (!validIndex(local.local, mir.locals.length) || !Object.is(mir.locals[local.local]?.id, local.local)) {
+      report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
+    }
     ordered(local.segments, "live-segments-order", (left, right) => compare(left.block, right.block) || compare(left.first, right.first) || compare(left.last, right.last), () => site);
     for (const segment of local.segments) {
       const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
-      if (block === undefined || block.id !== segment.block || !validIndex(segment.first, block.statements.length + 1) ||
-        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first) report("live-segments-bounds", site,
+      if (block === undefined || !Object.is(block.id, segment.block) || !validIndex(segment.first, block.statements.length + 1) ||
+        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first ||
+        segment.first < block.statements.length && block.statements[segment.first] === undefined ||
+        segment.last < block.statements.length && block.statements[segment.last] === undefined) report("live-segments-bounds", site,
         "A live interval contains ordered actual statement or terminator positions in its own block.");
     }
   }
-  for (const storage of facts.liveness.bindings) if (!validIndex(storage.local, mir.locals.length)) {
+  for (const storage of facts.liveness.bindings) if (!validIndex(storage.local, mir.locals.length) || !Object.is(mir.locals[storage.local]?.id, storage.local)) {
     report("cross-owner-qualified", { kind: "local", local: { body: facts.instance.body, local: storage.local } }, "A binding-storage row belongs to this actual MIR local table.");
   }
   ordered(facts.liveness.captures, "captures-order", (left, right) => compare(left.local.body, right.local.body) || compare(left.local.local, right.local.local), row => ({ kind: "local", local: row.local }));
@@ -189,7 +198,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const integer of facts.refinements.integers) {
     integerNodes.add(integer.node); node(integer.node);
     if (integer.range !== null && integer.range.minimum > integer.range.maximum) report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints.");
-    if (integer.range !== null && (integer.nonnegative && integer.range.minimum < 0n || !integer.nonnegative && integer.range.minimum >= 0n)) {
+    if (integer.range !== null && integer.nonnegative && integer.range.maximum < 0n) {
       report("integer-proofs-consistent", at(integer.node), "A published interval and nonnegative proof cannot contradict one another.");
     }
   }
@@ -253,7 +262,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     const foreign = context.arenaOf(argument.formal.owner);
     const formal = foreign === null ? undefined : foreign.producers[argument.formal.producer];
     if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
-    else if (!validIndex(argument.formal.producer, foreign.producers.length) || formal === undefined || formal.id !== argument.formal.producer) {
+    else if (!validIndex(argument.formal.producer, foreign.producers.length) || formal === undefined || !Object.is(formal.id, argument.formal.producer)) {
       report("producer-resolves", site, "The actual formal producer resolves in its declared foreign arena.");
     } else if (formal.kind !== "parameter" || formal.index !== argument.parameterIndex) report("argument-transports-total", site,
         "A transport's formal producer retains its actual declaration parameter position.");
@@ -371,19 +380,23 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       const environment: ArtifactBindings | null = dependent === null ? null : dependent
         ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
       let activationValid = true;
+      let capturesValid = true;
       if (activation !== null) {
         const actual = context.tirBody(activation);
         activationValid = actual.body === activation.body && actual.owner === decision.api.declaration &&
           sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
+        capturesValid = sameCaptures(actual.captures, alternative.resolution.captures);
       }
       if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
         !activationValid) report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment.");
-      const captureSet = new Set(alternative.resolution.captures.map(capture => encodeKey([capture.body, capture.local])));
-      if (captureSet.size !== alternative.resolution.captures.length || receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
+      const captureSet = new Set<string>();
+      for (const capture of alternative.resolution.captures) if (capture !== undefined) captureSet.add(encodeKey([capture.body, capture.local]));
+      if (!capturesValid || captureSet.size !== alternative.resolution.captures.length ||
+        receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
         report("invocation-contexts-correlated", site, "Each invocation alternative retains its own complete actual captured-location vector.");
       }
-      for (const capture of alternative.resolution.captures) if (!context.localExists(capture)) report("capture-locations-exact", site,
+      for (const capture of alternative.resolution.captures) if (capture === undefined || !context.localExists(capture)) report("capture-locations-exact", site,
         "An invocation capture retains its actual qualified local location.");
     }
   }
@@ -433,7 +446,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
 
   nodeOrder(facts.suspension.suspensions, "suspensions-order");
   const suspensionKinds = new Map<NodeId, "await" | "yield" | "delegate">();
-  for (const block of mir.blocks) if (block.terminator.kind === "await" || block.terminator.kind === "yield" || block.terminator.kind === "delegate") {
+  for (const block of mir.blocks) if (block !== undefined &&
+    (block.terminator.kind === "await" || block.terminator.kind === "yield" || block.terminator.kind === "delegate")) {
     suspensionKinds.set(block.terminator.tir.node, block.terminator.kind);
   }
   for (const suspension of facts.suspension.suspensions) {
@@ -461,11 +475,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     ordered(error.invalidations, "error-invalidations-order", (left, right) => compare(left.at.body, right.at.body) || compare(left.at.node, right.at.node) || compare(left.kind, right.kind), () => site);
     for (const invalidation of error.invalidations) {
       nodeRef(invalidation.at, site);
-      if (!validIndex(invalidation.owner, facts.arena.origins.length)) report("error-invalidation-origins-resolve", site,
+      if (!validIndex(invalidation.owner, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.owner]?.id, invalidation.owner)) report("error-invalidation-origins-resolve", site,
         "An error invalidation retains its actual owner origins in this arena.");
       const owned = facts.arena.origins[invalidation.owner];
       if (invalidation.kind === "invalidated" && invalidation.cause === "overlapping-write") {
-        if (!validIndex(invalidation.affected, facts.arena.origins.length)) report("error-invalidation-origins-resolve", site,
+        if (!validIndex(invalidation.affected, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.affected]?.id, invalidation.affected)) report("error-invalidation-origins-resolve", site,
           "An overlapping error write retains its actual affected origins.");
         const affected = facts.arena.origins[invalidation.affected];
         if (affected !== undefined && affected.producers.length === 0 && affected.kind === "complete") report("error-invalidation-outcome-exact", site,
@@ -478,7 +492,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         const reason = invalidation.reason;
         const id = reason.kind === "incomplete-origins" || reason.kind === "opaque-invocation-footprint" ? reason.affected
           : reason.kind === "open-constructor-domain" ? reason.constructor : null;
-        if (id !== null && !validIndex(id, facts.arena.origins.length)) report("error-invalidation-origins-resolve", site,
+        if (id !== null && (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id))) report("error-invalidation-origins-resolve", site,
           "An unproven error reason retains its actual affected or constructor origins.");
         if ((reason.kind === "incomplete-origins" || reason.kind === "open-constructor-domain") && id !== null && facts.arena.origins[id]?.kind === "complete") {
           report("error-invalidation-outcome-exact", site, "An incomplete-domain reason must retain an actually open origin domain.");
@@ -503,7 +517,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const metadataLayout = (reference: MetadataLayoutRef, site: FactsSite): MemoryLayout | undefined => {
     const record = context.metadataOf(reference.metadata);
     const selected = record !== null && record.kind !== "data-layout" && validIndex(reference.layout, record.layouts.length) ? record.layouts[reference.layout] : undefined;
-    if (record === null || selected === undefined || selected.id !== reference.layout || record.key.definition !== reference.metadata.definition ||
+    if (record === null || selected === undefined || !Object.is(selected.id, reference.layout) || record.key.definition !== reference.metadata.definition ||
       !sameBindings(record.key.bindings, reference.metadata.bindings)) report("metadata-reference-resolves", site,
       "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID.");
     return selected;
@@ -511,7 +525,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const metadataField = (reference: MetadataFieldRef, site: FactsSite): MemoryField | undefined => {
     const record = context.metadataOf(reference.metadata);
     const selected = record !== null && record.kind !== "data-layout" && validIndex(reference.field, record.fields.length) ? record.fields[reference.field] : undefined;
-    if (record === null || selected === undefined || selected.id !== reference.field || record.key.definition !== reference.metadata.definition ||
+    if (record === null || selected === undefined || !Object.is(selected.id, reference.field) || record.key.definition !== reference.metadata.definition ||
       !sameBindings(record.key.bindings, reference.metadata.bindings)) report("metadata-reference-resolves", site,
       "A field reference retains its actual metadata declaration, complete binding environment and local field ID.");
     return selected;

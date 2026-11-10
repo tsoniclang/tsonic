@@ -1,5 +1,5 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, NodeId, NodeRef } from "../ids/contract.js";
+import type { DefId, KeyData, LocalRef, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
@@ -57,6 +57,15 @@ export const artifactData = (bindings: ArtifactBindings): KeyData =>
 
 export const sameBindings = (left: ArtifactBindings, right: ArtifactBindings): boolean =>
   encodeKey(artifactData(left)) === encodeKey(artifactData(right));
+
+export const sameCaptures = (left: readonly LocalRef[], right: readonly LocalRef[]): boolean => {
+  if (left.length !== right.length) return false;
+  for (const [index, capture] of left.entries()) {
+    const selected = right[index];
+    if (capture === undefined || selected === undefined || capture.body !== selected.body || !Object.is(capture.local, selected.local)) return false;
+  }
+  return true;
+};
 
 export const instanceKey = (instance: BodyInstance): string => encodeKey([instance.body, artifactData(instance.bindings)]);
 
@@ -264,12 +273,14 @@ export const collectSelectionChecks = (
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
   const type = (id: number | null): void => {
-    if (id !== null && !validIndex(id, context.types.terms.length)) report("type-resolves", "A selected member type resolves in the actual supplied type table.");
+    if (id !== null && (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined)) {
+      report("type-resolves", "A selected member type resolves in the actual supplied type table.");
+    }
   };
   const endpoint = (value: HirCallableEndpoint | null): void => {
     if (value === null) return;
     if (!context.definitionExists(value.declaration)) report("producer-resolves", "A selected member endpoint retains its actual declaration.");
-    if (!validIndex(value.signature, context.types.signatures.length) || context.types.signatures[value.signature]?.id !== value.signature) {
+    if (!validIndex(value.signature, context.types.signatures.length) || !Object.is(context.types.signatures[value.signature]?.id, value.signature)) {
       report("signature-resolves", "A selected member endpoint resolves in the actual supplied signature table.");
     }
   };
@@ -282,12 +293,16 @@ export const collectSelectionChecks = (
     if (callee === null) continue;
     const decision = callee.decision;
     endpoint(decision.advertised); endpoint(decision.api);
-    if (!validIndex(decision.completion.signature, context.types.signatures.length)) {
+    if (!validIndex(decision.completion.signature, context.types.signatures.length) ||
+      !Object.is(context.types.signatures[decision.completion.signature]?.id, decision.completion.signature)) {
       report("signature-resolves", "A selected member completion retains its actual signature.");
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    for (const capture of callee.captures) if (!context.localExists(capture)) {
+    for (const capture of callee.captures) if (capture === undefined || !context.localExists(capture)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
+    }
+    if (callee.activation !== null && !sameCaptures(context.tirBody(callee.activation).captures, callee.captures)) {
+      report("capture-locations-exact", "A selected accessor retains its actual ordered captured-location vector.");
     }
     for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
   }
@@ -310,7 +325,8 @@ export const verifyFactBindings = (
   for (const [index, entry] of entries.entries()) {
     const first = inputs.length;
     const bindings = [...entry.vector.classBindings, ...entry.vector.methodBindings, ...entry.vector.capturedBindings, ...entry.vector.selfBindings];
-    if (bindings.some(binding => binding.kind === "bound" && !validIndex(binding.type, context.types.terms.length))) {
+    if (bindings.some(binding => binding.kind === "bound" &&
+      (!validIndex(binding.type, context.types.terms.length) || context.types.terms[binding.type] === undefined))) {
       violations.push({ rule: "type-resolves", site: entry.site,
         detail: [{ kind: "text", value: "Every bound type resolves in the actual supplied canonical type table." }] });
     }
@@ -380,7 +396,7 @@ export const verifyRelationalArena = (
   for (const [index, path] of arena.projections.entries()) {
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
-    if (path.parent !== null && !validIndex(path.parent, index)) {
+    if (path.parent !== null && (!validIndex(path.parent, index) || !Object.is(arena.projections[path.parent]?.id, path.parent))) {
       report("projection-parent-precedes", site, "A projection parent must reference an earlier row of the same arena.");
     }
     const projection = path.projection;
@@ -398,7 +414,7 @@ export const verifyRelationalArena = (
   for (const [index, producer] of arena.producers.entries()) {
     const site: FactsSite = { kind: "producer", owner, producer: producer.id };
     if (producer.id !== index || !validIndex(producer.id, arena.producers.length)) report("producer-id-dense", site, "Producer IDs must equal their dense arena positions.");
-    if (producer.path !== null && !validIndex(producer.path, arena.projections.length)) {
+    if (producer.path !== null && (!validIndex(producer.path, arena.projections.length) || !Object.is(arena.projections[producer.path]?.id, producer.path))) {
       report("producer-resolves", site, "A producer projection must resolve in its own relational arena.");
     }
     let identity: KeyData;
@@ -442,21 +458,24 @@ export const verifyRelationalArena = (
   for (const [index, value] of arena.contexts.entries()) {
     const site: FactsSite = { kind: "context", owner, context: value.id };
     if (value.id !== index || !validIndex(value.id, arena.contexts.length)) report("context-id-dense", site, "Value-context IDs must equal their dense arena positions.");
-    if (value.receiver !== null && !validIndex(value.receiver, arena.origins.length)) {
+    if (value.receiver !== null && (!validIndex(value.receiver, arena.origins.length) || !Object.is(arena.origins[value.receiver]?.id, value.receiver))) {
       report("origins-resolves", site, "A receiver origin must resolve in its own relational arena.");
     }
     for (const argument of value.arguments) {
-      if (!validIndex(argument, arena.origins.length)) {
+      if (!validIndex(argument, arena.origins.length) || !Object.is(arena.origins[argument]?.id, argument)) {
         report("origins-resolves", site, "Every parameter-ordered argument must reference origins in its own arena.");
       }
     }
     const expected = canonical?.contexts[index];
-    if (expected !== undefined && expected.id === value.id &&
+    if (canonical !== null && (expected === undefined || !Object.is(expected.id, value.id))) {
+      report("context-resolves", site, "A value context retains its actual canonical owner and local identity.");
+    }
+    if (expected !== undefined && Object.is(expected.id, value.id) &&
       (expected.arguments.length !== value.arguments.length ||
         (expected.receiver === null) !== (value.receiver === null))) {
       report("context-arguments-total", site, "A value context retains every actual parameter and the actual receiver slot.");
     }
-    if (expected !== undefined && expected.id === value.id && expected.arguments.length === value.arguments.length &&
+    if (expected !== undefined && Object.is(expected.id, value.id) && expected.arguments.length === value.arguments.length &&
       (expected.receiver === null) === (value.receiver === null) &&
       (expected.receiver !== value.receiver || expected.arguments.some((argument, position) => argument !== value.arguments[position]))) {
       report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives.");
@@ -464,12 +483,12 @@ export const verifyRelationalArena = (
     let previousCapture = -1;
     for (const capture of value.captures) {
       if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) || capture.index <= previousCapture ||
-        !validIndex(capture.location, arena.boundProducers.length)) {
+        !validIndex(capture.location, arena.boundProducers.length) || !Object.is(arena.boundProducers[capture.location]?.id, capture.location)) {
         report("capture-locations-exact", site, "Captured locations must retain distinct ordered indices and actual bound storage locations.");
       }
       previousCapture = capture.index;
     }
-    if (expected !== undefined && expected.id === value.id &&
+    if (expected !== undefined && Object.is(expected.id, value.id) &&
       (expected.captures.length !== value.captures.length || expected.captures.some((capture, position) => {
         const selected = value.captures[position];
         return selected === undefined || capture.index !== selected.index || capture.location !== selected.location;
@@ -481,16 +500,16 @@ export const verifyRelationalArena = (
   for (const [index, bound] of arena.boundProducers.entries()) {
     const site: FactsSite = { kind: "bound-producer", owner, producer: bound.id };
     if (bound.id !== index || !validIndex(bound.id, arena.boundProducers.length)) report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions.");
-    if (!validIndex(bound.producer, arena.producers.length)) {
+    if (!validIndex(bound.producer, arena.producers.length) || !Object.is(arena.producers[bound.producer]?.id, bound.producer)) {
       report("producer-resolves", site, "A bound alternative must reference an actual producer in its own arena.");
     }
-    if (!validIndex(bound.context, arena.contexts.length)) {
+    if (!validIndex(bound.context, arena.contexts.length) || !Object.is(arena.contexts[bound.context]?.id, bound.context)) {
       report("context-resolves", site, "A bound alternative must retain its actual value context in the same arena.");
     }
     const key = encodeKey([bound.producer, bindingsData(bound.bindings), bound.context]);
     const expected = canonical?.boundProducers[index];
-    if (alternatives.has(key) || expected !== undefined && expected.id === bound.id &&
-      encodeKey([expected.producer, bindingsData(expected.bindings), expected.context]) !== key) {
+    if (alternatives.has(key) || canonical !== null && (expected === undefined || !Object.is(expected.id, bound.id) ||
+      encodeKey([expected.producer, bindingsData(expected.bindings), expected.context]) !== key)) {
       report("origin-alternatives-correlated", site, "Producer, complete type bindings and value context remain one canonical correlated alternative.");
     }
     alternatives.add(key);
@@ -500,7 +519,7 @@ export const verifyRelationalArena = (
     if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
     let previous = -1;
     for (const bound of origins.producers) {
-      if (!validIndex(bound, arena.boundProducers.length)) {
+      if (!validIndex(bound, arena.boundProducers.length) || !Object.is(arena.boundProducers[bound]?.id, bound)) {
         report("bound-producer-resolves", site, "An origin alternative must reference an actual bound producer in its own arena.");
       }
       if (bound <= previous) {
@@ -510,7 +529,7 @@ export const verifyRelationalArena = (
     }
     if (origins.kind === "open") {
       for (const boundary of origins.boundaries) {
-        if (!validIndex(boundary, arena.boundaries.length)) {
+        if (!validIndex(boundary, arena.boundaries.length) || !Object.is(arena.boundaries[boundary]?.id, boundary)) {
           report("boundary-resolves", site, "Every open-origin boundary must resolve in its own arena.");
         }
       }
@@ -520,11 +539,11 @@ export const verifyRelationalArena = (
     const site: FactsSite = { kind: "boundary", owner, boundary: boundary.id };
     if (boundary.id !== index || !validIndex(boundary.id, arena.boundaries.length)) report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions.");
     checkSite(boundary.at);
-    if (!validIndex(boundary.subject, arena.producers.length) ||
-      boundary.owner !== null && !validIndex(boundary.owner, arena.producers.length)) {
+    if (!validIndex(boundary.subject, arena.producers.length) || !Object.is(arena.producers[boundary.subject]?.id, boundary.subject) ||
+      boundary.owner !== null && (!validIndex(boundary.owner, arena.producers.length) || !Object.is(arena.producers[boundary.owner]?.id, boundary.owner))) {
       report("producer-resolves", site, "A boundary retains its actual subject and optional mutation-owner producer.");
     }
-    if (!validIndex(boundary.context, arena.contexts.length)) {
+    if (!validIndex(boundary.context, arena.contexts.length) || !Object.is(arena.contexts[boundary.context]?.id, boundary.context)) {
       report("context-resolves", site, "A boundary retains its actual value context in the same arena.");
     }
   }

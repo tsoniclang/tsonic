@@ -22,7 +22,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     report("definition-resolves", "A summary must name an existing declaration in the supplied inventory.");
   }
   const signature = validIndex(summary.signature, context.types.signatures.length) ? context.types.signatures[summary.signature] : undefined;
-  if (signature === undefined || signature.id !== summary.signature) {
+  if (signature === undefined || !Object.is(signature.id, summary.signature)) {
     report("signature-resolves", "A summary must name an existing declaration-instantiated signature.");
   }
   if (signature !== undefined && signature.declaration !== null && signature.declaration !== summary.key.definition) {
@@ -44,13 +44,13 @@ export const verifySummary: VerifySummary = (summary, context) => {
   const checkPaths = (paths: EffectPaths): void => {
     let previous = -1;
     for (const path of paths.paths) {
-      if (!validIndex(path, summary.arena.projections.length) || path <= previous) {
+      if (!validIndex(path, summary.arena.projections.length) || !Object.is(summary.arena.projections[path]?.id, path) || path <= previous) {
         report("summary-finite", "Effect paths are distinct ordered references into the summary's own finite arena.");
       }
       previous = path;
     }
     if (paths.kind === "open") for (const boundary of paths.boundaries) {
-      if (!validIndex(boundary, summary.arena.boundaries.length)) {
+      if (!validIndex(boundary, summary.arena.boundaries.length) || !Object.is(summary.arena.boundaries[boundary]?.id, boundary)) {
         report("known-negative-distinct", "An unknown effect retains its real boundary rather than pretending to be no effect.");
       }
     }
@@ -79,15 +79,16 @@ export const verifySummary: VerifySummary = (summary, context) => {
     if (effect.index !== index || !validIndex(effect.index, summary.captures.length)) report("captures-order", "Capture effects retain the actual dense captured-location order.");
     checkPaths(effect.reads); checkPaths(effect.writes);
   }
-  if (!validIndex(summary.result, summary.arena.origins.length)) {
+  if (!validIndex(summary.result, summary.arena.origins.length) || !Object.is(summary.arena.origins[summary.result]?.id, summary.result)) {
     report("result-origins-resolves", "Result origins resolve in this exact summary arena.");
   }
-  if (!validIndex(summary.thrown, summary.arena.origins.length)) {
+  if (!validIndex(summary.thrown, summary.arena.origins.length) || !Object.is(summary.arena.origins[summary.thrown]?.id, summary.thrown)) {
     report("thrown-origins-resolves", "Thrown origins resolve in this exact summary arena.");
   }
   let previousWrite: readonly [number, number] | null = null;
   for (const write of summary.writes) {
-    if (!validIndex(write.target, summary.arena.producers.length) || !validIndex(write.value, summary.arena.origins.length)) {
+    if (!validIndex(write.target, summary.arena.producers.length) || !Object.is(summary.arena.producers[write.target]?.id, write.target) ||
+      !validIndex(write.value, summary.arena.origins.length) || !Object.is(summary.arena.origins[write.value]?.id, write.value)) {
       report("write-origins-resolves", "A summary write retains its actual producer and value origins in this arena.");
     }
     if (previousWrite !== null && (previousWrite[0] > write.target || previousWrite[0] === write.target && previousWrite[1] >= write.value)) {
@@ -97,7 +98,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
   }
   let previousRetention: readonly [number, string] | null = null;
   for (const retention of summary.retention) {
-    if (!validIndex(retention.source, summary.arena.producers.length)) {
+    if (!validIndex(retention.source, summary.arena.producers.length) || !Object.is(summary.arena.producers[retention.source]?.id, retention.source)) {
       report("retention-source-resolves", "Every retained source is a producer in this exact summary arena.");
     }
     const target = retention.into;
@@ -112,11 +113,11 @@ export const verifySummary: VerifySummary = (summary, context) => {
       }
     }
     const path = target.kind === "shared" || target.kind === "parameter" || target.kind === "capture" || target.kind === "receiver" ? target.path : null;
-    if (path !== null && !validIndex(path, summary.arena.projections.length) ||
+    if (path !== null && (!validIndex(path, summary.arena.projections.length) || !Object.is(summary.arena.projections[path]?.id, path)) ||
       target.kind === "parameter" && !formalExists(target.index) ||
       target.kind === "capture" && (capturedCount === null || !validIndex(target.index, capturedCount)) ||
       target.kind === "receiver" && !receiver || target.kind === "shared" && !context.definitionExists(target.definition) ||
-      target.kind === "external" && !validIndex(target.boundary, summary.arena.boundaries.length)) {
+      target.kind === "external" && (!validIndex(target.boundary, summary.arena.boundaries.length) || !Object.is(summary.arena.boundaries[target.boundary]?.id, target.boundary))) {
       report("cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner.");
     }
     const key = targetKey(target);
@@ -147,7 +148,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
           calls = [];
           for (const id of signatures) {
             const call = validIndex(id, context.types.signatures.length) ? context.types.signatures[id] : undefined;
-            if (call === undefined || call.id !== id) { calls = null; break; }
+            if (call === undefined || !Object.is(call.id, id)) { calls = null; break; }
             if (seen.has(id)) continue;
             seen.add(id);
             calls.push(call);
