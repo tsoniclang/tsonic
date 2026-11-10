@@ -31,273 +31,281 @@ import type {
 } from "./contract.js";
 
 type Atom = string | number | bigint | boolean | null;
-type Token = { readonly kind: "word" | "punctuation"; readonly text: string; readonly offset: number }
-  | { readonly kind: "scalar"; readonly text: string; readonly offset: number; readonly value: Atom };
-type SyntaxValue = { readonly kind: "scalar"; readonly offset: number; readonly value: Atom }
-  | { readonly kind: "identity"; readonly offset: number; readonly prefix: string; readonly value: string | number }
-  | { readonly kind: "array"; readonly offset: number; readonly values: readonly SyntaxValue[] }
-  | { readonly kind: "record"; readonly offset: number; readonly end: number; readonly label: string; readonly fields: readonly SyntaxField[] };
-interface SyntaxField { readonly name: string; readonly offset: number; readonly value: SyntaxValue }
-interface Failure { readonly offset: number; readonly expected: readonly string[] }
-interface State { readonly text: string }
-interface RecordReader { readonly fields: readonly SyntaxField[]; readonly end: number; index: number }
+type Token = { readonly kind: "word" | "punctuation"; readonly text: string; readonly offset: number; readonly end: number }
+  | { readonly kind: "scalar"; readonly text: string; readonly offset: number; readonly end: number; readonly value: Atom };
+interface Failure { readonly offset: number; readonly expected: readonly string[]; readonly found: string | null }
+type SyntaxValue = Token
+  | { readonly kind: "invalid"; readonly offset: number; readonly text: string; readonly family: "string" | "number" | "other"; readonly prefix: string; readonly failure: Failure }
+  | { readonly kind: "end"; readonly offset: number; readonly text: null };
+interface State { readonly text: string; offset: number; lookahead: SyntaxValue | null }
+interface RecordReader { first: boolean }
 type Decoded<Value> = { readonly kind: "value"; readonly value: Value } | { readonly kind: "invalid"; readonly failure: Failure };
 type Decode<Value> = (state: State, input: SyntaxValue) => Decoded<Value>;
-type Frame = { readonly kind: "array"; readonly offset: number; readonly values: SyntaxValue[]; phase: "first" | "value" | "separator" }
-  | { readonly kind: "record"; readonly offset: number; readonly label: string; readonly fields: SyntaxField[];
-      phase: "first" | "field" | "equals" | "value" | "separator"; name: string; fieldOffset: number };
 
-const reject = (_state: State, offset: number, expected: readonly string[]): Decoded<never> =>
-  ({ kind: "invalid", failure: { offset, expected } });
+const reject = (state: State, offset: number, expected: readonly string[],
+  found: string | null = offset >= state.text.length ? null : state.text.charAt(offset)): Decoded<never> =>
+  ({ kind: "invalid", failure: { offset, expected, found } });
 const accept = <Value>(value: Value): Decoded<Value> => ({ kind: "value", value });
 const then = <Value, Output>(result: Decoded<Value>, next: (value: Value) => Decoded<Output>): Decoded<Output> =>
   result.kind === "invalid" ? result : next(result.value);
 const fail = (state: State, input: SyntaxValue, expected: readonly string[]): Decoded<never> =>
-  reject(state, input.offset, expected);
-const lex = (state: State): Decoded<readonly Token[]> => {
-  const tokens: Token[] = [];
-  let offset = 0;
+  reject(state, input.offset, expected, input.text);
+const scan = (state: State): SyntaxValue => {
+  let offset = state.offset;
   while (offset < state.text.length) {
     const unit = state.text.charCodeAt(offset);
-    if (unit === 32 || unit === 9 || unit === 10 || unit === 13) { offset += 1; continue; }
-    const start = offset;
-    const character = state.text.charAt(offset);
-    const special = state.text.startsWith("NaN", offset) ? { text: "NaN", value: NaN }
-      : state.text.startsWith("+Infinity", offset) ? { text: "+Infinity", value: Infinity }
-        : state.text.startsWith("-Infinity", offset) ? { text: "-Infinity", value: -Infinity } : null;
-    if (special !== null && !/[A-Za-z0-9_-]/.test(state.text.charAt(offset + special.text.length))) {
-      tokens.push({ kind: "scalar", text: special.text, offset, value: special.value }); offset += special.text.length; continue;
-    }
-    if ("()[]=,:".includes(character)) {
-      tokens.push({ kind: "punctuation", text: character, offset }); offset += 1; continue;
-    }
-    if (unit === 34) {
-      const parts: string[] = [];
+    if (unit !== 32 && unit !== 9 && unit !== 10 && unit !== 13) break;
+    offset += 1;
+  }
+  const start = offset;
+  if (offset === state.text.length) return { kind: "end", offset, text: null };
+  const invalid = (at: number, expected: readonly string[], family: "string" | "number" | "other", prefix = ""): SyntaxValue => ({
+    kind: "invalid", offset: start, text: state.text.charAt(start), family, prefix,
+    failure: { offset: at, expected, found: at >= state.text.length ? null : state.text.charAt(at) },
+  });
+  const character = state.text.charAt(offset);
+  const special = state.text.startsWith("NaN", offset) ? { text: "NaN", value: NaN }
+    : state.text.startsWith("+Infinity", offset) ? { text: "+Infinity", value: Infinity }
+      : state.text.startsWith("-Infinity", offset) ? { text: "-Infinity", value: -Infinity } : null;
+  if (special !== null && !/[A-Za-z0-9_-]/.test(state.text.charAt(offset + special.text.length))) {
+    return { kind: "scalar", text: special.text, offset: start, end: offset + special.text.length, value: special.value };
+  }
+  if ("()[]=,:".includes(character)) return { kind: "punctuation", text: character, offset, end: offset + 1 };
+  if (character === '"') {
+    const parts: string[] = [];
+    offset += 1;
+    while (offset < state.text.length) {
+      const current = state.text.charCodeAt(offset);
       offset += 1;
-      let closed = false;
-      while (offset < state.text.length) {
-        const current = state.text.charCodeAt(offset);
-        offset += 1;
-        if (current === 34) { closed = true; break; }
-        if (current < 32) return reject(state, offset - 1, ["escaped string character"]);
-        if (current !== 92) { parts.push(String.fromCharCode(current)); continue; }
-        const escapeOffset = offset;
-        const escaped = state.text.charAt(offset);
-        offset += 1;
-        switch (escaped) {
-          case '"': parts.push('"'); break;
-          case "\\": parts.push("\\"); break;
-          case "/": parts.push("/"); break;
-          case "b": parts.push("\b"); break;
-          case "f": parts.push("\f"); break;
-          case "n": parts.push("\n"); break;
-          case "r": parts.push("\r"); break;
-          case "t": parts.push("\t"); break;
-          case "u": {
-            const digits = state.text.slice(offset, offset + 4);
-            if (!/^[0-9a-fA-F]{4}$/.test(digits)) return reject(state, offset, ["four hexadecimal digits"]);
-            parts.push(String.fromCharCode(Number.parseInt(digits, 16))); offset += 4; break;
-          }
-          default: return reject(state, escapeOffset, ["JSON string escape"]);
+      if (current === 34) return { kind: "scalar", text: state.text.slice(start, offset), offset: start, end: offset, value: parts.join("") };
+      if (current < 32) return invalid(offset - 1, ["escaped string character"], "string", parts.join(""));
+      if (current !== 92) { parts.push(String.fromCharCode(current)); continue; }
+      const escapeOffset = offset;
+      const escaped = state.text.charAt(offset);
+      offset += 1;
+      switch (escaped) {
+        case '"': parts.push('"'); break;
+        case "\\": parts.push("\\"); break;
+        case "/": parts.push("/"); break;
+        case "b": parts.push("\b"); break;
+        case "f": parts.push("\f"); break;
+        case "n": parts.push("\n"); break;
+        case "r": parts.push("\r"); break;
+        case "t": parts.push("\t"); break;
+        case "u": {
+          const digits = state.text.slice(offset, offset + 4);
+          if (!/^[0-9a-fA-F]{4}$/.test(digits)) return invalid(offset, ["four hexadecimal digits"], "string", parts.join(""));
+          parts.push(String.fromCharCode(Number.parseInt(digits, 16))); offset += 4; break;
         }
+        default: return invalid(escapeOffset, ["JSON string escape"], "string", parts.join(""));
       }
-      if (!closed) return reject(state, offset, ['"']);
-      tokens.push({ kind: "scalar", text: state.text.slice(start, offset), offset: start, value: parts.join("") }); continue;
     }
-    if (unit === 45 || unit >= 48 && unit <= 57) {
-      if (unit === 45) offset += 1;
-      while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
-      if (state.text.charAt(offset) === "n") {
-        offset += 1;
-        const text = state.text.slice(start, offset);
-        if (!/^-?(?:0|[1-9][0-9]*)n$/.test(text)) return reject(state, start, ["decimal bigint"]);
-        tokens.push({ kind: "scalar", text, offset: start, value: BigInt(text.slice(0, -1)) }); continue;
-      }
-      if (state.text.charAt(offset) === ".") {
-        offset += 1;
-        while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
-      }
-      if (state.text.charAt(offset) === "e" || state.text.charAt(offset) === "E") {
-        offset += 1;
-        if (state.text.charAt(offset) === "+" || state.text.charAt(offset) === "-") offset += 1;
-        while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
-      }
-      const text = state.text.slice(start, offset);
-      const value = Number(text);
-      if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(text) || !Number.isFinite(value)) {
-        return reject(state, start, ["finite decimal number"]);
-      }
-      tokens.push({ kind: "scalar", text, offset: start, value }); continue;
-    }
-    if (/[A-Za-z_]/.test(character)) {
+    return invalid(offset, ['"'], "string", parts.join(""));
+  }
+  const unit = state.text.charCodeAt(offset);
+  if (unit === 45 || unit >= 48 && unit <= 57) {
+    if (unit === 45) offset += 1;
+    while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
+    if (state.text.charAt(offset) === "n") {
       offset += 1;
-      while (/[A-Za-z0-9_-]/.test(state.text.charAt(offset)) && offset < state.text.length) offset += 1;
       const text = state.text.slice(start, offset);
-      if (text === "true" || text === "false" || text === "null") {
-        tokens.push({ kind: "scalar", text, offset: start, value: text === "null" ? null : text === "true" });
-      } else tokens.push({ kind: "word", text, offset: start });
-      continue;
+      if (!/^-?(?:0|[1-9][0-9]*)n$/.test(text)) return invalid(start, ["decimal bigint"], "number");
+      return { kind: "scalar", text, offset: start, end: offset, value: BigInt(text.slice(0, -1)) };
     }
-    return reject(state, offset, ["IR value"]);
+    if (state.text.charAt(offset) === ".") {
+      offset += 1;
+      while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
+    }
+    if (state.text.charAt(offset) === "e" || state.text.charAt(offset) === "E") {
+      offset += 1;
+      if (state.text.charAt(offset) === "+" || state.text.charAt(offset) === "-") offset += 1;
+      while (state.text.charCodeAt(offset) >= 48 && state.text.charCodeAt(offset) <= 57) offset += 1;
+    }
+    const text = state.text.slice(start, offset);
+    const value = Number(text);
+    if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/.test(text) || !Number.isFinite(value)) {
+      return invalid(start, ["finite decimal number"], "number");
+    }
+    return { kind: "scalar", text, offset: start, end: offset, value };
   }
-  return accept(tokens);
+  if (/[A-Za-z_]/.test(character)) {
+    offset += 1;
+    while (offset < state.text.length && /[A-Za-z0-9_-]/.test(state.text.charAt(offset))) offset += 1;
+    const text = state.text.slice(start, offset);
+    if (text === "true" || text === "false" || text === "null") {
+      return { kind: "scalar", text, offset: start, end: offset, value: text === "null" ? null : text === "true" };
+    }
+    return { kind: "word", text, offset: start, end: offset };
+  }
+  return invalid(start, ["IR value"], "other");
 };
-const syntax = (state: State, tokens: readonly Token[]): Decoded<SyntaxValue> => {
-  const stack: Frame[] = [];
-  let root: SyntaxValue | null = null;
-  let index = 0;
-  const appendSyntaxValue = (value: SyntaxValue): void => {
-    const parent = stack[stack.length - 1];
-    if (parent === undefined) root = value;
-    else if (parent.kind === "array") { parent.values.push(value); parent.phase = "separator"; }
-    else { parent.fields.push({ name: parent.name, offset: parent.fieldOffset, value }); parent.phase = "separator"; }
-  };
-  while (index < tokens.length || stack.length !== 0) {
-    const token = tokens[index];
-    if (token === undefined) return reject(state, state.text.length, [")", "]"]);
-    const frame = stack[stack.length - 1];
-    if (frame !== undefined) {
-      const close = frame.kind === "array" ? "]" : ")";
-      if ((frame.phase === "first" || frame.phase === "separator") && token.text === close) {
-        stack.pop(); index += 1;
-        appendSyntaxValue(frame.kind === "array" ? { kind: "array", offset: frame.offset, values: frame.values }
-          : { kind: "record", offset: frame.offset, end: token.offset, label: frame.label, fields: frame.fields }); continue;
-      }
-      if (frame.phase === "separator") {
-        if (token.text !== ",") return reject(state, token.offset, [",", close]);
-        frame.phase = frame.kind === "array" ? "value" : "field"; index += 1; continue;
-      }
-      if (frame.kind === "record" && (frame.phase === "first" || frame.phase === "field")) {
-        if (token.kind !== "word" && !(token.kind === "scalar" && typeof token.value === "string")) return reject(state, token.offset, ["field name"]);
-        frame.name = token.kind === "scalar" ? String(token.value) : token.text;
-        frame.fieldOffset = token.offset; frame.phase = "equals"; index += 1; continue;
-      }
-      if (frame.kind === "record" && frame.phase === "equals") {
-        if (token.text !== "=") return reject(state, token.offset, ["="]);
-        frame.phase = "value"; index += 1; continue;
-      }
-    } else if (root !== null) return reject(state, token.offset, ["end of document"]);
-    if (token.kind === "scalar") { appendSyntaxValue({ kind: "scalar", offset: token.offset, value: token.value }); index += 1; continue; }
-    if (token.text === "[") { stack.push({ kind: "array", offset: token.offset, values: [], phase: "first" }); index += 1; continue; }
-    if (token.kind === "word") {
-      const next = tokens[index + 1];
-      if (next?.text === "(") {
-        stack.push({ kind: "record", offset: token.offset, label: token.text, fields: [], phase: "first", name: "", fieldOffset: token.offset });
-        index += 2; continue;
-      }
-      const item = tokens[index + 2];
-      if (next?.text === ":" && item?.kind === "scalar" && (typeof item.value === "number" || typeof item.value === "string")) {
-        appendSyntaxValue({ kind: "identity", offset: token.offset, prefix: token.text, value: item.value }); index += 3; continue;
-      }
-    }
-    return reject(state, token.offset, ["IR value"]);
-  }
-  return root === null ? reject(state, state.text.length, ["record"]) : accept(root);
+const peek = (state: State): SyntaxValue => {
+  if (state.lookahead === null) state.lookahead = scan(state);
+  return state.lookahead;
+};
+const advance = (state: State, token: Token): void => {
+  state.offset = token.end;
+  state.lookahead = null;
+};
+const punctuation = (state: State, text: string): Decoded<null> => {
+  const token = peek(state);
+  if (token.kind !== "punctuation" || token.text !== text) return fail(state, token, [text]);
+  advance(state, token);
+  return accept(null);
 };
 const fields = (state: State, input: SyntaxValue, label: string): Decoded<RecordReader> => {
-  if (input.kind !== "record" || input.label !== label) return fail(state, input, [label]);
-  return accept({ fields: input.fields, end: input.end, index: 0 });
+  if (input.kind !== "word" || input.text !== label) return fail(state, input, [label]);
+  advance(state, input);
+  return then(punctuation(state, "("), () => accept({ first: true }));
 };
 const readField = <Value>(state: State, reader: RecordReader, name: string, decode: Decode<Value>): Decoded<Value> => {
-  const field = reader.fields[reader.index];
-  if (field === undefined) return reject(state, reader.end, [name]);
-  if (field.name !== name) return reject(state, field.offset, [name]);
-  reader.index += 1;
-  return decode(state, field.value);
+  let token = peek(state);
+  if (token.kind === "end" || token.kind === "punctuation" && token.text === ")") return fail(state, token, [name]);
+  if (!reader.first) {
+    if (token.kind !== "punctuation" || token.text !== ",") return fail(state, token, [",", ")"]);
+    advance(state, token);
+    token = peek(state);
+  }
+  if (token.kind === "invalid" && token.family === "string") return name.startsWith(token.prefix)
+    ? { kind: "invalid", failure: token.failure } : fail(state, token, [name]);
+  if (token.kind !== "word" && !(token.kind === "scalar" && typeof token.value === "string")) return fail(state, token, ["field name"]);
+  const actual = token.kind === "word" ? token.text : token.value;
+  if (actual !== name) return fail(state, token, [name]);
+  advance(state, token);
+  reader.first = false;
+  return then(punctuation(state, "="), () => decode(state, peek(state)));
 };
 const finishRecord = <Value>(state: State, reader: RecordReader, value: Value): Decoded<Value> => {
-  const extra = reader.fields[reader.index];
-  return extra === undefined ? accept(value) : reject(state, extra.offset, [")"]);
+  let token = peek(state);
+  if (token.kind === "punctuation" && token.text === ")") { advance(state, token); return accept(value); }
+  if (token.kind === "punctuation" && token.text === ",") {
+    advance(state, token);
+    token = peek(state);
+    return fail(state, token, token.kind === "word" || token.kind === "scalar" && typeof token.value === "string" ||
+      token.kind === "invalid" && token.family === "string" ? [")"] : ["field name"]);
+  }
+  return fail(state, token, reader.first || token.kind === "end" ? [")"] : [",", ")"]);
 };
-const scalarString: Decode<string> = (state, input) => input.kind === "scalar" && typeof input.value === "string"
-  ? accept(input.value) : fail(state, input, ["string"]);
-const scalarNumber: Decode<number> = (state, input) => input.kind === "scalar" && typeof input.value === "number"
-  ? accept(input.value) : fail(state, input, ["number"]);
-const scalarBigint: Decode<bigint> = (state, input) => input.kind === "scalar" && typeof input.value === "bigint"
-  ? accept(input.value) : fail(state, input, ["bigint"]);
-const scalarBoolean: Decode<boolean> = (state, input) => input.kind === "scalar" && typeof input.value === "boolean"
-  ? accept(input.value) : fail(state, input, ["boolean"]);
+const scalarString: Decode<string> = (state, input) => {
+  if (input.kind === "invalid" && input.family === "string") return { kind: "invalid", failure: input.failure };
+  if (input.kind !== "scalar" || typeof input.value !== "string") return fail(state, input, ["string"]);
+  advance(state, input); return accept(input.value);
+};
+const scalarNumber: Decode<number> = (state, input) => {
+  if (input.kind === "invalid" && input.family === "number") return { kind: "invalid", failure: input.failure };
+  if (input.kind !== "scalar" || typeof input.value !== "number") return fail(state, input, ["number"]);
+  advance(state, input); return accept(input.value);
+};
+const scalarBigint: Decode<bigint> = (state, input) => {
+  if (input.kind === "invalid" && input.family === "number") return { kind: "invalid", failure: input.failure };
+  if (input.kind !== "scalar" || typeof input.value !== "bigint") return fail(state, input, ["bigint"]);
+  advance(state, input); return accept(input.value);
+};
+const scalarBoolean: Decode<boolean> = (state, input) => {
+  if (input.kind !== "scalar" || typeof input.value !== "boolean") return fail(state, input, ["boolean"]);
+  advance(state, input); return accept(input.value);
+};
 const literal = <Value extends string | number>(state: State, input: SyntaxValue, values: readonly Value[]): Decoded<Value> => {
-  if (input.kind === "scalar") for (const value of values) if (value === input.value) return accept(value);
+  if (input.kind === "invalid" && (input.family === "string" && values.some(value => typeof value === "string" && value.startsWith(input.prefix)) ||
+    input.family === "number" && values.some(value => typeof value === "number"))) return { kind: "invalid", failure: input.failure };
+  if (input.kind === "scalar") for (const value of values) if (value === input.value) {
+    advance(state, input); return accept(value);
+  }
   return fail(state, input, values.map(value => typeof value === "string" ? JSON.stringify(value) : String(value)));
 };
-const nullable = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<Value | null> =>
-  input.kind === "scalar" && input.value === null ? accept(null) : decode(state, input);
-const sequence = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<readonly Value[]> => {
-  if (input.kind !== "array") return fail(state, input, ["array"]);
-  const values: Value[] = [];
-  for (const item of input.values) {
-    const decoded = decode(state, item);
+const nullable = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<Value | null> => {
+  if (input.kind === "scalar" && input.value === null) { advance(state, input); return accept(null); }
+  return decode(state, input);
+};
+const arrayTail = <Value>(state: State, decode: Decode<Value>, values: Value[]): Decoded<readonly Value[]> => {
+  while (true) {
+    const separator = peek(state);
+    if (separator.kind === "punctuation" && separator.text === "]") {
+      advance(state, separator); return accept(Object.freeze(values));
+    }
+    if (separator.kind !== "punctuation" || separator.text !== ",") return fail(state, separator, [",", "]"]);
+    advance(state, separator);
+    const decoded = decode(state, peek(state));
     if (decoded.kind === "invalid") return decoded;
     values.push(decoded.value);
   }
-  return accept(Object.freeze(values));
+};
+const sequence = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<readonly Value[]> => {
+  if (input.kind !== "punctuation" || input.text !== "[") return fail(state, input, ["array"]);
+  advance(state, input);
+  const first = peek(state);
+  if (first.kind === "punctuation" && first.text === "]") { advance(state, first); return accept(Object.freeze([])); }
+  if (first.kind === "end") return fail(state, first, ["]"]);
+  return then(decode(state, first), value => arrayTail(state, decode, [value]));
 };
 const nonempty = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<readonly [Value, ...Value[]]> => {
-  if (input.kind !== "array") return fail(state, input, ["nonempty array"]);
-  const values = input.values.values();
-  const first = values.next();
-  if (first.done === true) return fail(state, input, ["nonempty array"]);
-  return then(decode(state, first.value), value => {
-    const rest: Value[] = [];
-    for (const entry of values) {
-      const decoded = decode(state, entry);
-      if (decoded.kind === "invalid") return decoded;
-      rest.push(decoded.value);
-    }
+  if (input.kind !== "punctuation" || input.text !== "[") return fail(state, input, ["nonempty array"]);
+  advance(state, input);
+  const first = peek(state);
+  if (first.kind === "punctuation" && first.text === "]") return fail(state, input, ["nonempty array"]);
+  return then(decode(state, first), value => then(arrayTail(state, decode, []), rest => {
     const result: readonly [Value, ...Value[]] = [value, ...rest];
     return accept(Object.freeze(result));
-  });
+  }));
 };
-type NumericToken<Identity extends number> = { readonly kind: "identity"; readonly offset: number; readonly prefix: string; readonly value: Identity };
+const identityPrefix = (state: State, input: SyntaxValue, prefix: string, payload: "number" | "string"): Decoded<null> => {
+  if (input.kind !== "word" || input.text !== prefix) return fail(state, input, [prefix + ":" + payload]);
+  advance(state, input);
+  return punctuation(state, ":");
+};
 const numeric = <Identity extends number>(state: State, input: SyntaxValue, prefix: string,
-  validate: (value: SyntaxValue) => value is NumericToken<Identity>): Decoded<Identity> =>
-  validate(input) ? accept(input.value) : fail(state, input, [prefix + ":number"]);
+  validate: (value: Atom) => value is Identity): Decoded<Identity> =>
+  then(identityPrefix(state, input, prefix, "number"), () => {
+    const value = peek(state);
+    if (value.kind === "invalid" && value.family === "number") return { kind: "invalid", failure: value.failure };
+    if (value.kind !== "scalar" || !validate(value.value)) return fail(state, value, ["number"]);
+    advance(state, value); return accept(value.value);
+  });
 const block: Decode<BlockId> = (state, input) => numeric(state, input, "b",
-  (value): value is NumericToken<BlockId> => value.kind === "identity" && value.prefix === "b" && typeof value.value === "number");
+  (value): value is BlockId => typeof value === "number");
 const bound: Decode<BoundProducerId> = (state, input) => numeric(state, input, "bound",
-  (value): value is NumericToken<BoundProducerId> => value.kind === "identity" && value.prefix === "bound" && typeof value.value === "number");
+  (value): value is BoundProducerId => typeof value === "number");
 const layout: Decode<LayoutId> = (state, input) => numeric(state, input, "layout",
-  (value): value is NumericToken<LayoutId> => value.kind === "identity" && value.prefix === "layout" && typeof value.value === "number");
+  (value): value is LayoutId => typeof value === "number");
 const local: Decode<LocalId> = (state, input) => numeric(state, input, "l",
-  (value): value is NumericToken<LocalId> => value.kind === "identity" && value.prefix === "l" && typeof value.value === "number");
+  (value): value is LocalId => typeof value === "number");
 const field: Decode<MemoryFieldId> = (state, input) => numeric(state, input, "field",
-  (value): value is NumericToken<MemoryFieldId> => value.kind === "identity" && value.prefix === "field" && typeof value.value === "number");
+  (value): value is MemoryFieldId => typeof value === "number");
 const node: Decode<NodeId> = (state, input) => numeric(state, input, "n",
-  (value): value is NumericToken<NodeId> => value.kind === "identity" && value.prefix === "n" && typeof value.value === "number");
+  (value): value is NodeId => typeof value === "number");
 const boundary: Decode<OpenBoundaryId> = (state, input) => numeric(state, input, "boundary",
-  (value): value is NumericToken<OpenBoundaryId> => value.kind === "identity" && value.prefix === "boundary" && typeof value.value === "number");
+  (value): value is OpenBoundaryId => typeof value === "number");
 const originsIdentity: Decode<OriginsId> = (state, input) => numeric(state, input, "origins",
-  (value): value is NumericToken<OriginsId> => value.kind === "identity" && value.prefix === "origins" && typeof value.value === "number");
+  (value): value is OriginsId => typeof value === "number");
 const place: Decode<PlaceId> = (state, input) => numeric(state, input, "p",
-  (value): value is NumericToken<PlaceId> => value.kind === "identity" && value.prefix === "p" && typeof value.value === "number");
+  (value): value is PlaceId => typeof value === "number");
 const producerIdentity: Decode<ProducerId> = (state, input) => numeric(state, input, "producer",
-  (value): value is NumericToken<ProducerId> => value.kind === "identity" && value.prefix === "producer" && typeof value.value === "number");
+  (value): value is ProducerId => typeof value === "number");
 const path: Decode<ProjectionPathId> = (state, input) => numeric(state, input, "path",
-  (value): value is NumericToken<ProjectionPathId> => value.kind === "identity" && value.prefix === "path" && typeof value.value === "number");
+  (value): value is ProjectionPathId => typeof value === "number");
 const signature: Decode<SigId> = (state, input) => numeric(state, input, "sig",
-  (value): value is NumericToken<SigId> => value.kind === "identity" && value.prefix === "sig" && typeof value.value === "number");
+  (value): value is SigId => typeof value === "number");
 const typeIdentity: Decode<TyId> = (state, input) => numeric(state, input, "t",
-  (value): value is NumericToken<TyId> => value.kind === "identity" && value.prefix === "t" && typeof value.value === "number");
+  (value): value is TyId => typeof value === "number");
 const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state, input, "context",
-  (value): value is NumericToken<ValueContextId> => value.kind === "identity" && value.prefix === "context" && typeof value.value === "number");
-const definition: Decode<DefId> = (state, input) => {
-  if (input.kind !== "identity" || input.prefix !== "def" || typeof input.value !== "string") return fail(state, input, ["def:string"]);
-  const decoded = decodeDefId(input.value);
-  return decoded.kind === "decoded" ? accept(encodeDefId(decoded.value)) : fail(state, input, ["canonical DefId"]);
-};
-const body: Decode<BodyId> = (state, input) => {
-  if (input.kind !== "identity" || input.prefix !== "body" || typeof input.value !== "string") return fail(state, input, ["body:string"]);
-  const decoded = decodeBodyId(input.value);
-  return decoded.kind === "decoded" ? accept(encodeBodyId(decoded.value)) : fail(state, input, ["canonical BodyId"]);
-};
-const component: Decode<ComponentId> = (state, input) => {
-  if (input.kind !== "identity" || input.prefix !== "component" || typeof input.value !== "string") return fail(state, input, ["component:string"]);
-  const decoded = decodeComponentId(input.value);
-  return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(state, input, ["canonical ComponentId"]);
-};
+  (value): value is ValueContextId => typeof value === "number");
+const definition: Decode<DefId> = (state, input) =>
+  then(identityPrefix(state, input, "def", "string"), () => then(scalarString(state, peek(state)), value => {
+    const decoded = decodeDefId(value);
+    return decoded.kind === "decoded" ? accept(encodeDefId(decoded.value)) : fail(state, input, ["canonical DefId"]);
+  }));
+const body: Decode<BodyId> = (state, input) =>
+  then(identityPrefix(state, input, "body", "string"), () => then(scalarString(state, peek(state)), value => {
+    const decoded = decodeBodyId(value);
+    return decoded.kind === "decoded" ? accept(encodeBodyId(decoded.value)) : fail(state, input, ["canonical BodyId"]);
+  }));
+const component: Decode<ComponentId> = (state, input) =>
+  then(identityPrefix(state, input, "component", "string"), () => then(scalarString(state, peek(state)), value => {
+    const decoded = decodeComponentId(value);
+    return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(state, input, ["canonical ComponentId"]);
+  }));
 const label = <Name extends string>(state: State, input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
-  if (input.kind === "record") for (const name of names) if (input.label === name) return accept(name);
+  if (input.kind === "word") for (const name of names) if (input.text === name) return accept(name);
   return fail(state, input, names);
 };
 const nodeRef: Decode<NodeRef> = (state, input) => then(fields(state, input, "NodeRef"), values =>
@@ -1254,9 +1262,11 @@ const errorInvalidation: Decode<ErrorInvalidationFact> = (state, input) =>
       }))));
 
 const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Value> => {
-  const state: State = { text };
-  const tokens = lex(state);
-  const decoded: Decoded<Value> = tokens.kind === "invalid" ? tokens : then(syntax(state, tokens.value), root => decode(state, root));
+  const state: State = { text, offset: 0, lookahead: null };
+  const decoded = then(decode(state, peek(state)), value => {
+    const next = peek(state);
+    return next.kind === "end" ? accept(value) : fail(state, next, ["end of document"]);
+  });
   if (decoded.kind === "value") return { kind: "parsed", value: decoded.value };
   const failure = decoded.failure;
   let line = 1;
@@ -1267,9 +1277,7 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
     else if (unit === 10) { if (text.charCodeAt(offset - 1) !== 13) line += 1; column = 1; }
     else column += 1;
   }
-  let found: string | null = failure.offset >= text.length ? null : text.charAt(failure.offset);
-  if (tokens.kind === "value") for (const token of tokens.value) if (token.offset === failure.offset) { found = token.text; break; }
-  return { kind: "invalid-text", offset: failure.offset, line, column, expected: failure.expected, found };
+  return { kind: "invalid-text", offset: failure.offset, line, column, expected: failure.expected, found: failure.found };
 };
 
 export const parseFacts: ParseFacts = text => parse(text, bodyFacts);

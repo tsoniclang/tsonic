@@ -207,17 +207,25 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   await suite.test("lexical failures preserve full exact UTF-16 error records", () => {
     const parse = product.parseCallGraph;
-    malformed(parse, "", 0, ["record"], null, "empty document");
-    malformed(parse, "@", 0, ["IR value"], "@", "unknown punctuation");
-    malformed(parse, "CallGraph(", 10, [")", "]"], null, "unfinished record");
-    malformed(parse, "CallGraph(definitions=[]", 24, [")", "]"], null, "unfinished fields");
-    malformed(parse, '"\n"', 1, ["escaped string character"], "\n", "unescaped newline");
-    malformed(parse, '"\\q"', 2, ["JSON string escape"], "q", "unknown escape");
-    malformed(parse, '"\\u12x4"', 3, ["four hexadecimal digits"], "1", "malformed code unit");
-    malformed(parse, '"unterminated', 13, ['"'], null, "unterminated string");
-    for (const text of ["-", "01", "1.", "1e", "1e999"]) malformed(parse, text, 0, ["finite decimal number"], text.charAt(0), `bad decimal ${text}`);
-    malformed(parse, "01n", 0, ["decimal bigint"], "0", "noncanonical bigint");
-    malformed(parse, "CallGraph(definitions=[];)", 24, ["IR value"], ";", "lexical rather than fabricated semantic failure");
+    malformed(parse, "", 0, ["CallGraph"], null, "empty document expects its actual root");
+    malformed(parse, "@", 0, ["CallGraph"], "@", "unknown punctuation in the root position");
+    malformed(parse, "CallGraph(", 10, ["definitions"], null, "unfinished record expects its actual first field");
+    malformed(parse, "CallGraph(definitions=[]", 24, ["edges"], null, "unfinished fields expect the actual next field");
+    const stringPrefix = abiText(64).slice(0, abiText(64).indexOf('"abi-64"'));
+    for (const [text, offset, expected, found, label] of [
+      ['"\n"', 1, ["escaped string character"], "\n", "unescaped newline"],
+      ['"\\q"', 2, ["JSON string escape"], "q", "unknown escape"],
+      ['"\\u12x4"', 3, ["four hexadecimal digits"], "1", "malformed code unit"],
+      ['"unterminated', 13, ['"'], null, "unterminated string"],
+      ['"\\', 2, ["JSON string escape"], null, "unfinished escape"],
+    ]) malformed(product.parseMetadata, stringPrefix + text, stringPrefix.length + offset, expected, found, label);
+    const numberPrefix = emptyFactsText.slice(0, emptyFactsText.indexOf("stores=[]")) +
+      "stores=[StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=";
+    for (const text of ["-", "01", "1.", "1e", "1e999"]) malformed(product.parseFacts, numberPrefix + text,
+      numberPrefix.length, ["finite decimal number"], text.charAt(0), `bad decimal ${text}`);
+    const bigintPrefix = emptyFactsText.slice(0, emptyFactsText.indexOf("integers=[]")) + "integers=[IntegerFact(node=n:1, range=IntegerRange(minimum=";
+    malformed(product.parseFacts, bigintPrefix + "01n", bigintPrefix.length, ["decimal bigint"], "0", "noncanonical bigint");
+    malformed(parse, "CallGraph(definitions=[];)", 24, [",", ")"], ";", "the actual field separator is expected here");
     malformed(parse, "CallGraph(definitions=[],)", 25, ["field name"], ")", "trailing field separator");
   });
   await suite.test("unknown records, exact field inventories and order are typed parser failures", () => {
@@ -246,24 +254,102 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.parseMetadata(abiText(64).replace('"abi-64"', '"\\/"')), { kind: "parsed", value: input }, "complete JSON escaped slash");
   });
   for (const [name, text, offset, expected, found] of [
-    ["an incomplete identity", "def:", 0, ["IR value"], "def"],
-    ["a Boolean identity payload", "def:true", 0, ["IR value"], "def"],
+    ["an incomplete identity", "def:", 0, ["CallGraph"], "def"],
+    ["a Boolean identity payload", "def:true", 0, ["CallGraph"], "def"],
     ["a numeric record field name", "CallGraph(0=[])", 10, ["field name"], "0"],
-    ["a missing array separator", "[0 1]", 3, [",", "]"], "1"],
-    ["a misplaced closing array", "]", 0, ["IR value"], "]"],
+    ["a missing array separator after an already wrong root", "[0 1]", 0, ["CallGraph"], "["],
+    ["a misplaced closing array", "]", 0, ["CallGraph"], "]"],
     ["a root array", "[]", 0, ["CallGraph"], "["],
     ["a root Boolean", "false", 0, ["CallGraph"], "false"],
     ["a root absence", "null", 0, ["CallGraph"], "null"],
-    ["a special-number prefix followed by a name", "NaNx", 0, ["IR value"], "NaNx"],
-    ["a positive infinity prefix followed by a name", "+Infinityx", 0, ["IR value"], "+"],
-    ["a negative infinity prefix followed by a name", "-Infinityx", 0, ["finite decimal number"], "-"],
-    ["an unfinished escaped string", '"\\', 2, ["JSON string escape"], null],
+    ["a special-number prefix followed by a name", "NaNx", 0, ["CallGraph"], "NaNx"],
+    ["a positive infinity prefix followed by a name", "+Infinityx", 0, ["CallGraph"], "+"],
+    ["a negative infinity prefix followed by a name", "-Infinityx", 0, ["CallGraph"], "-"],
+    ["an unfinished escaped string after an already wrong root", '"\\', 0, ["CallGraph"], '"'],
   ]) await suite.test(`typed grammar rejects ${name}`, () => malformed(product.parseCallGraph, text, offset, expected, found, name));
   for (const [name, text, expected] of [
     ["an unknown metadata record", "Unknown()", ["data-layout", "memory-layout", "memory-field"]],
     ["a scalar in the metadata record position", "0", ["data-layout", "memory-layout", "memory-field"]],
   ]) await suite.test(`typed metadata rejects ${name}`, () => malformed(product.parseMetadata, text, 0, expected,
     name === "an unknown metadata record" ? "Unknown" : "0", name));
+  const firstPositionPorts = [
+    ["facts", product.parseFacts, "BodyFacts", "instance", ["BodyFacts"], ["BodyInstance"],
+      `BodyFacts(instance=${instanceText}`, "arena", ["RelationalArena"], "BodyFacts(instance=BodyInstance(body=body:"],
+    ["summary", product.parseSummary, "Summary", "key", ["Summary"], ["SummaryKey"],
+      `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric())`, "signature", ["sig:number"], "Summary(key=SummaryKey(definition=def:"],
+    ["metadata", product.parseMetadata, "data-layout", "key", ["data-layout", "memory-layout", "memory-field"], ["MetadataKey"],
+      `data-layout(key=${keyText("abi64")}`, "occurrence", ["body", "item"], "data-layout(key=MetadataKey(definition=def:"],
+    ["call graph", product.parseCallGraph, "CallGraph", "definitions", ["CallGraph"], ["array"],
+      "CallGraph(definitions=[]", "edges", ["array"], "CallGraph(definitions=[def:"],
+  ];
+  for (const [name, parse, root, firstField, rootExpected, valueExpected, validHead, nextField, nextExpected, stringPrefix] of firstPositionPorts) {
+    const fieldOffset = root.length + 1;
+    const valueOffset = fieldOffset + firstField.length + 1;
+    const pairs = [
+      ["root precedes later lexical error", "Wrong(@)", 0, rootExpected, "Wrong"],
+      ["root precedes later frame error", "Wrong(", 0, rootExpected, "Wrong"],
+      ["field precedes later lexical error", `${root}(wrong=@)`, fieldOffset, [firstField], "wrong"],
+      ["field precedes later frame error", `${root}(wrong=0`, fieldOffset, [firstField], "wrong"],
+      ["value precedes later lexical error", `${root}(${firstField}=0, later=@)`, valueOffset, valueExpected, "0"],
+      ["value precedes later frame error", `${root}(${firstField}=0`, valueOffset, valueExpected, "0"],
+      ["wrong value kind precedes an error inside its quoted token", `${root}(${firstField}="\\q", later=@)`, valueOffset, valueExpected, '"'],
+      ["equals frame precedes later lexical error", `${root}(${firstField} broken @)`, valueOffset, ["="], "broken"],
+      ["separator frame precedes later field error", `${validHead} broken wrong=0)`, validHead.length + 1, [",", ")"], "broken"],
+      ["root opening frame precedes later lexical error", `${root} broken @`, root.length + 1, ["("], "broken"],
+      ["lexical error precedes later field error", `${stringPrefix}"\\q", wrong=0)`, stringPrefix.length + 2, ["JSON string escape"], "q"],
+      ["lexical error precedes later frame error", `${stringPrefix}"\\q" broken @`, stringPrefix.length + 2, ["JSON string escape"], "q"],
+      ["identity payload kind precedes later lexical error", `${stringPrefix}0,@)`, stringPrefix.length, ["string"], "0"],
+      ["quoted field lexical error precedes later value error", `${root}("\\q"=@)`, fieldOffset + 2, ["JSON string escape"], "q"],
+      ["already wrong quoted field precedes its later escape error", `${root}("wrong\\q"=@)`, fieldOffset, [firstField], '"'],
+      ["later field precedes its later lexical value", `${validHead}, wrong=@)`, validHead.length + 2, [nextField], "wrong"],
+      ["later value precedes its later lexical sibling", `${validHead}, ${nextField}=0, later=@)`, validHead.length + nextField.length + 3, nextExpected, "0"],
+    ];
+    for (const [pair, text, offset, expected, found] of pairs) await suite.test(`${name}: first actual position ${pair}`, () => {
+      malformed(parse, text, offset, expected, found, `${name}: complete independent ${pair} vector`);
+    });
+  }
+  const projectionRow = "ProjectionPath(id=path:0, parent=null, projection=deref())";
+  const layoutRow = `value(id=layout:0, occurrence=item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0)), source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`;
+  const firstPositionArrays = [
+    ["facts", product.parseFacts, `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
+    ["summary", product.parseSummary, `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric()), signature=sig:0, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
+    ["metadata", product.parseMetadata, `memory-layout(key=${keyText("layout")}, root=layout:0, layouts=[`, layoutRow, ["value", "array"]],
+    ["call graph", product.parseCallGraph, "CallGraph(definitions=[", `def:"${definitions.f}"`, ["def:string"]],
+  ];
+  for (const [name, parse, prefix, validFirst, itemExpected] of firstPositionArrays) {
+    const pairs = [
+      ["first array value precedes later lexical error", `${prefix}0,@]`, prefix.length, itemExpected, "0"],
+      ["first array value precedes later frame error", `${prefix}0`, prefix.length, itemExpected, "0"],
+      ["array separator precedes later lexical error", `${prefix}${validFirst} broken @]`, prefix.length + validFirst.length + 1, [",", "]"], "broken"],
+      ["later array value precedes later lexical error", `${prefix}${validFirst}, 0,@]`, prefix.length + validFirst.length + 2, itemExpected, "0"],
+    ];
+    for (const [pair, text, offset, expected, found] of pairs) await suite.test(`${name}: first actual position ${pair}`, () => {
+      malformed(parse, text, offset, expected, found, `${name}: complete independent ${pair} vector`);
+    });
+  }
+  for (const [name, parse, text, marker, expected] of [
+    ["facts", product.parseFacts, emptyFactsText.replace("pointers=[]", 'pointers=[PointerBackingFact(node=n:0, returned=false, origins=origins:0, producers=[PointerBackingProducer(producer=bound:0, operation=PointerBackingOperation(family="wrong\\q", operation="reinterpret", at=0))])]'),
+      '"wrong', ['"typed-location"', '"raw-memory"']],
+    ["summary", product.parseSummary, emptySummaryText.replace("callbacks=[]", 'callbacks=[SummaryCallback(parameterIndex=0, timing="wrong\\q", rejection=null, inputs=[])]'),
+      '"wrong', ['"synchronous"', '"deferred"']],
+    ["metadata", product.parseMetadata, abiText(64).replace('byteOrder="little"', 'byteOrder="wrong\\q"'),
+      '"wrong', ['"little"', '"big"']],
+  ]) await suite.test(`${name}: already wrong closed string literal precedes its later escape error`, () => {
+    const offset = text.indexOf(marker); const before = text.slice(0, offset).split("\n");
+    malformed(parse, text, offset, expected, '"', `${name}: complete literal-first vector`, before.length, before.at(-1).length + 1);
+  });
+  for (const [name, parse, text, value] of [
+    ["facts", product.parseFacts, emptyFactsText, emptyFacts()],
+    ["summary", product.parseSummary, emptySummaryText, emptySummary()],
+    ["metadata", product.parseMetadata, abiText(64), abi(64)],
+    ["call graph", product.parseCallGraph, graphText, graph()],
+  ]) await suite.test(`${name}: surplus quoted field precedes its later escape and value errors`, () => {
+    equal(parse(text), { kind: "parsed", value }, `${name}: complete authored valid root`);
+    const closing = text.lastIndexOf(")"); const offset = closing + 2;
+    const invalid = text.slice(0, closing) + ', "wrong\\q"=@' + text.slice(closing);
+    const before = invalid.slice(0, offset).split("\n");
+    malformed(parse, invalid, offset, [")"], '"', `${name}: complete surplus-field-first vector`, before.length, before.at(-1).length + 1);
+  });
   for (const [name, row, marker, expected, found] of [
     ["unknown projection", "ProjectionPath(id=path:0, parent=null, projection=Unknown())", "Unknown", ["field", "method-value", "element", "index", "deref"], "Unknown"],
     ["wrong projection field kind", "ProjectionPath(id=path:0, parent=null, projection=0)", "projection=0", ["field", "method-value", "element", "index", "deref"], "0"],
@@ -321,7 +407,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       [product.parseCallGraph, "CallGraph(definitions[])", "[]", "", ["="], "["],
       [product.parseCallGraph, "CallGraph(definitions=[] edges=[], components=[])", "edges", "", [",", ")"], "edges"],
       [product.parseCallGraph, "CallGraph(definitions=[], edges=[], components=[]) 0", ") 0", ") ", ["end of document"], "0"],
-      [product.parseCallGraph, "CallGraph(definitions=[0,], edges=[], components=[])", ",]", ",", ["IR value"], "]"],
+      [product.parseCallGraph, `CallGraph(definitions=[def:"${definitions.f}",], edges=[], components=[])`, ",]", ",", ["def:string"], "]"],
     ];
     for (const [parse, text, marker, prefix, expected, found] of vectors) {
       const offset = text.indexOf(marker) + prefix.length;
@@ -2451,9 +2537,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       [product.parseSummary, emptySummaryText, "origins"], [product.parseSummary, emptySummaryText, "sig"],
       [product.parseMetadata, field, "field"], [product.parseMetadata, layout, "layout"], [product.parseFacts, raw, "t"]];
     for (const [parse, text, prefix] of vectors) for (const replacement of ["q:0", `${prefix}:\"zero\"`, "0"]) {
-      const marker = `${prefix}:0`; const offset = text.indexOf(marker); const invalid = text.replace(marker, replacement);
+      const marker = `${prefix}:0`; const payload = replacement === `${prefix}:\"zero\"`;
+      const offset = text.indexOf(marker) + (payload ? prefix.length + 1 : 0); const invalid = text.replace(marker, replacement);
       const before = invalid.slice(0, offset).split("\n");
-      malformed(parse, invalid, offset, [prefix + ":number"], replacement === "q:0" ? "q" : replacement === "0" ? "0" : prefix,
+      malformed(parse, invalid, offset, payload ? ["number"] : [prefix + ":number"], payload ? '"zero"' : replacement === "q:0" ? "q" : "0",
         `complete numeric identity ${prefix}/${replacement}`, before.length, before.at(-1).length + 1);
     }
   });
