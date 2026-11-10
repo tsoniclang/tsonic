@@ -56,8 +56,8 @@ export interface HirDataPath {
 export type HirDataReference =
   | { readonly kind: "plain" }
   | { readonly kind: "NodeId"; readonly value: NodeId }
-  | { readonly kind: "LocalId"; readonly value: number }
-  | { readonly kind: "CandidateListId"; readonly value: number }
+  | { readonly kind: "LocalId"; readonly value: LocalId }
+  | { readonly kind: "CandidateListId"; readonly value: CandidateListId }
   | { readonly kind: "TyId"; readonly value: TyId }
   | { readonly kind: "SigId"; readonly value: SigId }
   | { readonly kind: "DefId"; readonly value: DefId }
@@ -220,7 +220,6 @@ export function hirDataPathText(path: HirDataPath | null): string {
   const fields: (string | number)[] = [];
   for (let current = path; current !== null; current = current.parent) fields.push(current.field);
   const pieces: string[] = ["$"];
-  for (const field of fields.reverse()) pieces.push(typeof field === "number" ? `[${field}]` :
-    /^[A-Za-z_][A-Za-z0-9_]*$/u.test(field) ? `.${field}` : `[${JSON.stringify(field)}]`);
+  for (const field of fields.reverse()) pieces.push(typeof field === "number" ? `[${field}]` : `.${field}`);
   return pieces.join("");
 }

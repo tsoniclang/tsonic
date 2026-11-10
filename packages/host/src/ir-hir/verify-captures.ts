@@ -3,7 +3,7 @@ import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObserva
 import type { HirBindingRequest } from "./verify-bindings.js";
 import type { HirField, HirInventory, HirNodeEntry, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
-import { hirArray, hirChoice, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
+import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, resolveHirShape, walkHirData } from "./verify-syntax.js";
 
 function captured(value: HirShape): HirShape {
@@ -14,7 +14,7 @@ function captured(value: HirShape): HirShape {
 function variants(name: string, field: string, arms: readonly (readonly [string | number, readonly HirField[]])[],
   common: readonly HirField[] = []): HirShape {
   return hirChoice(...arms.map(([value, fields]) => hirRecord(field === "kind" ? String(value) : name,
-    [...common, [field, hirLiteral(value)], ...fields])));
+    [...common, hirDiscriminant(field, value), ...fields])));
 }
 
 export function createHirSchema(): HirSchema {
@@ -189,24 +189,24 @@ export function createHirSchema(): HirSchema {
     ]),
     HirPointerOperationCapture: hirChoice(
       ...["address-of", "allocate", "load", "store", "equal-pointer", "hash-pointer", "bind-pointer", "project-pointer"].map(operation =>
-        hirRecord("HirPointerOperationCapture", [["family", hirLiteral("typed-location")], ["operation", hirLiteral(operation)], ...pointerArguments])),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("typed-location")], ["operation", hirLiteral("view")],
+        hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "typed-location"), hirDiscriminant("operation", operation), ...pointerArguments])),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "typed-location"), hirDiscriminant("operation", "view"),
         ["pointer", sourceReference], ["read", sourceReference], ["write", sourceReference], ["optional", "boolean"]]),
       variants("HirPointerOperationCapture", "operation", [["load", [["pointer", sourceReference]]],
         ["store", [["pointer", sourceReference], ["value", sourceReference]]], ["offset", [["pointer", sourceReference], ["offset", sourceReference]]]],
-        [["family", hirLiteral("native-pointer")]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-address")], ["operation", hirLiteral("bind-raw-pointer")], ["identity", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-address")], ["operation", hirLiteral("equal-raw-pointer")], ["left", sourceReference], ["right", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-address")], ["operation", hirLiteral("hash-raw-pointer")], ["pointer", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-memory")], ["operation", hirLiteral("to-raw")], ["pointer", sourceReference], ["layout", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-memory")], ["operation", hirLiteral("reinterpret")], ["raw", sourceReference], ["layout", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-memory")], ["operation", hirLiteral("byte-offset")], ["raw", sourceReference],
+        [hirDiscriminant("family", "native-pointer")]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-address"), hirDiscriminant("operation", "bind-raw-pointer"), ["identity", sourceReference]]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-address"), hirDiscriminant("operation", "equal-raw-pointer"), ["left", sourceReference], ["right", sourceReference]]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-address"), hirDiscriminant("operation", "hash-raw-pointer"), ["pointer", sourceReference]]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "to-raw"), ["pointer", sourceReference], ["layout", sourceReference]]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "reinterpret"), ["raw", sourceReference], ["layout", sourceReference]]),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "byte-offset"), ["raw", sourceReference],
         ["offset", sourceReference], ["integer", "HirIntegerOperandCapture"], ["dataLayout", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-memory")], ["operation", hirLiteral("raw-to-address-integer")], ["raw", sourceReference],
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "raw-to-address-integer"), ["raw", sourceReference],
         ["integer", "HirAddressIntegerCapture"], ["dataLayout", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("raw-memory")], ["operation", hirLiteral("address-integer-to-raw")], ["address", sourceReference],
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "address-integer-to-raw"), ["address", sourceReference],
         ["integer", "HirAddressIntegerCapture"], ["dataLayout", sourceReference]]),
-      hirRecord("HirPointerOperationCapture", [["family", hirLiteral("keep-alive")], ["operation", hirLiteral("keep-alive")], ["value", sourceReference]])),
+      hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "keep-alive"), hirDiscriminant("operation", "keep-alive"), ["value", sourceReference]])),
     HirAttributeCapture: variants("HirAttributeCapture", "kind", [["builder-state", []], ["application", [["invocation", sourceReference]]]], [
       ["occurrence", sourceReference], ["applicationTarget", sourceReference], ["selectedMember", hirNullable(hirRecord("Record", [
         ["selectedDeclaration", hirNullable(sourceReference)], ["declarations", hirArray(sourceReference)]]))],
@@ -216,14 +216,14 @@ export function createHirSchema(): HirSchema {
     HirSafetySelectionCapture: hirChoice(hirVariant("selected", [["expression", sourceReference], ["declaration", hirNullable(sourceReference)], ["declarations", hirArray(sourceReference)]]),
       hirVariant("unavailable", [["reason", hirLiteral("function-shape", "receiver", "member-evidence")]])),
     HirSafetyCapture: hirChoice(
-      hirRecord("HirSafetyCapture", [["occurrence", sourceReference], ["provider", "DefId"], ["family", hirLiteral("unsafe-context")], ["operation", hirLiteral("expression")], ["expression", sourceReference]]),
-      hirRecord("HirSafetyCapture", [["occurrence", sourceReference], ["provider", "DefId"], ["family", hirLiteral("unsafe-context")], ["operation", hirLiteral("remaining-block")], ["firstDirectStatement", "boolean"]]),
+      hirRecord("HirSafetyCapture", [["occurrence", sourceReference], ["provider", "DefId"], hirDiscriminant("family", "unsafe-context"), hirDiscriminant("operation", "expression"), ["expression", sourceReference]]),
+      hirRecord("HirSafetyCapture", [["occurrence", sourceReference], ["provider", "DefId"], hirDiscriminant("family", "unsafe-context"), hirDiscriminant("operation", "remaining-block"), ["firstDirectStatement", "boolean"]]),
       variants("HirSafetyCapture", "operation", [
         ["root", [["form", hirLiteral("type", "value")], ["target", hirNullable(sourceReference)]]],
         ["select-member", [["predecessor", hirNullable(sourceReference)], ["memberKind", hirLiteral("indexer", "method", "property")], ["selection", "HirSafetySelectionCapture"]]],
         ["placement", [["predecessor", hirNullable(sourceReference)], ["placement", hirLiteral("declaration", "constructor", "getter", "setter")]]],
         ["apply", [["predecessor", hirNullable(sourceReference)], ["contract", hirLiteral("requires-unsafe", "safe")]]],
-      ], [["occurrence", sourceReference], ["provider", "DefId"], ["family", hirLiteral("safety")]])),
+      ], [["occurrence", sourceReference], ["provider", "DefId"], hirDiscriminant("family", "safety")])),
     HirArgumentPassingCapture: variants("HirArgumentPassingCapture", "role", [["declaration", [["mode", "PassingMode"]]],
       ["argument", [["mode", "PassingMode"], ["storageExpression", sourceReference]]]]),
     HirCoreCapture: hirRecord("HirCoreCapture", [["provider", captured(hirNullable("DefId"))], ["markers", captured("HirMarkersCapture")],
@@ -314,11 +314,13 @@ export interface HirCaptureReaders {
 interface PlaceEntry {
   readonly owner: PlaceVertex;
   readonly place: HirStoragePlace;
+  receiverViolation: boolean;
 }
 
 interface PlaceVertex {
   readonly entry: HirNodeEntry;
   readonly targets: Set<PlaceVertex>;
+  readonly places: PlaceEntry[];
 }
 
 interface PlaceVisit {
@@ -350,9 +352,19 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
   for (const entry of inventory.entries) {
     const places = byNode.get(entry.node);
     if (places === undefined) continue;
-    const owner: PlaceVertex = { entry, targets: new Set() };
+    const owner: PlaceVertex = { entry, targets: new Set(), places: [] };
     known.set(entry.node, owner);
-    for (const place of places) entries.push({ owner, place });
+    for (const place of places) {
+      const value: PlaceEntry = { owner, place, receiverViolation: false };
+      entries.push(value);
+      owner.places.push(value);
+    }
+  }
+  for (const receiver of inventory.receivers) for (const entry of known.get(receiver.access.node)?.places ?? []) {
+    if (entry.place.base.kind === "root") continue;
+    const target = inventory.entriesById.get(entry.place.base.node);
+    if (target === undefined || target.ordinal < receiver.expression.ordinal || target.ordinal >= receiver.expression.end)
+      entry.receiverViolation = true;
   }
   for (const entry of entries) {
     const node = entry.owner.entry.node;
@@ -370,13 +382,8 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     } else {
       entry.owner.targets.add(targetPlace);
     }
-    if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
-      const start = inventory.starts.get(node.expression);
-      const end = inventory.ends.get(node.expression);
-      const position = targetPlace === undefined ? undefined : targetPlace.entry.ordinal;
-      if (start === undefined || end === undefined || position === undefined || position < start || position >= end)
-        report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
-    }
+    if (entry.receiverViolation)
+      report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
   }
   const colors = new Map<PlaceVertex, "active" | "complete">();
   for (const root of known.values()) {

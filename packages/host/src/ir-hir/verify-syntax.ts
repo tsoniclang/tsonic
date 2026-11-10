@@ -19,6 +19,7 @@ export interface HirInventory {
   readonly entries: readonly HirNodeEntry[];
   readonly nodesById: ReadonlyMap<number, HirNode>;
   readonly entriesById: ReadonlyMap<number, HirNodeEntry>;
+  readonly receivers: readonly { readonly access: HirNodeEntry; readonly expression: HirNodeEntry }[];
   readonly starts: ReadonlyMap<HirNode, number>;
   readonly ends: ReadonlyMap<HirNode, number>;
   readonly parents: ReadonlyMap<HirNode, HirNode | null>;
@@ -31,15 +32,20 @@ export interface HirInventory {
 
 export type HirReport = (rule: HirRule, site: HirSite, reason: string) => void;
 
+export interface HirLiteralShape {
+  readonly kind: "literal";
+  readonly values: readonly (string | number | boolean | null)[];
+}
+
 export type HirShape = string
   | { readonly kind: "identity"; readonly prefix: string; readonly value: "string" | "number" }
-  | { readonly kind: "literal"; readonly values: readonly (string | number | boolean | null)[] }
+  | HirLiteralShape
   | { readonly kind: "array"; readonly element: HirShape }
   | { readonly kind: "choice"; readonly alternatives: readonly HirShape[] }
   | { readonly kind: "record"; readonly label: string; readonly fields: readonly HirField[]; readonly syntax: boolean }
   | { readonly kind: "dictionary"; readonly label: string; readonly element: HirShape };
 
-export type HirField = readonly [string, HirShape];
+export type HirField = readonly [string, HirShape] | readonly [string, HirLiteralShape, true];
 export interface HirObject { readonly [field: string]: unknown }
 export interface HirSchema { readonly [name: string]: HirShape }
 
@@ -47,8 +53,12 @@ export function hirIdentity(prefix: string, value: "string" | "number"): HirShap
   return Object.freeze({ kind: "identity", prefix, value });
 }
 
-export function hirLiteral(...values: readonly (string | number | boolean | null)[]): HirShape {
+export function hirLiteral(...values: readonly (string | number | boolean | null)[]): HirLiteralShape {
   return Object.freeze({ kind: "literal", values: Object.freeze(values) });
+}
+
+export function hirDiscriminant(name: string, ...values: readonly (string | number | boolean | null)[]): HirField {
+  return Object.freeze<readonly [string, HirLiteralShape, true]>([name, hirLiteral(...values), true]);
 }
 
 export function hirArray(element: HirShape): HirShape {
@@ -68,7 +78,7 @@ export function hirRecord(label: string, fields: readonly HirField[]): HirShape 
 }
 
 export function hirVariant(kind: string, fields: readonly HirField[]): HirShape {
-  return hirRecord(kind, [["kind", hirLiteral(kind)], ...fields]);
+  return hirRecord(kind, [hirDiscriminant("kind", kind), ...fields]);
 }
 
 export function createSyntaxSchema(): HirSchema {
@@ -84,7 +94,7 @@ export function createSyntaxSchema(): HirSchema {
 
   function node(kind: string, metadata: HirShape, fields: readonly HirField[] = []): HirShape {
     return Object.freeze({ kind: "record", label: kind, syntax: true,
-      fields: Object.freeze<HirField[]>([["kind", hirLiteral(kind)], ...header, ...fields, ["tsonic", metadata]]) });
+      fields: Object.freeze<HirField[]>([hirDiscriminant("kind", kind), ...header, ...fields, ["tsonic", metadata]]) });
   }
 
   const modifiers = hirNullable("ModifierList");
@@ -467,18 +477,34 @@ export function isHirArray(value: unknown): value is readonly unknown[] {
 
 interface PendingShape { readonly shape: HirShape; readonly next: PendingShape | null }
 
-export function resolveHirShape(input: HirShape, value: unknown, schema: HirSchema): HirShape | null {
+export type HirResolvedValue =
+  | { readonly kind: "scalar"; readonly value: string | number | bigint | boolean | null; readonly shape: HirShape }
+  | { readonly kind: "identity"; readonly value: string | number; readonly prefix: string; readonly shape: HirShape }
+  | { readonly kind: "array"; readonly value: readonly unknown[]; readonly element: HirShape; readonly shape: HirShape }
+  | { readonly kind: "record"; readonly value: HirObject; readonly fields: readonly HirField[];
+      readonly label: string; readonly syntax: boolean; readonly shape: HirShape }
+  | { readonly kind: "dictionary"; readonly value: HirObject; readonly label: string; readonly element: HirShape; readonly shape: HirShape };
+
+export interface HirSelectorFailure {
+  readonly field: string;
+  readonly matched: number;
+  readonly fields: readonly HirField[];
+}
+
+export function resolveHirShape(input: HirShape, value: unknown, schema: HirSchema,
+  mismatch?: (failure: HirSelectorFailure) => void): HirResolvedValue | null {
   let pending: PendingShape | null = { shape: input, next: null };
+  let best: HirSelectorFailure | null = null;
   while (pending !== null) {
     const shape = pending.shape;
     pending = pending.next;
     if (typeof shape === "string") {
       switch (shape) {
-        case "string": if (typeof value === "string") return shape; break;
-        case "number": if (typeof value === "number") return shape; break;
-        case "bigint": if (typeof value === "bigint") return shape; break;
-        case "boolean": if (typeof value === "boolean") return shape; break;
-        case "null": if (value === null) return shape; break;
+        case "string": if (typeof value === "string") return { kind: "scalar", value, shape }; break;
+        case "number": if (typeof value === "number") return { kind: "scalar", value, shape }; break;
+        case "bigint": if (typeof value === "bigint") return { kind: "scalar", value, shape }; break;
+        case "boolean": if (typeof value === "boolean") return { kind: "scalar", value, shape }; break;
+        case "null": if (value === null) return { kind: "scalar", value, shape }; break;
         case "SyntaxNode": {
           if (isHirObject(value) && typeof value.kind === "string") {
             const selected = schema[value.kind];
@@ -494,19 +520,40 @@ export function resolveHirShape(input: HirShape, value: unknown, schema: HirSche
       }
     } else {
       switch (shape.kind) {
-        case "literal": if (shape.values.some(candidate => Object.is(candidate, value))) return shape; break;
-        case "identity": if (typeof value === shape.value) return shape; break;
-        case "array": if (isHirArray(value)) return shape; break;
-        case "dictionary": if (isHirObject(value)) return shape; break;
+        case "literal": {
+          const literal = shape.values.find(candidate => Object.is(candidate, value));
+          if (literal !== undefined) return { kind: "scalar", value: literal, shape };
+          break;
+        }
+        case "identity":
+          switch (shape.value) {
+            case "string": if (typeof value === "string") return { kind: "identity", value, shape, prefix: shape.prefix }; break;
+            case "number": if (typeof value === "number") return { kind: "identity", value, shape, prefix: shape.prefix }; break;
+          }
+          break;
+        case "array": if (isHirArray(value)) return { kind: "array", value, element: shape.element, shape }; break;
+        case "dictionary": if (isHirObject(value)) return { kind: "dictionary", value, label: shape.label, element: shape.element, shape }; break;
         case "record":
-          if (isHirObject(value) && shape.fields.every(([field, fieldShape]) => typeof fieldShape === "string" ||
-            fieldShape.kind !== "literal" || fieldShape.values.some(candidate => Object.is(candidate, value[field])))) return shape;
+          if (isHirObject(value)) {
+            let failure: HirSelectorFailure | null = null;
+            let matched = 0;
+            for (const [field, fieldShape, selector] of shape.fields) if (selector === true) {
+              if (!fieldShape.values.some(candidate => Object.is(candidate, value[field]))) {
+                failure = { field, matched, fields: shape.fields };
+                break;
+              }
+              matched += 1;
+            }
+            if (failure === null) return { kind: "record", value, label: shape.label, fields: shape.fields, syntax: shape.syntax, shape };
+            if (best === null || failure.matched > best.matched) best = failure;
+          }
           break;
         case "choice":
           pending = shape.alternatives.reduceRight<PendingShape | null>((next, alternative) => ({ shape: alternative, next }), pending);
       }
     }
   }
+  if (best !== null) mismatch?.(best);
   return null;
 }
 
@@ -520,37 +567,40 @@ export interface HirShapeVisit {
 interface PendingVisit { readonly visit: HirShapeVisit; readonly next: PendingVisit | null }
 
 export function checkHirShape(value: unknown, root: HirShape, schema: HirSchema,
-  reject?: (visit: HirShapeVisit) => void): boolean {
+  reject: (visit: HirShapeVisit) => void): boolean {
   let pending: PendingVisit | null = { visit: { value, shape: root, parent: null, field: null }, next: null };
   const seen = new Map<object, Set<HirShape>>();
   while (pending !== null) {
     const next = pending.visit;
     pending = pending.next;
-    const shape = resolveHirShape(next.shape, next.value, schema);
-    if (shape === null) {
-      reject?.(next);
-      return false;
-    }
-    const data = next.value;
-    if (data !== null && typeof data === "object") {
-      const previous = seen.get(data);
-      if (previous?.has(shape)) continue;
-      if (previous === undefined) seen.set(data, new Set([shape]));
-      else previous.add(shape);
-    }
-    if (typeof shape !== "string") {
-      if (shape.kind === "array" && isHirArray(data)) {
-        pending = data.reduceRight<PendingVisit | null>((following, element, ordinal) => ({
-          visit: { value: element, shape: shape.element, parent: data, field: ordinal }, next: following,
-        }), pending);
-      } else if (shape.kind === "record" && isHirObject(data)) {
-        pending = shape.fields.reduceRight<PendingVisit | null>((following, [field, fieldShape]) => ({
-          visit: { value: data[field], shape: fieldShape, parent: data, field }, next: following,
-        }), pending);
-      } else if (shape.kind === "dictionary" && isHirObject(data)) {
-        pending = Object.keys(data).sort().reduceRight<PendingVisit | null>((following, field) => ({
-          visit: { value: data[field], shape: shape.element, parent: data, field }, next: following,
-        }), pending);
+    const selected = resolveHirShape(next.shape, next.value, schema);
+    if (selected === null) { reject(next); return false; }
+    switch (selected.kind) {
+      case "scalar": case "identity": break;
+      case "array":
+      case "record":
+      case "dictionary": {
+        const data = selected.value;
+        const previous = seen.get(data);
+        if (previous?.has(selected.shape)) continue;
+        if (previous === undefined) seen.set(data, new Set([selected.shape]));
+        else previous.add(selected.shape);
+        switch (selected.kind) {
+          case "array":
+            pending = selected.value.reduceRight<PendingVisit | null>((following, element, ordinal) => ({
+              visit: { value: element, shape: selected.element, parent: selected.value, field: ordinal }, next: following,
+            }), pending);
+            break;
+          case "record":
+            pending = selected.fields.reduceRight<PendingVisit | null>((following, [field, fieldShape]) => ({
+              visit: { value: selected.value[field], shape: fieldShape, parent: selected.value, field }, next: following,
+            }), pending);
+            break;
+          case "dictionary":
+            pending = Object.keys(selected.value).sort().reduceRight<PendingVisit | null>((following, field) => ({
+              visit: { value: selected.value[field], shape: selected.element, parent: selected.value, field }, next: following,
+            }), pending);
+        }
       }
     }
   }
@@ -558,7 +608,7 @@ export function checkHirShape(value: unknown, root: HirShape, schema: HirSchema,
 }
 
 export function isHirModuleValue(value: unknown, schema: HirSchema,
-  reject?: (visit: HirShapeVisit) => void): value is HirModule {
+  reject: (visit: HirShapeVisit) => void): value is HirModule {
   return checkHirShape(value, "HirModule", schema, reject);
 }
 

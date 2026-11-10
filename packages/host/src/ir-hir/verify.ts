@@ -23,6 +23,11 @@ export function createHirInventory(module: HirModule): HirInventory {
   const entriesByNode = new Map<HirNode, HirNodeEntry>();
   const nodesById = new Map<number, HirNode>();
   const entriesById = new Map<number, HirNodeEntry>();
+  const receivers: { readonly access: HirNodeEntry; readonly expression: HirNodeEntry }[] = [];
+  const recordReceiver = (parent: HirNodeEntry | null, child: HirNodeEntry): void => {
+    if (parent !== null && (parent.node.kind === "PropertyAccessExpression" || parent.node.kind === "ElementAccessExpression") &&
+      parent.node.expression === child.node) receivers.push({ access: parent, expression: child });
+  };
   const starts = new Map<HirNode, number>();
   const ends = new Map<HirNode, number>();
   const parents = new Map<HirNode, HirNode | null>();
@@ -54,7 +59,7 @@ export function createHirInventory(module: HirModule): HirInventory {
       continue;
     }
     const previous = entriesByNode.get(frame.node);
-    if (previous !== undefined) { repeated.push(previous); continue; }
+    if (previous !== undefined) { repeated.push(previous); recordReceiver(frame.parent, previous); continue; }
     const declaredBody = roots.get(frame.node);
     const inheritedBody = frame.parent === null ? null : frame.parent.body;
     const body = declaredBody ?? inheritedBody;
@@ -67,6 +72,7 @@ export function createHirInventory(module: HirModule): HirInventory {
         Number(frame.node.kind === "ElementAccessExpression")] };
     entriesByNode.set(frame.node, entry);
     entries.push(entry);
+    recordReceiver(frame.parent, entry);
     starts.set(frame.node, nodes.length);
     parents.set(frame.node, frame.parent === null ? null : frame.parent.node);
     itemOwners.set(frame.node, item);
@@ -81,16 +87,13 @@ export function createHirInventory(module: HirModule): HirInventory {
       kind: "enter", node, parent: entry, next,
     }), following);
   }
-  return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, starts, ends, parents, owners, itemOwners, bodies, bodyParents,
+  return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, receivers: Object.freeze(receivers),
+    starts, ends, parents, owners, itemOwners, bodies, bodyParents,
     repeated: Object.freeze(repeated) };
 }
 
-export function containsHirNode(outer: HirNode, inner: HirNode, inventory: HirInventory): boolean {
-  const outerStart = inventory.starts.get(outer);
-  const outerEnd = inventory.ends.get(outer);
-  const innerStart = inventory.starts.get(inner);
-  return outerStart !== undefined && outerEnd !== undefined && innerStart !== undefined &&
-    innerStart >= outerStart && innerStart < outerEnd;
+function containsHirNode(outer: HirNodeEntry, inner: HirNodeEntry): boolean {
+  return inner.ordinal >= outer.ordinal && inner.ordinal < outer.end;
 }
 
 function validRange(start: number, end: number): boolean {
@@ -241,15 +244,15 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     for (const scope of body.scopes) scopes.set(scope.node, scope);
     let previousScope = -1;
     for (const scope of body.scopes) {
-      const node = inventory.nodesById.get(scope.node);
+      const node = inventory.entriesById.get(scope.node);
       if (scope.node <= previousScope) report("stable-order", site, "scopes must be distinct and in preorder");
       previousScope = scope.node;
-      if (node === undefined || inventory.owners.get(node) !== body) report("node-reference", site, "scope must name a node of this body");
+      if (node === undefined || node.body !== body) report("node-reference", site, "scope must name a node of this body");
       if (scope.parent !== null) {
         const parent = scopes.get(scope.parent);
-        const parentNode = inventory.nodesById.get(scope.parent);
+        const parentNode = inventory.entriesById.get(scope.parent);
         if (parent === undefined || parentNode === undefined || node === undefined || parent.node >= scope.node ||
-          !containsHirNode(parentNode, node, inventory)) report("scope-parent", site, "scope parent must be an earlier enclosing scope");
+          !containsHirNode(parentNode, node)) report("scope-parent", site, "scope parent must be an earlier enclosing scope");
       }
     }
     body.candidateLists.forEach((list, ordinal) => {
@@ -416,8 +419,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
     seen.add(root.diagnostic);
     const ownerEntry = localSourceEntry(root.owner, module, inventory);
     const owner = ownerEntry === null ? null : ownerEntry.node;
-    const actualOwner = owner !== null;
-    if (!actualOwner)
+    if (ownerEntry === null)
       report("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module");
     const diagnostic = module.checkerDiagnostics[root.diagnostic];
     if (diagnostic !== undefined && diagnostic.site.kind === "source" && owner !== null &&
@@ -428,35 +430,37 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
     const present: readonly [Set<HirNode>, Set<HirNode>, Set<HirNode>] = [new Set(), new Set(), new Set()];
     root.obligations.forEach((obligation, ordinal) => {
       if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
-      const occurrence = inventory.nodesById.get(obligation.occurrence.node);
+      const occurrenceEntry = inventory.entriesById.get(obligation.occurrence.node);
       const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
-      const associated = actualOwner && sourceNodeExists(reference, module, inventory, context) && owner !== null && occurrence !== undefined &&
-        containsHirNode(owner, occurrence, inventory) && inventory.owners.get(owner) === inventory.owners.get(occurrence);
+      const associated = ownerEntry !== null && occurrenceEntry !== undefined && sourceNodeExists(reference, module, inventory, context) &&
+        containsHirNode(ownerEntry, occurrenceEntry) && ownerEntry.body === occurrenceEntry.body;
       if (!associated)
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
-      if (obligation.kind === "operator" && occurrence !== undefined) {
+      if (occurrenceEntry === undefined) return;
+      const occurrence = occurrenceEntry.node;
+      if (obligation.kind === "operator") {
         const operation = operationOf(occurrence);
         if (operation === null || obligation.operator !== operation.operator ||
           obligation.operands.length !== operation.operands.length || obligation.operands.some((operand, index) =>
             operand.body !== obligation.occurrence.body || operand.node !== operation.operands[index]))
           report("obligation-complete", site, "operator obligation must retain all actual operands in order");
         else if (associated) present[1].add(occurrence);
-      } else if (obligation.kind === "index" && occurrence !== undefined) {
+      } else if (obligation.kind === "index") {
         if (occurrence.kind !== "ElementAccessExpression" || obligation.receiver.node !== occurrence.expression.id ||
           obligation.key.node !== occurrence.argumentExpression.id || obligation.receiver.body !== obligation.occurrence.body ||
           obligation.key.body !== obligation.occurrence.body)
           report("obligation-complete", site, "index obligation must retain the actual receiver and key");
         else if (associated) present[2].add(occurrence);
-      } else if (obligation.kind === "write-fit" && occurrence !== undefined) {
+      } else if (obligation.kind === "write-fit") {
         const expected = writeFitOf(occurrence);
-        const value = localSourceNode({ kind: "body", value: obligation.value }, module, inventory);
+        const value = localSourceEntry({ kind: "body", value: obligation.value }, module, inventory);
         if (expected !== null) {
           const body = inventory.owners.get(expected.value);
           if (body === undefined || !Object.is(obligation.value.node, expected.value.id) || obligation.value.body !== body.body ||
             localSourceNode(obligation.destination, module, inventory) !== expected.destination)
             report("obligation-complete", site, "write-fit obligation must retain its actual value and destination");
           else if (associated) present[0].add(occurrence);
-        } else if (value === null || !containsHirNode(occurrence, value, inventory))
+        } else if (value === null || !containsHirNode(occurrenceEntry, value))
           report("obligation-complete", site, "write-fit value must belong to its actual occurrence subtree");
       }
     });

@@ -423,6 +423,112 @@ const bodySource = (node, body = bodyIdentity) => ({ kind: "body", value: { body
 const nodeSite = (node, body = bodyIdentity) => ({ kind: "node", node: bodySource(node, body) });
 const violation = (rule, site, value) => ({ rule, site, detail: [{ kind: "text", value }] });
 
+function constructorMetadata(node) {
+  const declaration = () => ({ ...declarationFacts(), definition: definitionIdentity });
+  const variable = () => ({ ...declarationFacts(), declaration: { kind: "definition", definition: definitionIdentity }, declaredType: available(null), initializer: null });
+  const checkedClass = () => ({ ...declaration(), parameters: [], heritage: [], members: [] });
+  switch (node.kind) {
+    case "Identifier": case "PrivateIdentifier": case "QualifiedName": return nameMetadata();
+    case "ComputedPropertyName": case "ImportAttribute": case "PropertyAssignment": case "ShorthandPropertyAssignment":
+      return { core: absentCore(), key: unavailable(), origins: unavailable() };
+    case "VariableDeclaration": case "Parameter": case "PropertySignature": case "PropertyDeclaration": case "EnumMember": return variable();
+    case "VariableDeclarationList": return { core: absentCore(), disposal: [] };
+    case "ObjectBindingPattern": case "ArrayBindingPattern": case "BindingElement":
+      return { core: absentCore(), declaration: null, declaredType: available(null) };
+    case "FunctionDeclaration": case "CallSignature": case "ConstructSignature": case "Constructor": case "GetAccessor":
+    case "SetAccessor": case "IndexSignature": case "MethodSignature": case "MethodDeclaration":
+      return { ...declaration(), parameters: [], signatures: [], body: null };
+    case "ClassDeclaration": case "InterfaceDeclaration": return checkedClass();
+    case "ClassExpression": return { ...expressionMetadata(), ...checkedClass() };
+    case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return { ...declaration(), parameters: [], type: unavailable() };
+    case "EnumDeclaration": case "ModuleDeclaration": return { ...declaration(), members: [] };
+    case "ImportDeclaration": case "JSImportDeclaration": case "NamespaceImport": case "ImportEqualsDeclaration": case "ImportClause": case "ImportSpecifier":
+      return { ...declaration(), target: unavailable(), bindings: [] };
+    case "ExportAssignment": case "NamespaceExportDeclaration": case "NamespaceExport": case "ExportSpecifier": case "ExportDeclaration":
+      return { ...declaration(), exports: [], target: unavailable() };
+    case "ClassStaticBlockDeclaration": return { ...declaration(), body: bodyIdentity };
+    case "StringLiteral": case "NoSubstitutionTemplateLiteral":
+      return { core: absentCore(), role: "attribute-value", literal: { kind: "string", value: node.text } };
+    case "NumericLiteral": return { core: absentCore(), role: "attribute-value",
+      literal: { kind: "number", token: node.text, value: { numerator: 1n, denominator: 1n, negativeZero: false } } };
+    case "BigIntLiteral": return { core: absentCore(), role: "attribute-value", literal: { kind: "bigint", token: node.text, value: 1n } };
+    case "BinaryExpression": return { core: absentCore(), role: "arithmetic", value: emptyValue() };
+    case "PrefixUnaryExpression": case "PostfixUnaryExpression": return { core: absentCore(), role: "value", value: emptyValue() };
+    case "NullKeyword": case "TrueKeyword": case "FalseKeyword": case "ThisKeyword": case "SuperKeyword": case "ImportKeyword":
+      return { core: absentCore(), role: "value", value: emptyValue() };
+    case "ExpressionWithTypeArguments": return { core: absentCore(), role: "heritage", type: unavailable(), definition: unavailable() };
+    case "ArrayLiteralExpression": case "ObjectLiteralExpression": return { core: absentCore(), role: "assignment-pattern", views: emptyViews() };
+    case "CallExpression": case "NewExpression": case "TaggedTemplateExpression": return { ...expressionMetadata(), application: unavailable() };
+    case "PropertyAccessExpression": case "ElementAccessExpression":
+      return { core: absentCore(), role: "value", value: emptyValue(), origins: unavailable(), accessor: unavailable() };
+    case "AwaitExpression": case "SpreadElement": case "YieldExpression": return { ...expressionMetadata(), protocol: unavailable() };
+    case "ArrowFunction": case "FunctionExpression": return { ...expressionMetadata(), body: bodyIdentity, captures: [] };
+    case "ForInStatement": case "ForOfStatement": return { core: absentCore(), protocol: unavailable() };
+    case "SourceFile": return { ...declaration(), body: bodyIdentity };
+    case "TypeParameter": return { ...declaration(), parameter: {
+      identity: { owner: definitionIdentity, index: 0 }, declaration: definitionIdentity, constraint: null, default: null,
+    } };
+    case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword": case "IntrinsicKeyword": case "NeverKeyword":
+    case "NumberKeyword": case "ObjectKeyword": case "StringKeyword": case "SymbolKeyword": case "UndefinedKeyword":
+    case "UnknownKeyword": case "VoidKeyword": case "UnionType": case "IntersectionType": case "ConditionalType":
+    case "TypeOperator": case "InferType": case "ArrayType": case "IndexedAccessType": case "TypeReference":
+    case "LiteralType": case "ThisType": case "TypePredicate": case "TypeQuery": case "MappedType": case "TypeLiteral":
+    case "TupleType": case "NamedTupleMember": case "OptionalType": case "RestType": case "ParenthesizedType":
+    case "FunctionType": case "ConstructorType": case "TemplateLiteralType": case "TemplateLiteralTypeSpan":
+    case "JSDocTypeExpression": case "JSDocNonNullableType": case "JSDocNullableType": case "JSDocAllType":
+    case "JSDocVariadicType": case "JSDocOptionalType": case "JSDocSignature": case "JSDocNameReference": case "ImportType": case "JSDocTypeLiteral":
+      return typeMetadata();
+    case "OmittedExpression": case "RegularExpressionLiteral": case "AsExpression": case "SatisfiesExpression":
+    case "ConditionalExpression": case "MetaProperty": case "NonNullExpression": case "TemplateExpression":
+    case "ParenthesizedExpression": case "DeleteExpression": case "TypeOfExpression": case "VoidExpression":
+    case "TypeAssertionExpression": case "PartiallyEmittedExpression": case "JsxElement": case "JsxAttributes":
+    case "JsxNamespacedName": case "JsxOpeningElement": case "JsxSelfClosingElement": case "JsxFragment":
+    case "JsxOpeningFragment": case "JsxClosingFragment": case "JsxExpression": case "JsxText": case "SyntheticReferenceExpression":
+      return expressionMetadata();
+    default: return null;
+  }
+}
+
+function checkedConstructorInputs(count, nullOptionals, reversed) {
+  return constructorInputs(count, nullOptionals, reversed).map(row => {
+    const node = structuredClone(row.node);
+    const nodes = [];
+    const pending = [node];
+    const seen = new Set();
+    for (const value of pending) {
+      if (value === null || typeof value !== "object" || seen.has(value)) continue;
+      seen.add(value);
+      if (Object.hasOwn(value, "tsonic") && Object.hasOwn(value, "origin")) nodes.push(value);
+      for (const [name, child] of Object.entries(value)) if (name !== "tsonic" && child !== null && typeof child === "object") pending.push(child);
+    }
+    for (const value of nodes) value.tsonic = constructorMetadata(value);
+    return node;
+  });
+}
+
+function constructorModule(node) {
+  const value = moduleWith();
+  const tagName = syntax("Identifier", 0, { text: "type", tsonic: nameMetadata() });
+  const tag = syntax("JSDocTypeTag", 0, { tagName, comment: null, typeExpression: node });
+  const type = syntax("JSDocTypeLiteral", 0, { jsDocPropertyTags: [tag], isArrayType: false, tsonic: typeMetadata() });
+  const name = syntax("Identifier", 0, { text: "Carrier", tsonic: nameMetadata() });
+  const declaration = syntax("TypeAliasDeclaration", 0, { modifiers: null, name, typeParameters: null, type,
+    tsonic: { ...declarationFacts(), definition: definitionIdentity, parameters: [], type: unavailable() } });
+  value.tree.statements.nodes.push(declaration);
+  return value;
+}
+
+test("HIR every genuinely checked syntax arm has a complete text roundtrip in its declared containing slot", () => {
+  for (const [count, nullOptionals, reversed] of [[0, true, false], [0, false, false], [1, false, false], [3, false, false], [3, false, true]])
+    for (const node of checkedConstructorInputs(count, nullOptionals, reversed))
+      roundtrip(immutableTree(constructorModule(node)), `checked text/${node.kind}/${count}/${nullOptionals}/${reversed}`);
+});
+
+function typedFixtureText(value) {
+  return JSON.stringify(value, (name, field) => typeof field === "bigint" ? { __positiveBigInt: String(field) } : field)
+    .replace(/\{"__positiveBigInt":"(-?\d+)"\}/gu, "$1n");
+}
+
 function numberSyntaxFixture(root) {
   const pending = [{ node: root, parent: null }];
   const seen = new Set();
@@ -1104,7 +1210,7 @@ test("HIR fresh actual declarations retain generic phases, all six ports and exa
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const positive = `import { childrenOfSyntax, indexSyntaxTree, parseHir, printHir, verifyHir, walkSyntaxTree } from "./ir-hir/index.js";
 import type { HirModule, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
-import type { ModuleId, NodeId } from "./ids/contract.js";
+import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import type { ComponentSelector, TypeComponent } from "./ir-types/contract.js";
 export function generic<P extends Phase>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
@@ -1129,7 +1235,10 @@ nodes.push(block); return block; }
 `;
   const constructors = constructorInputs(1, false, false).map(row => JSON.stringify(row.node)
     .replace(/"id":\d+/gu, '"id":nodeId').replaceAll(JSON.stringify(moduleIdentity), "moduleId")).join(",\n");
-  writeFileSync(resolve(stage, "positive.ts"), `${positive}\nexport function allConstructors(moduleId:ModuleId,nodeId:NodeId):readonly SyntaxNode<SyntaxPhase>[]{return [${constructors}];}\n`);
+  const checkedConstructors = checkedConstructorInputs(1, false, false).map(node => typedFixtureText(node)
+    .replace(/"id":\d+/gu, '"id":nodeId').replaceAll(JSON.stringify(bodyIdentity), "bodyId")
+    .replaceAll(JSON.stringify(definitionIdentity), "definitionId").replaceAll(JSON.stringify(moduleIdentity), "moduleId")).join(",\n");
+  writeFileSync(resolve(stage, "positive.ts"), `${positive}\nexport function allConstructors(moduleId:ModuleId,nodeId:NodeId):readonly SyntaxNode<SyntaxPhase>[]{return [${constructors}];}\nexport function allCheckedConstructors(moduleId:ModuleId,nodeId:NodeId,definitionId:DefId,bodyId:BodyId):readonly SyntaxNode<CheckedPhase>[]{return [${checkedConstructors}];}\n`);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const run = (name, files) => {
     writeFileSync(resolve(stage, name), JSON.stringify({ compilerOptions: {
@@ -1169,7 +1278,7 @@ nodes.push(block); return block; }
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));
-  assert.notEqual(refused.status, 0);
+  assert.equal(refused.status, 1, "the pinned compiler documents diagnostics with no output as exit status 1");
   const actual = [...refused.text.matchAll(/^(.+)\(\d+,\d+\): error TS(\d+):/gmu)]
     .map(match => [basename(match[1]), Number(match[2])]).sort(([left], [right]) => left.localeCompare(right));
   assert.deepStrictEqual(actual, negatives.map(([name, , code]) => [name, code]).sort(([left], [right]) => left.localeCompare(right)), refused.text);
@@ -1626,6 +1735,47 @@ test("HIR text grammar rejects complete independently authored field, value and 
   }
   const wrongPrefix = original.replace("module=mod:", "module=body:");
   assertInvalidText(wrongPrefix, wrongPrefix.indexOf("body:"), ["ModuleId"]);
+});
+
+test("HIR parser validates ordinary literal fields at the field and selects only declared union discriminants", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const [before, after, marker, expected, adjustment] of [
+    ["flags=[]", "flags=false", "flags=false", ["declared field value"], "flags=".length],
+    ["flags=[]", "flags=Record()", "flags=Record()", ["declared record"], "flags=".length],
+    ["pos=0", "pos=[]", "pos=[]", ["declared array"], "pos=".length],
+    ["id=n:0", "id=0", "id=0", ["n:identity"], "id=".length],
+  ]) {
+    const text = original.replace(before, after);
+    const offset = text.indexOf(marker) + adjustment;
+    assertInvalidText(text, offset, expected);
+  }
+  const value = expressionModule(nameExpression("role-owner"));
+  const text = product.printHir(immutableTree(value));
+  const frame = text.indexOf("CheckedName(");
+  const role = text.indexOf('role="value"', frame);
+  assert.equal(frame >= 0 && role > frame, true, "the discriminator belongs to the independently authored checked name");
+  const unknown = text.slice(0, role) + text.slice(role).replace('role="value"', 'role="Invented"');
+  assertInvalidText(unknown, role + "role=".length, ["declared field value"]);
+  const missing = text.slice(0, role) + text.slice(role).replace('role="value", ', "");
+  assertInvalidText(missing, missing.indexOf("value=CheckedValue(", frame), ["role"]);
+});
+
+test("HIR multi-field union refusal reports the actual family or operation rather than the enclosing Core record", () => {
+  const value = moduleWith();
+  value.tree.tsonic.core.pointerOperation = available({ family: "native-pointer", operation: "store", pointer: bodySource(0), value: bodySource(0) });
+  const text = product.printHir(immutableTree(value));
+  const frame = text.indexOf("HirPointerOperationCapture(");
+  assert.equal(frame >= 0, true);
+  for (const [before, after, field] of [
+    ['family="native-pointer"', 'family="Invented"', "family"],
+    ['operation="store"', 'operation="view"', "operation"],
+    ['operation="store"', 'operation="Invented"', "operation"],
+  ]) {
+    const start = text.indexOf(before, frame);
+    assert.equal(start > frame, true, "the selected field belongs to this exact operation record");
+    const invalid = text.slice(0, start) + text.slice(start).replace(before, after);
+    assertInvalidText(invalid, start + field.length + 1, ["declared field value"]);
+  }
 });
 
 test("HIR strings, quoted dictionary keys and host numbers roundtrip every declared scalar without normalization", () => {

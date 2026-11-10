@@ -1,6 +1,6 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type { ParseHir } from "./contract.js";
-import type { HirShape, HirShapeVisit } from "./verify-syntax.js";
+import type { HirSelectorFailure, HirShape, HirShapeVisit } from "./verify-syntax.js";
 import { isHirModuleValue, resolveHirShape } from "./verify-syntax.js";
 import { createHirSchema } from "./verify-captures.js";
 import { hirSyntaxArena } from "./walk.js";
@@ -389,34 +389,47 @@ export const parseHir: ParseHir = text => {
     const wire = task.wire;
     if (wire.kind === "scalar") {
       const selected = resolveHirShape(task.shape, wire.value, hirSchema);
-      if (selected !== null && typeof selected !== "string" && selected.kind === "identity")
+      if (selected !== null && selected.kind === "identity")
         reject(wire.offset, [`${selected.prefix}:identity`]);
       else task.put(wire.value);
       continue;
     }
     if (wire.kind === "identity") {
       const scalar = resolveHirShape(task.shape, wire.value, hirSchema);
-      if (scalar !== null && typeof scalar !== "string" && scalar.kind === "identity" && scalar.prefix === wire.prefix) {
+      if (scalar !== null && scalar.kind === "identity" && scalar.prefix === wire.prefix) {
         task.put(wire.value);
       } else {
         const target = wire.prefix === "n" && typeof wire.value === "number" ? arena.get(wire.value) : undefined;
         const shape = target === undefined ? null : resolveHirShape(task.shape, target, hirSchema);
-        if (shape !== null && typeof shape !== "string" && shape.kind === "record" && shape.syntax) task.put(target);
+        if (shape !== null && shape.kind === "record" && shape.syntax) task.put(target);
         else reject(wire.offset, [typeof task.shape === "string" ? task.shape : "declared identity"]);
       }
       continue;
     }
     if (wire.kind === "array") {
       const shape = resolveHirShape(task.shape, [], hirSchema);
-      if (shape === null || typeof shape === "string" || shape.kind !== "array") { reject(wire.offset, ["declared array"]); continue; }
+      if (shape === null || shape.kind !== "array") { reject(wire.offset, ["declared array"]); continue; }
       const values: unknown[] = [];
       containers.push(values);
       task.put(values);
       wire.values.forEach((element, ordinal) => schedule(element, shape.element, values, ordinal));
       continue;
     }
-    const shape = resolveHirShape(task.shape, textView(wire), hirSchema);
-    if (shape === null || typeof shape === "string" || (shape.kind !== "record" && shape.kind !== "dictionary") || shape.label !== wire.label) {
+    const mismatch: { value: HirSelectorFailure | null } = { value: null };
+    const shape = resolveHirShape(task.shape, textView(wire), hirSchema, value => { mismatch.value = value; });
+    if (shape === null && mismatch.value !== null && mismatch.value.field !== "kind") {
+      let ordinal = 0;
+      for (const [name] of mismatch.value.fields) {
+        if (name === "kind") continue;
+        const field = wire.fields[ordinal];
+        ordinal += 1;
+        if (field === undefined) { reject(wire.end, [name]); break; }
+        if (field.name !== name) { reject(field.offset, [name]); break; }
+        if (name === mismatch.value.field) { reject(field.value.offset, ["declared field value"]); break; }
+      }
+      continue;
+    }
+    if (shape === null || (shape.kind !== "record" && shape.kind !== "dictionary") || shape.label !== wire.label) {
       reject(wire.offset, [typeof task.shape === "string" ? task.shape : "declared record"]);
       continue;
     }
