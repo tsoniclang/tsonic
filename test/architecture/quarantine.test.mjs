@@ -387,6 +387,14 @@ test("S0 root-level source is in the same active scan", () => {
   });
 });
 
+test("S0 extensionless executable cannot name an archive", () => {
+  const path = "scripts/run-old";
+  mutate([path], () => {
+    write(path, Buffer.from(`#!/usr/bin/env node\nimport "../${referenceFile}";\n`), "executable");
+    check(expected("old-config-edge", path), "extensionless executable reference");
+  });
+});
+
 for (const path of ["scripts/x.json", "packages/host/tsconfig.build.json"]) {
   test(`S0 additional JSON configuration is scanned: ${path}`, () => mutate([path], () => {
     write(path, Buffer.from(JSON.stringify({ include: [referenceFile] })));

@@ -215,7 +215,7 @@ export function verifyQuarantine(deps, root) {
     if (entry.kind === "symlink") {
       if (forbidden(deps.bytes(root, path).toString("utf8"))) add("old-config-edge", path);
     } else if (!dataFiles.has(path) && ["regular", "executable"].includes(entry.kind)
-      && /\.(?:js|mjs|cjs|ts|mts|cts|sh|json|jsonc|yaml|yml|toml)$/u.test(path)) {
+      && !/\.(?:md|txt)$/u.test(path)) {
       if (textReferences(deps.bytes(root, path).toString("utf8"), path, forbidden)) add("old-config-edge", path);
     }
   }

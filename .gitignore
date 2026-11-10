@@ -48,7 +48,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Package artifacts
 *.tgz
 
-# Immutable source reference areas
-!/_old/
-!/_old/**
 .analysis/
