@@ -22,7 +22,7 @@ function closedValue(root) {
     const { value, exit } = pending.pop();
     if (exit) { active.delete(value); continue; }
     if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "bigint") continue;
-    if (typeof value === "number") { if (!Number.isFinite(value)) return false; continue; }
+    if (typeof value === "number") continue;
     if (typeof value !== "object" || active.has(value)) return false;
     const prototype = Object.getPrototypeOf(value);
     if (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return false;

@@ -1,0 +1,1 @@
+{"name":"body-identities","level":"function","rule":"All seven body roles, owner qualification and independent body ordinal","input":"test/host-cases/ids/function/body-identities.input.json","expected":"test/host-cases/ids/function/body-identities.expected.json"}

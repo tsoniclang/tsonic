@@ -1,0 +1,1 @@
+{"name":"module-identities","level":"function","rule":"Module package ownership and exact escaped relative path","input":"test/host-cases/ids/function/module-identities.input.json","expected":"test/host-cases/ids/function/module-identities.expected.json"}

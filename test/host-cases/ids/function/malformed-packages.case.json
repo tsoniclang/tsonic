@@ -1,0 +1,1 @@
+{"name":"malformed-packages","level":"function","rule":"Exact package syntax, noncanonical escapes, first invalid UTF16 offset and complete valid opposite","input":"test/host-cases/ids/function/malformed-packages.input.json","expected":"test/host-cases/ids/function/malformed-packages.expected.json"}
