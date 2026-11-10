@@ -1,7 +1,7 @@
 import type { SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
-import type { HirField, HirInventory, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
+import type { HirField, HirInventory, HirNodeEntry, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirArray, hirChoice, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, resolveHirShape, walkHirData, checkHirShape } from "./verify-syntax.js";
 
@@ -308,24 +308,32 @@ export function createHirSchema(): HirSchema {
 
 export interface HirCaptureReaders {
   readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
-  readonly referenceOf: (node: HirNode) => SourceNodeRef;
 }
 
 interface PlaceEntry {
-  readonly node: HirNode;
+  readonly owner: PlaceVertex;
   readonly place: HirStoragePlace;
 }
 
+interface PlaceVertex {
+  readonly entry: HirNodeEntry;
+  readonly targets: Set<PlaceVertex>;
+}
+
 interface PlaceVisit {
-  readonly node: HirNode;
+  readonly vertex: PlaceVertex;
   readonly leaving: boolean;
   readonly next: PlaceVisit | null;
 }
 
-export function verifyHirPlaces(inventory: HirInventory, readers: HirCaptureReaders, report: HirReport): void {
+export function verifyHirPlaces(inventory: HirInventory, report: HirReport): void {
   const entries: PlaceEntry[] = [];
-  const known = new Set<HirNode>();
-  const add = (node: HirNode, place: HirStoragePlace): void => { entries.push({ node, place }); known.add(node); };
+  const byNode = new Map<HirNode, HirStoragePlace[]>();
+  const add = (node: HirNode, place: HirStoragePlace): void => {
+    const previous = byNode.get(node);
+    if (previous === undefined) byNode.set(node, [place]);
+    else previous.push(place);
+  };
   for (const node of inventory.nodes) {
     const metadata = node.tsonic;
     if (metadata === null) continue;
@@ -337,48 +345,55 @@ export function verifyHirPlaces(inventory: HirInventory, readers: HirCaptureRead
     if ((node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") &&
       node.tsonic.role === "update" && node.tsonic.target.kind === "available") add(node.operand, node.tsonic.target.value);
   }
-  const edges = new Map<HirNode, Set<HirNode>>();
+  const known = new Map<HirNode, PlaceVertex>();
+  for (const entry of inventory.entries) {
+    const places = byNode.get(entry.node);
+    if (places === undefined) continue;
+    const owner: PlaceVertex = { entry, targets: new Set() };
+    known.set(entry.node, owner);
+    for (const place of places) entries.push({ owner, place });
+  }
   for (const entry of entries) {
-    const site: HirSite = { kind: "node", node: readers.referenceOf(entry.node) };
+    const node = entry.owner.entry.node;
+    const site: HirSite = { kind: "node", node: entry.owner.entry.source };
     if (entry.place.base.kind === "root") {
-      if (entry.node.kind === "PropertyAccessExpression" || entry.node.kind === "ElementAccessExpression")
+      if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression")
         report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
       continue;
     }
     const target = inventory.nodesById.get(entry.place.base.node);
-    const owner = inventory.owners.get(entry.node);
-    if (target === undefined || !known.has(target) || owner === undefined || inventory.owners.get(target) !== owner) {
+    const targetPlace = target === undefined ? undefined : known.get(target);
+    const owner = entry.owner.entry.body;
+    if (targetPlace === undefined || owner === null || targetPlace.entry.body !== owner) {
       report("place-base-acyclic", site, "place base must name an actual place in the same body and end at a root");
     } else {
-      const previous = edges.get(entry.node);
-      if (previous === undefined) edges.set(entry.node, new Set([target]));
-      else previous.add(target);
+      entry.owner.targets.add(targetPlace);
     }
-    if (entry.node.kind === "PropertyAccessExpression" || entry.node.kind === "ElementAccessExpression") {
-      const start = inventory.starts.get(entry.node.expression);
-      const end = inventory.ends.get(entry.node.expression);
-      const position = target === undefined ? undefined : inventory.starts.get(target);
+    if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
+      const start = inventory.starts.get(node.expression);
+      const end = inventory.ends.get(node.expression);
+      const position = targetPlace === undefined ? undefined : targetPlace.entry.ordinal;
       if (start === undefined || end === undefined || position === undefined || position < start || position >= end)
         report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
     }
   }
-  const colors = new Map<HirNode, "active" | "complete">();
-  for (const root of known) {
+  const colors = new Map<PlaceVertex, "active" | "complete">();
+  for (const root of known.values()) {
     if (colors.has(root)) continue;
-    let pending: PlaceVisit | null = { node: root, leaving: false, next: null };
+    let pending: PlaceVisit | null = { vertex: root, leaving: false, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
-      if (frame.leaving) { colors.set(frame.node, "complete"); continue; }
-      const previous = colors.get(frame.node);
+      if (frame.leaving) { colors.set(frame.vertex, "complete"); continue; }
+      const previous = colors.get(frame.vertex);
       if (previous === "complete") continue;
       if (previous === "active") {
-        report("place-base-acyclic", { kind: "node", node: readers.referenceOf(frame.node) }, "place base chain must not revisit a place");
+        report("place-base-acyclic", { kind: "node", node: frame.vertex.entry.source }, "place base chain must not revisit a place");
         continue;
       }
-      colors.set(frame.node, "active");
-      pending = { node: frame.node, leaving: true, next: pending };
-      for (const node of edges.get(frame.node) ?? []) pending = { node, leaving: false, next: pending };
+      colors.set(frame.vertex, "active");
+      pending = { vertex: frame.vertex, leaving: true, next: pending };
+      for (const vertex of frame.vertex.targets) pending = { vertex, leaving: false, next: pending };
     }
   }
 }
@@ -507,14 +522,15 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, si
   }
 }
 
-export function verifyHirCaptures(nodes: readonly HirNode[], readers: HirCaptureReaders, report: HirReport,
+export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCaptureReaders, report: HirReport,
   hirSchema: HirSchema, bindings: HirBindingRequest[]): void {
   const entries: CaptureEntry[] = [];
   const observations: { readonly value: HirObservationCapture; readonly node: HirNode; readonly site: HirSite }[] = [];
-  for (const node of nodes) {
+  for (const entry of nodes) {
+    const node = entry.node;
     const metadata = node.tsonic;
     if (metadata === null) continue;
-    const site: HirSite = { kind: "node", node: readers.referenceOf(node) };
+    const site: HirSite = { kind: "node", node: entry.source };
     const value = "value" in metadata ? metadata.value : metadata;
     const memory = "memory" in value ? value.memory : null;
     if (memory !== null && memory.kind === "available" && memory.value !== null) {

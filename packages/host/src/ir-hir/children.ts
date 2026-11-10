@@ -1,33 +1,6 @@
-import type {
-  ChildrenOfSyntax, Phase, SyntaxNode, NodeList, Token, Identifier,
-  PrivateIdentifier, EmptyStatement, DebuggerStatement, NotEmittedStatement,
-  NotEmittedTypeElement, SemicolonClassElement, OmittedExpression,
-  KeywordExpression, StringLiteral, NumericLiteral, BigIntLiteral,
-  RegularExpressionLiteral, NoSubstitutionTemplateLiteral, KeywordTypeNode,
-  ThisTypeNode, TemplateHead, TemplateMiddle, TemplateTail, JsxText,
-  JsxOpeningFragment, JsxClosingFragment, JSDocAllType, JSDocText,
-} from "./contract.js";
-
-type Childless<PhaseType extends Phase> =
-  | Token<PhaseType> | Identifier<PhaseType> | PrivateIdentifier<PhaseType>
-  | EmptyStatement<PhaseType> | DebuggerStatement<PhaseType>
-  | NotEmittedStatement<PhaseType> | NotEmittedTypeElement<PhaseType>
-  | SemicolonClassElement<PhaseType> | OmittedExpression<PhaseType>
-  | KeywordExpression<PhaseType> | StringLiteral<PhaseType>
-  | NumericLiteral<PhaseType> | BigIntLiteral<PhaseType>
-  | RegularExpressionLiteral<PhaseType> | NoSubstitutionTemplateLiteral<PhaseType>
-  | KeywordTypeNode<PhaseType> | ThisTypeNode<PhaseType>
-  | TemplateHead<PhaseType> | TemplateMiddle<PhaseType> | TemplateTail<PhaseType>
-  | JsxText<PhaseType> | JsxOpeningFragment<PhaseType>
-  | JsxClosingFragment<PhaseType> | JSDocAllType<PhaseType> | JSDocText<PhaseType>;
+import type { ChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.js";
 
 const emptyChildren: readonly never[] = Object.freeze([]);
-
-function childless<PhaseType extends Phase>(
-  _node: Childless<PhaseType>,
-): readonly SyntaxNode<PhaseType>[] {
-  return emptyChildren;
-}
 
 function children<PhaseType extends Phase>(
   ...parts: readonly (SyntaxNode<PhaseType> | NodeList<SyntaxNode<PhaseType>> | null)[]
@@ -338,7 +311,184 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "JSDocParameterTag":
     case "JSDocPropertyTag":
       return children<PhaseType>(node.tagName, node.name, node.typeExpression, node.comment);
-    default:
-      return childless<PhaseType>(node);
+    case "AnyKeyword":
+    case "BigIntKeyword":
+    case "BooleanKeyword":
+    case "IntrinsicKeyword":
+    case "NeverKeyword":
+    case "NumberKeyword":
+    case "ObjectKeyword":
+    case "StringKeyword":
+    case "SymbolKeyword":
+    case "UndefinedKeyword":
+    case "UnknownKeyword":
+    case "VoidKeyword":
+    case "NullKeyword":
+    case "TrueKeyword":
+    case "FalseKeyword":
+    case "ThisKeyword":
+    case "SuperKeyword":
+    case "ImportKeyword":
+    case "Unknown":
+    case "EndOfFile":
+    case "SingleLineCommentTrivia":
+    case "MultiLineCommentTrivia":
+    case "NewLineTrivia":
+    case "WhitespaceTrivia":
+    case "ConflictMarkerTrivia":
+    case "NonTextFileMarkerTrivia":
+    case "JsxTextAllWhiteSpaces":
+    case "OpenBraceToken":
+    case "CloseBraceToken":
+    case "OpenParenToken":
+    case "CloseParenToken":
+    case "OpenBracketToken":
+    case "CloseBracketToken":
+    case "DotToken":
+    case "DotDotDotToken":
+    case "SemicolonToken":
+    case "CommaToken":
+    case "QuestionDotToken":
+    case "LessThanToken":
+    case "LessThanSlashToken":
+    case "GreaterThanToken":
+    case "LessThanEqualsToken":
+    case "GreaterThanEqualsToken":
+    case "EqualsEqualsToken":
+    case "ExclamationEqualsToken":
+    case "EqualsEqualsEqualsToken":
+    case "ExclamationEqualsEqualsToken":
+    case "EqualsGreaterThanToken":
+    case "PlusToken":
+    case "MinusToken":
+    case "AsteriskToken":
+    case "AsteriskAsteriskToken":
+    case "SlashToken":
+    case "PercentToken":
+    case "PlusPlusToken":
+    case "MinusMinusToken":
+    case "LessThanLessThanToken":
+    case "GreaterThanGreaterThanToken":
+    case "GreaterThanGreaterThanGreaterThanToken":
+    case "AmpersandToken":
+    case "BarToken":
+    case "CaretToken":
+    case "ExclamationToken":
+    case "TildeToken":
+    case "AmpersandAmpersandToken":
+    case "BarBarToken":
+    case "QuestionToken":
+    case "ColonToken":
+    case "AtToken":
+    case "QuestionQuestionToken":
+    case "BacktickToken":
+    case "HashToken":
+    case "EqualsToken":
+    case "PlusEqualsToken":
+    case "MinusEqualsToken":
+    case "AsteriskEqualsToken":
+    case "AsteriskAsteriskEqualsToken":
+    case "SlashEqualsToken":
+    case "PercentEqualsToken":
+    case "LessThanLessThanEqualsToken":
+    case "GreaterThanGreaterThanEqualsToken":
+    case "GreaterThanGreaterThanGreaterThanEqualsToken":
+    case "AmpersandEqualsToken":
+    case "BarEqualsToken":
+    case "BarBarEqualsToken":
+    case "AmpersandAmpersandEqualsToken":
+    case "QuestionQuestionEqualsToken":
+    case "CaretEqualsToken":
+    case "JSDocCommentTextToken":
+    case "BreakKeyword":
+    case "CaseKeyword":
+    case "CatchKeyword":
+    case "ClassKeyword":
+    case "ConstKeyword":
+    case "ContinueKeyword":
+    case "DebuggerKeyword":
+    case "DefaultKeyword":
+    case "DeleteKeyword":
+    case "DoKeyword":
+    case "ElseKeyword":
+    case "EnumKeyword":
+    case "ExportKeyword":
+    case "ExtendsKeyword":
+    case "FinallyKeyword":
+    case "ForKeyword":
+    case "FunctionKeyword":
+    case "IfKeyword":
+    case "InKeyword":
+    case "InstanceOfKeyword":
+    case "NewKeyword":
+    case "ReturnKeyword":
+    case "SwitchKeyword":
+    case "ThrowKeyword":
+    case "TryKeyword":
+    case "TypeOfKeyword":
+    case "VarKeyword":
+    case "WhileKeyword":
+    case "WithKeyword":
+    case "ImplementsKeyword":
+    case "InterfaceKeyword":
+    case "LetKeyword":
+    case "PackageKeyword":
+    case "PrivateKeyword":
+    case "ProtectedKeyword":
+    case "PublicKeyword":
+    case "StaticKeyword":
+    case "YieldKeyword":
+    case "AbstractKeyword":
+    case "AccessorKeyword":
+    case "AsKeyword":
+    case "AssertsKeyword":
+    case "AssertKeyword":
+    case "AsyncKeyword":
+    case "AwaitKeyword":
+    case "ConstructorKeyword":
+    case "DeclareKeyword":
+    case "GetKeyword":
+    case "ImmediateKeyword":
+    case "InferKeyword":
+    case "IsKeyword":
+    case "KeyOfKeyword":
+    case "ModuleKeyword":
+    case "NamespaceKeyword":
+    case "OutKeyword":
+    case "ReadonlyKeyword":
+    case "RequireKeyword":
+    case "SatisfiesKeyword":
+    case "SetKeyword":
+    case "TypeKeyword":
+    case "UniqueKeyword":
+    case "UsingKeyword":
+    case "FromKeyword":
+    case "GlobalKeyword":
+    case "OverrideKeyword":
+    case "OfKeyword":
+    case "DeferKeyword":
+    case "Identifier":
+    case "PrivateIdentifier":
+    case "EmptyStatement":
+    case "DebuggerStatement":
+    case "NotEmittedStatement":
+    case "NotEmittedTypeElement":
+    case "SemicolonClassElement":
+    case "OmittedExpression":
+    case "StringLiteral":
+    case "NumericLiteral":
+    case "BigIntLiteral":
+    case "RegularExpressionLiteral":
+    case "NoSubstitutionTemplateLiteral":
+    case "ThisType":
+    case "TemplateHead":
+    case "TemplateMiddle":
+    case "TemplateTail":
+    case "JsxText":
+    case "JsxOpeningFragment":
+    case "JsxClosingFragment":
+    case "JSDocAllType":
+    case "JSDocText":
+      return emptyChildren;
   }
 };

@@ -3,26 +3,25 @@ import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue, MemberKey } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId } from "../ids/index.js";
 import type { DeclarationKind, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, VerifyHir } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
+import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, hirArray, walkHirData } from "./verify-syntax.js";
-import { hirLexicalBodyRanges, localSourceNode, sourceNodeExists, sourceNodeOf, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeOf, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
 import { childrenOfSyntax } from "./children.js";
 
-interface NodeFrame {
-  readonly node: HirNode;
-  readonly parent: HirNode | null;
-  readonly body: HirBody | null;
-  readonly item: DefId;
-  readonly leaving: boolean;
-  readonly next: NodeFrame | null;
-}
+type NodeFrame = (
+  | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null }
+  | { readonly kind: "leave"; readonly entry: HirNodeEntry }
+) & { readonly next: NodeFrame | null };
 
 export function createHirInventory(module: HirModule): HirInventory {
   const nodes: HirNode[] = [];
+  const entries: HirNodeEntry[] = [];
+  const entriesByNode = new Map<HirNode, HirNodeEntry>();
   const nodesById = new Map<number, HirNode>();
+  const entriesById = new Map<number, HirNodeEntry>();
   const starts = new Map<HirNode, number>();
   const ends = new Map<HirNode, number>();
   const parents = new Map<HirNode, HirNode | null>();
@@ -33,47 +32,56 @@ export function createHirInventory(module: HirModule): HirInventory {
   const bodies = new Map<BodyId, HirBody>();
   const roots = new Map<HirNode, HirBody>();
   const bodyParents = new Map<HirBody, HirBody | null>();
-  const repeated: HirNode[] = [];
+  const repeated: HirNodeEntry[] = [];
   for (const body of module.bodies) {
     if (!bodies.has(body.body)) bodies.set(body.body, body);
     if (!roots.has(body.root)) roots.set(body.root, body);
   }
-  let pending: NodeFrame | null = { node: module.tree, parent: null, body: null,
-    item: module.tree.tsonic.definition, leaving: false, next: null };
+  let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, next: null };
   while (pending !== null) {
     const frame = pending;
     pending = pending.next;
-    if (frame.leaving) { ends.set(frame.node, nodes.length); continue; }
-    if (starts.has(frame.node)) { repeated.push(frame.node); continue; }
+    if (frame.kind === "leave") {
+      frame.entry.end = nodes.length;
+      ends.set(frame.entry.node, nodes.length);
+      const parent = frame.entry.parent;
+      if (parent !== null && parent.body === frame.entry.body) {
+        parent.required[0] += frame.entry.required[0];
+        parent.required[1] += frame.entry.required[1];
+        parent.required[2] += frame.entry.required[2];
+      }
+      continue;
+    }
+    const previous = entriesByNode.get(frame.node);
+    if (previous !== undefined) { repeated.push(previous); continue; }
     const declaredBody = roots.get(frame.node);
-    const body = declaredBody ?? frame.body;
-    const item = itemDefinitions.get(frame.node.id) ?? frame.item;
-    if (declaredBody !== undefined) bodyParents.set(declaredBody, frame.body);
+    const inheritedBody = frame.parent === null ? null : frame.parent.body;
+    const body = declaredBody ?? inheritedBody;
+    const item = itemDefinitions.get(frame.node.id) ?? (frame.parent === null ? module.tree.tsonic.definition : frame.parent.item);
+    if (declaredBody !== undefined) bodyParents.set(declaredBody, inheritedBody);
+    const entry: HirNodeEntry = { node: frame.node, ordinal: nodes.length, parent: frame.parent, body, item,
+      source: body === null ? { kind: "item", value: { owner: item, node: frame.node.id } } :
+        { kind: "body", value: { body: body.body, node: frame.node.id } }, end: nodes.length,
+      required: [Number(writeFitOf(frame.node) !== null), Number(operationOf(frame.node) !== null),
+        Number(frame.node.kind === "ElementAccessExpression")] };
+    entriesByNode.set(frame.node, entry);
+    entries.push(entry);
     starts.set(frame.node, nodes.length);
-    parents.set(frame.node, frame.parent);
+    parents.set(frame.node, frame.parent === null ? null : frame.parent.node);
     itemOwners.set(frame.node, item);
     nodes.push(frame.node);
-    if (!nodesById.has(frame.node.id)) nodesById.set(frame.node.id, frame.node);
+    if (!nodesById.has(frame.node.id)) {
+      nodesById.set(frame.node.id, frame.node);
+      entriesById.set(frame.node.id, entry);
+    }
     if (body !== null) owners.set(frame.node, body);
-    const following: NodeFrame = { ...frame, leaving: true, next: pending };
+    const following: NodeFrame = { kind: "leave", entry, next: pending };
     pending = childrenOfSyntax(frame.node).reduceRight<NodeFrame | null>((next, node) => ({
-      node, parent: frame.node, body, item, leaving: false, next,
+      kind: "enter", node, parent: entry, next,
     }), following);
   }
-  return { nodes: Object.freeze(nodes), nodesById, starts, ends, parents, owners, itemOwners, bodies, bodyParents,
+  return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, starts, ends, parents, owners, itemOwners, bodies, bodyParents,
     repeated: Object.freeze(repeated) };
-}
-
-export function hirNodeSource(node: HirNode, inventory: HirInventory, module: HirModule): SourceNodeRef {
-  const body = inventory.owners.get(node);
-  if (body !== undefined) return { kind: "body", value: { body: body.body, node: node.id } };
-  const owner = inventory.itemOwners.get(node);
-  if (owner === undefined) throw new TypeError(`Node ${String(node.id)} is not in the syntax inventory of ${module.module}.`);
-  return { kind: "item", value: { owner, node: node.id } };
-}
-
-function nodeSite(node: HirNode, inventory: HirInventory, module: HirModule): HirSite {
-  return { kind: "node", node: hirNodeSource(node, inventory, module) };
 }
 
 export function containsHirNode(outer: HirNode, inner: HirNode, inventory: HirInventory): boolean {
@@ -90,25 +98,24 @@ function validRange(start: number, end: number): boolean {
 }
 
 function syntaxViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
-  inventory.nodes.forEach((node, ordinal) => {
-    const site = nodeSite(node, inventory, module);
+  inventory.entries.forEach(entry => {
+    const { node, ordinal, parent, body } = entry;
+    const site: HirSite = { kind: "node", node: entry.source };
     if (!Object.is(node.id, ordinal)) report("node-dense-preorder", site, "id must equal module preorder position");
-    const parent = inventory.parents.get(node);
-    if (!Object.is(node.parent, parent?.id ?? null)) report("lexical-parent", site, "parent must be the actual syntactic parent");
+    if (!Object.is(node.parent, parent === null ? null : parent.node.id)) report("lexical-parent", site, "parent must be the actual syntactic parent");
     if (node.origin.module !== module.module) report("module-owner", site, "origin must name this module");
     if (!validRange(node.loc.pos, node.loc.end)) report("origin-range", site, "invalid syntax range");
     if (!validRange(node.origin.start, node.origin.start + node.origin.length) || node.origin.length < 0 || Object.is(node.origin.length, -0))
       report("origin-range", site, "invalid origin range");
-    const body = inventory.owners.get(node);
-    if (body !== undefined && (node.loc.pos < body.root.loc.pos || node.loc.end > body.root.loc.end))
+    if (body !== null && (node.loc.pos < body.root.loc.pos || node.loc.end > body.root.loc.end))
       report("node-in-body-range", site, "syntax must remain inside its body root range");
     if (node.kind === "LiteralType" && node.literal.kind === "PrefixUnaryExpression" &&
       ((node.literal.operator !== "PlusToken" && node.literal.operator !== "MinusToken") ||
         (node.literal.operand.kind !== "NumericLiteral" && node.literal.operand.kind !== "BigIntLiteral")))
       report("literal-type-child", site, "literal unary child requires a numeric literal and unary plus or minus");
   });
-  for (const node of inventory.repeated)
-    report("node-dense-preorder", nodeSite(node, inventory, module), "syntax node occurs more than once");
+  for (const entry of inventory.repeated)
+    report("node-dense-preorder", { kind: "node", node: entry.source }, "syntax node occurs more than once");
 }
 
 function declarationViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
@@ -263,8 +270,8 @@ function verificationRoots(module: HirModule, inventory: HirInventory): readonly
     { value: module.checkerDiagnostics, shape: hirArray("Diagnostic"), site: moduleSite, node: null, body: null },
     { value: module.obligations, shape: hirArray("HirDiagnosticRoot"), site: moduleSite, node: null, body: null },
   ];
-  for (const node of inventory.nodes) roots.push({ value: node, shape: "SyntaxNode",
-    site: nodeSite(node, inventory, module), node, body: inventory.owners.get(node) ?? null });
+  for (const entry of inventory.entries) roots.push({ value: entry.node, shape: "SyntaxNode",
+    site: { kind: "node", node: entry.source }, node: entry.node, body: entry.body });
   for (const body of module.bodies) roots.push({ value: body, shape: "HirBody",
     site: { kind: "body", body: body.body }, node: null, body });
   return roots;
@@ -296,9 +303,10 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
         report("contribution-parameter", site, "contribution must name an actual candidate type parameter");
     }
   }
-  for (const node of inventory.nodes) {
+  for (const entry of inventory.entries) {
+    const node = entry.node;
     const metadata = node.tsonic;
-    const site = nodeSite(node, inventory, module);
+    const site: HirSite = { kind: "node", node: entry.source };
     if (metadata !== null && "body" in metadata && metadata.body !== null) {
       const body = inventory.bodies.get(metadata.body);
       const root = node.kind === "SourceFile" ? node : "body" in node ? node.body : null;
@@ -400,32 +408,13 @@ function writeFitOf(node: HirNode): HirWriteFit | null {
 function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
   const moduleSite: HirSite = { kind: "module", module: module.module };
   const seen = new Set<number>();
-  const operations: (HirOperation | null)[] = [];
-  const counts = inventory.nodes.map<[number, number, number]>(node => {
-    const operation = operationOf(node);
-    operations.push(operation);
-    return [Number(writeFitOf(node) !== null), Number(operation !== null), Number(node.kind === "ElementAccessExpression")];
-  });
-  for (let ordinal = inventory.nodes.length - 1; ordinal >= 0; ordinal -= 1) {
-    const node = inventory.nodes[ordinal];
-    const row = counts[ordinal];
-    if (node === undefined || row === undefined) continue;
-    const parent = inventory.parents.get(node);
-    if (parent === undefined || parent === null || inventory.owners.get(parent) !== inventory.owners.get(node)) continue;
-    const position = inventory.starts.get(parent);
-    const target = position === undefined ? undefined : counts[position];
-    if (target !== undefined) {
-      target[0] += row[0];
-      target[1] += row[1];
-      target[2] += row[2];
-    }
-  }
   for (const root of module.obligations) {
     const site: HirSite = { kind: "node", node: root.owner };
     if (!validHirIndex(root.diagnostic) || module.checkerDiagnostics[root.diagnostic] === undefined || seen.has(root.diagnostic))
       report("diagnostic-reference", site, "diagnostic root must name one existing diagnostic");
     seen.add(root.diagnostic);
-    const owner = localSourceNode(root.owner, module, inventory);
+    const ownerEntry = localSourceEntry(root.owner, module, inventory);
+    const owner = ownerEntry === null ? null : ownerEntry.node;
     const actualOwner = owner !== null;
     if (!actualOwner)
       report("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module");
@@ -445,9 +434,8 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       if (!associated)
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
       if (obligation.kind === "operator" && occurrence !== undefined) {
-        const position = inventory.starts.get(occurrence);
-        const operation = position === undefined ? null : operations[position];
-        if (operation === null || operation === undefined || obligation.operator !== operation.operator ||
+        const operation = operationOf(occurrence);
+        if (operation === null || obligation.operator !== operation.operator ||
           obligation.operands.length !== operation.operands.length || obligation.operands.some((operand, index) =>
             operand.body !== obligation.occurrence.body || operand.node !== operation.operands[index]))
           report("obligation-complete", site, "operator obligation must retain all actual operands in order");
@@ -471,14 +459,9 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
           report("obligation-complete", site, "write-fit value must belong to its actual occurrence subtree");
       }
     });
-    if (owner !== null && root.obligations.length > 0) {
-      const start = inventory.starts.get(owner);
-      if (start !== undefined) {
-        const required = counts[start];
-        if (required !== undefined && present.some((values, column) => values.size < (required[column] ?? 0)))
-          report("obligation-complete", site, "root must retain each syntactically required obligation");
-      }
-    }
+    if (ownerEntry !== null && root.obligations.length > 0 &&
+      (present[0].size < ownerEntry.required[0] || present[1].size < ownerEntry.required[1] || present[2].size < ownerEntry.required[2]))
+      report("obligation-complete", site, "root must retain each syntactically required obligation");
   }
   for (const diagnostic of module.checkerDiagnostics) if (diagnostic.site.kind === "source" &&
     !validRange(diagnostic.site.origin.start, diagnostic.site.origin.start + diagnostic.site.origin.length))
@@ -557,11 +540,12 @@ function memberKeyValue(value: unknown, schema: HirSchema): value is MemberKey {
 
 function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport,
   roots: readonly HirDataRoot[], schema: HirSchema): void {
-  for (const node of inventory.nodes) {
+  for (const entry of inventory.entries) {
+    const node = entry.node;
     const metadata = node.tsonic;
     if (metadata === null || !("literal" in metadata)) continue;
     const literal = metadata.literal;
-    const site = nodeSite(node, inventory, module);
+    const site: HirSite = { kind: "node", node: entry.source };
     if (!literalMatches(literal)) report("literal-exact", site, "literal must preserve its normalized exact authored value");
     if (node.kind === "NumericLiteral" && literal.kind !== "number" ||
       node.kind === "BigIntLiteral" && literal.kind !== "bigint" ||
@@ -603,10 +587,9 @@ export const verifyHir: VerifyHir = (module, context) => {
   obligationViolations(module, inventory, context, report);
   const readers: HirCaptureReaders = {
     nodeOf: reference => sourceNodeOf(reference, module, inventory, context),
-    referenceOf: node => hirNodeSource(node, inventory, module),
   };
-  verifyHirCaptures(inventory.nodes, readers, report, hirSchema, requests);
-  verifyHirPlaces(inventory, readers, report);
+  verifyHirCaptures(inventory.entries, readers, report, hirSchema, requests);
+  verifyHirPlaces(inventory, report);
   violations.push(...verifyBindingVectors(requests, context, readers.nodeOf));
   return Object.freeze(violations);
 };

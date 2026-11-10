@@ -1591,9 +1591,41 @@ test("HIR lexical failures retain UTF16 offsets for strings, escapes, delimiters
     ["n:-0=SourceFile()", "-0", 0, ["nonnegative wire position"]],
     ["n:0.5=SourceFile()", "0.5", 0, ["nonnegative wire position"]],
     ["n:NaN=SourceFile()", "NaN", 0, ["nonnegative wire position"]],
+    ["n:-1=SourceFile()", "-1", 0, ["nonnegative wire position"]],
+    ["n:+Infinity=SourceFile()", "+Infinity", 0, ["nonnegative wire position"]],
+    ["n:-Infinity=SourceFile()", "-Infinity", 0, ["nonnegative wire position"]],
+    ["n:9007199254740992=SourceFile()", "9007199254740992", 0, ["nonnegative wire position"]],
+    ["n:0n=SourceFile()", "0n", 0, ["nonnegative wire position"]],
     ["n:0 SourceFile()", " SourceFile", 1, ["="]],
     ["HirModule(module 0)", "0", 0, ["="]],
   ]) assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+});
+
+test("HIR text grammar rejects complete independently authored field, value and separator failures", () => {
+  const cases = [
+    ['HirModule(module=mod:"x", module=mod:"x")', 'module=mod:"x")', ["distinct field"]],
+    ["HirModule() HirModule()", " HirModule()", ["newline"], 1],
+    ['HirModule(module=mod:"x"tree=n:0)', "tree=n:0", [",", ")"]],
+    ["HirModule(module=mod:1n)", "1n", ["number identity"]],
+    ["HirModule(module=[,])", ",]", ["identifier"]],
+    ["HirModule(module=[0,])", "]", ["identifier"]],
+    ["HirModule(module=0x10)", "0x10", ["canonical finite number"]],
+    ["HirModule(module=01)", "01", ["canonical finite number"]],
+    ["HirModule(module=1.0)", "1.0", ["canonical finite number"]],
+    ["HirModule(module=1e999)", "1e999", ["canonical finite number"]],
+    ["HirModule(module=+1)", "+1", ["canonical finite number"]],
+    ["HirModule(module=1e+1)", "1e+1", ["canonical finite number"]],
+  ];
+  for (const [text, marker, expected, adjustment = 0] of cases)
+    assertInvalidText(text, text.indexOf(marker) + adjustment, expected);
+  for (const text of ["true", "false", "null", "0", '"text"']) assertInvalidText(text, 0, ["record"]);
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const replacement of ['flags=[null]', 'flags=["Invented"]']) {
+    const text = original.replace("flags=[]", replacement);
+    assertInvalidText(text, text.indexOf(replacement) + "flags=[".length, ["SyntaxFlag"]);
+  }
+  const wrongPrefix = original.replace("module=mod:", "module=body:");
+  assertInvalidText(wrongPrefix, wrongPrefix.indexOf("body:"), ["ModuleId"]);
 });
 
 test("HIR strings, quoted dictionary keys and host numbers roundtrip every declared scalar without normalization", () => {

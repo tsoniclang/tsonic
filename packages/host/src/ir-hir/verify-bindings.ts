@@ -4,7 +4,7 @@ import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/ind
 import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
-import type { HirDataRoot, HirInventory, HirReport, HirSchema } from "./verify-syntax.js";
+import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport, HirSchema } from "./verify-syntax.js";
 import { checkHirShape, isHirObject, walkHirData } from "./verify-syntax.js";
 
 export type HirBindingRequest = {
@@ -27,7 +27,12 @@ function bindingRule(rule: TypeRule): HirRule {
     case "type-reference": return "type-reference";
     case "signature-reference": return "signature-reference";
     case "cross-owner-qualified": return "cross-owner-qualified";
-    default: return "binding-vector-complete";
+    case "nominal-definition": case "union-order": case "intersection-order": case "member-order":
+    case "member-origins": case "index-order": case "signature-order": case "parameter-order":
+    case "parameter-identity": case "binding-vector-complete": case "tuple-rest-order":
+    case "rational-normalized": case "literal-value-exact": case "extent-exact":
+    case "construction-captures-qualified": case "self-owner": case "self-binding-order":
+    case "projection-owner": case "sum-arm-order": case "evidence-type": return "binding-vector-complete";
   }
 }
 
@@ -122,26 +127,30 @@ export function localExists(reference: LocalRef, module: HirModule,
 }
 
 export function localSourceNode(reference: SourceNodeRef, module: HirModule, inventory: HirInventory): HirNode | null {
+  const entry = localSourceEntry(reference, module, inventory);
+  return entry === null ? null : entry.node;
+}
+
+export function localSourceEntry(reference: SourceNodeRef, module: HirModule, inventory: HirInventory): HirNodeEntry | null {
   const body = reference.kind === "body" ? decodeBodyId(reference.value.body) : null;
   const definition = reference.kind === "item" ? reference.value.owner : body?.kind === "decoded" ? body.value.owner : null;
   if (definition === null) return null;
   const path = decodeDefId(definition);
   if (path.kind === "invalid" || path.value.module !== module.module || !validHirIndex(reference.value.node)) return null;
-  const node = inventory.nodesById.get(reference.value.node);
-  if (node === undefined) return null;
+  const entry = inventory.entriesById.get(reference.value.node);
+  if (entry === undefined) return null;
   if (reference.kind === "body") {
     const owner = inventory.bodies.get(reference.value.body);
-    return owner !== undefined && inventory.owners.get(node) === owner ? node : null;
+    return owner !== undefined && entry.body === owner ? entry : null;
   }
-  return inventory.itemOwners.get(node) === reference.value.owner ? node : null;
+  return entry.item === reference.value.owner ? entry : null;
 }
 
 interface BodyScopeRange { readonly start: number; readonly end: number }
-interface BodyScopeVisit {
-  readonly body: HirBody;
-  readonly leaving: boolean;
-  readonly next: BodyScopeVisit | null;
-}
+type BodyScopeVisit = (
+  | { readonly kind: "enter"; readonly body: HirBody }
+  | { readonly kind: "leave"; readonly range: { start: number; end: number } }
+) & { readonly next: BodyScopeVisit | null };
 
 export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory): ReadonlyMap<HirBody, BodyScopeRange> {
   const declarations = new Map<DefId, HirNode>();
@@ -186,20 +195,20 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
   const roots = [...(children.get(null) ?? []), ...module.bodies];
   for (const root of roots) {
     if (ranges.has(root)) continue;
-    let pending: BodyScopeVisit | null = { body: root, leaving: false, next: null };
+    let pending: BodyScopeVisit | null = { kind: "enter", body: root, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
-      if (frame.leaving) {
-        const range = ranges.get(frame.body);
-        if (range !== undefined) range.end = ordinal;
+      if (frame.kind === "leave") {
+        frame.range.end = ordinal;
         continue;
       }
       if (ranges.has(frame.body)) continue;
-      ranges.set(frame.body, { start: ordinal, end: ordinal });
+      const range = { start: ordinal, end: ordinal };
+      ranges.set(frame.body, range);
       ordinal += 1;
-      pending = { body: frame.body, leaving: true, next: pending };
-      for (const body of children.get(frame.body) ?? []) pending = { body, leaving: false, next: pending };
+      pending = { kind: "leave", range, next: pending };
+      for (const body of children.get(frame.body) ?? []) pending = { kind: "enter", body, next: pending };
     }
   }
   return ranges;
