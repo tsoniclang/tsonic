@@ -1,5 +1,5 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, NodeRef } from "../ids/contract.js";
+import type { DefId, KeyData, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
@@ -9,7 +9,8 @@ import type {
 } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type {
-  EscapeTarget, FactsRule, FactsSite, FactsVerificationContext, RelationalArena, RelationalOwner, RelationalSite,
+  BodyFacts, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord,
+  RelationalArena, RelationalOwner, RelationalSite, Summary,
 } from "./contract.js";
 
 export const validIndex = (index: number, length: number): boolean =>
@@ -143,13 +144,123 @@ export const nodeOwnedBy = (owner: RelationalOwner, node: NodeRef, context: Fact
 
 export interface FactBindingInput {
   readonly vector: BindingVector;
-  readonly definition: DefId;
+  readonly definition: DefId | null;
   readonly site: FactsSite;
 }
 
+const appendArtifactBindings = (
+  artifact: ArtifactBindings, definition: DefId, site: FactsSite, entries: FactBindingInput[],
+): void => {
+  if (artifact.kind === "instantiated") entries.push({ vector: artifact.bindings, definition, site });
+};
+
+const appendOwnerBindings = (
+  owner: RelationalOwner, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
+): void => {
+  if (owner.kind === "summary") appendArtifactBindings(owner.bindings, owner.definition, site, entries);
+  else if (owner.instance.bindings.kind === "instantiated") {
+    appendArtifactBindings(owner.instance.bindings, context.tirBody(owner.instance).owner, site, entries);
+  }
+};
+
+const appendCalleeBindings = (
+  callee: ResolvedCallee, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
+): void => {
+  entries.push({ vector: callee.decision.bindings, definition: callee.decision.advertised.declaration, site });
+  entries.push({ vector: callee.decision.implementationBindings, definition: callee.decision.api.declaration, site });
+  if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
+    appendArtifactBindings(callee.activation.bindings, context.tirBody(callee.activation).owner, site, entries);
+  }
+};
+
+const appendMemberBindings = (
+  member: MemberSelection, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
+): void => {
+  entries.push({ vector: member.decision.bindings, definition: member.decision.primary, site });
+  if (member.getter !== null) appendCalleeBindings(member.getter, site, context, entries);
+  if (member.setter !== null) appendCalleeBindings(member.setter, site, context, entries);
+};
+
+const appendArenaBindings = (
+  arena: RelationalArena, owner: RelationalOwner, context: FactsVerificationContext, entries: FactBindingInput[],
+): void => {
+  const definition = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
+  for (const path of arena.projections) if (path.projection.kind === "field" || path.projection.kind === "method-value") {
+    appendMemberBindings(path.projection.member, { kind: "projection", owner, projection: path.id }, context, entries);
+  }
+  for (const bound of arena.boundProducers) {
+    const producer = arena.producers[bound.producer];
+    const actual = producer === undefined ? null : producer.kind === "shared" ? producer.definition
+      : producer.kind === "call-result" ? producer.callee.kind === "direct" ? producer.callee.definition : null
+        : producer.kind === "allocation" && producer.at.kind === "declared" ? null : definition;
+    entries.push({ vector: bound.bindings, definition: actual, site: { kind: "bound-producer", owner, producer: bound.id } });
+  }
+  for (const boundary of arena.boundaries) {
+    entries.push({ vector: boundary.bindings, definition, site: { kind: "boundary", owner, boundary: boundary.id } });
+  }
+};
+
+export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationContext): readonly FactBindingInput[] => {
+  const entries: FactBindingInput[] = [];
+  const owner: RelationalOwner = { kind: "body", instance: facts.instance };
+  appendArtifactBindings(facts.instance.bindings, context.tirBody(facts.instance).owner, ownerSite(owner), entries);
+  appendArenaBindings(facts.arena, owner, context, entries);
+  const site = (node: NodeId): FactsSite => ({ kind: "node", at: { body: facts.instance.body, node } });
+  for (const invocation of facts.origins.invocations) for (const alternative of invocation.alternatives) {
+    const at = site(invocation.node);
+    appendCalleeBindings(alternative.resolution, at, context, entries);
+    for (const argument of alternative.arguments) appendOwnerBindings(argument.formal.owner, at, context, entries);
+    appendArtifactBindings(alternative.summary.bindings, alternative.summary.definition, at, entries);
+  }
+  for (const callback of facts.origins.callbacks) appendOwnerBindings(callback.argument.formal.owner, site(callback.node), context, entries);
+  for (const activation of facts.origins.activations) if (activation.entry !== null) {
+    appendOwnerBindings(activation.entry.formal.owner, site(activation.node), context, entries);
+  }
+  for (const construction of facts.origins.constructions) if (construction.body !== null && construction.body.bindings.kind === "instantiated") {
+    appendArtifactBindings(construction.body.bindings, context.tirBody(construction.body).owner, site(construction.node), entries);
+  }
+  for (const observation of facts.observations) {
+    const at = site(observation.node);
+    appendArtifactBindings(observation.layout.metadata.bindings, observation.layout.metadata.definition, at, entries);
+    if (observation.field !== null) appendArtifactBindings(observation.field.metadata.bindings, observation.field.metadata.definition, at, entries);
+    entries.push({ vector: observation.bindings, definition: observation.layout.metadata.definition, site: at });
+  }
+  for (const raw of facts.rawLocations) {
+    const at = site(raw.node); appendArtifactBindings(raw.layout.metadata.bindings, raw.layout.metadata.definition, at, entries);
+    entries.push({ vector: raw.bindings, definition: raw.layout.metadata.definition, site: at });
+  }
+  for (const field of facts.fieldBindings) {
+    const at = site(field.node); appendArtifactBindings(field.field.metadata.bindings, field.field.metadata.definition, at, entries);
+    entries.push({ vector: field.bindings, definition: field.field.metadata.definition, site: at });
+  }
+  for (const record of facts.recordBindings) {
+    const at = site(record.node); appendArtifactBindings(record.layout.metadata.bindings, record.layout.metadata.definition, at, entries);
+    entries.push({ vector: record.bindings, definition: record.layout.metadata.definition, site: at });
+  }
+  for (const array of facts.closedArrays) if (array.kind === "closed") {
+    for (const member of array.elements) appendMemberBindings(member, site(array.node), context, entries);
+  }
+  return entries;
+};
+
+export const summaryBindingInputs = (summary: Summary, context: FactsVerificationContext): readonly FactBindingInput[] => {
+  const entries: FactBindingInput[] = [];
+  const owner: RelationalOwner = { kind: "summary", definition: summary.key.definition, bindings: summary.key.bindings };
+  appendArtifactBindings(summary.key.bindings, summary.key.definition, ownerSite(owner), entries);
+  appendArenaBindings(summary.arena, owner, context, entries);
+  return entries;
+};
+
+export const metadataBindingInputs = (metadata: MetadataRecord, context: FactsVerificationContext): readonly FactBindingInput[] => {
+  const entries: FactBindingInput[] = [];
+  const site: FactsSite = { kind: "metadata", metadata: metadata.key };
+  appendArtifactBindings(metadata.key.bindings, metadata.key.definition, site, entries);
+  if (metadata.kind !== "data-layout") for (const field of metadata.fields) appendMemberBindings(field.member, site, context, entries);
+  return entries;
+};
+
 export const collectSelectionChecks = (
-  selection: MemberSelection, site: FactsSite, definition: DefId, context: FactsVerificationContext,
-  bindings: FactBindingInput[], violations: Violation<FactsRule, FactsSite>[],
+  selection: MemberSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
   const type = (id: number | null): void => {
@@ -167,8 +278,6 @@ export const collectSelectionChecks = (
   for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
     report("producer-resolves", "A selected member retains its actual selected declaration group.");
   }
-  const owner = member.primary ?? definition;
-  bindings.push({ vector: member.bindings, definition: owner, site });
   for (const callee of [selection.getter, selection.setter]) {
     if (callee === null) continue;
     const decision = callee.decision;
@@ -177,12 +286,6 @@ export const collectSelectionChecks = (
       report("signature-resolves", "A selected member completion retains its actual signature.");
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    bindings.push({ vector: decision.bindings, definition: decision.advertised.declaration, site });
-    bindings.push({ vector: decision.implementationBindings, definition: decision.api.declaration, site });
-    if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
-      const declaration = context.tirBody(callee.activation).owner;
-      bindings.push({ vector: callee.activation.bindings.bindings, definition: declaration, site });
-    }
     for (const capture of callee.captures) if (!context.localExists(capture)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
     }
@@ -192,25 +295,38 @@ export const collectSelectionChecks = (
 
 export const verifyFactBindings = (
   entries: readonly FactBindingInput[],
+  target: FactsBindingTarget,
+  root: FactsSite,
   context: FactsVerificationContext,
 ): readonly Violation<FactsRule, FactsSite>[] => {
   const inputs: BindingVerificationInput[] = [];
-  const sites: FactsSite[] = [];
+  const checks: { readonly site: FactsSite; readonly first: number; readonly end: number }[] = [];
   const violations: Violation<FactsRule, FactsSite>[] = [];
-  for (const entry of entries) {
+  const scopes = context.bindingScopesOf(target);
+  if (scopes === null) violations.push({ rule: "bindings-complete", site: root,
+    detail: [{ kind: "text", value: "The complete binding-scope occurrence inventory must resolve for this exact verification root." }] });
+  else if (scopes.length > entries.length) violations.push({ rule: "bindings-complete", site: root,
+    detail: [{ kind: "text", value: "The canonical binding-scope inventory has no extra inline vector occurrence." }] });
+  for (const [index, entry] of entries.entries()) {
+    const first = inputs.length;
     const bindings = [...entry.vector.classBindings, ...entry.vector.methodBindings, ...entry.vector.capturedBindings, ...entry.vector.selfBindings];
     if (bindings.some(binding => binding.kind === "bound" && !validIndex(binding.type, context.types.terms.length))) {
       violations.push({ rule: "type-resolves", site: entry.site,
         detail: [{ kind: "text", value: "Every bound type resolves in the actual supplied canonical type table." }] });
     }
-    const scope = context.bindingScopeOf(entry.definition);
-    if (scope === null) {
-      violations.push({ rule: "bindings-complete", site: entry.site,
-        detail: [{ kind: "text", value: "The complete lexical binding scope must resolve in the supplied declaration inventory." }] });
-    } else {
-      inputs.push({ vector: entry.vector, scope });
-      sites.push(entry.site);
+    if (scopes !== null) {
+      const scope = scopes[index];
+      if (scope === undefined) violations.push({ rule: "bindings-complete", site: entry.site,
+        detail: [{ kind: "text", value: "Every inline binding-vector occurrence retains its actual canonical scope in declared field order." }] });
+      else inputs.push({ vector: entry.vector, scope });
     }
+    if (entry.definition !== null) {
+      const scope = context.bindingScopeOf(entry.definition);
+      if (scope === null) violations.push({ rule: "bindings-complete", site: entry.site,
+        detail: [{ kind: "text", value: "The complete lexical binding scope must resolve in the supplied declaration inventory." }] });
+      else inputs.push({ vector: entry.vector, scope });
+    }
+    checks.push({ site: entry.site, first, end: inputs.length });
   }
   if (inputs.length !== 0) {
     const checked = verifyTypes({ table: context.types, bindings: inputs, evidence: [],
@@ -219,9 +335,11 @@ export const verifyFactBindings = (
     for (const violation of checked) {
       if (violation.site.kind === "binding" && violation.rule !== "type-reference") invalid.add(violation.site.vector);
     }
-    for (const [index, site] of sites.entries()) {
-      if (invalid.has(index)) {
-        violations.push({ rule: "bindings-complete", site, detail: [{ kind: "text",
+    for (const check of checks) {
+      let failed = false;
+      for (let index = check.first; index < check.end; index += 1) if (invalid.has(index)) failed = true;
+      if (failed) {
+        violations.push({ rule: "bindings-complete", site: check.site, detail: [{ kind: "text",
           value: "A binding vector retains every expected class, method, captured and self binding in canonical owner order." }] });
       }
     }
@@ -233,7 +351,6 @@ export const verifyRelationalArena = (
   arena: RelationalArena,
   owner: RelationalOwner,
   context: FactsVerificationContext,
-  bindings: FactBindingInput[],
 ): readonly Violation<FactsRule, FactsSite>[] => {
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const report = (rule: FactsRule, site: FactsSite, text: string): void => {
@@ -260,7 +377,6 @@ export const verifyRelationalArena = (
     }
   };
   const projections = new Set<string>();
-  const ownerDefinition = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
   for (const [index, path] of arena.projections.entries()) {
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
     if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
@@ -269,7 +385,7 @@ export const verifyRelationalArena = (
     }
     const projection = path.projection;
     if (projection.kind === "field" || projection.kind === "method-value") {
-      collectSelectionChecks(projection.member, site, ownerDefinition, context, bindings, violations);
+      collectSelectionChecks(projection.member, site, context, violations);
     }
     const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
       ? [projection.kind, memberData(projection.member)]
@@ -378,10 +494,6 @@ export const verifyRelationalArena = (
       report("origin-alternatives-correlated", site, "Producer, complete type bindings and value context remain one canonical correlated alternative.");
     }
     alternatives.add(key);
-    const producer = arena.producers[bound.producer];
-    const definition = producer?.kind === "shared" ? producer.definition
-      : producer?.kind === "call-result" && producer.callee.kind === "direct" ? producer.callee.definition : ownerDefinition;
-    bindings.push({ vector: bound.bindings, definition, site });
   }
   for (const [index, origins] of arena.origins.entries()) {
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
@@ -415,7 +527,6 @@ export const verifyRelationalArena = (
     if (!validIndex(boundary.context, arena.contexts.length)) {
       report("context-resolves", site, "A boundary retains its actual value context in the same arena.");
     }
-    bindings.push({ vector: boundary.bindings, definition: ownerDefinition, site });
   }
   return Object.freeze(violations);
 };

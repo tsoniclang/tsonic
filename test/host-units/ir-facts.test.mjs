@@ -93,7 +93,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const graph = () => ({ definitions: [definitions.f], edges: [], components: [{ id: ids.encodeComponentId([definitions.f]), definitions: [definitions.f], dependencies: [] }] });
   const libraryIdentity = { module: { providerId: "fixture", providerVersion: "1", packageName: null, moduleSpecifier: "facts", providerModuleId: "main" },
     exportId: "allocation", memberId: null, signatureId: null };
-  const setup = (canonical = bodyFacts()) => {
+  const supplyScopes = (supplied, target, scopes) => supplied.scopeInventories.set(arenaKey(target), clone(scopes));
+  const setup = (canonical = bodyFacts(), factScopes = [emptyScope(), emptyScope()]) => {
     const original = clone(canonical);
     const originalSummary = summary();
     const originalMetadata = metadata();
@@ -101,6 +102,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const bodyRows = new Map([[body, originalTir]]);
     const bodyOwners = new Map([[body, definitions.f], [otherBody, definitions.other]]);
     const callbackSignatures = new Map();
+    const scopeRows = { body: factScopes, summary: [emptyScope(), emptyScope()], metadata: [] };
+    const scopeInventories = new Map([
+      [arenaKey({ kind: "body", instance: canonical.instance }), clone(scopeRows.body)],
+      [arenaKey({ kind: "summary", summary: originalSummary.key }), clone(scopeRows.summary)],
+      ...["layout", "abi32", "abi64"].map(name => [arenaKey({ kind: "metadata", metadata: { definition: definitions[name], bindings: parametric() } }), []]),
+    ]);
     const originalMir = mir();
     const tables = { terms: [{ kind: "primitive", primitive: "int64" }, { kind: "intrinsic", intrinsic: "void" },
       { kind: "fixed-array", element: 0, extent: { length: 9007199254740993n, runtimeBase: "bigint" } }], signatures: [signature()] };
@@ -118,6 +125,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         : (assert.equal(Object.values(definitions).includes(selected.value.owner), true, "qualified item owner"), selected.value.node === 0),
       localExists: selected => [body, otherBody].includes(selected.body) && selected.local === 0,
       bindingScopeOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named binding inventory"); return selected === definitions.missing ? null : emptyScope(); },
+      bindingScopesOf: selected => scopeInventories.get(arenaKey(selected)) ?? null,
       nominalOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named nominal declaration inventory");
         return [definitions.layout, definitions.field].includes(selected) ? { kind: "declared", facets: ["instance", "value"] } : null; },
       bindingDependentOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "actual named dependence inventory"); return selected === definitions.missing ? null : false; },
@@ -133,7 +141,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         return record !== null && isDeepStrictEqual(record.key.bindings, selected.bindings) ? record : null; },
     };
     return { canonical: original, summary: originalSummary, metadata: originalMetadata, mir: originalMir, tir: originalTir,
-      types: tables, context, metadataRows, canonicalArenas, bodyRows, bodyOwners, callbackSignatures };
+      types: tables, context, metadataRows, canonicalArenas, bodyRows, bodyOwners, callbackSignatures, scopeRows, scopeInventories };
   };
 
   const arrayText = records => records.length === 0 ? "[]" : `[\n  ${records.join(",\n  ")}\n]`;
@@ -178,6 +186,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyMetadata(inputs.metadata, inputs.context), [], "complete valid authored metadata");
     equal(product.verifyMetadata(abi(32), inputs.context), [], "complete second ABI");
     equal(product.verifyCallGraph(graph(), inputs.context), [], "complete valid graph");
+  });
+  await suite.test("known empty binding inventories remain distinct for every applicable root", () => {
+    const facts = emptyFacts(); const supplied = setup(facts, []); const retained = emptySummary();
+    supplied.canonicalArenas.set(arenaKey(summaryOwner(retained.key)), clone(retained.arena));
+    supplyScopes(supplied, { kind: "summary", summary: retained.key }, []);
+    equal(product.verifyFacts(facts, supplied.mir, supplied.context), [], "complete no-vector body");
+    equal(product.verifySummary(retained, supplied.context), [], "complete no-vector summary");
+    equal(product.verifyMetadata(abi(64), supplied.context), [], "complete no-vector metadata");
   });
   const malformed = (parse, text, offset, expected, found, label, line = 1, column = offset + 1) => {
     equal(parse(text), { kind: "invalid-text", offset, line, column, expected, found }, label);
@@ -255,7 +271,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ])}`);
     equal(product.printFacts(input), expected, "complete shared-inline by-value spelling");
     equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete equal inline values after parsing");
-    const supplied = setup(input);
+    const supplied = setup(input, []);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "shared inline point is not an inline cycle");
   });
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["not a number", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"], ["negative infinity", -Infinity, "-Infinity"], ["fractional", 0.5, "0.5"], ["exponent", 1e30, "1e+30"]]) {
@@ -378,7 +394,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts();
     const supplied = setup(input);
     prepare(input, supplied);
-    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplied.canonicalArenas.set(arenaKey({ kind: "body", instance: input.instance }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], `${name}: independently valid complete fixture`);
     const invalid = clone(input);
     amend(invalid, supplied);
@@ -471,9 +488,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, path, row] of simpleOrders) await factOpposite(rule, (input, supplied) => {
     put(input, path, [row(1), row(2)]);
+    if (["observations-order", "raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
     if (rule === "callbacks-order") supplied.canonicalArenas.set(arenaKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
     if (rule === "memory-bindings-order") input.recordBindings = [{ node: 3, result: 0, layoutExpression: nodeRef(3),
       layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] }];
+    if (rule === "memory-bindings-order") supplied.scopeRows.body.push(emptyScope());
   }, input => { put(input, path, [row(2), row(1)]); }, [violation(rule, nodeSite(1), orderMessage)]);
 
   const localSite = local => ({ kind: "local", local: { body, local } });
@@ -561,7 +580,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["error-invalidation-outcome-exact", input => { input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "invalidated", cause: "overlapping-write", affected: 1 }] }]; },
       input => { input.errorStorage.errors[0].invalidations[0].affected = 0; }, nodeSite(1), "A known empty affected origin cannot be claimed as an overlapping write."],
   ];
-  for (const [rule, prepare, amend, site, message] of additionalFacts) await factOpposite(rule, prepare, amend, [violation(rule, site, message)]);
+  for (const [rule, prepare, amend, site, message] of additionalFacts) await factOpposite(rule, (input, supplied) => {
+    prepare(input, supplied);
+    if (["type-resolves", "metadata-reference-resolves", "observation-exact-value", "observation-field-exact"].includes(rule)) supplied.scopeRows.body.push(emptyScope());
+  }, amend, [violation(rule, site, message)]);
   await factOpposite("instance regions retain their actual lexical declaration inventory", input => {
     input.origins.instanceRegions = [{ owner: definitions.f, node: nodeRef(1), context: 0 }];
   }, input => { input.origins.instanceRegions[0].owner = definitions.missing; },
@@ -672,6 +694,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const summaryOpposite = async (name, prepare, amend, expected) => suite.test(`summary ${name}`, () => {
     const supplied = setup(); const input = summary();
     prepare(input, supplied); supplied.canonicalArenas.set(arenaKey(summaryOwner(input.key)), clone(input.arena));
+    supplyScopes(supplied, { kind: "summary", summary: input.key }, supplied.scopeRows.summary);
     equal(product.verifySummary(input, supplied.context), [], `summary ${name}: complete valid value`);
     const invalid = clone(input); amend(invalid, supplied);
     equal(product.verifySummary(invalid, supplied.context), expected, `summary ${name}: complete opposite vector`);
@@ -689,6 +712,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.callbacks = [{ parameterIndex: 0, timing: "synchronous", rejection: null, inputs: [] }];
   };
   const invocationFixture = (input, supplied) => {
+    supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope()];
     supplied.types.signatures.push(signature(1, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.callee));
     supplied.types.terms.push({ kind: "callable", calls: [1], constructs: [] });
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
@@ -809,12 +833,15 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const expected = [violation(rule, nodeSite(1), message)];
     if (rule === "summary-reference-exact") expected.unshift(...[0, 1].map(() => violation("cross-owner-qualified", nodeSite(1),
       "An argument's formal producer belongs to this exact callee summary and complete binding environment.")));
+    if (rule === "summary-reference-exact") expected.push(violation("bindings-complete", nodeSite(1),
+      "Every inline binding-vector occurrence retains its actual canonical scope in declared field order."));
     await factOpposite(rule, invocationFixture, amend, expected);
   }
   await factOpposite("bindings-complete complete lexical class family", (input, supplied) => {
     invocationFixture(input, supplied);
     const scope = { ...emptyScope(), classParameters: [{ owner: definitions.callee, index: 0 }] };
     supplied.context.bindingScopeOf = selected => selected === definitions.callee ? scope : emptyScope();
+    supplied.scopeRows.body = [emptyScope(), emptyScope(), scope, scope];
     input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
     input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = []; },
@@ -856,6 +883,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ], contexts: [], boundProducers: [], origins: [], boundaries: [] });
     supplied.context.bindingScopeOf = definition => definition === definitions.callee ? { ...emptyScope(), methodParameters: [identity] } : emptyScope();
     supplied.context.bindingDependentOf = definition => definition === definitions.callee;
+    const expectedScope = { ...emptyScope(), methodParameters: [identity] };
+    supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), expectedScope, expectedScope, expectedScope, expectedScope];
   };
   await factOpposite("bodyless API environment never borrows the advertised namespace", bodylessDependentInvocation,
     input => { input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.methodBindings[0].type = 1; },
@@ -876,6 +905,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       role: "parameter", capturedFrom: null, mutable: true, storage: parameter.storage }));
     supplied.bodyRows.set(calleeBody, actual);
     supplied.bodyOwners.set(calleeBody, definitions.callee);
+    supplied.scopeRows.body.splice(4, 0, supplied.scopeRows.body[3]);
     alternative.resolution.decision.api.body = calleeBody;
     alternative.resolution.activation = { body: calleeBody, bindings: clone(alternative.summary.bindings) };
   };
@@ -1038,6 +1068,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     input.origins.activations = [{ node: 2, definition: definitions.callee, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
     supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual callback activation vector");
   });
 
@@ -1148,15 +1179,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       for (const origins of input.arena.origins) origins.producers = []; },
     input => { input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }, { id: 1, parent: 0, projection: { kind: "element" } }]; }],
   ]) {
-    await summaryOpposite(`known zero published ${field} is not unknown`, (input, supplied) => { prepare(input); supplied.context.limits[field] = 0; },
+    await summaryOpposite(`known zero published ${field} is not unknown`, (input, supplied) => { prepare(input); supplied.context.limits[field] = 0;
+      if (field === "maximumRelationalReferencesPerBody") supplied.scopeRows.summary = []; },
       amend, [violation("summary-finite", summarySite(), "The published summary arena respects the actual producer's finite record, reference, path and alternative limits.")]);
   }
   await summaryOpposite("bindings-complete", (input, supplied) => {
-    Object.assign(input, emptySummary());
+    Object.assign(input, emptySummary()); supplied.scopeRows.summary = [];
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.f, index: 0 }] });
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
     violation("cross-owner-qualified", { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
       "The actual relational owner must resolve to its canonical arena."), violation("bindings-complete",
+    { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
+    "The complete binding-scope occurrence inventory must resolve for this exact verification root."), violation("bindings-complete",
     { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
     "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
 
@@ -1166,6 +1200,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     selector: itemRef(primary), selection: itemRef(primary), member: member(primary), primary, selectedDeclarations: [primary],
     value: 0, layout: 0, byteOffset: 0n, byteAlignment: 8n });
   const withField = (input, supplied) => {
+    supplied.scopeRows.metadata = [emptyScope()];
     supplied.types.terms.push({ kind: "declared", definition: definitions.layout, arguments: [], facet: "instance", extent: null });
     input.layouts.push({ ...clone(input.layouts[0]), id: 1, source: 3, byteSize: 16n, stride: 16n, fields: [0] });
     input.fields = [memoryField()]; input.root = 1;
@@ -1184,18 +1219,140 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     if (kind === "open-origin-domain") reason.origins = 99; else reason.at.node = 99; },
   [violation(kind === "open-origin-domain" ? "origins-resolves" : "node-resolves", nodeSite(1), kind === "open-origin-domain"
     ? "Origins resolve in this exact relational arena." : "Every fact retains an actual source occurrence in its declared body domain.")]);
-  for (const field of ["references", "literals"]) await factOpposite(`closed-array ${field} retain qualified actual occurrences`, input => {
+  for (const field of ["references", "literals"]) await factOpposite(`closed-array ${field} retain qualified actual occurrences`, (input, supplied) => {
     input.closedArrays = [{ node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [member()] }];
+    supplied.scopeRows.body.push(emptyScope());
   }, input => { input.closedArrays[0][field][0].body = otherBody; },
     [violation("cross-owner-qualified", nodeSite(1), "A local fact cannot borrow the same numeric node index from another body.")]);
   const metadataSite = () => ({ kind: "metadata", metadata: { definition: definitions.layout, bindings: parametric() } });
   const metadataOpposite = async (name, prepare, amend, expected) => suite.test(`metadata ${name}`, () => {
     const input = metadata(); const supplied = setup();
     prepare(input, supplied); supplied.metadataRows.set(definitions.layout, clone(input));
+    supplyScopes(supplied, { kind: "metadata", metadata: input.key }, supplied.scopeRows.metadata);
     equal(product.verifyMetadata(input, supplied.context), [], `metadata ${name}: complete valid value`);
     const invalid = clone(input); amend(invalid, supplied);
     equal(product.verifyMetadata(invalid, supplied.context), expected, `metadata ${name}: complete opposite vector`);
   });
+  const bindingMessage = "A binding vector retains every expected class, method, captured and self binding in canonical owner order.";
+  const inventoryMessage = "The complete binding-scope occurrence inventory must resolve for this exact verification root.";
+  const missingScopeMessage = "Every inline binding-vector occurrence retains its actual canonical scope in declared field order.";
+  const extraScopeMessage = "The canonical binding-scope inventory has no extra inline vector occurrence.";
+  const scopedMember = (definition = definitions.other) => {
+    const identity = { owner: definition, index: 0 };
+    const scope = { ...emptyScope(), classParameters: [identity] };
+    const selected = member(); selected.decision.primary = null; selected.decision.selectedDeclarations = [];
+    selected.decision.origins = [{ kind: "mapped", owner: itemRef(definition), key: { kind: "text", value: "value" } }];
+    selected.decision.bindings.classBindings = [{ kind: "rigid", parameter: identity }];
+    return { scope, selected };
+  };
+  for (const kind of ["field", "method-value"]) {
+    await factOpposite(`canonical ${kind} member scope is not its enclosing body`, (input, supplied) => {
+      const { scope, selected } = scopedMember();
+      input.arena.projections.push({ id: 2, parent: null, projection: { kind, member: selected } });
+      supplied.scopeRows.body = [scope, emptyScope(), emptyScope()];
+    }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings = []; },
+    [violation("bindings-complete", arenaSite("projection", "projection", 2), bindingMessage)]);
+    await summaryOpposite(`canonical ${kind} member scope is not its enclosing summary`, (input, supplied) => {
+      const { scope, selected } = scopedMember();
+      input.arena.projections.push({ id: 2, parent: null, projection: { kind, member: selected } });
+      supplied.scopeRows.summary = [scope, emptyScope(), emptyScope()];
+    }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings = []; },
+    [violation("bindings-complete", { kind: "projection", owner: summaryOwner(summary().key), projection: 2 }, bindingMessage)]);
+  }
+  await factOpposite("canonical closed-array member scope is not its enclosing body", (input, supplied) => {
+    const { scope, selected } = scopedMember();
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [selected] }];
+    supplied.scopeRows.body.push(scope);
+  }, input => { input.closedArrays[0].elements[0].decision.bindings.classBindings = []; },
+  [violation("bindings-complete", nodeSite(1), bindingMessage)]);
+  await metadataOpposite("canonical physical member scope is not its enclosing layout", (input, supplied) => {
+    withField(input, supplied); const { scope, selected } = scopedMember();
+    input.fields[0].primary = null; input.fields[0].selectedDeclarations = []; input.fields[0].member = selected;
+    supplied.scopeRows.metadata = [scope];
+  }, input => { input.fields[0].member.decision.bindings.classBindings = []; }, [
+    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    violation("bindings-complete", metadataSite(), bindingMessage),
+  ]);
+  await factOpposite("a genuine member declaration remains an additional scope authority", (input, supplied) => {
+    const { scope, selected } = scopedMember(); selected.decision.primary = definitions.field; selected.decision.selectedDeclarations = [definitions.field];
+    input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
+    supplied.scopeRows.body = [scope, emptyScope(), emptyScope()];
+    supplied.context.bindingScopeOf = selected => selected === definitions.field ? scope : emptyScope();
+  }, (input, supplied) => { supplied.context.bindingScopeOf = () => emptyScope(); },
+  [violation("bindings-complete", arenaSite("projection", "projection", 2), bindingMessage)]);
+  await factOpposite("shared member vectors count once per occurrence, not once per object", (input, supplied) => {
+    const { scope, selected } = scopedMember();
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [selected, selected] }];
+    supplied.scopeRows.body.push(scope, scope);
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body.slice(0, -1)); },
+  [violation("bindings-complete", nodeSite(1), missingScopeMessage)]);
+  await factOpposite("distinct member scope occurrences retain their declared order", (input, supplied) => {
+    const first = scopedMember(); const second = scopedMember(definitions.callee);
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [first.selected, second.selected] }];
+    supplied.scopeRows.body.push(first.scope, second.scope);
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance },
+    [emptyScope(), emptyScope(), supplied.scopeRows.body[3], supplied.scopeRows.body[2]]); },
+  [violation("bindings-complete", nodeSite(1), bindingMessage), violation("bindings-complete", nodeSite(1), bindingMessage)]);
+  for (const kind of ["null", "empty", "missing", "extra", "wrong-root"]) {
+    const change = (supplied, target, scopes) => {
+      if (kind === "wrong-root") supplied.scopeInventories.delete(arenaKey(target));
+      else supplyScopes(supplied, target, kind === "null" ? null : kind === "empty" ? []
+        : kind === "missing" ? scopes.slice(0, -1) : [...scopes, emptyScope()]);
+    };
+    await factOpposite(`body ${kind} scope inventory is not a guessed empty environment`, unchanged,
+      (input, supplied) => change(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body),
+      kind === "empty" ? [violation("bindings-complete", arenaSite("bound-producer", "producer", 0), missingScopeMessage),
+        violation("bindings-complete", arenaSite("boundary", "boundary", 0), missingScopeMessage)]
+        : [violation("bindings-complete", kind === "missing" ? arenaSite("boundary", "boundary", 0) : bodySite(),
+          kind === "extra" ? extraScopeMessage : kind === "missing" ? missingScopeMessage : inventoryMessage)]);
+    await summaryOpposite(`summary ${kind} scope inventory is target-qualified`, unchanged,
+      (input, supplied) => change(supplied, { kind: "summary", summary: input.key }, supplied.scopeRows.summary),
+      kind === "empty" ? [violation("bindings-complete", { kind: "bound-producer", owner: summaryOwner(summary().key), producer: 0 }, missingScopeMessage),
+        violation("bindings-complete", { kind: "boundary", owner: summaryOwner(summary().key), boundary: 0 }, missingScopeMessage)]
+        : [violation("bindings-complete", kind === "missing" ? { kind: "boundary", owner: summaryOwner(summary().key), boundary: 0 } : summarySite(),
+          kind === "extra" ? extraScopeMessage : kind === "missing" ? missingScopeMessage : inventoryMessage)]);
+    await metadataOpposite(`metadata ${kind} scope inventory is target-qualified`, withField,
+      (input, supplied) => change(supplied, { kind: "metadata", metadata: input.key }, supplied.scopeRows.metadata),
+      [violation("bindings-complete", metadataSite(), kind === "extra" ? extraScopeMessage
+        : kind === "empty" || kind === "missing" ? missingScopeMessage : inventoryMessage)]);
+  }
+  await factOpposite("a genuinely instantiated root retains its own first scope occurrence", (input, supplied) => {
+    const identity = { owner: definitions.f, index: 0 };
+    const scope = { ...emptyScope(), methodParameters: [identity] };
+    const vector = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type: 0 }] };
+    input.instance.bindings = { kind: "instantiated", bindings: clone(vector) };
+    input.arena.boundProducers[0].bindings = clone(vector); input.arena.boundaries[0].bindings = clone(vector);
+    supplied.tir.bindings = clone(input.instance.bindings); supplied.mir.bindings = clone(input.instance.bindings);
+    supplied.tir.lexicalBindings = clone(vector); supplied.tir.dependence = "binding-dependent";
+    supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.context.bindingScopeOf = selected => selected === definitions.f ? scope : emptyScope();
+    supplied.scopeRows.body = [scope, scope, scope];
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance },
+    [emptyScope(), supplied.scopeRows.body[1], supplied.scopeRows.body[2]]); },
+  [violation("bindings-complete", { kind: "body", instance: { body, bindings: { kind: "instantiated", bindings: {
+    ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }],
+  } } } }, bindingMessage)]);
+  const nestedMetadataReferences = (input, supplied) => {
+    const record = metadata(); withField(record, supplied); record.key.bindings = { kind: "instantiated", bindings: emptyBindings() };
+    supplied.metadataRows.set(definitions.layout, record);
+    const layout = { metadata: record.key, layout: 1 }; const field = { metadata: record.key, field: 0 };
+    input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout, field: null, result: 0, value: 16n, context: 0, bindings: emptyBindings() }];
+    input.rawLocations = [{ node: 2, operation: "to-raw", pointee: 0, layout: { metadata: record.key, layout: 0 }, context: 0, bindings: emptyBindings() }];
+    input.fieldBindings = [{ node: 3, result: 0, owner: 3, fieldExpression: nodeRef(1), field, pointer: nodeRef(2), pointee: 0, context: 0, bindings: emptyBindings() }];
+    input.recordBindings = [{ node: 4, result: 0, layoutExpression: nodeRef(1), layout, context: 0, bindings: emptyBindings(), fields: [{ expression: nodeRef(2), binding: 3 }] }];
+    supplied.scopeRows.body = Array.from({ length: 10 }, () => emptyScope());
+  };
+  await factOpposite("every inline reference artifact counts without traversing its foreign metadata record", nestedMetadataReferences,
+    (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, [...supplied.scopeRows.body, emptyScope()]); },
+    [violation("bindings-complete", bodySite(), extraScopeMessage)]);
+  await factOpposite("a nested reference artifact keeps its own declared position", nestedMetadataReferences,
+    (input, supplied) => { const scopes = clone(supplied.scopeRows.body); scopes[2] = scopedMember().scope;
+      supplyScopes(supplied, { kind: "body", instance: input.instance }, scopes); },
+    [violation("bindings-complete", nodeSite(1), bindingMessage)]);
+  await metadataOpposite("the selected field root has its own complete scope inventory", (input, supplied) => {
+    withField(input, supplied); input.kind = "memory-field"; input.root = 0;
+  }, input => { input.root = 99; },
+  [violation("root-resolves", metadataSite(), "The metadata root must resolve in its own selected layout or field arena.")]);
   const metadataCases = [
     ["definition-resolves", unchanged, (input, supplied) => { supplied.context.definitionExists = selected => selected !== definitions.layout; }, "The metadata declaration must exist in the supplied definition inventory."],
     ["cross-owner-qualified", unchanged, (input, supplied) => { supplied.metadataRows.get(definitions.layout).kind = "memory-field"; }, "The metadata kind must belong to the same declaration and complete binding environment."],
@@ -1217,7 +1374,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["member-correspondence-exact", withField, input => { input.fields[0].primary = definitions.other; }, "A field retains its complete selected member group, primary and value correspondence."],
     ["data-layout-reference-resolves", unchanged, (input, supplied) => { supplied.metadataRows.set(definitions.abi64, null); }, "Every layout must name an actual finalized data-layout declaration."],
     ["array-extent-exact", withArray, input => { input.layouts[1].runtimeBase = "number"; }, "An array retains its exact fixed extent, runtime base and selected element type."],
-    ["layout-geometry-consistent", (input, supplied) => { withField(input, supplied); input.fields.push(memoryField(1, definitions.other)); },
+    ["layout-geometry-consistent", (input, supplied) => { withField(input, supplied); input.fields.push(memoryField(1, definitions.other)); supplied.scopeRows.metadata.push(emptyScope()); },
       input => { input.layouts[1].fields.push(1); }, "Distinct nonempty physical fields must not overlap."],
   ];
   for (const [rule, prepare, amend, message] of metadataCases) await metadataOpposite(rule, prepare, amend,
@@ -1289,6 +1446,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
     violation("cross-owner-qualified", { kind: "metadata", metadata: { definition: definitions.layout, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
       "The metadata kind must belong to the same declaration and complete binding environment."),
+    violation("bindings-complete", { kind: "metadata", metadata: { definition: definitions.layout, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
+      "The complete binding-scope occurrence inventory must resolve for this exact verification root."),
     violation("bindings-complete", { kind: "metadata", metadata: { definition: definitions.layout, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
       "A binding vector retains every expected class, method, captured and self binding in canonical owner order."),
   ]);
@@ -1501,6 +1660,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await factOpposite("field-bindings-order", (input, supplied) => {
     const record = metadata(); withField(record, supplied); supplied.metadataRows.set(definitions.layout, record);
     input.fieldBindings = [boundField(1), boundField(2)];
+    supplied.scopeRows.body.push(emptyScope(), emptyScope());
   }, input => { input.fieldBindings.reverse(); }, [violation("field-bindings-order", nodeSite(1), orderMessage)]);
 
   const selectionText = (key, origins, primary = `def:"${definitions.field}"`, getter = "null", setter = "null") =>
@@ -1588,6 +1748,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const second = memoryField(1, definitions.capture); second.byteOffset = 9n; second.byteAlignment = 1n;
     input.fields.push(second); input.layouts[1].fields.push(1);
     supplied.metadataRows.set(definitions.layout, clone(input));
+    supplyScopes(supplied, { kind: "metadata", metadata: input.key }, [emptyScope(), emptyScope()]);
     equal(product.verifyMetadata(input, supplied.context), [], "full packed layout retains 8-byte child alignment and independently authored 1-byte placement");
   });
   await suite.test("several zero-sized physical fields occupy no bytes and do not overlap", () => {
@@ -1599,6 +1760,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.fields[0].value = 4; input.fields[0].member.decision.read = 4; input.fields[0].member.decision.write = 4;
     const second = memoryField(1, definitions.capture); second.value = 4; second.member.decision.read = 4; second.member.decision.write = 4;
     input.fields.push(second); input.layouts[1].fields.push(1); supplied.metadataRows.set(definitions.layout, clone(input));
+    supplyScopes(supplied, { kind: "metadata", metadata: input.key }, [emptyScope(), emptyScope()]);
     equal(product.verifyMetadata(input, supplied.context), [], "full zero-sized geometry vector");
   });
   for (const timing of ["synchronous", "deferred"]) await suite.test(`complete callback effects ${timing} use independent actual signature and capture inventories`, () => {
@@ -1766,13 +1928,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const expected = emptyFactsText.replace("projections=[]", `projections=${authored}`);
     equal(product.printFacts(input), expected, "complete independently authored 100000-link body text");
     equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete 100000-link body decode");
-    const supplied = setup(input);
+    const supplied = setup(input, []);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete 100000-link body verifier");
     const retained = emptySummary(); retained.arena.projections = rows;
     const summaryExpected = emptySummaryText.replace("projections=[]", `projections=${authored}`);
     equal(product.printSummary(retained), summaryExpected, "complete independently authored 100000-link summary text");
     equal(product.parseSummary(summaryExpected), { kind: "parsed", value: retained }, "complete 100000-link summary decode");
     supplied.canonicalArenas.set(arenaKey(summaryOwner(retained.key)), clone(retained.arena));
+    supplyScopes(supplied, { kind: "summary", summary: retained.key }, []);
     equal(product.verifySummary(retained, supplied.context), [], "complete 100000-link summary verifier");
   });
   await suite.test("100000-level exact metadata element chain uses actual type and ABI data", () => {

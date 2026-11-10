@@ -3,16 +3,15 @@ import type { DefId, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
-import type { ArtifactBindings, BindingVector } from "../ir-types/contract.js";
+import type { ArtifactBindings } from "../ir-types/contract.js";
 import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  collectSelectionChecks, escapeData, instanceKey, relationalUsage, sameBindings, validIndex,
+  collectSelectionChecks, escapeData, factBindingInputs, instanceKey, relationalUsage, sameBindings, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
-import type { FactBindingInput } from "./verify-relations.js";
 
 const compare = (left: string | number, right: string | number): number => left === right ? 0 : left < right ? -1 : 1;
 
@@ -39,15 +38,11 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   if (!context.definitionExists(definition)) {
     report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner.");
   }
-  const bindingInputs: FactBindingInput[] = [];
   const diagnosticSites = new Set<string>();
   for (const diagnostic of context.diagnostics) if (diagnostic.severity === "error" && diagnostic.site.kind === "source") {
     const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
   }
-  if (facts.instance.bindings.kind === "instantiated") {
-    bindingInputs.push({ vector: facts.instance.bindings.bindings, definition, site: bodySite });
-  }
-  for (const violation of verifyRelationalArena(facts.arena, owner, context, bindingInputs)) violations.push(violation);
+  for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
   const nodes = new Map<NodeId, TirNode>();
   const valueNodes = new Set<NodeId>();
   const nestedBodies = new Set(tir.nestedBodies);
@@ -118,9 +113,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   };
   const nodeOrder = <Value extends { readonly node: NodeId }>(rows: readonly Value[], rule: FactsRule): void =>
     ordered(rows, rule, (left, right) => compare(left.node, right.node), row => at(row.node));
-  const bindings = (vector: BindingVector, site: FactsSite, declaration: DefId = definition): void => {
-    bindingInputs.push({ vector, definition: declaration, site });
-  };
   const target = (value: EscapeTarget, site: FactsSite): void => {
     switch (value.kind) {
       case "return": case "throw": break;
@@ -289,8 +281,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       type(decision.result, site); type(decision.completion.completion, site);
       if (decision.completion.yielded !== null) type(decision.completion.yielded, site);
       if (decision.completion.sent !== null) type(decision.completion.sent, site);
-      bindings(decision.bindings, site, decision.advertised.declaration);
-      bindings(decision.implementationBindings, site, decision.api.declaration);
       const selected = context.types.signatures[decision.api.signature];
       const receiver = facts.arena.contexts[alternative.context];
       const mappings = new Map(decision.parameters.map(mapping => [mapping.parameter, mapping]));
@@ -388,7 +378,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         const actual = context.tirBody(activation);
         activationValid = actual.body === activation.body && actual.owner === decision.api.declaration &&
           sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
-        if (activation.bindings.kind === "instantiated") bindings(activation.bindings.bindings, site, actual.owner);
       }
       if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
         !activationValid) report("summary-reference-exact", site,
@@ -433,7 +422,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         construction.implementation !== null && construction.implementation !== actual.owner) {
         report("cross-owner-qualified", site, "A construction retains its actual selected body, implementation owner and complete artifact environment.");
       }
-      if (construction.body.bindings.kind === "instantiated") bindings(construction.body.bindings.bindings, site, actual.owner);
     }
     for (const region of construction.regions) { nodeRef(region.node, site, false); valueContext(region.context, site);
       if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
@@ -534,7 +522,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   nodeOrder(facts.observations, "observations-order");
   for (const observation of facts.observations) {
     node(observation.node); const site = at(observation.node); nodeRef(observation.operand, site);
-    type(observation.result, site); valueContext(observation.context, site); bindings(observation.bindings, site, observation.layout.metadata.definition);
+    type(observation.result, site); valueContext(observation.context, site);
     const layout = metadataLayout(observation.layout, site);
     const field = observation.field === null ? undefined : metadataField(observation.field, site);
     if (observation.operation === "field-offset" ? field === undefined : observation.field !== null) {
@@ -552,14 +540,13 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   nodeOrder(facts.rawLocations, "raw-locations-order");
   for (const raw of facts.rawLocations) {
     node(raw.node); const site = at(raw.node); type(raw.pointee, site); valueContext(raw.context, site);
-    bindings(raw.bindings, site, raw.layout.metadata.definition);
     const selected = metadataLayout(raw.layout, site);
     if (selected !== undefined && selected.source !== raw.pointee) report("cross-owner-qualified", site, "A raw location retains its actual selected pointee layout.");
   }
   nodeOrder(facts.fieldBindings, "field-bindings-order");
   for (const field of facts.fieldBindings) {
     node(field.node); const site = at(field.node); type(field.result, site); type(field.owner, site); type(field.pointee, site);
-    nodeRef(field.fieldExpression, site); nodeRef(field.pointer, site); valueContext(field.context, site); bindings(field.bindings, site, field.field.metadata.definition);
+    nodeRef(field.fieldExpression, site); nodeRef(field.pointer, site); valueContext(field.context, site);
     const selected = metadataField(field.field, site);
     if (selected !== undefined && (selected.owner !== field.owner || selected.value !== field.pointee)) report("cross-owner-qualified", site,
       "A bound field retains its exact authored owner and pointee correspondence.");
@@ -567,7 +554,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   nodeOrder(facts.recordBindings, "record-bindings-order");
   for (const record of facts.recordBindings) {
     node(record.node); const site = at(record.node); type(record.result, site); nodeRef(record.layoutExpression, site);
-    valueContext(record.context, site); bindings(record.bindings, site, record.layout.metadata.definition); metadataLayout(record.layout, site);
+    valueContext(record.context, site); metadataLayout(record.layout, site);
     for (const field of record.fields) { nodeRef(field.expression, site); node(field.binding); }
   }
   nodeOrder(facts.memoryBindings, "memory-bindings-order");
@@ -596,10 +583,10 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
         "A closed array retains actual checked declaration identities.");
       for (const reference of array.references) nodeRef(reference, site);
       for (const literal of array.literals) nodeRef(literal, site);
-      for (const element of array.elements) collectSelectionChecks(element, site, definition, context, bindingInputs, violations);
+      for (const element of array.elements) collectSelectionChecks(element, site, context, violations);
     }
   }
-  for (const violation of verifyFactBindings(bindingInputs, context)) violations.push(violation);
+  for (const violation of verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.instance }, bodySite, context)) violations.push(violation);
   const limits = context.limits;
   const usage = relationalUsage(facts.arena);
   if (mir.blocks.length > limits.maximumBlocksPerBody || mir.places.length > limits.maximumPlacesPerBody ||

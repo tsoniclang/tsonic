@@ -4,8 +4,7 @@ import { encodeKey } from "../ids/index.js";
 import type {
   FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { collectSelectionChecks, memberData, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
-import type { FactBindingInput } from "./verify-relations.js";
+import { collectSelectionChecks, memberData, metadataBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -41,19 +40,15 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     const detail: MessageArgument = Object.freeze({ kind: "text", value: text });
     violations.push(Object.freeze({ rule, site, detail: Object.freeze([detail]) }));
   };
-  const bindingInputs: FactBindingInput[] = [];
   const memberViolations: Violation<FactsRule, FactsSite>[] = [];
   const finish = (): readonly Violation<MetadataRule, FactsSite>[] => {
-    for (const violation of verifyFactBindings(bindingInputs, context)) memberViolations.push(violation);
+    for (const violation of verifyFactBindings(metadataBindingInputs(metadata, context), { kind: "metadata", metadata: metadata.key }, site, context)) memberViolations.push(violation);
     for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
       : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
     return Object.freeze(violations);
   };
   if (!context.definitionExists(metadata.key.definition)) {
     report("definition-resolves", "The metadata declaration must exist in the supplied definition inventory.");
-  }
-  if (metadata.key.bindings.kind === "instantiated") {
-    bindingInputs.push({ vector: metadata.key.bindings.bindings, definition: metadata.key.definition, site });
   }
   if (metadata.kind === "data-layout") {
     if (!context.nodeExists(metadata.occurrence)) {
@@ -218,7 +213,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       report("member-correspondence-exact", "A field's value type must equal its selected child layout source type.");
     }
     const selected = field.member.decision;
-    collectSelectionChecks(field.member, site, metadata.key.definition, context, bindingInputs, memberViolations);
+    collectSelectionChecks(field.member, site, context, memberViolations);
     let previous: DefId | undefined;
     for (const declaration of field.selectedDeclarations) {
       if (previous !== undefined && previous >= declaration) {

@@ -1,8 +1,7 @@
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
-import { escapeData, nodeOwnedBy, relationalUsage, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
-import type { FactBindingInput } from "./verify-relations.js";
+import { escapeData, nodeOwnedBy, relationalUsage, summaryBindingInputs, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
 
 const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
@@ -10,7 +9,6 @@ export const verifySummary: VerifySummary = (summary, context) => {
   const violations: Violation<SummaryRule, FactsSite>[] = [];
   const site: FactsSite = { kind: "summary", summary: summary.key };
   const owner: RelationalOwner = { kind: "summary", definition: summary.key.definition, bindings: summary.key.bindings };
-  const bindingInputs: FactBindingInput[] = [];
   const report = (rule: SummaryRule, text: string, at: FactsSite = site): void => {
     violations.push({ rule, site: at, detail: [{ kind: "text", value: text }] });
   };
@@ -24,10 +22,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
   if (signature !== undefined && signature.declaration !== null && signature.declaration !== summary.key.definition) {
     report("cross-owner-qualified", "The summary signature must retain its actual declaration owner.");
   }
-  if (summary.key.bindings.kind === "instantiated") {
-    bindingInputs.push({ vector: summary.key.bindings.bindings, definition: summary.key.definition, site });
-  }
-  for (const violation of verifyRelationalArena(summary.arena, owner, context, bindingInputs)) {
+  for (const violation of verifyRelationalArena(summary.arena, owner, context)) {
     const rule: SummaryRule = violation.rule === "bindings-complete" || violation.rule === "cross-owner-qualified" ||
       violation.rule === "relational-site-resolves" || violation.rule === "declared-site-ordinal" ? violation.rule : "summary-finite";
     violations.push({ rule, site: violation.site, detail: violation.detail });
@@ -174,7 +169,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives) {
     report("summary-finite", "The published summary arena respects the actual producer's finite record, reference, path and alternative limits.");
   }
-  for (const violation of verifyFactBindings(bindingInputs, context)) {
+  for (const violation of verifyFactBindings(summaryBindingInputs(summary, context), { kind: "summary", summary: summary.key }, site, context)) {
     violations.push({ rule: violation.rule === "bindings-complete" ? "bindings-complete" : "summary-finite", site: violation.site, detail: violation.detail });
   }
   return Object.freeze(violations);
