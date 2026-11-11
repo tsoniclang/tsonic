@@ -1398,10 +1398,10 @@ test("every relational binding failure refuses the complete row without a partia
   const { input, summary } = summaryInput(1);
   const staged = immutable({ sources: input.sources, sourceRoles: [] });
   const definition = definitionId("api");
-  const signature = declaredSignature(definition, { parameters: [
+  const canonicalSignature = declaredSignature(definition, { parameters: [
     { declaration: definitionId("parameter"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
   ] });
-  const binding = exportBinding(definition, { signature });
+  const binding = exportBinding(definition, { signature: canonicalSignature });
   const complete = { kind: "complete", paths: [] };
   const receiver = { id: 0, kind: "receiver", path: null };
   const parameter = { id: 0, kind: "parameter", index: 0, path: null };
