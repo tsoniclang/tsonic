@@ -738,6 +738,8 @@ for (const mode of ["known", "unknown", "mismatch"])
     assert.deepStrictEqual(product.verifyHir(value, context), mode === "known" ? [] : [
       violation(mode === "mismatch" ? "identity-path-exact" : "body-owner", nodeSite(0),
         mode === "mismatch" ? "body path must encode its exact supplied identity" : "body must exist in the canonical identity inventory"),
+      ...(mode === "mismatch" ? [violation("identity-path-exact", { kind: "body", body: bodyIdentity },
+        "body path must encode its exact supplied identity")] : []),
     ]);
   });
 
@@ -752,6 +754,7 @@ for (const mismatch of [false, true]) test(`HIR the body owner uses the same aut
     violation(rule, nodeSite(0), definitionDetail),
     violation(mismatch ? "identity-path-exact" : "body-owner", nodeSite(0),
       mismatch ? definitionDetail : "body must exist in the canonical identity inventory"),
+    ...(mismatch ? [violation("identity-path-exact", { kind: "body", body: bodyIdentity }, definitionDetail)] : []),
     violation(rule, { kind: "body", body: bodyIdentity }, definitionDetail),
   ]);
 });
@@ -987,9 +990,13 @@ test("HIR dictionary duplicate priority and an earlier descending decoded charac
   assertInvalidText(duplicate, duplicate.indexOf('"z"=PragmaArgument') + 1, ["unique record field"]);
   const malformed = wrap([entry("z"), entry('"a\\q"')].join(", "));
   assertInvalidText(malformed, malformed.indexOf('"a\\q"') + 1, ["increasing dictionary key"]);
+  const before = wrap([entry("z"), entry('"\\qa"')].join(", "));
+  assertInvalidText(before, before.indexOf("\\qa") + 1, ["JSON escape"]);
+  const unicode = wrap([entry("z"), entry('"\\uZZZZa"')].join(", "));
+  assertInvalidText(unicode, unicode.indexOf("\\uZZZZ") + 2, ["four hexadecimal digits"]);
 });
 
-for (const pair of [["z", "a"], ["2", "10"], ["z", "\\u0061"], ["z", "__proto__"]])
+for (const pair of [["z", "a"], ["2", "10"], ["z", "\\u0061"], ["z", "__proto__"], ["\\uE000", "\\uD800"]])
   test(`HIR dictionary rejects first descending decoded UTF16 key ${pair.join("/")}`, () => {
     const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
     const field = name => `"${name}"=PragmaArgument(pos=0, end=1, name="key", value="value")`;
@@ -1018,7 +1025,8 @@ for (const role of ["attribute-value", "type-literal"]) for (const kind of ["Num
 for (const [text, token, numerator, denominator, negativeZero, agrees] of [
   ["-0", "-0.0", 0n, 1n, true, true], ["0", "-0", 0n, 1n, true, false],
   ["-0", "0", 0n, 1n, false, false], [".5", "5e-1", 1n, 2n, false, true],
-  ["1_0", "1e1", 10n, 1n, false, true], ["not-number", "1", 1n, 1n, false, false],
+  ["1_0", "1e1", 10n, 1n, false, true], ["255", "0xF_F", 255n, 1n, false, true],
+  ["not-number", "1", 1n, 1n, false, false],
 ]) test(`HIR numeric syntax correlation retains complete ${text}/${token} exact rational and signed-zero outcome`, () => {
   const node = syntax("NumericLiteral", 0, { text, tokenFlags: [], tsonic: { core: absentCore(), role: "attribute-value",
     literal: { kind: "number", token, value: { numerator, denominator, negativeZero } } } });
@@ -1592,7 +1600,7 @@ test("HIR complete source ownership compiles in fresh strict whole-module isolat
   const roots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
   const deps = isolationDeps(tooling, roots);
   const interfaceSources = ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts",
-    "packages/host/src/ir-types/contract.ts", "packages/host/src/ir-types/index.ts"];
+    "packages/host/src/diag/index.ts", "packages/host/src/ir-types/contract.ts", "packages/host/src/ir-types/index.ts"];
   const candidates = ["ids", "diag", "ir-types"].flatMap(owner => readdirSync(resolve(repository, `packages/host/src/${owner}`))
     .filter(name => name.endsWith(".ts")).map(name => `packages/host/src/${owner}/${name}`));
   const graph = deps.graph(new Map(candidates.map(path => [path, readFileSync(resolve(repository, path), "utf8")])));

@@ -331,13 +331,13 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
       }
       case "BodyId": {
         const value = reference.value;
-        if (checkedBodies.has(value)) break;
-        checkedBodies.add(value);
         const path = paths.bodyPathOf(value);
         if (path.kind === "mismatch") { report("identity-path-exact", data.site, "body path must encode its exact supplied identity"); break; }
         if (path.kind === "known" && paths.definitionPathOf(path.value.owner).kind === "mismatch") {
           report("identity-path-exact", data.site, "definition path must encode its exact supplied identity"); break;
         }
+        if (checkedBodies.has(value)) break;
+        checkedBodies.add(value);
         const owner = hirOwnerOf({ kind: "body", identity: value }, paths);
         if (owner === null) report("body-owner", data.site, "body must exist in the canonical identity inventory");
         else {
