@@ -151,7 +151,17 @@ test("HIR iterative traversal visits each supplied object once without copying s
   cyclic.children.push(cyclic);
   immutableTree(cyclic);
   assert.throws(() => walkSyntaxTree(cyclic, []), { name: "TypeError", message: "Syntax child cycle at $.root.children[0]" });
-  assert.throws(() => indexSyntaxTree(cyclic), { name: "TypeError", message: "Syntax child cycle at $.root.children[0]" });
+});
+
+test("HIR index rejects a genuine SourceFile child cycle at its exact Block backedge", () => {
+  const block = syntax("Block", 1, { statements: nodeList([]), multiLine: false }, 0);
+  block.statements.nodes.push(block);
+  const root = immutableTree(syntax("SourceFile", 0, {
+    statements: nodeList([block]), endOfFileToken: syntax("EndOfFile", 2, {}, 0),
+    languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
+  }));
+  assert.throws(() => indexSyntaxTree(root), { name: "TypeError",
+    message: "Syntax child cycle at $.root.statements.nodes[0].statements.nodes[0]" });
 });
 
 test("HIR pure walkers handle a genuine 100000-level declared syntax chain iteratively", () => {
@@ -2167,9 +2177,9 @@ test("HIR malformed typed fields retain exact independently selected record and 
     [original.replace("nodes=[]", "nodes=[false]"), "nodes=[false]", ["Statement"], "nodes=[".length],
     [original.replace("n:1=EndOfFile", "n:0=EndOfFile"), "n:0=EndOfFile", ["distinct wire binding"]],
     [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "n:3=EndOfFile", ["n:1"]],
-    [original.replace("n:0=SourceFile", "n:0=InventedNode"), "tree=n:0", ["SourceFile"], "tree=".length],
-    [original.replace("n:0=SourceFile", "n:0=HirBody"), "tree=n:0", ["SourceFile"], "tree=".length],
-    [original.replace("n:0=SourceFile", "n:0=Token"), "tree=n:0", ["SourceFile"], "tree=".length],
+    [original.replace("n:0=SourceFile", "n:0=InventedNode"), "n:0=InventedNode", ["syntax node declaration"], "n:0=".length],
+    [original.replace("n:0=SourceFile", "n:0=HirBody"), "n:0=HirBody", ["syntax node declaration"], "n:0=".length],
+    [original.replace("n:0=SourceFile", "n:0=Token"), "n:0=Token", ["syntax node declaration"], "n:0=".length],
     [original.replace("n:0=SourceFile", "SourceFile"), "SourceFile(", ["node wire binding"]],
     [original.replace("provider=available(value=null)", 'provider=unavailable(reason="future")'), '"future"', ["declared field value"]],
   ];
@@ -2216,9 +2226,9 @@ test("HIR text grammar rejects complete independently authored field, value and 
   const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
   const header = original.split("\n")[0];
   const cases = [
-    ['HirModule(module=mod:"x", module=mod:"x")', 'module=mod:"x")', ["unique record field"]],
+    [`HirModule(module=mod:"${moduleIdentity}", module=mod:"${moduleIdentity}")`, `module=mod:"${moduleIdentity}")`, ["unique record field"]],
     [`${header} ${header}`, " HirModule(", ["newline"], 1],
-    ['HirModule(module=mod:"x"tree=n:0)', "tree=n:0", [",", ")"]],
+    [`HirModule(module=mod:"${moduleIdentity}"tree=n:0)`, "tree=n:0", [",", ")"]],
     ["HirModule(module=mod:1n)", "1n", ["string identity"]],
     [original.replace("id=n:0", "id=n:0n"), "id=n:0n", ["number identity"], "id=n:".length],
     [original.replace("flags=[]", "flags=[,]"), "flags=[,]", ["identifier"], "flags=[".length],
@@ -2292,9 +2302,9 @@ test("HIR canonical parser owns complete empty, whitespace, delimiter, identity 
 });
 
 test("HIR field names retain their first decoded deviation while the same decoder distinguishes complete duplicates", () => {
-  const prefix = 'HirModule(module=mod:"x", ';
+  const prefix = `HirModule(module=mod:"${moduleIdentity}", `;
   for (const [name, offset, expected] of [
-    ["module=mod:\"x\")", 0, ["unique record field"]],
+    [`module=mod:"${moduleIdentity}")`, 0, ["unique record field"]],
     ['"module"=@)', 1, ["unique record field"]],
     ['"\\u006dodule"=@)', 1, ["unique record field"]],
     ['"m\\u006fdule"=@)', 1, ["unique record field"]],
@@ -2337,7 +2347,7 @@ test("HIR field names retain their first decoded deviation while the same decode
 });
 
 test("HIR a completed record uses the empty required name with the same decoded and lexical priority", () => {
-  const prefix = 'HirModule(module=mod:"x", tree=n:0, items=[], bodies=[], checkerDiagnostics=[], obligations=[], ';
+  const prefix = `HirModule(module=mod:"${moduleIdentity}", tree=n:0, items=[], bodies=[], checkerDiagnostics=[], obligations=[], `;
   for (const [name, offset, expected] of [
     ["extra=0)", 0, ["end of record"]],
     ["extra", 0, ["end of record"]],
@@ -2348,7 +2358,7 @@ test("HIR a completed record uses the empty required name with the same decoded 
     ['"\\u0065xtra"=0)', 1, ["end of record"]],
     ['"\\u0065xtra', 1, ["end of record"]],
     ['"\\u0065xtra\\q', 1, ["end of record"]],
-    ["module=mod:\"x\")", 0, ["unique record field"]],
+    [`module=mod:"${moduleIdentity}")`, 0, ["unique record field"]],
     ['"module"=@)', 1, ["unique record field"]],
     ['"\\u006dodule"=@)', 1, ["unique record field"]],
     ['"m\\u006fdule"=@)', 1, ["unique record field"]],
