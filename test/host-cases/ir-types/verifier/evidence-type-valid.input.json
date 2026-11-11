@@ -1,0 +1,51 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": [
+    {
+      "type": 0,
+      "component": {
+        "kind": "body",
+        "value": {
+          "body": "B[D[M[P[case];main.ts];field];function;0]",
+          "node": 0
+        }
+      },
+      "category": {
+        "kind": "known",
+        "category": "number"
+      },
+      "numeric": {
+        "producer": {
+          "body": "B[D[M[P[case];main.ts];field];function;0]",
+          "node": 0
+        },
+        "kind": "literal",
+        "category": {
+          "kind": "known",
+          "category": "number"
+        },
+        "authored": {
+          "kind": "number",
+          "token": "1",
+          "value": {
+            "numerator": "1",
+            "denominator": "1",
+            "negativeZero": false
+          }
+        }
+      },
+      "sum": null,
+      "nominal": null,
+      "pointer": null
+    }
+  ]
+}

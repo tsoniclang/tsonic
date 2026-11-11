@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "tuple-rest-order",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "elements"
+        },
+        {
+          "kind": "number",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,26 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "evidence-type",
+      "site": {
+        "kind": "evidence",
+        "position": 0,
+        "source": {
+          "kind": "body",
+          "value": {
+            "body": "B[D[M[P[case];main.ts];field];function;0]",
+            "node": 0
+          }
+        }
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "numeric.authored"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

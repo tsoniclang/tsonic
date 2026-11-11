@@ -1,0 +1,7 @@
+{
+  "name": "extent-exact-invalid",
+  "level": "verifier",
+  "rule": "extent-exact",
+  "input": "test/host-cases/ir-types/verifier/extent-exact-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/extent-exact-invalid.expected.json"
+}

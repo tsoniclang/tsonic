@@ -1,0 +1,7 @@
+{
+  "name": "signature-order-invalid",
+  "level": "verifier",
+  "rule": "signature-order",
+  "input": "test/host-cases/ir-types/verifier/signature-order-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/signature-order-invalid.expected.json"
+}

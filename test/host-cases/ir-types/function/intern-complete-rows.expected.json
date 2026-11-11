@@ -1,0 +1,78 @@
+{
+  "kind": "accepted",
+  "value": {
+    "types": [
+      0,
+      1,
+      0
+    ],
+    "signatures": [
+      0
+    ],
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      },
+      {
+        "kind": "string"
+      },
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatureRows": [
+      {
+        "id": 0,
+        "declaration": null,
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [],
+        "receiver": null,
+        "parameters": [],
+        "result": 0
+      }
+    ],
+    "publication": {
+      "kind": "complete",
+      "value": {
+        "table": {
+          "terms": [
+            {
+              "kind": "primitive",
+              "primitive": "int32"
+            },
+            {
+              "kind": "string"
+            }
+          ],
+          "signatures": [
+            {
+              "id": 0,
+              "declaration": null,
+              "owner": null,
+              "composition": null,
+              "kind": "call",
+              "typeParameters": [],
+              "receiver": null,
+              "parameters": [],
+              "result": 0
+            }
+          ]
+        },
+        "types": [
+          0,
+          1
+        ],
+        "signatures": [
+          0
+        ]
+      },
+      "work": 100,
+      "createdRecords": 4
+    }
+  },
+  "diagnostics": []
+}

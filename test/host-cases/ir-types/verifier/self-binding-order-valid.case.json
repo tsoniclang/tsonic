@@ -1,0 +1,7 @@
+{
+  "name": "self-binding-order-valid",
+  "level": "verifier",
+  "rule": "self-binding-order",
+  "input": "test/host-cases/ir-types/verifier/self-binding-order-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/self-binding-order-valid.expected.json"
+}

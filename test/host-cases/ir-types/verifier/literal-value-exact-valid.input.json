@@ -1,0 +1,55 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      },
+      {
+        "kind": "literal",
+        "value": {
+          "kind": "bigint",
+          "value": "9007199254740993"
+        },
+        "base": 0
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": [
+    {
+      "type": 1,
+      "component": {
+        "kind": "body",
+        "value": {
+          "body": "B[D[M[P[case];main.ts];field];function;0]",
+          "node": 0
+        }
+      },
+      "category": {
+        "kind": "known",
+        "category": "bigint"
+      },
+      "numeric": {
+        "producer": {
+          "body": "B[D[M[P[case];main.ts];field];function;0]",
+          "node": 0
+        },
+        "kind": "literal",
+        "category": {
+          "kind": "known",
+          "category": "bigint"
+        },
+        "authored": {
+          "kind": "bigint",
+          "token": "9007199254740993n",
+          "value": "9007199254740993"
+        }
+      },
+      "sum": null,
+      "nominal": null,
+      "pointer": null
+    }
+  ]
+}

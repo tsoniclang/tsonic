@@ -1,0 +1,7 @@
+{
+  "name": "type-reference-valid",
+  "level": "verifier",
+  "rule": "type-reference",
+  "input": "test/host-cases/ir-types/verifier/type-reference-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/type-reference-valid.expected.json"
+}
