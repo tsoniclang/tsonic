@@ -3793,7 +3793,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplyScopes(supplied, { kind: "body", instance: input.instance }, [scope]);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete canonical instantiated self binding vector");
     supplyScopes(supplied, { kind: "body", instance: input.instance }, [{ ...emptyScope(), selfOwners: [definitions.other, definitions.f] }]);
-    equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", bodySite(), bindingMessage)],
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", { kind: "body", instance: input.instance }, bindingMessage)],
       "complete independently declared reversed self-owner scope refusal");
   });
   for (const kind of ["argument", "default", "rest"]) await metadataOpposite(`original raw canonical accessor ${kind} mapping`, (input, supplied) => {
