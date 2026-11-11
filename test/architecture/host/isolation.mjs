@@ -160,11 +160,11 @@ export async function compileIsolated(deps, module, inputs) {
         findings.push(Object.freeze({ code: "loaded-source-escape", path: emitted, line: 1, column: 1 }));
         return report("failed");
       }
-      const declarationFindings = deps.inspect(emitted, actual);
-      findings.push(...declarationFindings);
-      if (findings.length > 0) return report("failed");
       const declarations = new Map(actual.map(path => [path, deps.readText(resolve(emitted, path))]));
       publicDeclarations = reachable(inputs.interfaceSources.map(path => path.replace(/\.ts$/u, ".d.ts")), deps.graph(declarations));
+      const declarationFindings = deps.inspect(emitted, publicDeclarations);
+      findings.push(...declarationFindings);
+      if (findings.length > 0) return report("failed");
     }
     const declarations = [];
     for (const declaration of publicDeclarations) {

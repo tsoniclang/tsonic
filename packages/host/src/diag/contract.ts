@@ -1,4 +1,4 @@
-import type { Origin, PassName } from "../ids/contract.js";
+import type { Origin } from "../ids/contract.js";
 
 export type HostDiagnosticCode = string & {
   readonly diagnosticKind: "host";
@@ -81,14 +81,54 @@ export type Result<Value> =
   | { readonly kind: "ok"; readonly value: Value; readonly diagnostics: readonly Diagnostic[] }
   | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
 
+export type InvariantOwner =
+  | "diag"
+  | "ir-types"
+  | "ir-hir"
+  | "ir-infer"
+  | "ir-tir"
+  | "ir-mir"
+  | "ir-facts"
+  | "ir-program"
+  | "dataflow"
+  | "query"
+  | "libraries"
+  | "snapshot"
+  | "front"
+  | "decls"
+  | "rules"
+  | "infer"
+  | "elaborate"
+  | "validate"
+  | "lower-mir"
+  | "evaluate"
+  | "metadata"
+  | "analyses/liveness"
+  | "analyses/initialization"
+  | "analyses/refinements"
+  | "analyses/origins"
+  | "analyses/suspension"
+  | "analyses/errorStorage"
+  | "analyses/pointerBacking"
+  | "summaries"
+  | "pipeline"
+  | "project"
+  | "packages"
+  | "plugins"
+  | "artifacts"
+  | "orchestration"
+  | "cli"
+  | "create-tsonic";
+
 export interface InvariantFailure {
-  readonly pass: PassName;
+  readonly owner: InvariantOwner;
   readonly query: { readonly name: string; readonly encodedKey: string } | null;
   readonly origin: Origin | null;
   readonly message: string;
 }
 
 export type ThrowInvariant = (failure: InvariantFailure) => never;
+export type RequirePresent = <Value>(value: Value | undefined, failure: InvariantFailure) => Value;
 export type OrderDiagnostics = (diagnostics: readonly Diagnostic[]) => readonly Diagnostic[];
 export type LookupDiagnostic = (registry: DiagnosticRegistry, code: HostDiagnosticCode) => DiagnosticDefinition | null;
 

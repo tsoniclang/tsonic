@@ -28,7 +28,7 @@ export const hostCatalogue = Object.freeze([
   row("ir-mir", "library", [...first(5), "ir-infer"]),
   row("ir-facts", "library", [...first(6), "ir-infer", "snapshot"]),
   row("ir-program", "library", [...first(7), "ir-infer"]),
-  row("dataflow", "library", ["ids", "ir-mir"]),
+  row("dataflow", "library", ["ids", "diag", "ir-mir"]),
   row("query", "library", first(2)),
   row("libraries", "library", [...first(3), "ir-facts", "ir-tir", "snapshot"]),
   row("snapshot", "library", first(2)),

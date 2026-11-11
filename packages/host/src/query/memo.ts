@@ -37,7 +37,7 @@ export function queryMemo<Inputs, Key extends KeyData, Value>(
   }
   if (belongsTo(existing, query)) return existing;
   return throwInvariant({
-    pass: "pipeline",
+    owner: "query",
     query: { name: query.name, encodedKey },
     origin: null,
     message: `Query name ${JSON.stringify(query.name)} is already bound to another definition`,
