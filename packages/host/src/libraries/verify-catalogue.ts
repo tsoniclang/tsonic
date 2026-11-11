@@ -303,13 +303,18 @@ function verifyScopes(types: ReadonlyMap<LibraryTypeId, LibraryType>,
   const reverse = new Map<LibraryTypeId, { readonly type: LibraryTypeId; readonly binders: ReadonlySet<string> }[]>();
   const seeds = new Map<string, LibraryTypeId[]>();
   const freeNames = new Map<LibraryTypeId, Set<string>>();
+  const emptyBinders: ReadonlySet<string> = new Set<string>();
   for (const type of types.values()) {
-    const parent = { type: type.id, binders: new Set(type.kind === "function"
-      ? type.signature.typeParameters.map(parameter => parameter.name) : []) };
-    for (const reference of referenceSlots(type)) {
-      const parents = reverse.get(reference);
-      if (parents === undefined) reverse.set(reference, [parent]);
-      else parents.push(parent);
+    const references = referenceSlots(type);
+    if (references.length > 0) {
+      const binders = type.kind === "function" && type.signature.typeParameters.length > 0
+        ? new Set(type.signature.typeParameters.map(parameter => parameter.name)) : emptyBinders;
+      const parent = { type: type.id, binders };
+      for (const reference of references) {
+        const parents = reverse.get(reference);
+        if (parents === undefined) reverse.set(reference, [parent]);
+        else parents.push(parent);
+      }
     }
     if (type.kind === "type-parameter" && boundNames.get(type.name) !== requests.length) {
       const identifiers = seeds.get(type.name);
