@@ -1,0 +1,7 @@
+{
+  "name": "minimal-module",
+  "level": "verifier",
+  "rule": "all-rules-valid",
+  "input": "test/host-cases/ir-hir/verifier/minimal-module.input.hir",
+  "expected": "test/host-cases/ir-hir/verifier/minimal-module.expected.json"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "preorder-and-boundary",
+  "level": "function",
+  "rule": "authored-preorder-and-exact-body-boundary",
+  "input": "test/host-cases/ir-hir/function/preorder-and-boundary.input.json",
+  "expected": "test/host-cases/ir-hir/function/preorder-and-boundary.expected.json"
+}

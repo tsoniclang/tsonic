@@ -1,0 +1,45 @@
+{
+  "root": {
+    "kind": "SyntaxList",
+    "id": 0,
+    "origin": { "module": "M[P[%002Fproject];main.ts]", "start": 0, "length": 10, "derived": [] },
+    "parent": null,
+    "flags": [],
+    "loc": { "pos": 0, "end": 10 },
+    "children": [
+      {
+        "kind": "SyntaxList",
+        "id": 1,
+        "origin": { "module": "M[P[%002Fproject];main.ts]", "start": 1, "length": 5, "derived": [] },
+        "parent": 0,
+        "flags": [],
+        "loc": { "pos": 1, "end": 6 },
+        "children": [
+          {
+            "kind": "Identifier",
+            "id": 2,
+            "origin": { "module": "M[P[%002Fproject];main.ts]", "start": 2, "length": 1, "derived": [] },
+            "parent": 1,
+            "flags": [],
+            "loc": { "pos": 2, "end": 3 },
+            "text": "a",
+            "tsonic": null
+          }
+        ],
+        "tsonic": null
+      },
+      {
+        "kind": "Identifier",
+        "id": 3,
+        "origin": { "module": "M[P[%002Fproject];main.ts]", "start": 7, "length": 1, "derived": [] },
+        "parent": 0,
+        "flags": [],
+        "loc": { "pos": 7, "end": 8 },
+        "text": "b",
+        "tsonic": null
+      }
+    ],
+    "tsonic": null
+  },
+  "stopBefore": [1]
+}

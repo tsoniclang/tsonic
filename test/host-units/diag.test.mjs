@@ -490,9 +490,10 @@ test("fresh genuine emitted declarations admit the five ports and reject readonl
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));
-  assert.notEqual(refused.status, 0);
+  assert.equal(refused.status, 1, refused.text);
   const actual = [...refused.text.matchAll(/^(.+)\(\d+,\d+\): error TS(\d+):/gmu)]
     .map(match => [basename(match[1]), Number(match[2])]).sort(([left], [right]) => left.localeCompare(right));
+  assert.equal([...refused.text.matchAll(/error TS\d+:/gu)].length, actual.length, refused.text);
   const expected = negatives.map(([name, , code]) => [name, code]).sort(([left], [right]) => left.localeCompare(right));
   assert.deepEqual(actual, expected, refused.text);
 });
