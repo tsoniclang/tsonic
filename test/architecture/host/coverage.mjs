@@ -82,11 +82,14 @@ export function checkCoverage(deps, productFiles, rawV8) {
       return containing.length > 0 && containing[0].count > 0;
     });
     const branches = new Map();
-    const endpoints = new Set();
     const roots = new Map();
     for (const { script } of projected) for (const fn of script.functions) {
-      for (const range of fn.ranges) { endpoints.add(range.startOffset); endpoints.add(range.endOffset); }
-      for (const range of fn.ranges.slice(1)) branches.set(`${range.startOffset}:${range.endOffset}`, range);
+      for (const range of fn.ranges.slice(1)) {
+        if (range.count === 0 && text.slice(range.startOffset, range.endOffset).trim().length === 0) continue;
+        const key = `${range.startOffset}:${range.endOffset}`;
+        const previous = branches.get(key);
+        branches.set(key, { startOffset: range.startOffset, endOffset: range.endOffset, count: (previous?.count ?? 0) + range.count });
+      }
     }
     for (const actual of runtime) {
       const range = actual.ranges[0];
@@ -97,7 +100,7 @@ export function checkCoverage(deps, productFiles, rawV8) {
     }
     if (projected.every(({ script }) => !script.functions.some((fn, index) => entry(fn, index) && fn.ranges[0].count > 0))) add("coverage-line");
     let missingBranches = 0;
-    for (const range of branches.values()) if ([...endpoints].some(offset => offset >= range.startOffset && offset < range.endOffset && !executedAt(offset))) {
+    for (const range of branches.values()) if (range.count === 0) {
       missingBranches += 1;
       add("coverage-branch", range.startOffset);
     }
