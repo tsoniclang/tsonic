@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { hostCatalogue, sourceOwner } from "./host/catalogue.mjs";
+import { hostCatalogue, publicEntry, sourceOwner } from "./host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "./host/isolation.mjs";
 import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
@@ -255,16 +255,22 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   assert.equal(JSON.stringify(inspection), "[]", `actual contract findings: ${JSON.stringify(inspection).slice(0, 6000)}`);
   const expectedInventory = [...modules.map(module => module.contract),
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
-    ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`)].sort();
+    ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
+    ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
+    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
     const ownSources = inventory.filter(path => sourceOwner(hostCatalogue, path)?.name === module.name);
     const closure = new Set(ownSources);
     for (const source of closure) for (const edge of graph) if (edge.source === source && edge.target !== null) closure.add(edge.target);
-    const interfaces = [...closure].filter(path => !ownSources.includes(path)).sort();
+    const production = [...closure].filter(path => !ownSources.includes(path)).sort();
+    const interfaces = production.filter(path => {
+      const dependency = sourceOwner(hostCatalogue, path);
+      return dependency !== undefined && publicEntry(dependency, path);
+    });
     const report = await compileIsolated(deps, module, {
-      root: repository, sourceFiles: ownSources, interfaceSources: interfaces, declarationSources: interfaces,
+      root: repository, sourceFiles: ownSources, interfaceSources: interfaces, declarationSources: production,
       outputDirectory: ".temp/host-current-isolation",
     });
     assert.equal(report.status, "passed", `${module.name}: ${label(report)}`);
@@ -272,6 +278,88 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true, "no undeclared compiler source");
     assert.equal(report.provenance.length, interfaces.length, "every public dependency has genuine fresh declaration provenance");
     assert.equal(report.sourceInventory.length, closure.size, "complete explicit original module source closure");
+  });
+});
+
+test("A7 through A11 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+  await fixture([], async ({ root, deps, write }) => {
+    const imports = entries => entries.map(([owner, names]) =>
+      `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
+    const rows = [
+      ["old-mir", [["ir-mir", "VerifyMir, MirBody"], ["ir-tir", "TirBody"], ["ir-types", "TypeOf, SignatureOf"]],
+        "export function read(verify: VerifyMir, body: MirBody, source: TirBody, typeOf: TypeOf, signatureOf: SignatureOf) { return verify(body, source, typeOf, signatureOf); }", 2554],
+      ["old-mir-context", [["ir-mir", "MirVerificationContext"]],
+        "export function read(context: MirVerificationContext) { const { bodyOwner, ...legacy } = context; void bodyOwner; const current: MirVerificationContext = legacy; return current; }", 2741],
+      ["old-hir-body-path-context", [["ir-hir", "HirVerificationContext"]],
+        "export function read(context: HirVerificationContext) { const { bodyPathOf, ...legacy } = context; void bodyPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
+      ["old-hir-definition-path-context", [["ir-hir", "HirVerificationContext"]],
+        "export function read(context: HirVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
+      ["old-backward", [["dataflow", "BackwardProblem, BlockState"], ["ir-mir", "MirTerminator"]],
+        "export function read(problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[]) { return problem.terminator(term, states); }", 2554],
+      ["old-program-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { limits, ...legacy } = context; void limits; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-signature-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { signatureIdOf, ...legacy } = context; void signatureIdOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
+        "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
+      ["publication-without-usage", [["ir-types", "TypePublication, TypePublicationResult"]],
+        "export function read(value: TypePublication) { const result: TypePublicationResult = { kind: 'complete', value }; return result; }", 2322],
+      ["tir-module-without-module", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
+        "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["tir-site-with-body-node", [["ir-tir", "TirSite"], ["ids", "NodeRef"]],
+        "export function read(node: NodeRef) { const site: TirSite = { kind: 'node', node }; return site; }", 2322],
+      ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, type, bindings, limits); }", 2345],
+      ["deleted-program-id-history-rule", [["ir-program", "ProgramRule"]],
+        "export function read() { const rule: ProgramRule = 'instantiation-preserves-existing-ids'; return rule; }", 2322],
+      ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
+        "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
+      ["old-library-projection", [["libraries", "LibraryVerificationContext, LibraryExportBinding"], ["ids", "LibraryExportIdentity"]],
+        "export function read(context: LibraryVerificationContext, identity: LibraryExportIdentity) { const current: LibraryExportBinding = context.signatureOfExport(identity); return current; }", 2322],
+      ["unsupported-schema", [["ir-program", "SupportedProgramSchema"]],
+        "export const value: SupportedProgramSchema = 2;", 2322],
+      ...["block-terminator-total", "unwind-cleanup-complete", "suspension-return-cleanup", "effect-path-exact", "rvalue-effect-free"]
+        .map(rule => ["removed-" + rule, [["ir-mir", "MirRule"]], `export const value: MirRule = ${JSON.stringify(rule)};`, 2322]),
+      ...["module", "definition"].map(kind => ["removed-tir-" + kind, [["ir-tir", "TirSite"]],
+        `export const value: TirSite["kind"] = ${JSON.stringify(kind)};`, 2322]),
+      ["removed-library-member-rule", [["libraries", "LibraryRule"]],
+        'export const value: LibraryRule = "summary-binding-member-exact";', 2322],
+    ];
+    const positive = imports([
+      ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
+      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord, PublishedBody"],
+      ["ir-types", "SeedTypeInterner, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
+      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite"], ["libraries", "LibraryVerificationContext, LibraryExportBinding"],
+      ["ids", "LibraryExportIdentity, ModuleId, NodeId"],
+    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
+    write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, artifact.tir.signature, bindings, limits); }\n');
+    write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
+      '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
+    for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
+    write("tsconfig.json", JSON.stringify({ compilerOptions: {
+      strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
+      noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
+      noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
+      verbatimModuleSyntax: true,
+    }, files: ["positive.mts", "positive-hir-paths.mts", ...rows.map(([name]) => name + ".mts")] }));
+    const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
+      cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
+    });
+    if (result.error !== undefined) throw result.error;
+    const output = `${result.stdout}${result.stderr}`;
+    const diagnostics = [...output.matchAll(/^(.+)\((\d+),(\d+)\): error TS(\d+):/gmu)].map(match => ({
+      file: match[1].split(/[\\/]/u).at(-1), code: Number(match[4]),
+    })).sort((left, right) => left.file.localeCompare(right.file));
+    const expected = rows.map(([name, , , code]) => ({ file: name + ".mts", code }))
+      .sort((left, right) => left.file.localeCompare(right.file));
+    const evidence = resolve(repository, ".temp/host-a7-consumer-evidence");
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(resolve(evidence, "compiler.log"), output);
+    writeFileSync(resolve(evidence, "diagnostics.json"), `${JSON.stringify(diagnostics, null, 2)}\n`);
+    assert.equal(result.status, 1, output.slice(-6000));
+    assert.equal(result.signal, null);
+    assert.equal([...output.matchAll(/error TS\d+:/gu)].length, diagnostics.length, "no unlocated error is ignored");
+    assert.deepEqual(diagnostics, expected, "only the complete independently authored removed-form diagnostics occur");
   });
 });
 

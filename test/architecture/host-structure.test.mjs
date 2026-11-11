@@ -369,6 +369,50 @@ test("strict unsafe and removed concepts retain their original opposites without
   expect([[file("ids", "contract.ts"), "export function factory(): number { return 1; }"]], [at("contract-shape", file("ids", "contract.ts"))]);
 });
 
+test("only a canonical owner public constructor confers each nominal brand with its one assertion", () => {
+  const contract = file("ids", "contract.ts");
+  const entry = file("ids", "index.ts");
+  const declaration = 'export type NodeId = number & { readonly identityKind: "node" }; export type NodeIdConstructor = (value: number) => NodeId;';
+  const header = 'import type { NodeId, NodeIdConstructor } from "./contract.js"; ';
+  expect([[contract, declaration], [entry, header + 'export const nodeId: NodeIdConstructor = value => value as NodeId;']], []);
+  for (const implementation of [
+    'export const nodeId: NodeIdConstructor = value => 0 as NodeId;',
+    'export const other: NodeIdConstructor = value => value as NodeId;',
+    'export const nodeId: NodeIdConstructor = value => (value as number) as NodeId;',
+  ]) expect([[contract, declaration], [entry, header + implementation]], [at("unsafe-type-escape", entry, 1, header.length + 1)]);
+  expect([[contract, declaration], [file("query", "index.ts"),
+    'import type { NodeId } from "../ids/contract.js"; export const nodeId = (value: number): NodeId => value as NodeId;']],
+  [at("contract-shape", file("query", "index.ts"), 1, 'import type { NodeId } from "../ids/contract.js"; '.length + 1),
+    at("unsafe-type-escape", file("query", "index.ts"), 1, 'import type { NodeId } from "../ids/contract.js"; '.length + 1)]);
+  expect([[contract, declaration], [file("ids"), header + 'export const nodeId: NodeIdConstructor = value => value as NodeId;']],
+    [at("unsafe-type-escape", file("ids"), 1, header.length + 1)]);
+});
+
+test("expected nonlocal unwinding belongs only to query and every new throw carries an Error", () => {
+  for (const module of ["ids", "diag", "ir-types", "infer", "project"]) {
+    const path = file(module);
+    expect([[path, 'export function read(): number { try { return 1; } catch { return 0; } }']],
+      [at("impure-component", path)]);
+  }
+  expect([[file("query"), 'export function read(): number { try { return 1; } catch { return 0; } }']], []);
+  for (const value of ['{ kind: "resource-limit" }', "3", '"failure"', "null"]) {
+    expect([[file("ids"), 'export function read(): never { throw ' + value + '; }']],
+      [at("non-error-throw", file("ids"))]);
+  }
+  expect([[file("ids"), 'export function read(): never { throw new TypeError("caller defect"); }']], []);
+  expect([[file("ids"), 'function failure(): TypeError { return new TypeError("caller defect"); } export function read(): never { throw failure(); }']], []);
+  expect([[file("ids"), 'interface TypeError { readonly message: string; }\nfunction failure(): TypeError { return { message: "not a native Error" }; }\nexport function read(): never { throw failure(); }']],
+    [at("non-error-throw", file("ids"), 3, 1)]);
+  expect([[file("ids"), 'type TypeError = { readonly message: string };\nfunction failure(): TypeError { return { message: "not a native Error" }; }\nexport function read(): never { throw failure(); }']],
+    [at("non-error-throw", file("ids"), 3, 1)]);
+  expect([[file("ids"), 'type TypeError = { readonly kind: "left" } | { readonly kind: "right" };\nfunction failure(): TypeError { return { kind: "left" }; }\nexport function read(): never { throw failure(); }']],
+    [at("non-error-throw", file("ids"), 3, 1)]);
+  expect([[file("ids"), 'type TypeError = { readonly message: string } | { readonly detail: string };\nfunction failure(): TypeError { return { message: "not a native Error" }; }\nexport function read(): never { throw failure(); }']],
+    [at("non-error-throw", file("ids"), 3, 1)]);
+  expect([[file("query"), 'export function read(): never { const signal = new Error("private identity"); throw signal; }']], []);
+  expect([[file("query"), 'export function read(): never { try { throw new Error("private identity"); } catch (error) { throw error; } }']], []);
+});
+
 const immutableTypes = Object.freeze([
   "readonly number[]", "ReadonlyArray<readonly number[]>", "readonly [head: number, ...tail: string[]]",
   "readonly [number, ...Array<string>]", "{ readonly [key: string]: readonly number[] }", "{ get value(): number; }",

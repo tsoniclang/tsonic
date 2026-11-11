@@ -703,6 +703,11 @@ export type FactsSite =
   | { readonly kind: "metadata"; readonly metadata: MetadataKey }
   | { readonly kind: "component"; readonly component: ComponentId };
 
+export type FactsBindingTarget =
+  | { readonly kind: "body"; readonly instance: BodyInstance }
+  | { readonly kind: "summary"; readonly summary: SummaryKey }
+  | { readonly kind: "metadata"; readonly metadata: MetadataKey };
+
 export interface FactsVerificationContext {
   readonly limits: AnalysisLimits;
   readonly tirBody: (instance: BodyInstance) => TirBody;
@@ -710,6 +715,7 @@ export interface FactsVerificationContext {
   readonly types: TypeTable;
   readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
+  readonly bindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;

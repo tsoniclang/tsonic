@@ -49,6 +49,52 @@
     },
     {
       "code": {
+        "kind": "host",
+        "name": "HOST_STABLE",
+        "rendered": "SHARED"
+      },
+      "severity": "suggestion",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 0,
+          "length": 3,
+          "derived": [
+            {
+              "kind": "lowering",
+              "pass": "front"
+            }
+          ]
+        }
+      },
+      "source": null,
+      "evidence": [
+        "first",
+        "first"
+      ],
+      "message": "z first authored",
+      "arguments": [
+        {
+          "kind": "origin",
+          "value": {
+            "module": "M[P[project];a.ts]",
+            "start": 0,
+            "length": 3,
+            "derived": [
+              {
+                "kind": "lowering",
+                "pass": "front"
+              }
+            ]
+          }
+        }
+      ],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
         "kind": "extension",
         "number": 0,
         "extensionCode": "EXT_STABLE",
@@ -108,52 +154,6 @@
           }
         ]
       }
-    },
-    {
-      "code": {
-        "kind": "host",
-        "name": "HOST_STABLE",
-        "rendered": "SHARED"
-      },
-      "severity": "suggestion",
-      "site": {
-        "kind": "source",
-        "origin": {
-          "module": "M[P[project];a.ts]",
-          "start": 0,
-          "length": 3,
-          "derived": [
-            {
-              "kind": "lowering",
-              "pass": "front"
-            }
-          ]
-        }
-      },
-      "source": null,
-      "evidence": [
-        "first",
-        "first"
-      ],
-      "message": "z first authored",
-      "arguments": [
-        {
-          "kind": "origin",
-          "value": {
-            "module": "M[P[project];a.ts]",
-            "start": 0,
-            "length": 3,
-            "derived": [
-              {
-                "kind": "lowering",
-                "pass": "front"
-              }
-            ]
-          }
-        }
-      ],
-      "related": [],
-      "fix": null
     }
   ],
   "diagnostics": []

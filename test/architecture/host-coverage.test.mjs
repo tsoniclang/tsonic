@@ -29,20 +29,24 @@ async function capture(sourceText, exercise, action) {
     await post("Profiler.enable");
     await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
     const exports = await import(pathToFileURL(file).href);
-    exercise(exports);
-    const raw = await post("Profiler.takePreciseCoverage");
-    const result = raw.result.filter(script => script.url === pathToFileURL(file).href);
-    const sources = [];
-    for (const script of result) {
-      const response = await post("Debugger.getScriptSource", { scriptId: script.scriptId });
-      sources.push({ scriptId: script.scriptId, url: script.url, text: response.scriptSource });
+    const captures = [];
+    for (const step of Array.isArray(exercise) ? exercise : [exercise]) {
+      step(exports);
+      const raw = await post("Profiler.takePreciseCoverage");
+      const result = raw.result.filter(script => script.url === pathToFileURL(file).href);
+      const sources = [];
+      for (const script of result) {
+        const response = await post("Debugger.getScriptSource", { scriptId: script.scriptId });
+        sources.push({ scriptId: script.scriptId, url: script.url, text: response.scriptSource });
+      }
+      captures.push({ ...raw, result, sources });
     }
     await post("Profiler.stopPreciseCoverage");
     const deps = {
       canonical: realpathSync, readText: path => readFileSync(path, "utf8"), parse: parseSources,
       project: (url, text) => url.startsWith("file:") ? { path: fileURLToPath(url), text } : null,
     };
-    await action({ root, file, deps, raw: { ...raw, result, sources } });
+    await action({ root, file, deps, raw: captures[0], captures });
   } finally { session.disconnect(); rmSync(root, { recursive: true }); }
 }
 
@@ -60,6 +64,94 @@ test("actual nonempty V8 ranges and original source identity earn per-file 100 w
     assert.equal(report.files[0].sourceHash, createHash("sha256").update(branchSource).digest("hex"));
     assert.equal(report.rawV8[0] === raw, true, "original V8 evidence retained by identity");
     assert.equal(Object.isFrozen(report), true);
+  });
+});
+
+const catchFinallySource = (nested = false, gap = "\n        ") => `export function create(enabled) {
+  if (!enabled) throw new TypeError("disabled");
+  let cleanups = 0;
+  const signal = new Error("signal");
+  function compute(value) {
+    if (value === "signal") throw signal;
+    if (value === "failure") throw new Error("failure");
+    return ${nested ? 'value === "unvisited" ? 99 : value' : "value"};
+  }
+  function run(value) {
+    try {
+      return compute(value);
+    } catch (error) {
+      if (error === signal) return "signal";
+      throw error;
+    }${gap}finally {
+      cleanups += 1;
+    }
+  }
+  return { run, count: () => cleanups };
+}
+`;
+const exerciseCatchFinally = exports => {
+  assert.throws(() => exports.create(false), TypeError);
+  const database = exports.create(true);
+  assert.equal(database.run("ok"), "ok");
+  assert.equal(database.run("signal"), "signal");
+  assert.throws(() => database.run("failure"), /^Error: failure$/u);
+  assert.equal(database.count(), 3);
+};
+
+test("actual catch/finally whitespace is not a branch and does not contaminate an executed enclosing range", async () => {
+  const source = catchFinallySource();
+  await capture(source, exerciseCatchFinally, async ({ file, deps, raw }) => {
+    const functions = raw.result.flatMap(script => script.functions);
+    const whitespace = functions.flatMap(fn => fn.ranges.slice(1)).filter(range =>
+      range.count === 0 && source.slice(range.startOffset, range.endOffset).trim().length === 0);
+    assert.equal(whitespace.length > 0, true, "actual V8 supplied the nonexecutable interval");
+    assert.equal(functions.filter(fn => fn.functionName === "create").some(fn => fn.ranges.slice(1).some(range =>
+      range.count > 0 && whitespace.some(gap => range.startOffset <= gap.startOffset && range.endOffset >= gap.endOffset))),
+    true, "the executed enclosing branch contains the separate whitespace range");
+    const report = checkCoverage(deps, [file], [raw]);
+    assert.deepEqual(report.findings, []);
+    assert.equal(report.status, "passed");
+    assert.equal(report.files[0].lines === 100 && report.files[0].branches === 100 && report.files[0].functions === 100, true);
+  });
+});
+
+test("a genuinely uncovered nested branch still fails beside catch/finally whitespace", async () => {
+  const source = catchFinallySource(true);
+  await capture(source, exerciseCatchFinally, async ({ file, deps, raw }) => {
+    const report = checkCoverage(deps, [file], [raw]);
+    const line = source.slice(0, source.indexOf('return value === "unvisited"')).split("\n").length;
+    assert.equal(report.status, "failed");
+    assert.equal(report.findings.some(finding => finding.code === "coverage-branch" && finding.line === line), true);
+    assert.equal(report.files[0].branches < 100, true);
+    assert.equal(report.files[0].lines === 100 && report.files[0].functions === 100, true);
+  });
+});
+
+test("an actual zero-count interval containing a comment is not exempted as whitespace", async () => {
+  const source = catchFinallySource(false, "\n        /* retained zero-range comment */\n        ");
+  await capture(source, exerciseCatchFinally, async ({ file, deps, raw }) => {
+    assert.equal(raw.result.flatMap(script => script.functions).flatMap(fn => fn.ranges.slice(1)).some(range =>
+      range.count === 0 && source.slice(range.startOffset, range.endOffset).includes("/* retained zero-range comment */")), true);
+    const report = checkCoverage(deps, [file], [raw]);
+    assert.equal(report.status, "failed");
+    assert.equal(report.findings.some(finding => finding.code === "coverage-branch"), true);
+  });
+});
+
+test("authenticated captures aggregate only each exact branch's own counts", async () => {
+  await capture(branchSource, [choose([true]), choose([true, false, false])], async ({ file, deps, captures }) => {
+    assert.equal(captures.length, 2);
+    for (const raw of captures) {
+      assert.equal(raw.result.length, 1);
+      assert.equal(raw.sources[0].text, branchSource);
+    }
+    assert.equal(checkCoverage(deps, [file], [captures[0]]).status, "failed");
+    for (const inputs of [captures, [...captures].reverse()]) {
+      const report = checkCoverage(deps, [file], inputs);
+      assert.deepEqual(report.findings, []);
+      assert.equal(report.files[0].lines === 100 && report.files[0].branches === 100 && report.files[0].functions === 100, true);
+      assert.equal(report.rawV8[0] === inputs[0] && report.rawV8[1] === inputs[1], true);
+    }
   });
 });
 test("one real uncovered same-line branch fails branches, not already executed statement lines", async () => {

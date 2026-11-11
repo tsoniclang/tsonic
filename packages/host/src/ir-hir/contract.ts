@@ -1,4 +1,4 @@
-import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 
@@ -4591,7 +4591,7 @@ export interface HirModule {
 }
 
 export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-type-child" | "node-in-body-range" | "module-owner" | "definition-unique" | "definition-parent" | "definition-reference" | "ordinal-domain"
-  | "body-owner" | "body-unique" | "node-dense-preorder" | "node-reference" | "lexical-parent"
+  | "body-owner" | "body-unique" | "identity-path-exact" | "node-dense-preorder" | "node-reference" | "lexical-parent"
   | "origin-range" | "local-dense" | "local-reference" | "capture-owner" | "parameter-order"
   | "scope-parent" | "literal-exact" | "type-reference" | "signature-reference" | "candidate-original-order"
   | "candidate-endpoints" | "binding-vector-complete" | "contribution-parameter" | "protocol-kind"
@@ -4610,6 +4610,8 @@ export type PrintHir = (module: HirModule) => string;
 export type ParseHir = (text: string) => TextParseResult<HirModule>;
 export interface HirVerificationContext {
   readonly types: TypeTable;
+  readonly bodyPathOf: (body: BodyId) => BodyPath | null;
+  readonly definitionPathOf: (definition: DefId) => DefinitionPath | null;
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopeAt: (node: SourceNodeRef) => BindingScope | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;

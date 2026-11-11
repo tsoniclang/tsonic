@@ -1,0 +1,1 @@
+{"name":"key-kinds","level":"function","rule":"Every declared key family and repeated content retains distinct canonical identity","input":"test/host-cases/query/function/key-kinds.input.json","expected":"test/host-cases/query/function/key-kinds.expected.json"}

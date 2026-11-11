@@ -1,6 +1,6 @@
 import type { BodyId, DefId, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
@@ -222,6 +222,10 @@ export interface TypedBinding {
   readonly initializer: BodyId | null;
 }
 
+export type TypedBindingElement =
+  | (TypedBinding & { readonly role: "binding" })
+  | { readonly role: "hole" };
+
 export interface TypedBindingPattern {
   readonly storage: TyId;
 }
@@ -402,7 +406,7 @@ export interface TypedPhase extends Phase {
   readonly VariableDeclarationList: TypedVariableList;
   readonly BindingPattern: TypedBindingPattern;
   readonly ParameterDeclaration: TypedParameter;
-  readonly BindingElement: TypedBinding;
+  readonly BindingElement: TypedBindingElement;
   readonly MissingDeclaration: null;
   readonly FunctionDeclaration: TypedCallable;
   readonly ClassDeclaration: TypedClass;
@@ -612,13 +616,18 @@ export interface TirModule {
   readonly bodies: readonly TirBody[];
 }
 
+export type TirMemberOccurrence =
+  | { readonly kind: "selection"; readonly node: NodeId; readonly ordinal: number }
+  | { readonly kind: "construction-part"; readonly node: NodeId; readonly ordinal: number;
+      readonly source: NodeRef; readonly destination: TypeComponent; readonly part: number };
+
 export interface TirVerifierInput {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
-  readonly membersOf: (receiver: TyId) => MemberTable | null;
+  readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberTable | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
@@ -626,7 +635,7 @@ export interface TirVerifierInput {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-export type TirRule = "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
+export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
   | "capture-qualified" | "cross-owner-qualified" | "parameter-order"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
@@ -641,11 +650,13 @@ export type TirRule = "body-owner" | "module-node-identity" | "node-reference" |
   | "template-shared-once" | "stable-order";
 
 export type TirSite =
-  | { readonly kind: "module"; readonly module: ModuleId }
-  | { readonly kind: "definition"; readonly definition: DefId }
   | { readonly kind: "body"; readonly body: BodyId }
-  | { readonly kind: "node"; readonly node: NodeRef };
+  | { readonly kind: "node"; readonly module: ModuleId; readonly node: NodeId };
 
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];
+export type VerifyTirModule = (
+  input: TirVerifierInput,
+  module: TirModule,
+) => readonly Violation<TirRule, TirSite>[];
