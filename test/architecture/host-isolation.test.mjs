@@ -281,7 +281,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 and A8 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 through A9 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -298,6 +298,14 @@ test("A7 and A8 genuine emitted contracts accept current forms and reject every 
         "export function read(context: ProgramVerificationContext) { const { signatureIdOf, ...legacy } = context; void signatureIdOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
         "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
+      ["publication-without-usage", [["ir-types", "TypePublication, TypePublicationResult"]],
+        "export function read(value: TypePublication) { const result: TypePublicationResult = { kind: 'complete', value }; return result; }", 2322],
+      ["tir-module-without-module", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
+        "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["tir-site-with-body-node", [["ir-tir", "TirSite"], ["ids", "NodeRef"]],
+        "export function read(node: NodeRef) { const site: TirSite = { kind: 'node', node }; return site; }", 2322],
+      ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
+        "export function read(substitute: SubstituteSignature, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, type, bindings, limits); }", 2345],
       ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
         "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
       ["old-library-projection", [["libraries", "LibraryVerificationContext, LibraryExportBinding"], ["ids", "LibraryExportIdentity"]],
@@ -313,12 +321,12 @@ test("A7 and A8 genuine emitted contracts accept current forms and reject every 
     ];
     const positive = imports([
       ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
-      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord"],
-      ["ir-types", "SeedTypeInterner, TypeTable"],
-      ["ir-tir", "TypedBinding, TypedBindingElement"], ["libraries", "LibraryVerificationContext, LibraryExportBinding"],
-      ["ids", "LibraryExportIdentity"],
+      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord, PublishedBody"],
+      ["ir-types", "SeedTypeInterner, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
+      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite"], ["libraries", "LibraryVerificationContext, LibraryExportBinding"],
+      ["ids", "LibraryExportIdentity, ModuleId, NodeId"],
     ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
-    write("positive.mts", positive);
+    write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, artifact.tir.signature, bindings, limits); }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,

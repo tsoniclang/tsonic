@@ -651,8 +651,12 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
 
 export type TirSite =
   | { readonly kind: "body"; readonly body: BodyId }
-  | { readonly kind: "node"; readonly node: NodeRef };
+  | { readonly kind: "node"; readonly module: ModuleId; readonly node: NodeId };
 
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];
+export type VerifyTirModule = (
+  input: TirVerifierInput,
+  module: TirModule,
+) => readonly Violation<TirRule, TirSite>[];
