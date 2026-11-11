@@ -42,6 +42,9 @@ interface TextReader {
   cursor: number;
   failed: boolean;
   failure: InvalidText;
+  pending: PendingFrame | null;
+  header: boolean;
+  needSeparator: boolean;
 }
 interface RecordChoice {
   readonly kind: "record";
@@ -347,7 +350,7 @@ function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
     frame.choices = frame.selected.filter(selection => {
       if (selection.kind === "dictionary") return true;
       const field: HirField = selection.field;
-      return field[2] !== true || field[1].values.some(candidate => Object.is(candidate, value));
+      return field.length === 2 || field[1].values.some(candidate => Object.is(candidate, value));
     })
       .map(selection => selection.choice);
     frame.ordinal += 1;
@@ -428,13 +431,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   const declared: { readonly node: WireNode; readonly offset: number }[] = [];
   const edges: WireEdge[] = [];
   const references: WireReference[] = [];
-  let pending: PendingFrame | null = null;
-  let header = false;
-  let needSeparator = false;
   const wireNode = (): WireNode => ({ value: {}, edges: [], label: null });
   const put = (value: unknown): void => {
-    if (pending === null) { output.value = value; header = true; needSeparator = true; }
-    else attach(pending.frame, value);
+    if (reader.pending === null) { output.value = value; reader.header = true; reader.needSeparator = true; }
+    else attach(reader.pending.frame, value);
   };
   const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null): MutableRecord | null => {
     if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
@@ -455,9 +455,9 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   };
   while (!reader.failed) {
     const newline = whitespace(reader);
-    const frame: RecordFrame | ArrayFrame | undefined = pending?.frame;
+    const frame: RecordFrame | ArrayFrame | undefined = reader.pending?.frame;
     if (frame === undefined && reader.cursor === reader.text.length) {
-      if (!header) { fail(reader, ["record"]); return false; }
+      if (!reader.header) { fail(reader, ["record"]); return false; }
       let invalidTarget: { readonly reference: WireReference; readonly expected: readonly string[] } | null = null;
       for (const reference of references) {
         if (reference.node.label === null) {
@@ -488,10 +488,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       }
       return true;
     }
-    if (frame === undefined && needSeparator && !newline) { fail(reader, ["newline"]); return false; }
+    if (frame === undefined && reader.needSeparator && !newline) { fail(reader, ["newline"]); return false; }
     const character = reader.text.charAt(reader.cursor);
-    if (pending !== null && pending.frame.phase === "delimiter") {
-      const frame: RecordFrame | ArrayFrame = pending.frame;
+    if (reader.pending !== null && reader.pending.frame.phase === "delimiter") {
+      const frame: RecordFrame | ArrayFrame = reader.pending.frame;
       const closing = frame.kind === "record" ? ")" : "]";
       if (character === closing) {
         if (frame.kind === "record") {
@@ -499,7 +499,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
           if (expected !== null) { fail(reader, [expected]); return false; }
         }
         reader.cursor += 1;
-        pending = pending.next;
+        reader.pending = reader.pending.next;
         Object.freeze(frame.value);
         frame.put(frame.value);
       } else if (character === ",") {
@@ -523,11 +523,11 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       frame.phase = "delimiter";
       continue;
     }
-    const shape: HirShape = frame === undefined ? header ? "SyntaxNode" : "HirModule" :
+    const shape: HirShape = frame === undefined ? reader.header ? "SyntaxNode" : "HirModule" :
       frame.kind === "array" ? frame.element : frame.shape;
     const leaves = hirShapeLeaves(shape, schema);
     let declaration: { readonly position: number; readonly offset: number } | null = null;
-    if (frame === undefined && header) {
+    if (frame === undefined && reader.header) {
       const offset = reader.cursor;
       if (!reader.text.startsWith("n:", reader.cursor)) { fail(reader, ["node wire binding"]); return false; }
       reader.cursor += 2;
@@ -551,7 +551,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const offset = reader.cursor;
     const token = reader.text.charAt(reader.cursor);
     const owner: WireNode | null = frame === undefined ? null : frame.owner;
-    const accept = declaration !== null ? (): void => { needSeparator = true; } :
+    const accept: (value: unknown) => void = declaration !== null ? (): void => { reader.needSeparator = true; } :
       frame === undefined ? put : (value: unknown): void => { attach(frame, value); };
     if (token === "[") {
       if (frame === undefined) { fail(reader, ["record"], offset); return false; }
@@ -560,7 +560,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         element = element === null || element === leaf.element ? leaf.element : hirChoice(element, leaf.element);
       if (element === null) { fail(reader, ["declared array"], offset); return false; }
       reader.cursor += 1;
-      pending = { frame: { kind: "array", value: [], element, owner, put: accept, phase: "first-value" }, next: pending };
+      reader.pending = { frame: { kind: "array", value: [], element, owner, put: accept, phase: "first-value" }, next: reader.pending };
       continue;
     }
     const scalar = (value: Scalar): void => {
@@ -630,8 +630,8 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       }
       if (choices.some(choice => choice.kind === "record" && choice.fields.some(([name]) => name === "kind"))) value.kind = label;
       reader.cursor += 1;
-      pending = { frame: { kind: "record", value, names: new Set(), owner: recordOwner, put: accept,
-        choices: frameChoices(choices), selected: [], ordinal: 0, phase: "first-field", name: "", shape: "null" }, next: pending };
+      reader.pending = { frame: { kind: "record", value, names: new Set(), owner: recordOwner, put: accept,
+        choices: frameChoices(choices), selected: [], ordinal: 0, phase: "first-field", name: "", shape: "null" }, next: reader.pending };
       continue;
     }
     let ownerShape: HirIdentityShape | null = null;
@@ -677,7 +677,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
 }
 
 export const parseHir: ParseHir = text => {
-  const reader: TextReader = { text, cursor: 0, failed: false,
+  const reader: TextReader = { text, cursor: 0, failed: false, pending: null, header: false, needSeparator: false,
     failure: { kind: "invalid-text", offset: 0, line: 1, column: 1, expected: ["record"],
       found: text.length === 0 ? null : text.slice(0, 1) } };
   const output: HirOutput = { value: null };
