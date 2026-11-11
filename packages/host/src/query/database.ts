@@ -38,7 +38,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
   const activeKeys = new Map<string, Set<string>>();
   const boundaries: Boundary[] = [];
   const diagnostics: Diagnostic[] = [];
-  let recoveryMarker: object = {};
+  let recoveryMarker: object | null = null;
 
   function completed<Value>(result: Result<Value>): Result<Value> {
     const retained = retainResult(result);
