@@ -294,6 +294,8 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "substitute.ts", "print.ts", "parse.ts", "verify.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
       "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts"].map(name => `${host}/ir-hir/${name}`),
+    ...["index.ts", "roles.ts", "verify-catalogue.ts", "bind-summaries.ts", "verify-summaries.ts",
+      "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
