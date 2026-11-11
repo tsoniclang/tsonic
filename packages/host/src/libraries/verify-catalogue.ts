@@ -9,9 +9,9 @@ import type {
 
 export type LocatedSite = LibrarySite & { readonly kind: "source" | "module" | "type" | "export" | "text" | "authored-summary" };
 
-export type LibraryViolation = Violation<LibraryRule, LocatedSite> & {
+export interface LibraryViolation extends Violation<LibraryRule, LocatedSite> {
   readonly detail: readonly { readonly kind: "text"; readonly value: string }[];
-};
+}
 
 export interface ExportEntry {
   readonly identity: LibraryExportIdentity;
