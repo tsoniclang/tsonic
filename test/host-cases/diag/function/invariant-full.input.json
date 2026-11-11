@@ -1,7 +1,7 @@
 {
   "operation": "invariant",
   "failure": {
-    "pass": "pipeline",
+    "owner": "pipeline",
     "query": {
       "name": "body-result",
       "encodedKey": "{\"body\":\"B[exact]\"}"

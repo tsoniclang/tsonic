@@ -4,6 +4,7 @@ import { dirname, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { hostCatalogue } from "./host/catalogue.mjs";
+import { parseSources } from "./host/import-graph.mjs";
 import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
@@ -19,7 +20,7 @@ const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-fact
 const expectedImports = Object.freeze([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
   ["ir-infer", first.slice(0, 4)], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
-  ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "ir-mir"]], ["query", ["ids", "diag"]],
+  ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag"]],
   ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]],
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer"]],
@@ -71,6 +72,24 @@ test("the complete R6 catalogue and snapshot amendment have exactly one explicit
       [{ path: `${host}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }]])));
   assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 13);
   assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 17);
+});
+
+test("invariant owners are exactly the written catalogue module names above ids", () => {
+  const path = file("diag", "contract.ts");
+  const source = parseSources(new Map([[path, readFileSync(resolve(repository, path), "utf8")]]));
+  const actualFile = source.sourceFiles.find(candidate => candidate !== undefined && source.ast.getFileName(candidate) === `/host-gate/${path}`);
+  const declaration = source.ast.statements(actualFile).find(candidate => source.ast.is.IsTypeAliasDeclaration(candidate) &&
+    source.ast.text(source.ast.name(candidate)) === "InvariantOwner");
+  assert.equal(declaration !== undefined, true, "diag declares the one invariant owner domain");
+  const annotation = source.ast.typeNode(declaration);
+  assert.equal(source.ast.is.IsUnionTypeNode(annotation), true, "the owner domain is a written union, not an alias or projection");
+  const members = source.ast.children(annotation).filter(candidate => candidate !== undefined);
+  assert.equal(members.every(member => source.ast.is.IsLiteralTypeNode(member)), true, "every owner arm is explicit");
+  const literals = members.map(member => source.ast.as.AsLiteralTypeNode(member).Literal);
+  assert.equal(literals.every(literal => source.ast.is.IsStringLiteral(literal)), true, "every owner is a literal module name");
+  const actual = literals.map(literal => source.ast.text(literal)).sort();
+  const expected = hostCatalogue.filter(module => module.name !== "ids").map(module => module.name).sort();
+  assert.deepEqual(actual, expected);
 });
 
 for (const [name, imports] of expectedImports) {

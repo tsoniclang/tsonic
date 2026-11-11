@@ -102,8 +102,8 @@ function assertOrder(input, expected, label) {
   assert.equal(input.every((value, index) => value === beforeOrder[index]), true, `${label}: input order remains unchanged`);
 }
 
-test("the runtime index exposes only the four approved diagnostic ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "throwInvariant"]);
+test("the runtime index exposes only the five approved diagnostic ports", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "throwInvariant"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", "index.ts", "invariant.ts", "order.ts"]);
 });
@@ -359,13 +359,12 @@ test("registry lookup returns only the exact matching supplied definition and ha
   assert.deepEqual(sparse, expected, "all supplied slots, holes and exact definitions are unchanged");
 });
 
-test("invariants retain every pass, nullable query/origin and exact failure cause without reading its stack", () => {
-  const passes = ["front", "decls", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata", "liveness",
-    "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking", "summaries", "pipeline"];
-  for (const pass of passes) {
+test("invariants retain every actual owner, nullable query/origin and exact failure cause without reading its stack", () => {
+  const owners = hostCatalogue.filter(module => module.name !== "ids").map(module => module.name);
+  for (const owner of owners) {
     for (const query of [null, Object.freeze({ name: "query\uD800", encodedKey: "[exact]\r\n" })]) {
       for (const selectedOrigin of [null, origin()]) {
-        const failure = Object.freeze({ pass, query, origin: selectedOrigin, message: "invariant\r\n\uDFFF" });
+        const failure = Object.freeze({ owner, query, origin: selectedOrigin, message: "invariant\r\n\uDFFF" });
         assert.throws(() => product.throwInvariant(failure), thrown => thrown instanceof Error &&
           thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
         assert.equal(Object.hasOwn(failure, "stack"), false, "the original failure record is not mutated");
@@ -373,11 +372,40 @@ test("invariants retain every pass, nullable query/origin and exact failure caus
     }
   }
   let stackReads = 0;
-  const failure = { pass: "infer", query: null, origin: null, message: "do not enrich" };
+  const failure = { owner: "infer", query: null, origin: null, message: "do not enrich" };
   Object.defineProperty(failure, "stack", { get() { stackReads += 1; throw new Error("Unrequested stack lookup."); } });
   assert.throws(() => product.throwInvariant(failure), thrown => thrown instanceof Error &&
     thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
   assert.equal(stackReads, 0);
+});
+
+test("required presence preserves every present value and exact caller identity without interpreting its contents", () => {
+  const failure = Object.freeze({ owner: "ir-program", query: null, origin: null, message: "present values do not fail" });
+  const record = Object.freeze({ name: "complete\r\n\uD800", nested: Object.freeze({ count: 7n, absent: null }) });
+  const vector = Object.freeze([record, record, null]);
+  const sparse = new Array(3);
+  sparse[1] = record;
+  Object.freeze(sparse);
+  const values = [null, false, true, 0, -0, NaN, Infinity, -Infinity, 0n, 9007199254740993n, "", "\uD800\r\n", record, vector, sparse];
+  for (const [index, value] of values.entries())
+    assert.equal(Object.is(product.requirePresent(value, failure), value), true, `present value ${index} is unchanged`);
+  assert.equal(vector[0] === record && vector[1] === record, true, "repeated nested identities remain exact");
+  assert.equal(sparse.length === 3 && !Object.hasOwn(sparse, 0) && sparse[1] === record && !Object.hasOwn(sparse, 2),
+    true, "the complete sparse caller vector is retained without reading or filling its holes");
+});
+
+test("required absence uses the same invariant owner and retains the entire exact supplied failure", () => {
+  for (const query of [null, Object.freeze({ name: "publication", encodedKey: "exact\r\n\uD800" })]) {
+    for (const selectedOrigin of [null, Object.freeze(origin("M[P[project];exact.ts]", 7))]) {
+      const failure = Object.freeze({ owner: "dataflow", query, origin: selectedOrigin, message: "missing row\r\n\uDFFF" });
+      const beforeFailure = structuredClone(failure);
+      assert.throws(() => product.requirePresent(undefined, failure), thrown => thrown instanceof Error &&
+        thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
+      assert.deepEqual(failure, beforeFailure, "the complete failure value is not changed or enriched");
+      assert.equal(failure.query === query && failure.origin === selectedOrigin, true, "all nullable payload identities remain exact");
+      assert.equal(Object.hasOwn(failure, "stack"), false, "the invariant does not mutate its caller record");
+    }
+  }
 });
 
 test("host diagnostic code construction is total and preserves the complete supplied spelling", () => {
@@ -409,7 +437,7 @@ test("the complete actual diag module passes fresh strict isolation against the 
   assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/key.d.ts")), false);
 });
 
-test("fresh genuine emitted declarations admit the four ports and reject readonly/shape opposites exactly", () => {
+test("fresh genuine emitted declarations admit the five ports and reject readonly/shape opposites exactly", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
   mkdirSync(resolve(stage, "diag"));
   mkdirSync(resolve(stage, "ids"));
@@ -418,9 +446,11 @@ test("fresh genuine emitted declarations admit the four ports and reject readonl
   for (const name of declarations) writeFileSync(resolve(stage, "diag", name), readFileSync(resolve(emittedDirectory, name)));
   writeFileSync(resolve(stage, "ids/contract.d.ts"), readFileSync(resolve(repository, "packages/host/dist/ids/contract.d.ts")));
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const header = 'import { orderDiagnostics, lookupDiagnostic, throwInvariant, hostDiagnosticCode } from "./diag/index.js";\nimport type { Diagnostic, DiagnosticDefinition, DiagnosticRegistry, HostDiagnosticCode, HostDiagnosticCodeConstructor, InvariantFailure, LookupDiagnostic, MessageArgument, OrderDiagnostics, ThrowInvariant } from "./diag/contract.js";\n';
+  const header = 'import { orderDiagnostics, lookupDiagnostic, throwInvariant, requirePresent, hostDiagnosticCode } from "./diag/index.js";\nimport type { Diagnostic, DiagnosticDefinition, DiagnosticRegistry, HostDiagnosticCode, HostDiagnosticCodeConstructor, InvariantFailure, LookupDiagnostic, MessageArgument, OrderDiagnostics, RequirePresent, ThrowInvariant } from "./diag/contract.js";\n';
   const positive = `${header}export function consume(code: HostDiagnosticCode, diagnostic: Diagnostic, failure: InvariantFailure) {\nconst order: OrderDiagnostics = orderDiagnostics; const lookup: LookupDiagnostic = lookupDiagnostic; const fail: ThrowInvariant = throwInvariant; const makeCode: HostDiagnosticCodeConstructor = hostDiagnosticCode;\nconst registry: DiagnosticRegistry = { definitions: [] }; const ordered: readonly Diagnostic[] = order([diagnostic]);\nconst definition: DiagnosticDefinition | null = lookup(registry, code); const argument: MessageArgument = { kind: "integer", value: 9007199254740993n };\nreturn { ordered, definition, argument, code: makeCode("HOST_EXACT"), fail: (): never => fail(failure) };\n}\n`;
-  writeFileSync(resolve(stage, "consumer.ts"), positive);
+  writeFileSync(resolve(stage, "consumer.ts"), positive + '\nexport function presence(value: { readonly name: string } | undefined, failure: InvariantFailure) { const requireValue: RequirePresent = requirePresent; const retained: { readonly name: string } = requireValue(value, failure); const absent: null = requireValue<null>(null, failure); return { retained, absent }; }\n');
+  const owners = hostCatalogue.filter(module => module.name !== "ids").map(module => module.name);
+  writeFileSync(resolve(stage, "owner-consumer.ts"), `import { requirePresent } from "./diag/index.js";\nimport type { InvariantFailure, InvariantOwner } from "./diag/contract.js";\nexport const owners: readonly InvariantOwner[] = ${JSON.stringify(owners)};\nexport function failure(owner: InvariantOwner): InvariantFailure { return { owner, query: null, origin: null, message: "actual owner" }; }\nexport const present: number = requirePresent(0, failure("dataflow"));\n`);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
     strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
@@ -439,19 +469,24 @@ test("fresh genuine emitted declarations admit the four ports and reject readonl
     writeFileSync(resolve(stage, `${name}.log`), text);
     return { status: result.status, text };
   };
-  const accepted = run("positive.json", ["consumer.ts"]);
+  const accepted = run("positive.json", ["consumer.ts", "owner-consumer.ts"]);
   assert.equal(accepted.status, 0, accepted.text);
   const loaded = accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage));
   assert.deepEqual(loaded.map(path => relative(stage, path).split(sep).join("/")).sort(),
-    ["consumer.ts", "diag/contract.d.ts", "diag/index.d.ts", "ids/contract.d.ts"]);
+    ["consumer.ts", "diag/contract.d.ts", "diag/index.d.ts", "ids/contract.d.ts", "owner-consumer.ts"]);
   const negatives = [
     ["readonly-order.ts", 'import { orderDiagnostics } from "./diag/index.js"; orderDiagnostics([]).push();', 2339],
     ["wrong-code.ts", 'import { lookupDiagnostic } from "./diag/index.js"; lookupDiagnostic({ definitions: [] }, 1);', 2345],
-    ["incomplete-invariant.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ pass: "infer", query: null, origin: null });', 2741],
+    ["incomplete-invariant.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ owner: "infer", query: null, origin: null });', 2741],
     ["extra-argument.ts", 'import { orderDiagnostics } from "./diag/index.js"; orderDiagnostics([], []);', 2554],
     ["readonly-definition.ts", 'import type { DiagnosticDefinition } from "./diag/contract.js"; export function update(value: DiagnosticDefinition): void { value.template = "changed"; }', 2540],
     ["mutable-result.ts", 'import { orderDiagnostics } from "./diag/index.js"; import type { Diagnostic } from "./diag/contract.js"; export const mutable: (values: readonly Diagnostic[]) => Diagnostic[] = orderDiagnostics;', 2322],
     ["inexact-integer.ts", 'import type { MessageArgument } from "./diag/contract.js"; export const argument: MessageArgument = { kind: "integer", value: 12 };', 2322],
+    ["readonly-present.ts", 'import { requirePresent } from "./diag/index.js"; import type { InvariantFailure } from "./diag/contract.js"; export function update(value: { readonly name: string } | undefined, failure: InvariantFailure): void { requirePresent(value, failure).name = "changed"; }', 2540],
+    ["incomplete-present-invariant.ts", 'import { requirePresent } from "./diag/index.js"; requirePresent(0, { owner: "infer", query: null, origin: null });', 2741],
+    ["superseded-pass.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ pass: "pipeline", query: null, origin: null, message: "old form" });', 2353],
+    ["excluded-ids-owner.ts", 'import { requirePresent } from "./diag/index.js"; declare const failure: { readonly owner: "ids"; readonly query: null; readonly origin: null; readonly message: string }; requirePresent(0, failure);', 2345],
+    ["unqualified-analysis-owner.ts", 'import { requirePresent } from "./diag/index.js"; declare const failure: { readonly owner: "liveness"; readonly query: null; readonly origin: null; readonly message: string }; requirePresent(0, failure);', 2345],
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));

@@ -59,7 +59,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     if (keys !== undefined && keys.has(encodedKey)) {
       const chain = snapshotChain(active, attempted);
       if (query.cycle === "invariant") {
-        return throwInvariant({ pass: "pipeline", query: { name: query.name, encodedKey }, origin: null,
+        return throwInvariant({ owner: "query", query: { name: query.name, encodedKey }, origin: null,
           message: `Query cycle ${JSON.stringify(chain)}` });
       }
       const recover = query.cycle.recover;
