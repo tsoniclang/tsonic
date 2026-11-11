@@ -1,0 +1,7 @@
+{
+  "name": "extensions-table-mismatch",
+  "level": "verifier",
+  "rule": "snapshot.extension-table-equality",
+  "input": "test/host-cases/snapshot/verifier/extensions-table-mismatch.input.json",
+  "expected": "test/host-cases/snapshot/verifier/extensions-table-mismatch.expected.json"
+}

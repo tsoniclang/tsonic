@@ -1,0 +1,7 @@
+{
+  "name": "unnamed-root",
+  "level": "verifier",
+  "rule": "snapshot.explicit-unnamed-root-and-captured-bytes",
+  "input": "test/host-cases/snapshot/verifier/unnamed-root.input.json",
+  "expected": "test/host-cases/snapshot/verifier/unnamed-root.expected.json"
+}
