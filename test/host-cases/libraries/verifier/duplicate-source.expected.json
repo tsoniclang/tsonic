@@ -1,0 +1,5 @@
+{
+  "kind": "accepted",
+  "value": [{ "rule": "source-ids-unique", "site": { "kind": "source", "source": "source" }, "detail": [] }],
+  "diagnostics": []
+}
