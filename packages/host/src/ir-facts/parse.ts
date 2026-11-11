@@ -50,14 +50,13 @@ interface RecordReader { readonly names: Set<string> }
 type Decoded<Value> = { readonly kind: "value"; readonly value: Value } | { readonly kind: "invalid"; readonly failure: Failure };
 type Decode<Value> = (state: State, input: SyntaxValue) => Decoded<Value>;
 
-const reject = (state: State, offset: number, expected: readonly string[],
-  found: string | null = offset >= state.text.length ? null : state.text.charAt(offset)): Decoded<never> =>
+const reject = (offset: number, expected: readonly string[], found: string | null): Decoded<never> =>
   ({ kind: "invalid", failure: { offset, expected, found } });
 const accept = <Value>(value: Value): Decoded<Value> => ({ kind: "value", value });
 const then = <Value, Output>(result: Decoded<Value>, next: (value: Value) => Decoded<Output>): Decoded<Output> =>
   result.kind === "invalid" ? result : next(result.value);
-const fail = (state: State, input: SyntaxValue, expected: readonly string[]): Decoded<never> =>
-  reject(state, input.offset, expected, input.text);
+const fail = (input: SyntaxValue, expected: readonly string[]): Decoded<never> =>
+  reject(input.offset, expected, input.text);
 const scan = (state: State): SyntaxValue => {
   let offset = state.offset;
   while (offset < state.text.length) {
@@ -162,18 +161,18 @@ const advance = (state: State, token: Token): void => {
 };
 const punctuation = (state: State, text: string): Decoded<null> => {
   const token = peek(state);
-  if (token.kind !== "punctuation" || token.text !== text) return fail(state, token, [text]);
+  if (token.kind !== "punctuation" || token.text !== text) return fail(token, [text]);
   advance(state, token);
   return accept(null);
 };
 const fields = (state: State, input: SyntaxValue, label: string): Decoded<RecordReader> => {
-  if (input.kind !== "word" || input.text !== label) return fail(state, input, [label]);
+  if (input.kind !== "word" || input.text !== label) return fail(input, [label]);
   advance(state, input);
   return then(punctuation(state, "("), () => accept({ names: new Set<string>() }));
 };
-const fieldNameFailure = (state: State, reader: RecordReader, token: SyntaxValue, name: string): Decoded<never> => {
+const fieldNameFailure = (reader: RecordReader, token: SyntaxValue, name: string): Decoded<never> => {
   if (token.kind !== "word" && token.kind !== "string" && !(token.kind === "invalid" && token.family === "string")) {
-    return fail(state, token, ["field name"]);
+    return fail(token, ["field name"]);
   }
   const actual = token.kind === "word" ? token.text : token.kind === "string" ? token.value : token.prefix;
   let matched = 0;
@@ -190,20 +189,20 @@ const fieldNameFailure = (state: State, reader: RecordReader, token: SyntaxValue
   if (token.kind === "invalid" && matched === actual.length) {
     return { kind: "invalid", failure: token.failure };
   }
-  return reject(state, offset, token.kind !== "invalid" && reader.names.has(actual)
+  return reject(offset, token.kind !== "invalid" && reader.names.has(actual)
     ? ["unique record field"] : [name === "" ? "end of record" : name], token.text);
 };
 const readField = <Value>(state: State, reader: RecordReader, name: string, decode: Decode<Value>): Decoded<Value> => {
   let token = peek(state);
-  if (token.kind === "end" || token.kind === "punctuation" && token.text === ")") return fail(state, token, [name]);
+  if (token.kind === "end" || token.kind === "punctuation" && token.text === ")") return fail(token, [name]);
   if (reader.names.size !== 0) {
-    if (token.kind !== "punctuation" || token.text !== ",") return fail(state, token, [",", ")"]);
+    if (token.kind !== "punctuation" || token.text !== ",") return fail(token, [",", ")"]);
     advance(state, token);
     token = peek(state);
   }
-  if (token.kind !== "word" && token.kind !== "string") return fieldNameFailure(state, reader, token, name);
+  if (token.kind !== "word" && token.kind !== "string") return fieldNameFailure(reader, token, name);
   const actual = token.kind === "word" ? token.text : token.value;
-  if (actual !== name) return fieldNameFailure(state, reader, token, name);
+  if (actual !== name) return fieldNameFailure(reader, token, name);
   advance(state, token);
   reader.names.add(name);
   return then(punctuation(state, "="), () => decode(state, peek(state)));
@@ -214,30 +213,30 @@ const finishRecord = <Value>(state: State, reader: RecordReader, value: Value): 
   if (token.kind === "punctuation" && token.text === ",") {
     advance(state, token);
     token = peek(state);
-    return fieldNameFailure(state, reader, token, "");
+    return fieldNameFailure(reader, token, "");
   }
   if (reader.names.size === 0 && (token.kind === "word" || token.kind === "string" || token.kind === "invalid" && token.family === "string")) {
-    return fieldNameFailure(state, reader, token, "");
+    return fieldNameFailure(reader, token, "");
   }
-  return fail(state, token, reader.names.size === 0 || token.kind === "end" ? [")"] : [",", ")"]);
+  return fail(token, reader.names.size === 0 || token.kind === "end" ? [")"] : [",", ")"]);
 };
 const scalarString: Decode<string> = (state, input) => {
   if (input.kind === "invalid" && input.family === "string") return { kind: "invalid", failure: input.failure };
-  if (input.kind !== "string") return fail(state, input, ["string"]);
+  if (input.kind !== "string") return fail(input, ["string"]);
   advance(state, input); return accept(input.value);
 };
 const scalarNumber: Decode<number> = (state, input) => {
   if (input.kind === "invalid" && input.family === "number") return { kind: "invalid", failure: input.failure };
-  if (input.kind !== "scalar" || typeof input.value !== "number") return fail(state, input, ["number"]);
+  if (input.kind !== "scalar" || typeof input.value !== "number") return fail(input, ["number"]);
   advance(state, input); return accept(input.value);
 };
 const scalarBigint: Decode<bigint> = (state, input) => {
   if (input.kind === "invalid" && input.family === "number") return { kind: "invalid", failure: input.failure };
-  if (input.kind !== "scalar" || typeof input.value !== "bigint") return fail(state, input, ["bigint"]);
+  if (input.kind !== "scalar" || typeof input.value !== "bigint") return fail(input, ["bigint"]);
   advance(state, input); return accept(input.value);
 };
 const scalarBoolean: Decode<boolean> = (state, input) => {
-  if (input.kind !== "scalar" || typeof input.value !== "boolean") return fail(state, input, ["boolean"]);
+  if (input.kind !== "scalar" || typeof input.value !== "boolean") return fail(input, ["boolean"]);
   advance(state, input); return accept(input.value);
 };
 const literal = <const Value extends string | number>(state: State, input: SyntaxValue, values: readonly Value[]): Decoded<Value> => {
@@ -246,7 +245,7 @@ const literal = <const Value extends string | number>(state: State, input: Synta
   if (input.kind === "scalar" || input.kind === "string") for (const value of values) if (value === input.value) {
     advance(state, input); return accept(value);
   }
-  return fail(state, input, values.map(value => typeof value === "string" ? JSON.stringify(value) : String(value)));
+  return fail(input, values.map(value => typeof value === "string" ? JSON.stringify(value) : String(value)));
 };
 const nullable = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<Value | null> => {
   if (input.kind === "scalar" && input.value === null) { advance(state, input); return accept(null); }
@@ -258,7 +257,7 @@ const arrayTail = <Value>(state: State, decode: Decode<Value>, values: Value[]):
     if (separator.kind === "punctuation" && separator.text === "]") {
       advance(state, separator); return accept(Object.freeze(values));
     }
-    if (separator.kind !== "punctuation" || separator.text !== ",") return fail(state, separator, [",", "]"]);
+    if (separator.kind !== "punctuation" || separator.text !== ",") return fail(separator, [",", "]"]);
     advance(state, separator);
     const decoded = decode(state, peek(state));
     if (decoded.kind === "invalid") return decoded;
@@ -266,25 +265,25 @@ const arrayTail = <Value>(state: State, decode: Decode<Value>, values: Value[]):
   }
 };
 const sequence = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<readonly Value[]> => {
-  if (input.kind !== "punctuation" || input.text !== "[") return fail(state, input, ["array"]);
+  if (input.kind !== "punctuation" || input.text !== "[") return fail(input, ["array"]);
   advance(state, input);
   const first = peek(state);
   if (first.kind === "punctuation" && first.text === "]") { advance(state, first); return accept(Object.freeze([])); }
-  if (first.kind === "end") return fail(state, first, ["]"]);
+  if (first.kind === "end") return fail(first, ["]"]);
   return then(decode(state, first), value => arrayTail(state, decode, [value]));
 };
 const nonempty = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>): Decoded<readonly [Value, ...Value[]]> => {
-  if (input.kind !== "punctuation" || input.text !== "[") return fail(state, input, ["nonempty array"]);
+  if (input.kind !== "punctuation" || input.text !== "[") return fail(input, ["nonempty array"]);
   advance(state, input);
   const first = peek(state);
-  if (first.kind === "punctuation" && first.text === "]") return fail(state, input, ["nonempty array"]);
+  if (first.kind === "punctuation" && first.text === "]") return fail(input, ["nonempty array"]);
   return then(decode(state, first), value => then(arrayTail(state, decode, []), rest => {
     const result: readonly [Value, ...Value[]] = [value, ...rest];
     return accept(Object.freeze(result));
   }));
 };
 const identityPrefix = (state: State, input: SyntaxValue, prefix: string, payload: "number" | "string"): Decoded<null> => {
-  if (input.kind !== "word" || input.text !== prefix) return fail(state, input, [prefix + ":" + payload]);
+  if (input.kind !== "word" || input.text !== prefix) return fail(input, [prefix + ":" + payload]);
   advance(state, input);
   return punctuation(state, ":");
 };
@@ -293,7 +292,7 @@ const numeric = <Identity extends number>(state: State, input: SyntaxValue, pref
   then(identityPrefix(state, input, prefix, "number"), () => {
     const value = peek(state);
     if (value.kind === "invalid" && value.family === "number") return { kind: "invalid", failure: value.failure };
-    if (value.kind !== "scalar" || typeof value.value !== "number") return fail(state, value, ["number"]);
+    if (value.kind !== "scalar" || typeof value.value !== "number") return fail(value, ["number"]);
     advance(state, value); return accept(construct(value.value));
   });
 const block: Decode<BlockId> = (state, input) => numeric(state, input, "b", blockId);
@@ -313,21 +312,21 @@ const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state,
 const definition: Decode<DefId> = (state, input) =>
   then(identityPrefix(state, input, "def", "string"), () => then(scalarString(state, peek(state)), value => {
     const decoded = decodeDefId(value);
-    return decoded.kind === "decoded" ? accept(encodeDefId(decoded.value)) : fail(state, input, ["canonical DefId"]);
+    return decoded.kind === "decoded" ? accept(encodeDefId(decoded.value)) : fail(input, ["canonical DefId"]);
   }));
 const body: Decode<BodyId> = (state, input) =>
   then(identityPrefix(state, input, "body", "string"), () => then(scalarString(state, peek(state)), value => {
     const decoded = decodeBodyId(value);
-    return decoded.kind === "decoded" ? accept(encodeBodyId(decoded.value)) : fail(state, input, ["canonical BodyId"]);
+    return decoded.kind === "decoded" ? accept(encodeBodyId(decoded.value)) : fail(input, ["canonical BodyId"]);
   }));
 const component: Decode<ComponentId> = (state, input) =>
   then(identityPrefix(state, input, "component", "string"), () => then(scalarString(state, peek(state)), value => {
     const decoded = decodeComponentId(value);
-    return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(state, input, ["canonical ComponentId"]);
+    return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(input, ["canonical ComponentId"]);
   }));
-const label = <const Name extends string>(state: State, input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
+const label = <const Name extends string>(input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
   if (input.kind === "word") for (const name of names) if (input.text === name) return accept(name);
-  return fail(state, input, names);
+  return fail(input, names);
 };
 const nodeRef: Decode<NodeRef> = (state, input) => then(fields(state, input, "NodeRef"), values =>
     then(readField(state, values, "body", body), bodyValue =>
@@ -441,7 +440,7 @@ const boundProducer: Decode<BoundProducer> = (state, input) => then(fields(state
     then(readField(state, values, "bindings", bindings), bindingsValue =>
     then(readField(state, values, "context", contextIdentity), contextValue =>
       finishRecord<BoundProducer>(state, values, { id: idValue, producer: producerValue, bindings: bindingsValue, context: contextValue }))))));
-const openBoundary: Decode<OpenBoundary> = (state, input) => then(label(state, input, ["external-input","external-write","opaque-write","opaque-result","unclassified-exposure","opaque-invocation","unresolved-transport"]), kind =>
+const openBoundary: Decode<OpenBoundary> = (state, input) => then(label(input, ["external-input","external-write","opaque-write","opaque-result","unclassified-exposure","opaque-invocation","unresolved-transport"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "id", boundary), idValue =>
     then(readField(state, values, "at", site), atValue =>
@@ -501,7 +500,7 @@ const initializationFact: Decode<InitializationFact> = (state, input) => then(fi
 const initialization: Decode<InitializationFacts> = (state, input) => then(fields(state, input, "InitializationFacts"), values =>
     then(readField(state, values, "reads", (state, input) => sequence(state, input, initializationFact)), readsValue =>
       finishRecord<InitializationFacts>(state, values, { reads: readsValue })));
-const refinementInvalidation: Decode<RefinementInvalidation> = (state, input) => then(label(state, input, ["write","call"]), kind =>
+const refinementInvalidation: Decode<RefinementInvalidation> = (state, input) => then(label(input, ["write","call"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "at", nodeRef), atValue =>
       finishRecord<RefinementInvalidation>(state, values, { kind: kind, at: atValue }))));
@@ -545,7 +544,7 @@ const subjectOrigins: Decode<SubjectOriginsFact> = (state, input) => then(fields
     then(readField(state, values, "path", (state, input) => nullable(state, input, path)), pathValue =>
     then(readField(state, values, "origins", originsIdentity), originsValue =>
       finishRecord<SubjectOriginsFact>(state, values, { node: nodeValue, role: roleValue, path: pathValue, origins: originsValue }))))));
-const writtenReason: Decode<WrittenOriginsReason> = (state, input) => then(label(state, input, ["value-source-unproven"]), kind =>
+const writtenReason: Decode<WrittenOriginsReason> = (state, input) => then(label(input, ["value-source-unproven"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "detail", scalarString), detailValue =>
       finishRecord<WrittenOriginsReason>(state, values, { kind: kind, detail: detailValue }))));
@@ -590,7 +589,7 @@ const invocationAlternative: Decode<InvocationAlternative> = (state, input) => t
     then(readField(state, values, "thrown", originsIdentity), thrownValue =>
     then(readField(state, values, "summary", summaryKey), summaryValue =>
       finishRecord<InvocationAlternative>(state, values, { resolution: resolutionValue, context: contextValue, arguments: argumentsValue, result: resultValue, thrown: thrownValue, summary: summaryValue }))))))));
-const invocationFact: Decode<InvocationFact> = (state, input) => then(label(state, input, ["call","construct","getter","setter","native-callback"]), kind =>
+const invocationFact: Decode<InvocationFact> = (state, input) => then(label(input, ["call","construct","getter","setter","native-callback"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "alternatives", (state, input) => sequence(state, input, invocationAlternative)), alternativesValue =>
@@ -610,7 +609,7 @@ const activation: Decode<BoundActivation> = (state, input) => then(fields(state,
     then(readField(state, values, "caller", (state, input) => nullable(state, input, contextIdentity)), callerValue =>
     then(readField(state, values, "entry", (state, input) => nullable(state, input, argumentTransport)), entryValue =>
       finishRecord<BoundActivation>(state, values, { node: nodeValue, definition: definitionValue, context: contextValue, caller: callerValue, entry: entryValue })))))));
-const frontier: Decode<ValueFrontier> = (state, input) => then(label(state, input, ["boundary","origin"]), kind =>
+const frontier: Decode<ValueFrontier> = (state, input) => then(label(input, ["boundary","origin"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "subject", producerIdentity), subjectValue =>
@@ -652,7 +651,7 @@ const suspensionValue: Decode<SuspensionValue> = (state, input) => then(fields(s
     then(readField(state, values, "retention", (state, input) => sequence(state, input, retention)), retentionValue =>
     then(readField(state, values, "continuations", (state, input) => sequence(state, input, (state, input) => literal(state, input, ["resume","return","unwind"]))), continuationsValue =>
       finishRecord<SuspensionValue>(state, values, { place: placeValue, origins: originsValue, retention: retentionValue, continuations: continuationsValue }))))));
-const suspensionFact: Decode<SuspensionFact> = (state, input) => then(label(state, input, ["await","yield","delegate"]), kind =>
+const suspensionFact: Decode<SuspensionFact> = (state, input) => then(label(input, ["await","yield","delegate"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "values", (state, input) => sequence(state, input, suspensionValue)), valuesValue =>
@@ -810,12 +809,12 @@ const callComponent: Decode<CallComponent> = (state, input) => then(fields(state
     then(readField(state, values, "definitions", (state, input) => sequence(state, input, definition)), definitionsValue =>
     then(readField(state, values, "dependencies", (state, input) => sequence(state, input, component)), dependenciesValue =>
       finishRecord<CallComponent>(state, values, { id: idValue, definitions: definitionsValue, dependencies: dependenciesValue })))));
-const callEdge: Decode<CallEdge> = (state, input) => then(label(state, input, ["direct","indirect","getter","setter","constructor","initializer","callback"]), kind =>
+const callEdge: Decode<CallEdge> = (state, input) => then(label(input, ["direct","indirect","getter","setter","constructor","initializer","callback"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "caller", definition), caller =>
     then(readField(state, values, "at", nodeRef), at =>
       readField(state, values, "callee", (state, input) =>
-        then(label(state, input, ["definition","open"]), calleeKind =>
+        then(label(input, ["definition","open"]), calleeKind =>
           then(fields(state, input, calleeKind), callee => {
             switch (calleeKind) {
               case "definition": return then(readField(state, callee, "definition", definition), definition =>
@@ -838,7 +837,7 @@ const itemRef: Decode<ItemNodeRef> = (state, input) => then(fields(state, input,
     then(readField(state, values, "owner", definition), ownerValue =>
     then(readField(state, values, "node", node), nodeValue =>
       finishRecord<ItemNodeRef>(state, values, { owner: ownerValue, node: nodeValue }))));
-const sourceRef: Decode<SourceNodeRef> = (state, input) => then(label(state, input, ["body","item"]), kind => {
+const sourceRef: Decode<SourceNodeRef> = (state, input) => then(label(input, ["body","item"]), kind => {
   switch (kind) {
     case "body": return then(fields(state, input, "body"), values =>
     then(readField(state, values, "value", nodeRef), valueValue =>
@@ -848,7 +847,7 @@ const sourceRef: Decode<SourceNodeRef> = (state, input) => then(label(state, inp
       finishRecord<SourceNodeRef>(state, values, { kind: "item", value: valueValue })));
   }
 });
-const typeBinding: Decode<TypeBinding> = (state, input) => then(label(state, input, ["bound","rigid"]), kind => {
+const typeBinding: Decode<TypeBinding> = (state, input) => then(label(input, ["bound","rigid"]), kind => {
   switch (kind) {
     case "bound": return then(fields(state, input, "bound"), values =>
     then(readField(state, values, "parameter", parameterIdentity), parameterValue =>
@@ -859,7 +858,7 @@ const typeBinding: Decode<TypeBinding> = (state, input) => then(label(state, inp
       finishRecord<TypeBinding>(state, values, { kind: "rigid", parameter: parameterValue })));
   }
 });
-const selfBinding: Decode<SelfBinding> = (state, input) => then(label(state, input, ["bound","rigid"]), kind => {
+const selfBinding: Decode<SelfBinding> = (state, input) => then(label(input, ["bound","rigid"]), kind => {
   switch (kind) {
     case "bound": return then(fields(state, input, "bound"), values =>
     then(readField(state, values, "owner", definition), ownerValue =>
@@ -870,7 +869,7 @@ const selfBinding: Decode<SelfBinding> = (state, input) => then(label(state, inp
       finishRecord<SelfBinding>(state, values, { kind: "rigid", owner: ownerValue })));
   }
 });
-const artifact: Decode<ArtifactBindings> = (state, input) => then(label(state, input, ["parametric","instantiated"]), kind => {
+const artifact: Decode<ArtifactBindings> = (state, input) => then(label(input, ["parametric","instantiated"]), kind => {
   switch (kind) {
     case "parametric": return then(fields(state, input, "parametric"), values =>
       finishRecord<ArtifactBindings>(state, values, { kind: "parametric" }));
@@ -879,7 +878,7 @@ const artifact: Decode<ArtifactBindings> = (state, input) => then(label(state, i
       finishRecord<ArtifactBindings>(state, values, { kind: "instantiated", bindings: bindingsValue })));
   }
 });
-const memberKey: Decode<MemberKey> = (state, input) => then(label(state, input, ["text","number","symbol"]), kind => {
+const memberKey: Decode<MemberKey> = (state, input) => then(label(input, ["text","number","symbol"]), kind => {
   switch (kind) {
     case "text": return then(fields(state, input, "text"), values =>
     then(readField(state, values, "value", scalarString), valueValue =>
@@ -892,7 +891,7 @@ const memberKey: Decode<MemberKey> = (state, input) => then(label(state, input, 
       finishRecord<MemberKey>(state, values, { kind: "symbol", declaration: declarationValue })));
   }
 });
-const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(state, input, ["declared","class-prototype","mapped"]), kind => {
+const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(input, ["declared","class-prototype","mapped"]), kind => {
   switch (kind) {
     case "declared": return then(fields(state, input, "declared"), values =>
     then(readField(state, values, "declaration", definition), declarationValue =>
@@ -906,7 +905,7 @@ const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(state, i
       finishRecord<MemberOrigin>(state, values, { kind: "mapped", owner: ownerValue, key: keyValue }))));
   }
 });
-const owner: Decode<RelationalOwner> = (state, input) => then(label(state, input, ["body","summary"]), kind => {
+const owner: Decode<RelationalOwner> = (state, input) => then(label(input, ["body","summary"]), kind => {
   switch (kind) {
     case "body": return then(fields(state, input, "body"), values =>
     then(readField(state, values, "instance", bodyInstance), instanceValue =>
@@ -917,7 +916,7 @@ const owner: Decode<RelationalOwner> = (state, input) => then(label(state, input
       finishRecord<RelationalOwner>(state, values, { kind: "summary", definition: definitionValue, bindings: bindingsValue }))));
   }
 });
-const site: Decode<RelationalSite> = (state, input) => then(label(state, input, ["node","declared"]), kind => {
+const site: Decode<RelationalSite> = (state, input) => then(label(input, ["node","declared"]), kind => {
   switch (kind) {
     case "node": return then(fields(state, input, "node"), values =>
     then(readField(state, values, "node", nodeRef), nodeValue =>
@@ -928,7 +927,7 @@ const site: Decode<RelationalSite> = (state, input) => then(label(state, input, 
       finishRecord<RelationalSite>(state, values, { kind: "declared", identity: identityValue, site: siteValue }))));
   }
 });
-const projection: Decode<Projection> = (state, input) => then(label(state, input, ["field","method-value","element","index","deref"]), kind => {
+const projection: Decode<Projection> = (state, input) => then(label(input, ["field","method-value","element","index","deref"]), kind => {
   switch (kind) {
     case "field": return then(fields(state, input, "field"), values =>
     then(readField(state, values, "member", memberSelection), memberValue =>
@@ -945,7 +944,7 @@ const projection: Decode<Projection> = (state, input) => then(label(state, input
       finishRecord<Projection>(state, values, { kind: "deref" }));
   }
 });
-const producer: Decode<Producer> = (state, input) => then(label(state, input, ["allocation","parameter","receiver","capture","shared","suspension-input","call-result"]), kind => {
+const producer: Decode<Producer> = (state, input) => then(label(input, ["allocation","parameter","receiver","capture","shared","suspension-input","call-result"]), kind => {
   switch (kind) {
     case "allocation": return then(fields(state, input, kind), values =>
       then(readField(state, values, "id", producerIdentity), id =>
@@ -977,7 +976,7 @@ const producer: Decode<Producer> = (state, input) => then(label(state, input, ["
       then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
       then(readField(state, values, "at", nodeRef), at =>
         readField(state, values, "callee", (state, input) =>
-          then(label(state, input, ["direct","indirect"]), calleeKind =>
+          then(label(input, ["direct","indirect"]), calleeKind =>
             then(fields(state, input, calleeKind), callee => {
               switch (calleeKind) {
                 case "direct": return then(readField(state, callee, "definition", definition), definition =>
@@ -990,7 +989,7 @@ const producer: Decode<Producer> = (state, input) => then(label(state, input, ["
   }
 });
 
-const origins: Decode<Origins> = (state, input) => then(label(state, input, ["complete","open"]), kind => {
+const origins: Decode<Origins> = (state, input) => then(label(input, ["complete","open"]), kind => {
   switch (kind) {
     case "complete": return then(fields(state, input, "complete"), values =>
     then(readField(state, values, "id", originsIdentity), idValue =>
@@ -1005,7 +1004,7 @@ const origins: Decode<Origins> = (state, input) => then(label(state, input, ["co
       finishRecord<Origins>(state, values, { kind: "open", id: idValue, producers: producersValue, includesAbsence: includesAbsenceValue, boundaries: boundariesValue }))))));
   }
 });
-const refinementReason: Decode<RefinementReason> = (state, input) => then(label(state, input, ["invalidated","guard-not-proven"]), kind => {
+const refinementReason: Decode<RefinementReason> = (state, input) => then(label(input, ["invalidated","guard-not-proven"]), kind => {
   switch (kind) {
     case "invalidated": return then(fields(state, input, "invalidated"), values =>
     then(readField(state, values, "sites", (state, input) => nonempty(state, input, refinementInvalidation)), sitesValue =>
@@ -1015,7 +1014,7 @@ const refinementReason: Decode<RefinementReason> = (state, input) => then(label(
       finishRecord<RefinementReason>(state, values, { kind: "guard-not-proven", detail: detailValue })));
   }
 });
-const refinementFact: Decode<RefinementFact> = (state, input) => then(label(state, input, ["proven","unproven"]), kind => {
+const refinementFact: Decode<RefinementFact> = (state, input) => then(label(input, ["proven","unproven"]), kind => {
   switch (kind) {
     case "proven": return then(fields(state, input, "proven"), values =>
     then(readField(state, values, "node", node), nodeValue =>
@@ -1028,7 +1027,7 @@ const refinementFact: Decode<RefinementFact> = (state, input) => then(label(stat
       finishRecord<RefinementFact>(state, values, { kind: "unproven", node: nodeValue, guards: guardsValue, reason: reasonValue })))));
   }
 });
-const escapeTarget: Decode<EscapeTarget> = (state, input) => then(label(state, input, ["return","throw","shared","parameter","receiver","capture","callback","suspension","external"]), kind => {
+const escapeTarget: Decode<EscapeTarget> = (state, input) => then(label(input, ["return","throw","shared","parameter","receiver","capture","callback","suspension","external"]), kind => {
   switch (kind) {
     case "return": return then(fields(state, input, "return"), values =>
       finishRecord<EscapeTarget>(state, values, { kind: "return" }));
@@ -1060,7 +1059,7 @@ const escapeTarget: Decode<EscapeTarget> = (state, input) => then(label(state, i
       finishRecord<EscapeTarget>(state, values, { kind: "external", boundary: boundaryValue })));
   }
 });
-const callbackInput: Decode<CallbackInput> = (state, input) => then(label(state, input, ["receiver-element","receiver-rejection","argument-element"]), kind => {
+const callbackInput: Decode<CallbackInput> = (state, input) => then(label(input, ["receiver-element","receiver-rejection","argument-element"]), kind => {
   switch (kind) {
     case "receiver-element": return then(fields(state, input, "receiver-element"), values =>
     then(readField(state, values, "parameterIndex", scalarNumber), parameterIndexValue =>
@@ -1074,7 +1073,7 @@ const callbackInput: Decode<CallbackInput> = (state, input) => then(label(state,
       finishRecord<CallbackInput>(state, values, { kind: "argument-element", parameterIndex: parameterIndexValue, sourceParameterIndex: sourceParameterIndexValue }))));
   }
 });
-const errorReason: Decode<ErrorInvalidationReason> = (state, input) => then(label(state, input, ["incomplete-origins","inexact-accessor-footprint","open-constructor-domain","opaque-invocation-footprint"]), kind => {
+const errorReason: Decode<ErrorInvalidationReason> = (state, input) => then(label(input, ["incomplete-origins","inexact-accessor-footprint","open-constructor-domain","opaque-invocation-footprint"]), kind => {
   switch (kind) {
     case "incomplete-origins": return then(fields(state, input, "incomplete-origins"), values =>
     then(readField(state, values, "affected", originsIdentity), affectedValue =>
@@ -1089,7 +1088,7 @@ const errorReason: Decode<ErrorInvalidationReason> = (state, input) => then(labe
       finishRecord<ErrorInvalidationReason>(state, values, { kind: "opaque-invocation-footprint", affected: affectedValue })));
   }
 });
-const memoryLayout: Decode<MemoryLayout> = (state, input) => then(label(state, input, ["value","array"]), kind => {
+const memoryLayout: Decode<MemoryLayout> = (state, input) => then(label(input, ["value","array"]), kind => {
   switch (kind) {
     case "value": return then(fields(state, input, "value"), values =>
     then(readField(state, values, "id", layout), idValue =>
@@ -1115,7 +1114,7 @@ const memoryLayout: Decode<MemoryLayout> = (state, input) => then(label(state, i
       finishRecord<MemoryLayout>(state, values, { kind: "array", id: idValue, occurrence: occurrenceValue, source: sourceValue, dataLayout: dataLayoutValue, byteSize: byteSizeValue, byteAlignment: byteAlignmentValue, stride: strideValue, length: lengthValue, runtimeBase: runtimeBaseValue, element: elementValue }))))))))))));
   }
 });
-const metadata: Decode<MetadataRecord> = (state, input) => then(label(state, input, ["data-layout","memory-layout","memory-field"]), kind => {
+const metadata: Decode<MetadataRecord> = (state, input) => then(label(input, ["data-layout","memory-layout","memory-field"]), kind => {
   switch (kind) {
     case "data-layout": return then(fields(state, input, "data-layout"), values =>
     then(readField(state, values, "key", metadataKey), keyValue =>
@@ -1138,7 +1137,7 @@ const metadata: Decode<MetadataRecord> = (state, input) => then(label(state, inp
       finishRecord<MetadataRecord>(state, values, { kind: "memory-field", key: keyValue, root: rootValue, layouts: layoutsValue, fields: fieldsValue }))))));
   }
 });
-const memoryInventory: Decode<MemoryBindingInventoryEntry> = (state, input) => then(label(state, input, ["bound","error"]), kind => {
+const memoryInventory: Decode<MemoryBindingInventoryEntry> = (state, input) => then(label(input, ["bound","error"]), kind => {
   switch (kind) {
     case "bound": return then(fields(state, input, "bound"), values =>
     then(readField(state, values, "node", node), nodeValue =>
@@ -1149,7 +1148,7 @@ const memoryInventory: Decode<MemoryBindingInventoryEntry> = (state, input) => t
       finishRecord<MemoryBindingInventoryEntry>(state, values, { kind: "error", node: nodeValue })));
   }
 });
-const closedReason: Decode<ClosedArrayReason> = (state, input) => then(label(state, input, ["not-local-element-access","open-origin-domain","nonlocal-or-projected-origin","sparse-or-spread-literal","callable-boundary","alias-declaration-missing","different-origin-domain","binding-not-plain","initialization-not-block-local","unproven-capture","assignment-result-exposed","unproven-use","no-local-allocation"]), kind => {
+const closedReason: Decode<ClosedArrayReason> = (state, input) => then(label(input, ["not-local-element-access","open-origin-domain","nonlocal-or-projected-origin","sparse-or-spread-literal","callable-boundary","alias-declaration-missing","different-origin-domain","binding-not-plain","initialization-not-block-local","unproven-capture","assignment-result-exposed","unproven-use","no-local-allocation"]), kind => {
   switch (kind) {
     case "not-local-element-access": return then(fields(state, input, "not-local-element-access"), values =>
     then(readField(state, values, "at", nodeRef), atValue =>
@@ -1192,7 +1191,7 @@ const closedReason: Decode<ClosedArrayReason> = (state, input) => then(label(sta
       finishRecord<ClosedArrayReason>(state, values, { kind: "no-local-allocation", at: atValue })));
   }
 });
-const closedArray: Decode<ClosedArrayFact> = (state, input) => then(label(state, input, ["unproven","closed"]), kind => {
+const closedArray: Decode<ClosedArrayFact> = (state, input) => then(label(input, ["unproven","closed"]), kind => {
   switch (kind) {
     case "unproven": return then(fields(state, input, "unproven"), values =>
     then(readField(state, values, "node", node), nodeValue =>
@@ -1207,7 +1206,7 @@ const closedArray: Decode<ClosedArrayFact> = (state, input) => then(label(state,
       finishRecord<ClosedArrayFact>(state, values, { kind: "closed", node: nodeValue, declarations: declarationsValue, references: referencesValue, literals: literalsValue, elements: elementsValue })))))));
   }
 });
-const effectPaths: Decode<EffectPaths> = (state, input) => then(label(state, input, ["complete","open"]), kind => {
+const effectPaths: Decode<EffectPaths> = (state, input) => then(label(input, ["complete","open"]), kind => {
   switch (kind) {
     case "complete": return then(fields(state, input, "complete"), values =>
     then(readField(state, values, "paths", (state, input) => sequence(state, input, path)), pathsValue =>
@@ -1218,7 +1217,7 @@ const effectPaths: Decode<EffectPaths> = (state, input) => then(label(state, inp
       finishRecord<EffectPaths>(state, values, { kind: "open", paths: pathsValue, boundaries: boundariesValue }))));
   }
 });
-const parameterSlot: Decode<ParameterSlot> = (state, input) => then(label(state, input, ["receiver","parameter"]), kind => {
+const parameterSlot: Decode<ParameterSlot> = (state, input) => then(label(input, ["receiver","parameter"]), kind => {
   switch (kind) {
     case "receiver": return then(fields(state, input, "receiver"), values =>
       finishRecord<ParameterSlot>(state, values, { kind: "receiver" }));
@@ -1227,7 +1226,7 @@ const parameterSlot: Decode<ParameterSlot> = (state, input) => then(label(state,
       finishRecord<ParameterSlot>(state, values, { kind: "parameter", index: indexValue })));
   }
 });
-const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(state, input, ["argument","default","omitted","rest"]), kind => {
+const parameterMapping: Decode<ParameterMapping> = (state, input) => then(label(input, ["argument","default","omitted","rest"]), kind => {
   switch (kind) {
     case "argument": return then(fields(state, input, "argument"), values =>
     then(readField(state, values, "parameter", scalarNumber), parameterValue =>
@@ -1263,7 +1262,7 @@ const pointerOperation: Decode<PointerBackingOperation> = (state, input) =>
     }));
 
 const errorInvalidation: Decode<ErrorInvalidationFact> = (state, input) =>
-  then(label(state, input, ["preserved", "invalidated", "unproven"]), kind =>
+  then(label(input, ["preserved", "invalidated", "unproven"]), kind =>
     then(fields(state, input, kind), values =>
       then(readField(state, values, "at", nodeRef), at =>
       then(readField(state, values, "owner", originsIdentity), owner => {
@@ -1286,7 +1285,7 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
   const state: State = { text, offset: 0, lookahead: null };
   const decoded = then(decode(state, peek(state)), value => {
     const next = peek(state);
-    return next.kind === "end" ? accept(value) : fail(state, next, ["end of document"]);
+    return next.kind === "end" ? accept(value) : fail(next, ["end of document"]);
   });
   if (decoded.kind === "value") return { kind: "parsed", value: decoded.value };
   const failure = decoded.failure;

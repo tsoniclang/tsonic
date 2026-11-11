@@ -364,7 +364,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           "An argument's formal producer belongs to this exact callee summary and complete binding environment.");
       }
       for (const [index, parameter] of selected?.parameters.entries() ?? []) {
-        if (parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
+        if (parameter !== undefined && parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
           "Every non-rest selected formal has its complete actual or explicit omitted transport.");
       }
       for (const [parameter, shapes] of expectedRests) {

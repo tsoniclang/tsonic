@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isDeepStrictEqual } from "node:util";
+import { inspect, isDeepStrictEqual } from "node:util";
+import { deserialize, serialize } from "node:v8";
 import test from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
@@ -17,7 +18,21 @@ const sourceNames = ["index", "print", "parse", "verify-facts", "verify-relation
 const sourceFiles = ["contract", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);
-const equal = (actual, expected, label) => assert.equal(isDeepStrictEqual(actual, expected), true, label);
+const equal = (actual, expected, label, evidence) => {
+  const matches = isDeepStrictEqual(actual, expected);
+  let message = label;
+  if (!matches) {
+    const root = resolve(repository, ".analysis/ir-facts-comparisons", String(process.pid));
+    mkdirSync(root, { recursive: true });
+    const directory = mkdtempSync(resolve(root, `${hash(label)}-`));
+    for (const [name, value] of [["actual", actual], ["expected", expected], ...(evidence === undefined ? [] : [["context", evidence]])]) {
+      writeFileSync(resolve(directory, `${name}.bin`), serialize(value));
+      writeFileSync(resolve(directory, `${name}.txt`), inspect(value, { depth: null, maxArrayLength: Infinity, maxStringLength: Infinity, compact: false }));
+    }
+    message = `${label}; complete actual: ${resolve(directory, "actual.bin")}; complete expected: ${resolve(directory, "expected.bin")}; readable values: ${directory}${evidence === undefined ? "" : "; full context: context.bin and context.txt"}`;
+  }
+  assert.equal(matches, true, message);
+};
 const clone = value => structuredClone(value);
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const parametric = () => ({ kind: "parametric" });
@@ -1136,7 +1151,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.tir.nestedBodies = [callableBody, defaultBody];
     input.refinements.integers = [{ node: 2, range: null, nonnegative: false }];
   }, input => { input.refinements.integers.push({ node: 5, range: null, nonnegative: false }, { node: 7, range: null, nonnegative: false }); },
-    [violation("integer-facts-domain-exact", bodySite(), "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.")]);
+    [violation("node-resolves", nodeSite(5), "Every fact retains an actual source occurrence in its declared body domain."),
+      violation("node-resolves", nodeSite(7), "Every fact retains an actual source occurrence in its declared body domain."),
+      violation("integer-facts-domain-exact", bodySite(), "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.")]);
   const countedLoop = (input, supplied, count = 1) => {
     supplied.types.terms.push({ kind: "primitive", primitive: "bool" });
     const name = (id, parent, local) => ({ ...header(id, parent), kind: "Identifier", text: "counter", tsonic: { ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local } } } });
@@ -3464,6 +3481,429 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }
   });
 
+  for (const [name, suffix, expected, found] of [
+    ["missing final close", "", [")"], null],
+    ["unexpected final token", "]", [",", ")"], "]"],
+  ]) await suite.test(`original raw finish-record ${name}`, () => {
+    const prefix = "CallGraph(definitions=[], edges=[], components=[]";
+    equal(product.parseCallGraph(prefix + ")"), { kind: "parsed", value: { definitions: [], edges: [], components: [] } }, "complete ordered record control");
+    malformed(product.parseCallGraph, prefix + suffix, prefix.length, expected, found, "complete final-record frame failure");
+  });
+  await suite.test("original raw empty record requires its closing punctuation", () => {
+    equal(product.parseSummary(emptySummaryText), { kind: "parsed", value: emptySummary() }, "complete zero-field parametric record control");
+    const text = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric(0`;
+    malformed(product.parseSummary, text, text.length - 1, [")"], "0", "zero-field record cannot accept a scalar");
+  });
+  await suite.test("original raw numeric literal membership preserves lexical and kind precedence", () => {
+    const valid = abiText(64);
+    equal(product.parseMetadata(valid), { kind: "parsed", value: abi(64) }, "complete actual numeric literal-union control");
+    const number = valid.replace("addressWidth=64", "addressWidth=1e+");
+    malformed(product.parseMetadata, number, number.indexOf("1e+"), ["finite decimal number"], "1", "malformed numeric literal is lexical");
+    const string = valid.replace('byteOrder="little"', "byteOrder=1e+");
+    malformed(product.parseMetadata, string, string.indexOf("1e+"), ['"little"', '"big"'], "1", "wrong literal kind precedes a later numeric token error");
+  });
+  await suite.test("original raw sequence at end and nonempty non-array are distinct typed failures", () => {
+    const incomplete = "CallGraph(definitions=[";
+    malformed(product.parseCallGraph, incomplete, incomplete.length, ["]"], null, "sequence opening at end of input");
+    const input = emptyFacts(); input.arena.origins = [{ id: 0, producers: [], includesAbsence: false, kind: "open", boundaries: [0] }];
+    const marker = `boundaries=${arrayText(["boundary:0"])}`;
+    const row = `open(id=origins:0, producers=[], includesAbsence=false, ${marker})`;
+    const text = emptyFactsText.replace("origins=[], boundaries=[]", `origins=${arrayText([row])}, boundaries=[]`);
+    equal(product.parseFacts(text), { kind: "parsed", value: input }, "complete genuinely declared nonempty origins tuple control");
+    const invalid = text.replace(marker, "boundaries=null");
+    const offset = invalid.indexOf("boundaries=null") + "boundaries=".length; const before = invalid.slice(0, offset).split("\n");
+    malformed(product.parseFacts, invalid, offset, ["nonempty array"], "null", "nonempty tuple wrong kind", before.length, before.at(-1).length + 1);
+  });
+  await suite.test("original raw numeric identity rejects malformed numeric payload at its lexical site", () => {
+    const input = emptyFacts(); input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }];
+    const text = emptyFactsText.replace("projections=[]", `projections=${arrayText(["ProjectionPath(id=path:0, parent=null, projection=deref())"])}`);
+    equal(product.parseFacts(text), { kind: "parsed", value: input }, "complete numeric identity valid root");
+    const invalid = text.replace("path:0", "path:1e+");
+    const offset = invalid.indexOf("1e+"); const before = invalid.slice(0, offset).split("\n");
+    malformed(product.parseFacts, invalid, offset, ["finite decimal number"], "1", "numeric identity lexical failure", before.length, before.at(-1).length + 1);
+  });
+  {
+    const input = bodyFacts(); invocationFixture(input, setup());
+    const row = input.origins.invocations[0]; row.boundaries = [0];
+    await factTransport("original raw invocation boundary nonempty whole transport", ["origins", "invocations"], "invocations=[]", row,
+      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText}, context=context:0, arguments=${arrayText([argumentText(0, definitions.parameter), argumentText(1, definitions.capture)])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=${arrayText(["boundary:0"])})`);
+  }
+  await factTransport("original raw error retention nonempty whole transport", ["errorStorage", "errors"], "errors=[]",
+    { node: 1, origins: 1, writes: [], retention: [{ source: 0, into: { kind: "return" } }], invalidations: [] },
+    `ErrorStorageFact(node=n:1, origins=origins:1, writes=[], retention=${arrayText(["RetentionFact(source=producer:0, into=return())"])}, invalidations=[])`);
+  {
+    const input = emptyFacts(); input.selectedMemoryDeclarations = [definitions.f];
+    await textCase("original raw selected memory declaration nonempty whole transport", input,
+      emptyFactsText.replace("selectedMemoryDeclarations=[]", `selectedMemoryDeclarations=${arrayText([`def:"${definitions.f}"`])}`), product.printFacts, product.parseFacts);
+  }
+  for (const missing of [[0], [1], [0, 1]]) await factOpposite(`borrowed selected formal holes ${missing.join("+")}`, invocationFixture,
+    (input, supplied) => {
+      const original = supplied.types.signatures[1].parameters;
+      const parameters = new Array(2);
+      for (const [index, value] of original.entries()) if (!missing.includes(index)) parameters[index] = value;
+      supplied.types.signatures[1].parameters = parameters;
+    }, missing.map(() => violation("argument-transports-total", nodeSite(1),
+      "Transports retain complete selected formals, passing modes and effective actual components exactly once.")));
+  await factOpposite("original raw invocation retains boundary references", (input, supplied) => {
+    invocationFixture(input, supplied); input.origins.invocations[0].boundaries = [0];
+  }, input => { input.origins.invocations[0].boundaries = [99]; },
+  [violation("boundary-resolves", nodeSite(1), "A boundary resolves in this exact arena.")]);
+  for (const channel of ["yielded", "sent"]) await factOpposite(`original raw selected completion ${channel}`, (input, supplied) => {
+    invocationFixture(input, supplied); input.origins.invocations[0].alternatives[0].resolution.decision.completion[channel] = 0;
+  }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.completion[channel] = 99; },
+  [violation("type-resolves", nodeSite(1), "A fact type resolves in the actual supplied type table.")]);
+  await factOpposite("original raw selected receiver and actual context disagree", invocationFixture,
+    (input, supplied) => { supplied.types.signatures[1].receiver = 0; },
+    [violation("context-arguments-total", nodeSite(1), "Each invocation context retains every actual selected parameter and receiver slot.")]);
+
+  await graphOpposite("original raw descending caller identities", recursiveGraph, input => { input.edges.reverse(); },
+    [violation("edges-order", nodeSite(1), graphOrderMessage)]);
+  await suite.test("original raw body ordering preserves independently qualified ownership findings", () => {
+    const supplied = setup(); const input = graph();
+    input.edges = [edge("f", "f"), { ...edge("f", "f"), at: { body: otherBody, node: 1 } }];
+    const ownership = violation("cross-owner-qualified", { kind: "node", at: { body: otherBody, node: 1 } },
+      "The call occurrence must belong to its actual caller definition.");
+    equal(product.verifyCallGraph(input, supplied.context), [ownership], "complete ascending-body ownership vector");
+    input.edges.reverse();
+    equal(product.verifyCallGraph(input, supplied.context), [ownership, violation("edges-order", nodeSite(1), graphOrderMessage)],
+      "complete descending-body ownership and ordering vector");
+  });
+  await suite.test("original raw converging genuine component paths visit each member once", () => {
+    const supplied = setup();
+    const actualDefinitions = [definitions.f, definitions.other, definitions.parameter];
+    const bodies = actualDefinitions.map(owner => ids.encodeBodyId({ owner, role: "function", ordinal: 0 }));
+    const owners = new Map(bodies.map((body, index) => [body, actualDefinitions[index]]));
+    supplied.context.bodyOwner = body => owners.get(body) ?? null;
+    supplied.context.nodeExists = selected => selected.kind === "body" && owners.has(selected.value.body) && selected.value.node === 1;
+    const actualEdge = (caller, callee) => ({ caller: actualDefinitions[caller], at: { body: bodies[caller], node: 1 }, kind: "direct",
+      callee: { kind: "definition", definition: actualDefinitions[callee] }, bindings: parametric() });
+    const input = { definitions: actualDefinitions, edges: [actualEdge(0, 1), actualEdge(0, 2), actualEdge(1, 2), actualEdge(2, 0)],
+      components: [{ id: ids.encodeComponentId(actualDefinitions), definitions: actualDefinitions, dependencies: [] }] };
+    equal(product.verifyCallGraph(input, supplied.context), [], "complete actual strongly connected converging graph");
+    input.edges.splice(1, 1);
+    equal(product.verifyCallGraph(input, supplied.context), [], "complete actual strongly connected nonconverging control");
+  });
+  await factOpposite("original raw actual producer projection requires the selected dense row identity", input => {
+    input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }];
+    input.arena.producers[0].path = 0;
+  }, input => { input.arena.projections[0].id = 99; }, [
+    violation("projection-id-dense", arenaSite("projection", "projection", 99), "Projection IDs must equal their dense arena positions."),
+    violation("producer-resolves", arenaSite("producer", "producer", 0), "A producer projection must resolve in its own relational arena."),
+  ]);
+  await factOpposite("original raw actual boundary owner requires the selected dense producer identity", input => {
+    input.arena.producers.push({ id: 1, path: null, kind: "shared", definition: definitions.other });
+    input.arena.boundaries[0].owner = 1;
+  }, input => { input.arena.producers[1].id = 99; }, [
+    violation("producer-id-dense", arenaSite("producer", "producer", 99), "Producer IDs must equal their dense arena positions."),
+    violation("producer-resolves", arenaSite("boundary", "boundary", 0), "A boundary retains its actual subject and optional mutation-owner producer."),
+  ]);
+  await suite.test("original raw shared syntax child identity is not an inline object cycle", () => {
+    const input = bodyFacts(); const supplied = setup(input);
+    const child = { ...header(1), kind: "EmptyStatement", tsonic: null };
+    supplied.tir.root.statements.nodes = [child, clone(child)];
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete repeated actual node identity result");
+    supplied.tir.root.statements.nodes = [child, { ...header(2), kind: "EmptyStatement", tsonic: null }];
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete distinct actual node identity control");
+  });
+  await factOpposite("original raw refinement guards retain their own actual sites", input => {
+    input.refinements.refinements = [{ node: 1, kind: "proven", guards: [2] }];
+  }, input => { input.refinements.refinements[0].guards = [99]; },
+  [violation("node-resolves", nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain.")]);
+  await factOpposite("original raw invalidated refinement retains every qualified site", input => {
+    input.refinements.refinements = [{ node: 1, kind: "unproven", guards: [2], reason: { kind: "invalidated", sites: [{ kind: "write", at: nodeRef(3) }] } }];
+  }, input => { input.refinements.refinements[0].reason.sites[0].at.node = 99; },
+  [violation("node-resolves", nodeSite(1), "Every fact retains an actual source occurrence in its declared body domain.")]);
+  await suite.test("original raw unproven refinement has its distinct non-invalidation reason", () => {
+    const input = bodyFacts(); const supplied = setup(input);
+    input.refinements.refinements = [{ node: 1, guards: [2], kind: "unproven", reason: { kind: "guard-not-proven", detail: "unknown" } }];
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete genuine unproven guard result");
+  });
+  await suite.test("original raw genuine prefix unit increment remains a counted loop", () => {
+    const input = bodyFacts(); const supplied = setup(input); countedLoop(input, supplied);
+    supplied.tir.root.statements.nodes[0].incrementor.kind = "PrefixUnaryExpression";
+    supplied.tir.root.statements.nodes[0].incrementor.tsonic.role = "update";
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete genuine prefix unit increment control");
+  });
+  await factOpposite("original raw counted loop rejects a different genuine incrementor expression", countedLoop,
+    (input, supplied) => {
+      const statement = supplied.tir.root.statements.nodes[0];
+      statement.incrementor = { ...clone(statement.incrementor.operand), ...header(10, 1) };
+      input.refinements.integers = input.refinements.integers.filter(row => row.node !== 11);
+    }, [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
+  const writtenFixture = input => {
+    input.origins.writes = [{ node: 1, operation: "mutation", destination: "binding", targets: [0], owner: 0,
+      values: [{ source: null, origins: 0, reason: null }, { source: nodeRef(2), origins: 1, reason: null }], boundaries: [0] }];
+  };
+  for (const target of ["targets", "owner"]) await factOpposite(`original raw written bound producer ${target}`, writtenFixture,
+    input => { if (target === "targets") input.origins.writes[0].targets = [99]; else input.origins.writes[0].owner = 99; },
+    [violation("bound-producer-resolves", nodeSite(1), "A producer reference resolves in its exact declared arena.")]);
+  await factOpposite("original raw written origin preserves its actual qualified source", writtenFixture,
+    input => { input.origins.writes[0].values[1].source.node = 99; },
+    [violation("node-resolves", nodeSite(1), "Every fact retains an actual source occurrence in its declared body domain.")]);
+  await factOpposite("original raw actual error writes retain their own occurrence sites", input => {
+    input.errorStorage.errors = [{ node: 1, origins: 1, writes: [2], retention: [{ source: 0, into: { kind: "return" } }], invalidations: [] }];
+  }, input => { input.errorStorage.errors[0].writes = [99]; },
+  [violation("node-resolves", nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain.")]);
+  await factOpposite("original raw overlapping write retains its actual affected origins", input => {
+    input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [],
+      invalidations: [{ kind: "invalidated", at: nodeRef(2), owner: 1, cause: "overlapping-write", affected: 1 }] }];
+  }, input => { input.errorStorage.errors[0].invalidations[0].affected = 99; },
+  [violation("error-invalidation-origins-resolve", nodeSite(1), "An overlapping error write retains its actual affected origins.")]);
+  await factOpposite("original raw selected memory declarations require actual definitions", input => {
+    input.selectedMemoryDeclarations = [definitions.f];
+  }, input => { input.selectedMemoryDeclarations = [definitions.missing]; },
+  [violation("cross-owner-qualified", bodySite(), "Every selected memory declaration retains its actual declaration identity.")]);
+  await factOpposite("original raw closed array retains its actual checked declaration", input => {
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [definitions.field], references: [], literals: [], elements: [] }];
+  }, input => { input.closedArrays[0].declarations = [definitions.missing]; },
+  [violation("cross-owner-qualified", nodeSite(1), "A closed array retains actual checked declaration identities.")]);
+
+  const callbackFixture = (input, supplied) => {
+    const foreign = { kind: "summary", definition: definitions.callee, bindings: parametric() };
+    const argument = { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false, passing: "by-value", actual: 0,
+      formal: { owner: foreign, producer: 0 }, projection: null };
+    input.origins.callbacks = [{ node: 1, argument, timing: "synchronous", rejection: null, inputs: [] }];
+    supplied.canonicalArenas.set(arenaKey(foreign), { projections: [], producers: [{ id: 0, path: null, kind: "parameter", index: 0 }],
+      contexts: [], boundProducers: [], origins: [], boundaries: [] });
+  };
+  for (const [name, input, badField] of [
+    ["argument formal", { kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }, "parameterIndex"],
+    ["argument source", { kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }, "sourceParameterIndex"],
+    ["receiver element", { kind: "receiver-element", parameterIndex: 1 }, "parameterIndex"],
+    ["receiver rejection", { kind: "receiver-rejection", parameterIndex: 2 }, "parameterIndex"],
+  ]) await factOpposite(`original raw callback input ${name}`, (facts, supplied) => {
+    callbackFixture(facts, supplied); facts.origins.callbacks[0].inputs = [clone(input)];
+  }, facts => { facts.origins.callbacks[0].inputs[0][badField] = NaN; },
+  [violation("argument-transports-total", nodeSite(1), "A callback input retains actual nonnegative formal channel indices.")]);
+  await factOpposite("original raw formal owner absence is not an empty foreign arena", callbackFixture,
+    (input, supplied) => { supplied.canonicalArenas.delete(arenaKey(input.origins.callbacks[0].argument.formal.owner)); },
+    [violation("cross-owner-qualified", nodeSite(1), "A formal producer retains a resolving qualified relational owner.")]);
+  await factOpposite("original raw formal parameter declaration resolves independently", callbackFixture,
+    input => { input.origins.callbacks[0].argument.parameter = definitions.missing; },
+    [violation("argument-transports-total", nodeSite(1), "A transport retains its actual parameter declaration.")]);
+  await factOpposite("original raw instantiated body formal owner supplies its actual binding scope", (input, supplied) => {
+    callbackFixture(input, supplied);
+    const selected = { kind: "body", instance: { body: otherBody, bindings: { kind: "instantiated", bindings: emptyBindings() } } };
+    const actual = tir(); actual.body = otherBody; actual.owner = definitions.other; actual.bindings = clone(selected.instance.bindings);
+    actual.signature = 1;
+    actual.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+    actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
+    supplied.types.signatures.push(signature(1, [parameter()], null, definitions.other));
+    supplied.bodyRows.set(otherBody, actual);
+    const previous = input.origins.callbacks[0].argument.formal.owner;
+    supplied.canonicalArenas.set(arenaKey(selected), clone(supplied.canonicalArenas.get(arenaKey(previous))));
+    input.origins.callbacks[0].argument.formal.owner = selected;
+    supplied.scopeRows.body.push(emptyScope());
+  }, (input, supplied) => { supplied.canonicalArenas.delete(arenaKey(input.origins.callbacks[0].argument.formal.owner)); },
+  [violation("cross-owner-qualified", nodeSite(1), "A formal producer retains a resolving qualified relational owner.")]);
+  await factOpposite("original raw activation execution declaration must exist", input => {
+    input.origins.activations = [{ node: 1, definition: definitions.callee, context: 0, caller: null, entry: null }];
+  }, input => { input.origins.activations[0].definition = definitions.missing; },
+  [violation("producer-resolves", nodeSite(1), "An activation retains its actual execution declaration.")]);
+  await factOpposite("original raw construction implementation must exist", input => {
+    input.origins.constructions = [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.callee, body: null, regions: [] }];
+  }, input => { input.origins.constructions[0].implementation = definitions.missing; },
+  [violation("producer-resolves", nodeSite(1), "A construction retains its actual selected implementation declaration.")]);
+  await factOpposite("original raw construction region carries its actual lexical owner", input => {
+    input.origins.constructions = [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.callee, body: null,
+      regions: [{ node: nodeRef(3), owner: definitions.callee, context: 0 }] }];
+  }, input => { input.origins.constructions[0].regions[0].owner = definitions.missing; },
+  [violation("cross-owner-qualified", nodeSite(1), "Each constructor region retains its actual lexical declaration owner.")]);
+  for (const [root, expectedRule, message] of [
+    ["facts", "relational-site-resolves", "An escape retains an existing declared library export."],
+    ["summary", "relational-site-resolves", "A retention target retains its actual library export."],
+  ]) {
+    const prepare = (input, supplied) => {
+      const target = { kind: "callback", at: { kind: "declared", identity: clone(libraryIdentity), site: 0 } };
+      if (root === "facts") input.origins.escapes = [{ node: 1, producer: 0, target }];
+      else input.retention = [{ source: 0, into: target }];
+    };
+    const opposite = (input, supplied) => { supplied.context.libraryExportExists = selected => {
+      equal(selected, libraryIdentity, "the actual unresolved library identity"); return false;
+    }; };
+    if (root === "facts") await factOpposite("original raw unresolved declared escape export", prepare, opposite,
+      [violation(expectedRule, nodeSite(1), message)]);
+    else await summaryOpposite("original raw unresolved declared retention export", prepare, opposite,
+      [violation(expectedRule, summarySite(), message)]);
+  }
+  await factOpposite("original raw missing selected signature is not a fabricated empty signature", (input, supplied) => {
+    invocationFixture(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    supplied.types.signatures[1].parameters = [];
+    alternative.resolution.decision.parameters = []; alternative.arguments = [];
+    supplied.tir.root.arguments.nodes = []; supplied.tir.root.tsonic.application.decision.arguments = [];
+    input.arena.contexts[0].arguments = [];
+    input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
+  }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.api.signature = 99; },
+  [violation("signature-resolves", nodeSite(1), "A fact signature resolves in the actual supplied signature table.")]);
+  await factOpposite("original raw repeated authored tuple consumes two distinct actual components", (input, supplied) => {
+    restFixture("finite", input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    supplied.types.signatures[1].parameters = [parameter(definitions.parameter), parameter(definitions.capture)];
+    alternative.resolution.decision.parameters = [0, 1].map(index => ({ kind: "argument", parameter: index, argument: 0, component: index, passing: "by-value" }));
+    alternative.arguments[1].parameter = definitions.capture; alternative.arguments[1].parameterIndex = 1; alternative.arguments[1].formal.producer = 1;
+    supplied.tir.root.tsonic.application.decision.arguments = [0, 1].map(parameter => ({ kind: "provided", parameter, expression: 4 }));
+    input.arena.contexts[0].arguments = [0, 0];
+    supplied.canonicalArenas.set(arenaKey(alternative.arguments[0].formal.owner), { projections: [],
+      producers: [0, 1].map(index => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
+  }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.parameters[1].component = 99; },
+  [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.")]);
+  await factOpposite("original raw rest membership retains both authored and shape findings", (input, supplied) => {
+    restFixture("finite", input, supplied);
+  }, (input, supplied) => { supplied.tir.root.tsonic.application.decision.arguments[0].parts[0].expression = 2; }, [
+    violation("argument-transports-total", nodeSite(1), "Rest transports retain their actual selected authored spread and value occurrences."),
+    violation("argument-transports-total", nodeSite(1), restMessage),
+  ]);
+  await factOpposite("original raw missing rest projection retains both reference and shape findings", (input, supplied) => {
+    restFixture("finite", input, supplied);
+  }, input => { input.origins.invocations[0].alternatives[0].arguments[0].projection = 99; }, [
+    violation("producer-resolves", nodeSite(1), "A projected fact retains its actual projection-path identity."),
+    violation("argument-transports-total", nodeSite(1), restMessage),
+  ]);
+
+  await factOpposite("original raw static block owns its actual nested value domain", (input, supplied) => {
+    const nested = ids.encodeBodyId({ owner: definitions.layout, role: "class-static-initializer", ordinal: 0 });
+    supplied.types.terms.push({ kind: "declared", definition: definitions.layout, arguments: [], facet: "instance", extent: null });
+    const root = { ...header(4, 3), kind: "Block", statements: { loc: { pos: 5, end: 7 }, nodes: [
+      { ...header(5, 4), kind: "ExpressionStatement", tsonic: null, expression: { ...header(6, 5), kind: "NumericLiteral", text: "1", tokenFlags: [],
+        tsonic: { ...typedValue(), role: "value", value: { numerator: 1n, denominator: 1n, negativeZero: false } } } },
+    ] }, tsonic: null };
+    supplied.tir.root.statements.nodes = [{ ...header(1), kind: "ClassDeclaration", modifiers: null, typeParameters: null, heritageClauses: null,
+      name: { ...header(2, 1), kind: "Identifier", text: "Widget", tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: definitions.layout }, storage: 3 } },
+      members: { loc: { pos: 3, end: 7 }, nodes: [{ ...header(3, 1), kind: "ClassStaticBlockDeclaration", modifiers: null, body: root,
+        tsonic: { template: { body: nested, lexicalBindings: emptyBindings(), dependence: "parametric" } } }] },
+      tsonic: { definition: definitions.layout, parameters: [], type: 3, heritage: [], members: [], attributes: [] } }];
+    supplied.tir.nestedBodies = [nested];
+    supplied.bodyRows.set(nested, { ...tir(), body: nested, owner: definitions.layout, root: clone(root) });
+    supplied.bodyOwners.set(nested, definitions.layout);
+  }, input => { input.refinements.integers = [{ node: 6, range: null, nonnegative: false }]; }, [
+    violation("node-resolves", nodeSite(6), "Every fact retains an actual source occurrence in its declared body domain."),
+    violation("integer-facts-domain-exact", bodySite(), "Integer proofs retain every actual checked value occurrence, including explicit absent proofs."),
+  ]);
+  await suite.test("original raw instantiated self binding keys use both actual self arms", () => {
+    const scope = { ...emptyScope(), selfOwners: [definitions.f, definitions.other] };
+    const input = emptyFacts();
+    input.instance.bindings = { kind: "instantiated", bindings: { ...emptyBindings(), selfBindings: [
+      { kind: "bound", owner: definitions.f, type: 0 }, { kind: "rigid", owner: definitions.other },
+    ] } };
+    const supplied = setup(input, [scope]);
+    supplied.tir.bindings = clone(input.instance.bindings); supplied.mir.bindings = clone(input.instance.bindings);
+    supplied.context.bindingScopeOf = selected => selected === definitions.f ? clone(scope) : emptyScope();
+    supplied.canonicalArenas.set(arenaKey({ kind: "body", instance: input.instance }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, [scope]);
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete canonical instantiated self binding vector");
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, [{ ...emptyScope(), selfOwners: [definitions.other, definitions.f] }]);
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", bodySite(), bindingMessage)],
+      "complete independently declared reversed self-owner scope refusal");
+  });
+  for (const kind of ["argument", "default", "rest"]) await metadataOpposite(`original raw canonical accessor ${kind} mapping`, (input, supplied) => {
+    withField(input, supplied);
+    const facts = bodyFacts(); accessorSelection(facts, supplied);
+    const selected = facts.arena.projections[2].projection.member;
+    const formal = supplied.types.signatures[1].parameters[0];
+    if (kind === "default") {
+      formal.kind = "default";
+      formal.initializer = ids.encodeBodyId({ owner: definitions.parameter, role: "default-argument", ordinal: 0 });
+      selected.getter.decision.parameters = [{ kind, parameter: 0, initializer: formal.initializer }];
+    } else if (kind === "rest") {
+      formal.kind = "rest"; formal.type = 4;
+      supplied.types.terms.push({ kind: "array", element: 0, readonly: false });
+      selected.getter.decision.parameters = [{ kind, parameter: 0, arguments: [0], passing: "by-value" }];
+    } else {
+      formal.kind = "required";
+      selected.getter.decision.parameters = [{ kind, parameter: 0, argument: 0, component: null, passing: "by-value" }];
+    }
+    input.fields[0].member = selected;
+    supplied.scopeRows.metadata = [emptyScope(), emptyScope(), emptyScope()];
+  }, input => { input.fields[0].member.getter.decision.candidate = 1; },
+  [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+  const physicalRecord = supplied => {
+    const record = metadata(); withField(record, supplied);
+    supplied.metadataRows.set(definitions.layout, clone(record));
+    return record;
+  };
+  const fieldObservation = (input, supplied, instantiated = false) => {
+    const record = physicalRecord(supplied);
+    if (instantiated) { record.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; supplied.metadataRows.set(definitions.layout, clone(record)); }
+    const key = clone(record.key);
+    input.observations = [{ node: 1, operation: "field-offset", operand: nodeRef(2), layout: { metadata: key, layout: 1 },
+      field: { metadata: clone(key), field: 0 }, result: 0, value: 0n, context: 0, bindings: emptyBindings() }];
+    supplied.scopeRows.body = instantiated ? [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()]
+      : [emptyScope(), emptyScope(), emptyScope()];
+  };
+  for (const instantiated of [false, true]) await factOpposite(`original raw field offset selected row ${instantiated ? "instantiated" : "parametric"}`, (input, supplied) => {
+    fieldObservation(input, supplied, instantiated);
+  }, input => { input.observations[0].field.field = 99; }, [
+    violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
+    violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
+  ]);
+  await factOpposite("original raw field offset null is distinct from unresolved nonnull field", fieldObservation,
+    input => { input.observations[0].field = null; },
+    [violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata.")]);
+  await factOpposite("original raw selected field and layout retain actual distinct owner types", fieldObservation,
+    input => { input.observations[0].layout.layout = 0; },
+    [violation("observation-field-exact", nodeSite(1), "A field-offset observation retains the selected field's actual owner layout.")]);
+  await factOpposite("original raw data-layout metadata is not an eligible physical field record", fieldObservation,
+    input => { input.observations[0].field.metadata.definition = definitions.abi64; }, [
+      violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
+      violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
+    ]);
+  await factOpposite("original raw raw-location pointee retains actual selected layout source", (input, supplied) => {
+    input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: clone(layoutReference), context: 0, bindings: emptyBindings() }];
+    supplied.scopeRows.body.push(emptyScope());
+  }, input => { input.rawLocations[0].pointee = 1; },
+  [violation("cross-owner-qualified", nodeSite(1), "A raw location retains its actual selected pointee layout.")]);
+  await factOpposite("original raw field binding owner retains actual physical correspondence", (input, supplied) => {
+    physicalRecord(supplied); input.fieldBindings = [boundField(1)]; supplied.scopeRows.body.push(emptyScope());
+  }, input => { input.fieldBindings[0].owner = 0; },
+  [violation("cross-owner-qualified", nodeSite(1), "A bound field retains its exact authored owner and pointee correspondence.")]);
+  await factOpposite("original raw memory bound occurrence names an actual complete record row", (input, supplied) => {
+    input.recordBindings = [{ node: 2, result: 0, layoutExpression: nodeRef(3), layout: clone(layoutReference), context: 0, bindings: emptyBindings(), fields: [] }];
+    input.memoryBindings = [{ kind: "bound", node: 1, record: 2 }]; supplied.scopeRows.body.push(emptyScope());
+  }, input => { input.memoryBindings[0].record = 99; },
+  [violation("metadata-reference-resolves", nodeSite(1), "A bound memory occurrence retains its actual complete record-binding row.")]);
+  await metadataOpposite("original raw physical owner mismatch retains both existing checks", withField,
+    input => { input.fields[0].owner = 0; }, [
+      violation("cross-owner-qualified", metadataSite(), "A physical field must retain its actual owner type."),
+      violation("cross-owner-qualified", metadataSite(), "A field cannot borrow another owner, value type or selected child layout."),
+    ]);
+  await metadataOpposite("original raw repeated physical declaration retains geometry and member findings", (input, supplied) => {
+    withField(input, supplied);
+    const second = memoryField(1, definitions.other); second.byteOffset = 8n;
+    input.fields.push(second); input.layouts[1].fields.push(1); supplied.scopeRows.metadata.push(emptyScope());
+  }, input => { input.fields[1].primary = definitions.field; }, [
+    violation("layout-geometry-consistent", metadataSite(), "A layout cannot repeat the same selected physical declaration."),
+    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+  ]);
+  await metadataOpposite("original raw missing selected physical declaration retains complete selected group", withField,
+    input => { input.fields[0].selectedDeclarations = [definitions.missing]; }, [
+      violation("definition-resolves", metadataSite(), "A selected physical declaration must exist in the supplied definition inventory."),
+      violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    ]);
+
+  await suite.test("failed comparison occurrences with identical labels retain both complete values", () => {
+    const sparse = new Array(2); sparse[1] = undefined;
+    const comparisons = [
+      { actual: { number: -0, special: NaN, wide: 9007199254740993n, sparse }, expected: { number: 0, special: NaN, wide: 9007199254740993n, sparse } },
+      { actual: [Infinity, -Infinity, undefined, "second actual"], expected: [Infinity, -Infinity, undefined, "second expected"] },
+    ];
+    const retained = [];
+    for (const { actual, expected } of comparisons) {
+      let message = "";
+      assert.throws(() => equal(actual, expected, "same complete comparison label"), error => {
+        message = error.message; return error.code === "ERR_ASSERTION";
+      });
+      const paths = /; complete actual: (.*?); complete expected: (.*?); readable values:/u.exec(message);
+      assert.equal(paths !== null, true, "bounded failure names both complete retained files");
+      retained.push({ actual: paths[1], expected: paths[2] });
+    }
+    assert.equal(new Set(retained.flatMap(value => [value.actual, value.expected])).size, 4, "each failed occurrence has its own actual and expected files");
+    for (const [index, files] of retained.entries()) {
+      assert.equal(isDeepStrictEqual(deserialize(readFileSync(files.actual)), comparisons[index].actual), true, "complete earlier actual survives a later same-label failure");
+      assert.equal(isDeepStrictEqual(deserialize(readFileSync(files.expected)), comparisons[index].expected), true, "complete earlier expected survives a later same-label failure");
+    }
+  });
+
   await suite.test("authored adjacent descriptors execute the real owning ports with complete outcomes", async () => {
     const invalid = result => ({ kind: "refused", diagnostics: [{ code: "invalid-text", message: `Expected ${result.expected.join(" or ")}`,
       site: { offset: result.offset, line: result.line, column: result.column, expected: result.expected, found: result.found } }] });
@@ -3601,6 +4041,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "const parameters: readonly SignatureParameter[] = new Array<SignatureParameter>(1);",
         "const suppliedSignature: Signature = { ...actualSignature, parameters };",
         "verifySummary(summary, { ...context, types: { ...context.types, signatures: [suppliedSignature] } });",
+        "verifyFacts(facts, mir, { ...context, types: { ...context.types, signatures: [suppliedSignature] } });",
       ].join("\n"), []], ["sparse-verifier-peer-rows", [
         'import type { TypeTerm, Signature } from "./packages/host/src/ir-types/contract.js";',
         'import type { LocalRef } from "./packages/host/src/ids/contract.js";',
@@ -3620,9 +4061,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         ["summary-readonly", "summary.result = summary.result;", [2540]], ["metadata-readonly", "metadata.key.definition = metadata.key.definition;", [2540]],
         ["graph-readonly", "graph.edges = [];", [2540]], ["producer-vector-readonly", "facts.arena.producers.push(facts.arena.producers[0]);", [2339]],
         ...["parseFacts", "parseSummary", "parseMetadata", "parseCallGraph"].map(name => [name, `${name}(0);`, [2345]]),
-        ["printFacts", "printFacts(summary);", [2345]], ["printSummary", "printSummary(facts);", [2345]],
+        ["printFacts", "printFacts(summary);", [2740]], ["printSummary", "printSummary(facts);", [2740]],
         ["printMetadata", "printMetadata(graph);", [2345]], ["printCallGraph", "printCallGraph(metadata);", [2345]],
-        ["verifyFacts", "verifyFacts(summary, mir, context);", [2345]], ["verifySummary", "verifySummary(facts, context);", [2345]],
+        ["verifyFacts", "verifyFacts(summary, mir, context);", [2740]], ["verifySummary", "verifySummary(facts, context);", [2740]],
         ["verifyMetadata", "verifyMetadata(graph, context);", [2345]], ["verifyCallGraph", "verifyCallGraph(metadata, context);", [2345]],
       ];
       const results = [];
@@ -3635,7 +4076,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         }, files: [path] }));
         const result = deps.run(consumer, resolve(consumer, config)); results.push({ name, ...result });
         const actual = [...result.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1]));
-        equal(actual, expected, `${name}: exact independently expected strict consumer diagnostics`);
+        equal(actual, expected, `${name}: exact independently expected strict consumer diagnostics`, result);
         assert.equal(result.status, expected.length === 0 ? 0 : 1, `${name}: actual compiler terminal status`);
         assert.equal(result.loadedFiles.includes(resolve(consumer, "packages/host/src/ir-facts/index.d.ts")), true, `${name}: actual fresh declaration consumer`);
         assert.equal(result.loadedFiles.every(path => path.startsWith(`${consumer}/`) || deps.platform.language.includes(path)), true, `${name}: no source or platform escape`);
