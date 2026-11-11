@@ -38,6 +38,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
   const activeKeys = new Map<string, Set<string>>();
   const boundaries: Boundary[] = [];
   const diagnostics: Diagnostic[] = [];
+  let recoveryMarker: object = {};
 
   function completed<Value>(result: Result<Value>): Result<Value> {
     const retained = retainResult(result);
@@ -62,6 +63,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
           message: `Query cycle ${JSON.stringify(chain)}` });
       }
       const recover = query.cycle.recover;
+      recoveryMarker = {};
       return completed(recover(key, chain));
     }
     if (active.length >= maximumDepth) {
@@ -72,10 +74,11 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     entered.add(encodedKey);
     active.push(attempted);
     entry.counter.computed += 1;
+    const finality = recoveryMarker;
     try {
       const compute = query.compute;
       const result = completed(compute(database, key));
-      entry.results.set(encodedKey, result);
+      if (finality === recoveryMarker) entry.results.set(encodedKey, result);
       return result;
     } finally {
       active.pop();
