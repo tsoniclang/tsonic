@@ -281,7 +281,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 through A9 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 through A10 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -306,6 +306,8 @@ test("A7 through A9 genuine emitted contracts accept current forms and reject ev
         "export function read(node: NodeRef) { const site: TirSite = { kind: 'node', node }; return site; }", 2322],
       ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
         "export function read(substitute: SubstituteSignature, interner: TypeInterner, type: TyId, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, type, bindings, limits); }", 2345],
+      ["deleted-program-id-history-rule", [["ir-program", "ProgramRule"]],
+        "export function read() { const rule: ProgramRule = 'instantiation-preserves-existing-ids'; return rule; }", 2322],
       ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
         "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
       ["old-library-projection", [["libraries", "LibraryVerificationContext, LibraryExportBinding"], ["ids", "LibraryExportIdentity"]],

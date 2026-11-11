@@ -142,8 +142,7 @@ export type ProgramRule =
   | "body-instance-exact" | "mir-index-counts-exact" | "tir-valid" | "mir-valid"
   | "facts-valid" | "cross-owner-qualified" | "cross-owner-reference-resolves"
   | "metadata-constant-not-materialised"
-  | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact"
-  | "instantiation-preserves-existing-ids";
+  | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact";
 
 export type ProgramSite =
   | { readonly kind: "index" }
