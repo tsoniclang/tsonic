@@ -1,0 +1,7 @@
+{
+  "name": "signature-reference-valid",
+  "level": "verifier",
+  "rule": "signature-reference",
+  "input": "test/host-cases/ir-types/verifier/signature-reference-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/signature-reference-valid.expected.json"
+}

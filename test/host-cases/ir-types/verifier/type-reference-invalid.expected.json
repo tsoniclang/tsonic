@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "type-reference",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "reference"
+        },
+        {
+          "kind": "number",
+          "value": 9
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

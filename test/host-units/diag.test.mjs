@@ -91,15 +91,19 @@ function origin(module = "M[P[project];source.ts]", start = 0) {
 
 function assertOrder(input, expected, label) {
   const beforeOrder = [...input];
+  const beforeValues = structuredClone(input);
+  const expectedValues = structuredClone(expected);
   const actual = product.orderDiagnostics(Object.freeze(input));
+  assert.deepEqual(actual, expectedValues, label);
+  assert.deepEqual(input, beforeValues, label + ": complete input values remain unchanged");
   assert.equal(actual === input, false, `${label}: ordering owns a result vector, never mutates the caller`);
   assert.equal(actual.length, expected.length, label);
   for (const [index, value] of expected.entries()) assert.equal(actual[index] === value, true, `${label}: exact diagnostic ${index}`);
   assert.equal(input.every((value, index) => value === beforeOrder[index]), true, `${label}: input order remains unchanged`);
 }
 
-test("the runtime index exposes only the three approved diagnostic ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["lookupDiagnostic", "orderDiagnostics", "throwInvariant"]);
+test("the runtime index exposes only the four approved diagnostic ports", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "throwInvariant"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", "index.ts", "invariant.ts", "order.ts"]);
 });
@@ -125,8 +129,9 @@ for (const name of descriptors) {
               let thrown;
               try { product.throwInvariant(value.failure); }
               catch (failure) { thrown = failure; }
-              assert.equal(thrown === value.failure, true, "invariants throw the actual complete supplied record");
-              return { kind: "accepted", value: { thrown }, diagnostics: [] };
+              assert.equal(thrown instanceof Error, true, "an invariant throws a native Error");
+              assert.equal(thrown.cause === value.failure, true, "the original complete failure is the exact cause");
+              return { kind: "accepted", value: { thrown: { name: thrown.name, message: thrown.message, cause: thrown.cause } }, diagnostics: [] };
             }
             default:
               throw new Error("Unknown authored diagnostic operation.");
@@ -154,7 +159,7 @@ test("all source/file/none ordering directions are independent of diagnostic ide
   }
 });
 
-test("source ordering uses exact UTF-16 module text, start, and rendered code, not length or severity", () => {
+test("source ordering uses exact UTF-16 module text, start, and rendered code before length or content", () => {
   const earlyModule = diagnostic({ kind: "source", origin: origin("M[P[project];a.ts]", 99) }, "Z");
   const lateModule = diagnostic({ kind: "source", origin: origin("M[P[project];z.ts]", 0) }, "A");
   assertOrder([lateModule, earlyModule], [earlyModule, lateModule], "module precedes start/code");
@@ -184,7 +189,8 @@ test("file paths and file/none rendered codes retain exact UTF-16 ordering witho
     assertOrder([late, early], [early, late], `${site.kind}: code-unit ordering`);
     assertOrder([early, late], [early, late], `${site.kind}: forward`);
     const equal = diagnostic(site, "\uD800", "distinct equal-key diagnostic");
-    assertOrder([equal, early], [equal, early], `${site.kind}: stable equal code`);
+    assertOrder([equal, early], [early, equal], `${site.kind}: canonical equal-code content`);
+    assertOrder([early, equal], [early, equal], `${site.kind}: canonical equal-code content reversed`);
   }
 });
 
@@ -200,7 +206,7 @@ test("each site domain independently preserves host, checker and extension code 
   }
 });
 
-test("stable ties retain full host/checker/extension payloads, repeated entries and nested identities", () => {
+test("canonical ties retain full host/checker/extension payloads, repeated entries and nested identities", () => {
   const site = Object.freeze({ kind: "source", origin: Object.freeze({
     module: "M[P[project];\uD800-source.ts]", start: 2, length: 7,
     derived: Object.freeze([{ kind: "lowering", pass: "front" }, { kind: "expansion", expansion: "expansion-1" }]),
@@ -228,15 +234,106 @@ test("stable ties retain full host/checker/extension payloads, repeated entries 
     severity: "error", source: null, message: "third" });
   const input = Object.freeze([second, first, third, first]);
   const output = product.orderDiagnostics(input);
+  const expected = [first, first, second, third];
   assert.equal(output.length, 4);
-  for (const [index, value] of input.entries()) {
-    assert.equal(output[index] === value, true, `stable complete diagnostic ${index}`);
+  for (const [index, value] of expected.entries()) {
+    assert.equal(output[index] === value, true, `canonical complete diagnostic ${index}`);
     for (const field of ["code", "severity", "site", "source", "evidence", "message", "arguments", "related", "fix"])
       assert.equal(output[index][field] === value[field], true, `unchanged ${field}`);
   }
   assert.equal(Object.is(output[0].arguments[2].value, -0), true, "negative zero is not reformatted");
   assert.equal(output[0].arguments[1].value, 900719925474099312345678901234567890n);
   assert.equal(output[0].evidence.length, 3, "evidence duplicates are not discharged");
+  assertOrder([first, third, first, second], expected, "opposite production order has the same complete output");
+});
+
+test("equal source keys use length after rendered code and complete content in both input orders", () => {
+  const short = diagnostic({ kind: "source", origin: { ...origin(), length: 1 } }, "S", "z");
+  const long = diagnostic({ kind: "source", origin: { ...origin(), length: 2 } }, "S", "a");
+  assertOrder([long, short], [short, long], "length precedes content");
+  assertOrder([short, long], [short, long], "length forward");
+  const earlierCode = diagnostic({ kind: "source", origin: { ...origin(), length: 99 } }, "A");
+  assertOrder([short, earlierCode], [earlierCode, short], "rendered code precedes length");
+  assertOrder([earlierCode, short], [earlierCode, short], "rendered code forward");
+});
+
+test("every diagnostic content family breaks primary ties without production-order dependence", () => {
+  const site = { kind: "source", origin: origin() };
+  const base = diagnostic(site, "S", "same");
+  const changed = fields => Object.freeze({ ...base, ...fields });
+  const lowerOrigin = { ...origin(), derived: [{ kind: "lowering", pass: "front" }] };
+  const higherOrigin = { ...origin(), derived: [{ kind: "lowering", pass: "infer" }] };
+  const related = (relatedSite, code, message) => [{ site: relatedSite, code, message }];
+  const checker = number => ({ kind: "checker", number, rendered: "S" });
+  const edits = (description, editOrigin, replacement) => ({ description, edits: [{ origin: editOrigin, replacement }] });
+  const pairs = [
+    ["host identity", { code: { kind: "host", name: "A", rendered: "S" } }, { code: { kind: "host", name: "B", rendered: "S" } }],
+    ["checker identity", { code: checker(1) }, { code: checker(2) }],
+    ["extension identity", { code: { kind: "extension", number: 1, extensionCode: "A", rendered: "S" } },
+      { code: { kind: "extension", number: 1, extensionCode: "B", rendered: "S" } }],
+    ["severity", { severity: "error" }, { severity: "warning" }],
+    ["source history", { site: { kind: "source", origin: lowerOrigin } }, { site: { kind: "source", origin: higherOrigin } }],
+    ["source text", { source: null }, { source: "a" }],
+    ["evidence", { evidence: ["a"] }, { evidence: ["b"] }],
+    ["message", { message: "a" }, { message: "b" }],
+    ["text argument", { arguments: [{ kind: "text", value: "a" }] }, { arguments: [{ kind: "text", value: "b" }] }],
+    ["integer argument", { arguments: [{ kind: "integer", value: 1n }] }, { arguments: [{ kind: "integer", value: 2n }] }],
+    ["number argument", { arguments: [{ kind: "number", value: -0 }] }, { arguments: [{ kind: "number", value: 0 }] }],
+    ["origin argument", { arguments: [{ kind: "origin", value: lowerOrigin }] }, { arguments: [{ kind: "origin", value: higherOrigin }] }],
+    ["related site", { related: related({ kind: "file", path: "a" }, checker(1), "same") },
+      { related: related({ kind: "file", path: "b" }, checker(1), "same") }],
+    ["related code", { related: related({ kind: "none" }, checker(1), "same") },
+      { related: related({ kind: "none" }, checker(2), "same") }],
+    ["related message", { related: related(site, checker(1), "a") }, { related: related(site, checker(1), "b") }],
+    ["fix absence", { fix: edits("same", origin(), "same") }, { fix: null }],
+    ["fix description", { fix: edits("a", origin(), "same") }, { fix: edits("b", origin(), "same") }],
+    ["fix origin", { fix: edits("same", lowerOrigin, "same") }, { fix: edits("same", higherOrigin, "same") }],
+    ["fix replacement", { fix: edits("same", origin(), "a") }, { fix: edits("same", origin(), "b") }],
+  ];
+  for (const [label, lower, higher] of pairs) {
+    const first = changed(lower);
+    const second = changed(higher);
+    assertOrder([second, first], [first, second], label);
+    assertOrder([first, second], [first, second], label + " reversed");
+  }
+});
+
+test("source numeric tie levels are total for exact nonfinite and signed-zero host numbers", () => {
+  const numbers = [-Infinity, -1, -0, 0, 1, Infinity, NaN];
+  for (const field of ["start", "length"]) {
+    const expected = numbers.map(value => diagnostic({ kind: "source", origin: { ...origin(), [field]: value } }, "S"));
+    assertOrder([...expected].reverse(), expected, field + ": reverse numeric domain");
+    assertOrder([...expected], expected, field + ": forward numeric domain");
+    for (const value of expected) assertOrder([value, value], [value, value], field + ": identical complete duplicates");
+  }
+});
+
+test("sparse diagnostic vectors retain complete original values and deterministic absent-slot ordering", () => {
+  const base = diagnostic({ kind: "source", origin: origin() }, "S", "same");
+  const lowering = { kind: "lowering", pass: "front" };
+  const source = values => ({ ...origin(), derived: values });
+  const originArgument = values => ({ kind: "origin", value: source(values) });
+  const related = values => ({ site: { kind: "source", origin: source(values) }, code: base.code, message: "same" });
+  const edit = values => ({ origin: source(values), replacement: "same" });
+  for (const [label, row, make] of [
+    ["evidence", "same", values => ({ ...base, evidence: values })],
+    ["arguments", { kind: "text", value: "same" }, values => ({ ...base, arguments: values })],
+    ["related", { site: base.site, code: base.code, message: "same" }, values => ({ ...base, related: values })],
+    ["edits", edit([]), values => ({ ...base, fix: { description: "same", edits: values } })],
+    ["site derivations", lowering, values => ({ ...base, site: { kind: "source", origin: source(values) } })],
+    ["argument derivations", lowering, values => ({ ...base, arguments: [originArgument(values)] })],
+    ["related derivations", lowering, values => ({ ...base, related: [related(values)] })],
+    ["edit derivations", lowering, values => ({ ...base, fix: { description: "same", edits: [edit(values)] } })],
+  ]) {
+    const sparse = new Array(2);
+    sparse[1] = row;
+    const vectors = [[], new Array(1), [row], sparse].map(value => Object.freeze(value));
+    const expected = vectors.map(make);
+    for (const value of expected) assertOrder([value], [value], label + ": complete singleton");
+    assertOrder([...expected].reverse(), expected, label + ": reverse input");
+    assertOrder([...expected], expected, label + ": forward input");
+    assert.deepEqual(vectors, [[], new Array(1), [row], sparse], label + ": original holes retained");
+  }
 });
 
 test("registry lookup returns only the exact matching supplied definition and has no hidden registry", () => {
@@ -250,47 +347,69 @@ test("registry lookup returns only the exact matching supplied definition and ha
   assert.equal(product.lookupDiagnostic({ definitions: [] }, "HOST_A"), null, "no fallback to an earlier supplied registry");
   const replacement = Object.freeze({ ...first, template: "different exact caller registry" });
   assert.equal(product.lookupDiagnostic({ definitions: [replacement] }, "HOST_A") === replacement, true);
+  const sparse = new Array(5);
+  sparse[1] = first;
+  sparse[3] = last;
+  const expected = structuredClone(sparse);
+  Object.freeze(sparse);
+  assert.equal(product.lookupDiagnostic({ definitions: sparse }, "HOST_A") === first, true);
+  assert.equal(product.lookupDiagnostic({ definitions: sparse }, "HOST_Z") === last, true);
+  assert.equal(product.lookupDiagnostic({ definitions: sparse }, "ABSENT"), null);
+  assert.equal(product.lookupDiagnostic({ definitions: new Array(2) }, "HOST_A"), null);
+  assert.deepEqual(sparse, expected, "all supplied slots, holes and exact definitions are unchanged");
 });
 
-test("invariants retain every pass, nullable query/origin and original failure identity without stack work", () => {
+test("invariants retain every pass, nullable query/origin and exact failure cause without reading its stack", () => {
   const passes = ["front", "decls", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata", "liveness",
     "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking", "summaries", "pipeline"];
   for (const pass of passes) {
     for (const query of [null, Object.freeze({ name: "query\uD800", encodedKey: "[exact]\r\n" })]) {
       for (const selectedOrigin of [null, origin()]) {
         const failure = Object.freeze({ pass, query, origin: selectedOrigin, message: "invariant\r\n\uDFFF" });
-        assert.throws(() => product.throwInvariant(failure), thrown => thrown === failure);
-        assert.equal(Object.hasOwn(failure, "stack"), false, "no captured stack or wrapped Error");
+        assert.throws(() => product.throwInvariant(failure), thrown => thrown instanceof Error &&
+          thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
+        assert.equal(Object.hasOwn(failure, "stack"), false, "the original failure record is not mutated");
       }
     }
   }
   let stackReads = 0;
   const failure = { pass: "infer", query: null, origin: null, message: "do not enrich" };
   Object.defineProperty(failure, "stack", { get() { stackReads += 1; throw new Error("Unrequested stack lookup."); } });
-  assert.throws(() => product.throwInvariant(failure), thrown => thrown === failure);
+  assert.throws(() => product.throwInvariant(failure), thrown => thrown instanceof Error &&
+    thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
   assert.equal(stackReads, 0);
 });
 
-test("the complete actual diag module passes fresh strict isolation against the real ids contract", async () => {
+test("host diagnostic code construction is total and preserves the complete supplied spelling", () => {
+  for (const name of ["", "TSONIC_LIBRARY_ROLE_BINDING_INVALID", "TSONIC_LIBRARY_SUMMARY_BINDING_INVALID", "\uD800\n", "not registered"]) {
+    assert.equal(product.hostDiagnosticCode(name), name);
+    assert.equal(product.lookupDiagnostic({ definitions: [] }, product.hostDiagnosticCode(name)), null);
+  }
+});
+
+test("the complete actual diag module passes fresh strict isolation against the real ids public values", async () => {
   const data = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
   const report = await compileIsolated(isolationDeps(tooling, data.areas.map(area => area.directory)),
     hostCatalogue.find(module => module.name === "diag"), {
       root: repository, sourceFiles: ownedSources,
-      interfaceSources: ["packages/host/src/ids/contract.ts"],
-      declarationSources: ["packages/host/src/ids/contract.ts"], outputDirectory: ".temp/host-f-diag/isolation",
+      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts"],
+      declarationSources: ["contract.ts", "index.ts", "identity.ts", "key.ts"].map(name => "packages/host/src/ids/" + name),
+      outputDirectory: ".temp/host-f-diag/isolation",
     });
   writeFileSync(resolve(evidenceDirectory, "isolation.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", `${JSON.stringify(report.findings)}\n${report.diagnostics.join("\n")}`);
   assert.deepEqual(report.findings, []);
   assert.equal(report.diagnostics.length, 2);
-  assert.equal(report.sourceInventory.length, 5);
-  assert.equal(report.provenance.length, 1);
+  assert.equal(report.sourceInventory.length, 8);
+  assert.equal(report.provenance.length, 2);
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
   assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/contract.d.ts")), true);
+  assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/index.d.ts")), true);
   assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/contract.ts")), false);
+  assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/key.d.ts")), false);
 });
 
-test("fresh genuine emitted declarations admit the three ports and reject readonly/shape opposites exactly", () => {
+test("fresh genuine emitted declarations admit the four ports and reject readonly/shape opposites exactly", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
   mkdirSync(resolve(stage, "diag"));
   mkdirSync(resolve(stage, "ids"));
@@ -299,8 +418,8 @@ test("fresh genuine emitted declarations admit the three ports and reject readon
   for (const name of declarations) writeFileSync(resolve(stage, "diag", name), readFileSync(resolve(emittedDirectory, name)));
   writeFileSync(resolve(stage, "ids/contract.d.ts"), readFileSync(resolve(repository, "packages/host/dist/ids/contract.d.ts")));
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const header = 'import { orderDiagnostics, lookupDiagnostic, throwInvariant } from "./diag/index.js";\nimport type { Diagnostic, DiagnosticDefinition, DiagnosticRegistry, HostDiagnosticCode, InvariantFailure, LookupDiagnostic, MessageArgument, OrderDiagnostics, ThrowInvariant } from "./diag/contract.js";\n';
-  const positive = `${header}export function consume(code: HostDiagnosticCode, diagnostic: Diagnostic, failure: InvariantFailure) {\nconst order: OrderDiagnostics = orderDiagnostics; const lookup: LookupDiagnostic = lookupDiagnostic; const fail: ThrowInvariant = throwInvariant;\nconst registry: DiagnosticRegistry = { definitions: [] }; const ordered: readonly Diagnostic[] = order([diagnostic]);\nconst definition: DiagnosticDefinition | null = lookup(registry, code); const argument: MessageArgument = { kind: "integer", value: 9007199254740993n };\nreturn { ordered, definition, argument, fail: (): never => fail(failure) };\n}\n`;
+  const header = 'import { orderDiagnostics, lookupDiagnostic, throwInvariant, hostDiagnosticCode } from "./diag/index.js";\nimport type { Diagnostic, DiagnosticDefinition, DiagnosticRegistry, HostDiagnosticCode, HostDiagnosticCodeConstructor, InvariantFailure, LookupDiagnostic, MessageArgument, OrderDiagnostics, ThrowInvariant } from "./diag/contract.js";\n';
+  const positive = `${header}export function consume(code: HostDiagnosticCode, diagnostic: Diagnostic, failure: InvariantFailure) {\nconst order: OrderDiagnostics = orderDiagnostics; const lookup: LookupDiagnostic = lookupDiagnostic; const fail: ThrowInvariant = throwInvariant; const makeCode: HostDiagnosticCodeConstructor = hostDiagnosticCode;\nconst registry: DiagnosticRegistry = { definitions: [] }; const ordered: readonly Diagnostic[] = order([diagnostic]);\nconst definition: DiagnosticDefinition | null = lookup(registry, code); const argument: MessageArgument = { kind: "integer", value: 9007199254740993n };\nreturn { ordered, definition, argument, code: makeCode("HOST_EXACT"), fail: (): never => fail(failure) };\n}\n`;
   writeFileSync(resolve(stage, "consumer.ts"), positive);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {

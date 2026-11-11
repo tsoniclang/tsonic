@@ -1,0 +1,35 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": [
+      {
+        "id": 0,
+        "declaration": null,
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [
+          {
+            "identity": {
+              "owner": "D[M[P[case];main.ts];field]",
+              "index": 1
+            },
+            "declaration": "D[M[P[case];main.ts];field]",
+            "constraint": null,
+            "default": null
+          }
+        ],
+        "receiver": null,
+        "parameters": [],
+        "result": 0
+      }
+    ]
+  },
+  "bindings": [],
+  "evidence": []
+}

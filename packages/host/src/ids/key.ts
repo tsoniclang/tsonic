@@ -61,6 +61,9 @@ export function encodeCanonicalKey(key: KeyData): string {
       active.add(value);
       tasks.push({ kind: "leave", value });
       if (Array.isArray(value)) {
+        if (Object.getPrototypeOf(value) !== Array.prototype) {
+          throw keyError(task.path, "a key array must be plain data");
+        }
         if (Object.getOwnPropertyNames(value).length !== value.length + 1) {
           throw keyError(task.path, "a key array must be dense with no extra fields");
         }

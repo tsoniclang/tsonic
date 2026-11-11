@@ -1,0 +1,7 @@
+{
+  "name": "missing-root",
+  "level": "verifier",
+  "rule": "snapshot.root-package-resolves",
+  "input": "test/host-cases/snapshot/verifier/missing-root.input.json",
+  "expected": "test/host-cases/snapshot/verifier/missing-root.expected.json"
+}

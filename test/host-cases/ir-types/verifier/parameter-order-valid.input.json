@@ -1,0 +1,33 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": [
+      {
+        "id": 0,
+        "declaration": null,
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [],
+        "receiver": null,
+        "parameters": [
+          {
+            "declaration": "D[M[P[case];main.ts];field]",
+            "kind": "default",
+            "type": 0,
+            "passing": "by-value",
+            "initializer": "B[D[M[P[case];main.ts];field];function;0]"
+          }
+        ],
+        "result": 0
+      }
+    ]
+  },
+  "bindings": [],
+  "evidence": []
+}

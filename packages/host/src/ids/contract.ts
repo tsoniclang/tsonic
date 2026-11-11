@@ -31,6 +31,25 @@ export type LayoutId = NumericIdentity<"layout">;
 export type MemoryFieldId = NumericIdentity<"memory-field">;
 export type LibraryTypeId = NumericIdentity<"library-type">;
 
+export type NodeIdConstructor = (value: number) => NodeId;
+export type LocalIdConstructor = (value: number) => LocalId;
+export type BlockIdConstructor = (value: number) => BlockId;
+export type PlaceIdConstructor = (value: number) => PlaceId;
+export type TyIdConstructor = (value: number) => TyId;
+export type SigIdConstructor = (value: number) => SigId;
+export type ConstIdConstructor = (value: number) => ConstId;
+export type CandidateListIdConstructor = (value: number) => CandidateListId;
+export type ProducerIdConstructor = (value: number) => ProducerId;
+export type BoundProducerIdConstructor = (value: number) => BoundProducerId;
+export type ValueContextIdConstructor = (value: number) => ValueContextId;
+export type OriginsIdConstructor = (value: number) => OriginsId;
+export type ProjectionPathIdConstructor = (value: number) => ProjectionPathId;
+export type OpenBoundaryIdConstructor = (value: number) => OpenBoundaryId;
+export type LayoutIdConstructor = (value: number) => LayoutId;
+export type MemoryFieldIdConstructor = (value: number) => MemoryFieldId;
+export type LibraryTypeIdConstructor = (value: number) => LibraryTypeId;
+export type ExpansionIdConstructor = (value: string) => ExpansionId;
+
 export interface LibraryModuleIdentity {
   readonly providerId: string;
   readonly providerVersion: string;

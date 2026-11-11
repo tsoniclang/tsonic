@@ -1,0 +1,1 @@
+{"name":"query-names","level":"function","rule":"Different queries and keys never alias; statistics are name ordered","input":"test/host-cases/query/function/query-names.input.json","expected":"test/host-cases/query/function/query-names.expected.json"}

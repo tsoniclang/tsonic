@@ -1,0 +1,7 @@
+{
+  "name": "intern-complete-rows",
+  "level": "function",
+  "rule": "interner",
+  "input": "test/host-cases/ir-types/function/intern-complete-rows.input.json",
+  "expected": "test/host-cases/ir-types/function/intern-complete-rows.expected.json"
+}

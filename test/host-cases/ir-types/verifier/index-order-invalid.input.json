@@ -1,0 +1,31 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "shape",
+        "members": [],
+        "indexes": [
+          {
+            "declaration": "D[M[P[case];main.ts];z]",
+            "key": 0,
+            "read": 0,
+            "write": null,
+            "readonly": true
+          },
+          {
+            "declaration": "D[M[P[case];main.ts];a]",
+            "key": 0,
+            "read": 0,
+            "write": null,
+            "readonly": true
+          }
+        ],
+        "calls": [],
+        "constructs": []
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

@@ -1,0 +1,16 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "callable",
+        "calls": [
+          0
+        ],
+        "constructs": []
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

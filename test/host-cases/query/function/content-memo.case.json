@@ -1,0 +1,1 @@
+{"name":"content-memo","level":"function","rule":"A complete content key, not record insertion order, owns one completed memo result","input":"test/host-cases/query/function/content-memo.input.json","expected":"test/host-cases/query/function/content-memo.expected.json"}

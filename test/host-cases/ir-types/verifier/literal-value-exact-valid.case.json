@@ -1,0 +1,7 @@
+{
+  "name": "literal-value-exact-valid",
+  "level": "verifier",
+  "rule": "literal-value-exact",
+  "input": "test/host-cases/ir-types/verifier/literal-value-exact-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/literal-value-exact-valid.expected.json"
+}

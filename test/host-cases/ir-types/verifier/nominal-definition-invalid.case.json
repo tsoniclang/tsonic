@@ -1,0 +1,7 @@
+{
+  "name": "nominal-definition-invalid",
+  "level": "verifier",
+  "rule": "nominal-definition",
+  "input": "test/host-cases/ir-types/verifier/nominal-definition-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/nominal-definition-invalid.expected.json"
+}

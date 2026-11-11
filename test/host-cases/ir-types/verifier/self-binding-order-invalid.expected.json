@@ -1,0 +1,36 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "self-binding-order",
+      "site": {
+        "kind": "binding",
+        "vector": 0,
+        "family": "selfBindings",
+        "position": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "owner"
+        }
+      ]
+    },
+    {
+      "rule": "self-binding-order",
+      "site": {
+        "kind": "binding",
+        "vector": 0,
+        "family": "selfBindings",
+        "position": 1
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "owner"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

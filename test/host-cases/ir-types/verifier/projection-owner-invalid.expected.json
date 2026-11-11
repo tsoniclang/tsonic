@@ -1,0 +1,19 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "projection-owner",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "component.root"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

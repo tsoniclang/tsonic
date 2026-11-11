@@ -104,6 +104,37 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     contractFunctions.set(module, functions);
   }
   const stageTypes = new Set();
+  const brandAssertions = new Map();
+  const brandConstructor = (node, module, file) => {
+    if (!["ids", "diag"].includes(module.name) || file !== module.entry || !ast.is.IsAsExpression(node)) return undefined;
+    const arrow = ast.parent(node);
+    const declaration = ast.parent(arrow);
+    if (!ast.is.IsArrowFunction(arrow) || ast.body(arrow) !== node || !ast.is.IsVariableDeclaration(declaration) ||
+      publicValues.get(declaration) !== module) return undefined;
+    const cast = ast.as.AsAsExpression(node);
+    const annotation = ast.typeNode(declaration);
+    if (!ast.is.IsTypeReferenceNode(cast.Type) || annotation === undefined || !ast.is.IsTypeReferenceNode(annotation)) return undefined;
+    const target = symbol(ast.as.AsTypeReferenceNode(cast.Type).TypeName);
+    const constructor = symbol(ast.as.AsTypeReferenceNode(annotation).TypeName);
+    if (target === undefined || constructor === undefined || !contractFunctions.get(module)?.has(constructor)) return undefined;
+    const targetName = ast.text(ast.as.AsTypeReferenceNode(cast.Type).TypeName);
+    if (ast.text(ast.name(declaration)) !== targetName.charAt(0).toLowerCase() + targetName.slice(1)) return undefined;
+    const queries = checker(node);
+    const targets = queries.getSymbolDeclarations(target);
+    const signatures = queries.getSymbolDeclarations(constructor);
+    if (targets.length !== 1 || signatures.length !== 1 || ast.getSourceFile(targets[0]) !== sourceFiles.get(module.contract) ||
+      ast.getSourceFile(signatures[0]) !== sourceFiles.get(module.contract) ||
+      ast.text(ast.name(signatures[0])) !== targetName + "Constructor") return undefined;
+    const signature = ast.typeNode(signatures[0]);
+    const result = ast.as.AsFunctionTypeNode(signature)?.Type;
+    const parameters = ast.parameters(arrow);
+    const declaredParameters = ast.parameters(signature);
+    if (parameters.length !== 1 || declaredParameters.length !== 1 || result === undefined || !ast.is.IsTypeReferenceNode(result) ||
+      symbol(ast.as.AsTypeReferenceNode(result).TypeName) !== target ||
+      !["KindNumberKeyword", "KindStringKeyword"].includes(ast.kindName(ast.typeNode(declaredParameters[0]))) ||
+      !ast.is.IsIdentifier(cast.Expression) || symbol(cast.Expression) !== symbol(ast.name(parameters[0]))) return undefined;
+    return target;
+  };
   for (const [declaration, module] of publicValues) {
     const annotation = ast.is.IsVariableDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
     const selected = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
@@ -477,7 +508,29 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const kind = ast.kindName(current);
       if (!pluginLoading && (ast.is.IsIdentifier(current) && ["require", "process", "globalThis", "eval"].includes(ast.text(current)) ||
         ast.is.IsNewExpression(current) && ast.text(ast.as.AsNewExpression(current).Expression) === "Function")) add("unsafe-type-escape", file, current);
-      if (module.kind === "component" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
+      if (module.name !== "query" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
+      if (ast.is.IsThrowStatement(current)) {
+        const expression = ast.as.AsThrowStatement(current).Expression;
+        const declarations = ast.is.IsIdentifier(expression) ? checker(expression).getSymbolDeclarations(symbol(expression)) : [];
+        const rethrow = declarations.some(declaration => ast.is.IsVariableDeclaration(declaration) &&
+          ast.is.IsCatchClause(ast.parent(declaration)));
+        const nativeConstruction = value => {
+          if (value === undefined || !ast.is.IsNewExpression(value)) return false;
+          const constructor = ast.as.AsNewExpression(value).Expression;
+          return ast.is.IsIdentifier(constructor) && symbol(constructor) === undefined &&
+            ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError"].includes(ast.text(constructor));
+        };
+        const constructed = nativeConstruction(expression) || declarations.some(declaration => ast.is.IsVariableDeclaration(declaration) &&
+          nativeConstruction(ast.as.AsVariableDeclaration(declaration).Initializer));
+        const queries = checker(expression);
+        const thrownType = queries.getTypeAtLocation(expression);
+        const errorType = queries.typeToString(thrownType);
+        const nativeType = queries.getSymbolDeclarations(queries.getTypeSymbol(thrownType)).length === 0 &&
+          queries.getSymbolDeclarations(queries.getTypeAliasSymbol(thrownType)).length === 0 &&
+          ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "URIError", "EvalError", "AggregateError"].includes(errorType);
+        if (!rethrow && !constructed && !nativeType)
+          add("non-error-throw", file, current);
+      }
       if (module.kind === "component" && ast.is.IsPropertySignatureDeclaration(current)) {
         const annotation = ast.typeNode(current);
         if (annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) && libraryFunctionTypes.has(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName))) {
@@ -487,9 +540,18 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         }
       }
       if (["KindClassDeclaration", "KindClassExpression"].includes(kind)) add("class", file, current);
-      if (["KindAnyKeyword", "KindAsExpression", "KindTypeAssertionExpression", "KindNonNullExpression",
+      const brand = brandConstructor(current, module, file);
+      if (brand !== undefined) {
+        const previous = brandAssertions.get(brand);
+        if (previous !== undefined) {
+          add("unsafe-type-escape", previous.file, previous.node);
+          add("unsafe-type-escape", file, current);
+        } else brandAssertions.set(brand, { file, node: current });
+      }
+      if (["KindAnyKeyword", "KindTypeAssertionExpression", "KindNonNullExpression",
         "KindEnumDeclaration", "KindModuleDeclaration", "KindImportEqualsDeclaration", "KindExportAssignment"].includes(kind))
         add("unsafe-type-escape", file, current);
+      if (kind === "KindAsExpression" && brand === undefined) add("unsafe-type-escape", file, current);
       if (isContract && (ast.is.IsFunctionDeclaration(current) && ast.body(current) !== undefined ||
         ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current) ||
         ast.is.IsCallExpression(current) || ast.is.IsNewExpression(current))) add("contract-shape", file, current);

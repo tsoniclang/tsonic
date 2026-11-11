@@ -1,0 +1,7 @@
+{
+  "name": "rational-normalized-invalid",
+  "level": "verifier",
+  "rule": "rational-normalized",
+  "input": "test/host-cases/ir-types/verifier/rational-normalized-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/rational-normalized-invalid.expected.json"
+}
