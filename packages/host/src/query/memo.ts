@@ -55,12 +55,12 @@ export function retainResult<Value>(result: Result<Value>): Result<Value> {
   }
 }
 
-export function snapshotStatistics(counters: ReadonlyMap<string, Counter>): readonly QueryStat[] {
-  return Object.freeze([...counters].map(([name, counter]) => Object.freeze({
+export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): readonly QueryStat[] {
+  return Object.freeze([...memo].map(([name, { counter }]) => Object.freeze({
     name,
     computed: counter.computed,
     hits: counter.hits,
-  })).sort((left, right) => left.name < right.name ? -1 : 1));
+  })).sort((left, right) => Number(left.name > right.name) - Number(left.name < right.name)));
 }
 
 export function snapshotDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
