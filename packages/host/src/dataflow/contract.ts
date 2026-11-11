@@ -28,7 +28,7 @@ export interface ForwardProblem<State> extends ProblemBase<State> {
 
 export interface BackwardProblem<State> extends ProblemBase<State> {
   readonly direction: "backward";
-  readonly terminator: (terminator: MirTerminator, successors: readonly BlockState<State>[]) => State;
+  readonly terminator: (terminator: MirTerminator, successors: readonly BlockState<State>[], boundaryState: State | null) => State;
 }
 
 export type Problem<State> = ForwardProblem<State> | BackwardProblem<State>;

@@ -12,8 +12,9 @@ import type {
   TyId,
 } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PlacePassingMode, SignatureOf, TypeOf,
+  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PlacePassingMode, TypeTable,
 } from "../ir-types/contract.js";
+import type { InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 
 export interface MirSite {
@@ -182,9 +183,7 @@ export type MirRule =
   | "constant-type"
   | "metadata-constant-not-materialised"
   | "assignment-type"
-  | "rvalue-effect-free"
   | "operation-selected"
-  | "block-terminator-total"
   | "edge-target-resolves"
   | "switch-target-unique"
   | "call-receiver-exact"
@@ -193,12 +192,9 @@ export type MirRule =
   | "argument-passing-exact"
   | "call-destination-type"
   | "exception-destination-type"
-  | "unwind-cleanup-complete"
-  | "suspension-return-cleanup"
   | "completion-selector-total"
   | "storage-live-before-use"
   | "capture-location-exact"
-  | "effect-path-exact"
   | "constants-order"
   | "switch-targets-order";
 
@@ -212,9 +208,13 @@ export type MirViolationSite =
 
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
+export interface MirVerificationContext {
+  readonly source: TirBody;
+  readonly types: TypeTable;
+  readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
+  readonly bodyOwner: (body: BodyId) => DefId | null;
+}
 export type VerifyMir = (
   body: MirBody,
-  source: TirBody,
-  typeOf: TypeOf,
-  signatureOf: SignatureOf,
+  context: MirVerificationContext,
 ) => readonly Violation<MirRule, MirViolationSite>[];

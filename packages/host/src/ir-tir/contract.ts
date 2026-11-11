@@ -222,6 +222,10 @@ export interface TypedBinding {
   readonly initializer: BodyId | null;
 }
 
+export type TypedBindingElement =
+  | (TypedBinding & { readonly role: "binding" })
+  | { readonly role: "hole" };
+
 export interface TypedBindingPattern {
   readonly storage: TyId;
 }
@@ -402,7 +406,7 @@ export interface TypedPhase extends Phase {
   readonly VariableDeclarationList: TypedVariableList;
   readonly BindingPattern: TypedBindingPattern;
   readonly ParameterDeclaration: TypedParameter;
-  readonly BindingElement: TypedBinding;
+  readonly BindingElement: TypedBindingElement;
   readonly MissingDeclaration: null;
   readonly FunctionDeclaration: TypedCallable;
   readonly ClassDeclaration: TypedClass;
@@ -631,7 +635,7 @@ export interface TirVerifierInput {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-export type TirRule = "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
+export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
   | "capture-qualified" | "cross-owner-qualified" | "parameter-order"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
@@ -646,8 +650,6 @@ export type TirRule = "body-owner" | "module-node-identity" | "node-reference" |
   | "template-shared-once" | "stable-order";
 
 export type TirSite =
-  | { readonly kind: "module"; readonly module: ModuleId }
-  | { readonly kind: "definition"; readonly definition: DefId }
   | { readonly kind: "body"; readonly body: BodyId }
   | { readonly kind: "node"; readonly node: NodeRef };
 

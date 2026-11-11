@@ -124,14 +124,28 @@ for (const path of casePaths) {
   });
 }
 
-test("ids exact public value inventory contains only the thirteen agreed ports", () => {
+test("ids exact public value inventory contains the thirty-one agreed ports", () => {
   assert.deepEqual(Object.keys(product).sort(), ["decodeBodyId", "decodeComponentId", "decodeDefId", "decodeGroupId",
     "decodeModuleId", "decodePackageId", "encodeBodyId", "encodeComponentId", "encodeDefId", "encodeGroupId",
-    "encodeKey", "encodeModuleId", "encodePackageId"].sort());
+    "encodeKey", "encodeModuleId", "encodePackageId", "nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId", "expansionId"].sort());
   assert.deepEqual(casePaths.map(path => basename(path, ".case.json")), ["body-identities", "complete-binding-keys",
     "component-identities", "deep-identity", "deep-key", "definition-identities", "group-identities", "malformed-bodies",
     "malformed-components", "malformed-definitions", "malformed-groups", "malformed-modules", "malformed-packages",
     "module-identities", "ordinal-precision", "package-identities", "scalar-keys", "structural-keys"].sort());
+});
+
+test("every numeric identity constructor is total and preserves the exact supplied number", () => {
+  for (const name of ["nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId"]) {
+    for (const value of [0, -0, -1, 1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_VALUE, NaN, Infinity, -Infinity]) {
+      assert.equal(Object.is(product[name](value), value), true, name + ": exact numerical carrier");
+    }
+  }
+});
+
+test("expansion identity construction is total over the exact supplied string domain", () => {
+  for (const value of ["", "expansion-1", "not a wire identity", "\uD800\n\0\uDFFF"]) {
+    assert.equal(product.expansionId(value), value);
+  }
 });
 
 test("zero definition segments and one empty-name segment are distinct complete round trips", () => {
@@ -218,6 +232,8 @@ test("plain key boundaries reject every outside form with its complete actual pa
   const hidden = {}; Object.defineProperty(hidden, "a", { value: 1 });
   const hiddenArray = [1]; Object.defineProperty(hiddenArray, "0", { enumerable: false });
   const symbolArray = [1]; symbolArray[Symbol("field")] = 0;
+  const foreignArray = Object.setPrototypeOf([], { foreign: true });
+  const nullArray = Object.setPrototypeOf([], null);
   let writes = 0;
   const setterRecord = { set field(value) { writes += value; } };
   for (const [input, reason, path] of [
@@ -230,6 +246,8 @@ test("plain key boundaries reject every outside form with its complete actual pa
     [extraArray, "a key array must be dense with no extra fields", ""],
     [{ [Symbol("field")]: 0 }, "key data cannot contain symbol fields", ""],
     [symbolArray, "key data cannot contain symbol fields", ""],
+    [foreignArray, "a key array must be plain data", ""],
+    [nullArray, "a key array must be plain data", ""],
     [new Date(0), "a key record must be plain data", ""],
     [Object.create({ inherited: 1 }), "a key record must be plain data", ""],
     [hidden, "a key field must be enumerable", '["a"]'],
@@ -309,6 +327,24 @@ test("fresh actual declarations accept all ports and reject every ordered pair o
   const positive = resolve(stage, "positive.mts");
   writeFileSync(positive, `import * as Ids from "./ids/index.js";
 import type * as Port from "./ids/contract.js";
+const node: Port.NodeIdConstructor = Ids.nodeId; void node;
+const local: Port.LocalIdConstructor = Ids.localId; void local;
+const block: Port.BlockIdConstructor = Ids.blockId; void block;
+const place: Port.PlaceIdConstructor = Ids.placeId; void place;
+const ty: Port.TyIdConstructor = Ids.tyId; void ty;
+const sig: Port.SigIdConstructor = Ids.sigId; void sig;
+const constant: Port.ConstIdConstructor = Ids.constId; void constant;
+const candidateList: Port.CandidateListIdConstructor = Ids.candidateListId; void candidateList;
+const producer: Port.ProducerIdConstructor = Ids.producerId; void producer;
+const boundProducer: Port.BoundProducerIdConstructor = Ids.boundProducerId; void boundProducer;
+const valueContext: Port.ValueContextIdConstructor = Ids.valueContextId; void valueContext;
+const origins: Port.OriginsIdConstructor = Ids.originsId; void origins;
+const projectionPath: Port.ProjectionPathIdConstructor = Ids.projectionPathId; void projectionPath;
+const openBoundary: Port.OpenBoundaryIdConstructor = Ids.openBoundaryId; void openBoundary;
+const layout: Port.LayoutIdConstructor = Ids.layoutId; void layout;
+const memoryField: Port.MemoryFieldIdConstructor = Ids.memoryFieldId; void memoryField;
+const libraryType: Port.LibraryTypeIdConstructor = Ids.libraryTypeId; void libraryType;
+const expansion: Port.ExpansionIdConstructor = Ids.expansionId; void expansion;
 const ports: readonly [Port.EncodeKey, Port.EncodePackageId, Port.DecodePackageId, Port.EncodeModuleId, Port.DecodeModuleId,
   Port.EncodeDefId, Port.DecodeDefId, Port.EncodeBodyId, Port.DecodeBodyId, Port.EncodeGroupId, Port.DecodeGroupId,
   Port.EncodeComponentId, Port.DecodeComponentId] = [Ids.encodeKey, Ids.encodePackageId, Ids.decodePackageId,
