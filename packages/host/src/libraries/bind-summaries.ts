@@ -82,12 +82,13 @@ function memberData(member: MemberSelection): KeyData {
   bindingData(decision.bindings), calleeData(member.getter), calleeData(member.setter)];
 }
 
-function projectionData(projection: Projection): KeyData {
-  switch (projection.kind) {
-    case "field": case "method-value": return [projection.kind, memberData(projection.member)];
-    case "index": return [projection.kind, projection.constant];
-    case "element": case "deref": return [projection.kind];
-  }
+function internValue(values: Map<string, number>, data: KeyData): number {
+  const key = encodeKey(data);
+  const previous = values.get(key);
+  if (previous !== undefined) return previous;
+  const token = values.size;
+  values.set(key, token);
+  return token;
 }
 
 function declaredSiteData(identity: LibraryExportIdentity, site: number): readonly KeyData[] {
@@ -113,9 +114,28 @@ interface BoundEscape {
   readonly key: string;
 }
 
-function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signature: Signature, bindings: BindingVector,
+interface EnvironmentValue {
+  readonly value: BindingVector;
+  readonly token: number;
+}
+
+interface MemberValue {
+  readonly value: MemberSelection;
+  readonly token: number;
+}
+
+interface ExportValue {
+  readonly binding: LibraryExportBinding;
+  readonly environment: EnvironmentValue;
+  readonly member: MemberValue | null;
+}
+
+function translateSummary(raw: LibraryAuthoredSummary, selected: ExportValue, signature: Signature,
   index: CatalogueIndex, callbacks: Map<string, readonly LibrarySignature[]>,
-  lookup: (identity: LibraryExportIdentity) => LibraryExportBinding | null): Summary | null {
+  lookup: (identity: LibraryExportIdentity) => ExportValue | null): Summary | null {
+  const definition = selected.binding.definition;
+  const environment = selected.environment;
+  const bindings = environment.value;
   const context = valueContextId(0);
   const producers: Producer[] = [];
   const boundProducers: BoundProducer[] = [];
@@ -123,7 +143,7 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
   const remapped = new Map<number, BoundReference>();
   const producerKeys = new Map<string, ProducerId>();
   const alternativeKeys = new Map<string, BoundProducerId>();
-  const add = (producer: Producer, identity: KeyData, environment: BindingVector): BoundReference => {
+  const add = (producer: Producer, identity: KeyData, environment: EnvironmentValue): BoundReference => {
     const key = encodeKey([producer.kind, producer.path, identity]);
     let id = producerKeys.get(key);
     if (id === undefined) {
@@ -131,28 +151,28 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
       producerKeys.set(key, id);
       producers.push(producer);
     }
-    const alternativeKey = encodeKey([id, bindingData(environment), context]);
+    const alternativeKey = encodeKey([id, environment.token, context]);
     let bound = alternativeKeys.get(alternativeKey);
     if (bound === undefined) {
       bound = boundProducerId(boundProducers.length);
       alternativeKeys.set(alternativeKey, bound);
-      boundProducers.push({ id: bound, producer: id, bindings: environment, context });
+      boundProducers.push({ id: bound, producer: id, bindings: environment.value, context });
     }
     return { id, bound };
   };
   if (signature.receiver !== null) {
     const identifier = producerId(producers.length);
-    const assigned = add({ id: identifier, kind: "receiver", path: null }, null, bindings);
+    const assigned = add({ id: identifier, kind: "receiver", path: null }, null, environment);
     formals.set(slotKey("receiver", 0), { ...assigned, kind: "receiver" });
   }
   for (let position = 0; position < signature.parameters.length; position += 1) {
     const identifier = producerId(producers.length);
-    const assigned = add({ id: identifier, kind: "parameter", index: position, path: null }, position, bindings);
+    const assigned = add({ id: identifier, kind: "parameter", index: position, path: null }, position, environment);
     formals.set(slotKey("parameter", position), { ...assigned, kind: "parameter", index: position });
   }
   for (let position = 0; position < raw.captures.length; position += 1) {
     const identifier = producerId(producers.length);
-    const assigned = add({ id: identifier, kind: "capture", index: position, path: null }, position, bindings);
+    const assigned = add({ id: identifier, kind: "capture", index: position, path: null }, position, environment);
     formals.set(slotKey("capture", position), { ...assigned, kind: "capture", index: position });
   }
   const projections: ProjectionPath[] = [];
@@ -163,17 +183,20 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
     const parent = path.parent === null ? null : projectionIds.get(path.parent);
     if (parent === undefined) return null;
     let projection: Projection;
+    let data: KeyData;
     switch (path.projection.kind) {
       case "field": case "method-value": {
         const target = lookup(path.projection.identity);
         if (target === null || target.member === null) return null;
-        projection = { kind: path.projection.kind, member: target.member };
+        projection = { kind: path.projection.kind, member: target.member.value };
+        data = [path.projection.kind, target.member.token];
         break;
       }
-      case "element": case "deref": projection = { kind: path.projection.kind }; break;
-      case "index": projection = { kind: "index", constant: path.projection.constant }; break;
+      case "element": case "deref": projection = { kind: path.projection.kind }; data = [path.projection.kind]; break;
+      case "index": projection = { kind: "index", constant: path.projection.constant };
+        data = [path.projection.kind, path.projection.constant]; break;
     }
-    const key = encodeKey([parent, projectionData(projection)]);
+    const key = encodeKey([parent, data]);
     let id = projectionKeys.get(key);
     if (id === undefined) {
       id = projectionPathId(projections.length);
@@ -198,16 +221,16 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
     if (path === undefined) return null;
     let assigned: BoundReference;
     switch (producer.kind) {
-      case "receiver": assigned = add({ id, kind: "receiver", path }, null, bindings); break;
+      case "receiver": assigned = add({ id, kind: "receiver", path }, null, environment); break;
       case "parameter": case "capture":
-        assigned = add({ id, kind: producer.kind, index: producer.index, path }, producer.index, bindings); break;
+        assigned = add({ id, kind: producer.kind, index: producer.index, path }, producer.index, environment); break;
       case "allocation": assigned = add({ id, kind: "allocation",
         at: { kind: "declared", identity: raw.identity, site: producer.site }, path },
-      declaredSiteData(raw.identity, producer.site), bindings); break;
+      declaredSiteData(raw.identity, producer.site), environment); break;
       case "shared": {
         const target = lookup(producer.identity);
         if (target === null) return null;
-        assigned = add({ id, kind: "shared", definition: target.definition, path }, target.definition, target.bindings);
+        assigned = add({ id, kind: "shared", definition: target.binding.definition, path }, target.binding.definition, target.environment);
         break;
       }
     }
@@ -293,8 +316,8 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
       case "shared": {
         const selected = lookup(target.identity);
         return selected === null ? null : {
-          value: { kind: "shared", definition: selected.definition, path },
-          key: encodeKey([target.kind, selected.definition, path]),
+          value: { kind: "shared", definition: selected.binding.definition, path },
+          key: encodeKey([target.kind, selected.binding.definition, path]),
         };
       }
       case "parameter":
@@ -362,8 +385,10 @@ function summaryDiagnostic(identity: LibraryExportIdentity): Diagnostic {
 export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly LibraryAuthoredSummary[],
   signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding | null): Result<Libraries> {
   const index = catalogueIndex({ sources: bound.sources });
-  const cache = new Map<string, LibraryExportBinding | null>();
-  const lookup = (identity: LibraryExportIdentity): LibraryExportBinding | null => {
+  const cache = new Map<string, ExportValue | null>();
+  const memberValues = new Map<string, number>();
+  const environmentValues = new Map<string, number>();
+  const lookup = (identity: LibraryExportIdentity): ExportValue | null => {
     const key = exportKey(identity);
     const previous = cache.get(key);
     if (previous !== undefined) return previous;
@@ -372,7 +397,11 @@ export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly 
       return null;
     }
     const binding = signatureOfExport(identity);
-    const result = binding === null || (identity.memberId !== null) !== (binding.member !== null) ? null : binding;
+    const result = binding === null || (identity.memberId !== null) !== (binding.member !== null) ? null : {
+      binding,
+      environment: { value: binding.bindings, token: internValue(environmentValues, bindingData(binding.bindings)) },
+      member: binding.member === null ? null : { value: binding.member, token: internValue(memberValues, memberData(binding.member)) },
+    };
     cache.set(key, result);
     return result;
   };
@@ -398,13 +427,13 @@ export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly 
       diagnostics.push(summaryDiagnostic(raw.identity));
       continue;
     }
-    const binding = lookup(raw.identity);
+    const selected = lookup(raw.identity);
     const role = roles.get(exportKey(raw.identity));
-    if (binding === null || binding.signature === null || role === null || role !== undefined && role !== binding.definition) {
+    if (selected === null || selected.binding.signature === null || role === null || role !== undefined && role !== selected.binding.definition) {
       diagnostics.push(summaryDiagnostic(raw.identity));
       continue;
     }
-    const summary = translateSummary(raw, binding.definition, binding.signature, binding.bindings, index, callbacks, lookup);
+    const summary = translateSummary(raw, selected, selected.binding.signature, index, callbacks, lookup);
     if (summary === null) diagnostics.push(summaryDiagnostic(raw.identity));
     else summaries.push({ identity: raw.identity, summary });
   }

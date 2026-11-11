@@ -1459,6 +1459,152 @@ test("every relational binding failure refuses the complete row without a partia
   }
 });
 
+for (const scenario of ["path-parent", "producer-path", "parameter-read", "parameter-write", "capture-read", "capture-write", "retention-path"]) {
+  test(`binding missing ${scenario} is a complete public refusal with a full valid opposite`, () => {
+    const { input, summary } = summaryInput(1);
+    const bound = immutable({ sources: input.sources, sourceRoles: [] });
+    const definition = definitionId("api");
+    const binding = exportBinding(definition, { signature: declaredSignature(definition, { parameters: [
+      { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+    ] }) });
+    const complete = { kind: "complete", paths: [] };
+    const paths = { kind: "complete", paths: [0] };
+    const valid = { ...summary, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] };
+    const expected = emptySummary(binding, { arena: { projections: valid.projections,
+      producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
+      boundProducers: [{ id: 0, producer: 0, bindings: binding.bindings, context: 0 }],
+      origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
+        { id: 1, kind: "complete", producers: [0], includesAbsence: false }],
+      contexts: [{ id: 0, receiver: null, arguments: [1], captures: [] }], boundaries: [] },
+    parameters: [{ slot: { kind: "parameter", index: 0 }, reads: complete, writes: complete }] });
+    if (scenario === "producer-path") {
+      valid.producers = [{ id: 0, kind: "parameter", index: 0, path: 0 }];
+      expected.arena.producers.push({ id: 1, kind: "parameter", index: 0, path: 0 });
+      expected.arena.boundProducers.push({ id: 1, producer: 1, bindings: binding.bindings, context: 0 });
+    } else if (scenario === "parameter-read" || scenario === "parameter-write") {
+      const effect = { slot: { kind: "parameter", index: 0 },
+        reads: scenario === "parameter-read" ? paths : complete,
+        writes: scenario === "parameter-write" ? paths : complete };
+      valid.parameters = [effect];
+      expected.parameters = [effect];
+    } else if (scenario === "capture-read" || scenario === "capture-write") {
+      const effect = { index: 0, reads: scenario === "capture-read" ? paths : complete,
+        writes: scenario === "capture-write" ? paths : complete };
+      valid.captures = [effect];
+      expected.captures = [effect];
+      expected.arena.producers.push({ id: 1, kind: "capture", index: 0, path: null });
+      expected.arena.boundProducers.push({ id: 1, producer: 1, bindings: binding.bindings, context: 0 });
+      expected.arena.contexts[0].captures = [{ index: 0, location: 1 }];
+    } else if (scenario === "retention-path") {
+      valid.producers = [{ id: 0, kind: "allocation", site: 0, path: null }];
+      valid.retention = [{ source: 0, into: { kind: "parameter", index: 0, path: 0 } }];
+      expected.arena.producers.push({ id: 1, kind: "allocation", path: null,
+        at: { kind: "declared", identity: summary.identity, site: 0 } });
+      expected.arena.boundProducers.push({ id: 1, producer: 1, bindings: binding.bindings, context: 0 });
+      expected.retention = [{ source: 1, into: { kind: "parameter", index: 0, path: 0 } }];
+    }
+    const invalid = structuredClone(valid);
+    if (scenario === "path-parent") invalid.projections[0].parent = 9;
+    else if (scenario === "producer-path") invalid.producers[0].path = 9;
+    else if (scenario === "parameter-read") invalid.parameters[0].reads.paths = [9];
+    else if (scenario === "parameter-write") invalid.parameters[0].writes.paths = [9];
+    else if (scenario === "capture-read") invalid.captures[0].reads.paths = [9];
+    else if (scenario === "capture-write") invalid.captures[0].writes.paths = [9];
+    else invalid.retention[0].into.path = 9;
+    assert.deepEqual(product.bindSummaries(bound, immutable([invalid]), onlyLookup(summary.identity, binding)),
+      { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+    assert.deepEqual(product.bindSummaries(bound, immutable([valid]), onlyLookup(summary.identity, binding)),
+      { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+  });
+}
+
+test("repeated canonical member queries retain complete small/large N-M values and genuine alias opposites", () => {
+  for (const count of [1, 4096]) for (const width of [1, 512]) for (const kind of ["field", "method-value"]) {
+    const module = identity();
+    const root = exportIdentity(module, "a", null, "signature");
+    const identities = ["b", "c", "d"].map(id => exportIdentity(module, id, "member"));
+    const names = Array.from({ length: width + 1 }, (_, index) => `selected${index}`);
+    const definitions = names.map(definitionId);
+    const sources = catalogue([moduleValue({ exports: [
+      declaration({ id: "a", exportName: "a", signatures: [signature()] }),
+      ...["b", "c", "d"].map(id => declaration({ id, exportName: id, members: [member()] })),
+      ...names.map(id => declaration({ id, exportName: id })),
+    ] })]).sources;
+    const one = selectedMember({ decision: { ...selectedMember().decision, selectedDeclarations: definitions.slice(0, width) } });
+    const same = structuredClone(one);
+    const different = selectedMember({ decision: { ...one.decision,
+      selectedDeclarations: [...definitions.slice(0, width - 1), definitions[width]] } });
+    const binding = exportBinding(definitionId("api"));
+    const entries = new Map([[identityKey(root), binding],
+      [identityKey(identities[0]), exportBinding(definitionId("b"), { signature: null, member: one })],
+      [identityKey(identities[1]), exportBinding(definitionId("c"), { signature: null, member: same })],
+      [identityKey(identities[2]), exportBinding(definitionId("d"), { signature: null, member: different })]]);
+    const raw = authoredSummary(root, { projections: [
+      ...Array.from({ length: count }, (_, id) => ({ id, parent: null, projection: { kind, identity: identities[0] } })),
+      { id: count, parent: null, projection: { kind, identity: identities[1] } },
+      { id: count + 1, parent: null, projection: { kind, identity: identities[2] } },
+    ] });
+    const expected = emptySummary(binding);
+    expected.arena.projections = [{ id: 0, parent: null, projection: { kind, member: one } },
+      { id: 1, parent: null, projection: { kind, member: different } }];
+    const bound = immutable({ sources, sourceRoles: [] });
+    const calls = [];
+    assert.deepEqual(product.verifyAuthoredSummaries({ sources }, [raw]), []);
+    assert.deepEqual(product.bindSummaries(bound, immutable([raw]), actual => {
+      const key = identityKey(actual);
+      assert.equal(entries.has(key), true, "only supplied genuine canonical queries");
+      calls.push(key);
+      return entries.get(key);
+    }), { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: root, summary: expected }] }, diagnostics: [] });
+    assert.deepEqual(calls, [root, ...identities].map(identityKey));
+  }
+});
+
+test("repeated projected parameter producers carry one complete root environment across small/large N-M", () => {
+  for (const count of [1, 4096]) for (const width of [1, 512]) {
+    const { input, summary } = summaryInput(1);
+    const definition = definitionId("api");
+    const names = Array.from({ length: width }, (_, index) => `T${index}`);
+    const sources = input.sources.map(source => ({ ...source, modules: source.modules.map(module => ({ ...module,
+      exports: module.exports.map(value => ({ ...value, signatures: value.signatures.map(value => ({ ...value,
+        typeParameters: names.map(name => ({ name, constraints: [], defaultType: null, variance: "invariant" })),
+      })) })),
+    })) }));
+    const bindings = emptyBindings({ methodBindings: names.map((name, index) => ({ kind: "bound",
+      parameter: { owner: definition, index }, type: tyId(0) })) });
+    const binding = exportBinding(definition, { bindings, signature: declaredSignature(definition, {
+      typeParameters: names.map((name, index) => ({ identity: { owner: definition, index },
+        declaration: definitionId(name), constraint: null, default: null })),
+      parameters: [{ declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null }],
+    }) });
+    const raw = authoredSummary(summary.identity, {
+      projections: Array.from({ length: count }, (_, id) => ({ id, parent: null, projection: { kind: "element" } })),
+      producers: Array.from({ length: count }, (_, id) => ({ id, kind: "parameter", index: 0, path: id })),
+      origins: [{ id: 0, kind: "complete", producers: Array.from({ length: count }, (_, id) => id), includesAbsence: false }],
+      parameters: [{ slot: { kind: "parameter", index: 0 },
+        reads: { kind: "complete", paths: Array.from({ length: count }, (_, id) => id) }, writes: { kind: "complete", paths: [] } }],
+    });
+    const expected = emptySummary(binding, { arena: {
+      projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
+      producers: [{ id: 0, kind: "parameter", index: 0, path: null }, { id: 1, kind: "parameter", index: 0, path: 0 }],
+      boundProducers: [{ id: 0, producer: 0, bindings, context: 0 }, { id: 1, producer: 1, bindings, context: 0 }],
+      origins: [{ id: 0, kind: "complete", producers: [1], includesAbsence: false },
+        { id: 1, kind: "complete", producers: [0], includesAbsence: false }],
+      contexts: [{ id: 0, receiver: null, arguments: [1], captures: [] }], boundaries: [] },
+    parameters: [{ slot: { kind: "parameter", index: 0 }, reads: { kind: "complete", paths: [0] },
+      writes: { kind: "complete", paths: [] } }] });
+    const bound = immutable({ sources, sourceRoles: [] });
+    const calls = [];
+    assert.deepEqual(product.verifyAuthoredSummaries({ sources }, [raw]), []);
+    assert.deepEqual(product.bindSummaries(bound, immutable([raw]), actual => {
+      calls.push(identityKey(actual));
+      assert.equal(identityKey(actual), identityKey(summary.identity));
+      return binding;
+    }), { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+    assert.deepEqual(calls, [identityKey(summary.identity)]);
+  }
+});
+
 test("legal duplicate authored projections publish one canonical bound projection", () => {
   const { input, summary } = summaryInput();
   const binding = immutable(exportBinding(definitionId("api")));
