@@ -893,7 +893,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         ...(later === null ? [] : [violation(rule, site(later), orderMessage)]),
         ...Array.from({ length: absentCount }, () => clone(missing)).flat(),
       ], "whole transported numeric order and unchanged reference refusal vector");
-    }
+    });
   }
   for (const path of [["liveness", "stores"], ["origins", "points"]]) {
     for (const value of [-Infinity, -1, -0, 0.5, Number.MAX_SAFE_INTEGER, Infinity, NaN]) {
