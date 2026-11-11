@@ -281,7 +281,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 through A11 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 through A12 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -300,6 +300,10 @@ test("A7 through A11 genuine emitted contracts accept current forms and reject e
         "export function read(context: ProgramVerificationContext) { const { limits, ...legacy } = context; void limits; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["old-program-signature-context", [["ir-program", "ProgramVerificationContext"]],
         "export function read(context: ProgramVerificationContext) { const { signatureIdOf, ...legacy } = context; void signatureIdOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-module-path-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { modulePathOf, ...legacy } = context; void modulePathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-definition-path-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
         "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
       ["publication-without-usage", [["ir-types", "TypePublication, TypePublicationResult"]],
@@ -335,13 +339,15 @@ test("A7 through A11 genuine emitted contracts accept current forms and reject e
     write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, artifact.tir.signature, bindings, limits); }\n');
     write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
       '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
+    write("positive-program-paths.mts", imports([["ir-program", "ProgramVerificationContext, ProgramRule"], ["ids", "ModuleId, DefId"]]) +
+      '\nexport function current(context: ProgramVerificationContext, module: ModuleId, definition: DefId) { const rule: ProgramRule = "identity-path-exact"; return { module: context.modulePathOf(module), definition: context.definitionPathOf(definition), rule }; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
       noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
       noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
       verbatimModuleSyntax: true,
-    }, files: ["positive.mts", "positive-hir-paths.mts", ...rows.map(([name]) => name + ".mts")] }));
+    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", ...rows.map(([name]) => name + ".mts")] }));
     const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
       cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
     });
