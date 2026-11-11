@@ -107,11 +107,19 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   }
   const prefixes = snapshotRows(contributions.requiredProviderModules, snapshotSite, "requiredProviderModules", violations)
     .map(entry => entry.specifierPrefix).sort();
-  let owningPrefix: string | null = null;
+  const ancestors: { readonly prefix: string; readonly owner: string }[] = [];
   for (const prefix of prefixes) {
-    if (owningPrefix !== null && prefixContains(owningPrefix, prefix)) {
-      add("provider-module-prefixes-disjoint", snapshotSite, owningPrefix, prefix);
-    } else owningPrefix = prefix;
+    let ancestor = ancestors.at(-1);
+    while (ancestor !== undefined && !prefix.startsWith(ancestor.prefix)) {
+      ancestors.pop();
+      ancestor = ancestors.at(-1);
+    }
+    let owner = prefix;
+    if (ancestor !== undefined && prefixContains(ancestor.owner, prefix)) {
+      owner = ancestor.owner;
+      add("provider-module-prefixes-disjoint", snapshotSite, owner, prefix);
+    }
+    ancestors.push({ prefix, owner });
   }
   return violations;
 }

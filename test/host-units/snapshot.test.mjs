@@ -587,6 +587,29 @@ test("provider-module-prefixes-disjoint respects exact namespaces, slash/colon o
   verify(value, []);
 });
 
+for (const [name, prefixes, collisions] of [
+  ["interposed slash sibling", ["native", "native-other", "native/path"], [["native", "native/path"]]],
+  ["nonowning raw ancestors", ["a", "ab", "ab-other", "ab/path"], [["ab", "ab/path"]]],
+  ["independent live namespace ancestors", ["native", "native-other", "native-other/path", "native/path"],
+    [["native", "native/path"], ["native-other", "native-other/path"]]],
+  ["duplicate before an interposed sibling", ["native", "native", "native-other", "native/path"],
+    [["native", "native"], ["native", "native/path"]]],
+  ["colon owner with an intermediate descendant", ["node:", "node:-other", "node:fs"],
+    [["node:", "node:-other"], ["node:", "node:fs"]]],
+  ["bare names do not acquire colon ownership", ["node", "node-other", "node:fs"], []],
+  ["empty raw ancestor with an interposed sibling", ["", "-", "/root"], [["", "/root"]]],
+]) {
+  test(`provider-module-prefixes-disjoint retains ${name} in both input orders`, () => {
+    for (const ordered of [prefixes, [...prefixes].reverse()]) {
+      const value = snapshot();
+      value.contributions.requiredProviderModules = ordered.map(specifierPrefix => ({
+        specifierPrefix, providerId: null, message: "required",
+      }));
+      verify(value, collisions.map(([owner, prefix]) => issue("provider-module-prefixes-disjoint", { kind: "snapshot" }, owner, prefix)));
+    }
+  });
+}
+
 for (const [field, rule] of [["packages", "packages-order"], ["modules", "modules-order"], ["files", "files-order"], ["components", "components-order"]]) {
   test(`${rule} has a complete reversed-table opposite and a canonical several-row control`, () => {
     const valid = snapshot();
