@@ -47,9 +47,11 @@ export function queryMemo<Inputs, Key extends KeyData, Value>(
 export function retainResult<Value>(result: Result<Value>): Result<Value> {
   switch (result.kind) {
     case "ok":
-      return Object.freeze({ kind: "ok", value: result.value, diagnostics: Object.freeze([...result.diagnostics]) });
+      return Object.freeze({ kind: "ok", value: result.value, diagnostics: Object.freeze(result.diagnostics.slice()) });
     case "refused": {
-      const diagnostics: readonly [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0], ...result.diagnostics.slice(1)];
+      const diagnostics: [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0]];
+      diagnostics.length = result.diagnostics.length;
+      result.diagnostics.forEach((diagnostic, index) => { diagnostics[index] = diagnostic; });
       return Object.freeze({ kind: "refused", diagnostics: Object.freeze(diagnostics) });
     }
   }
@@ -64,7 +66,7 @@ export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): re
 }
 
 export function snapshotDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
-  return Object.freeze([...orderDiagnostics(diagnostics)]);
+  return Object.freeze(orderDiagnostics(diagnostics).slice());
 }
 
 export function snapshotChain(active: readonly ActiveKey[], attempted: ActiveKey): readonly ActiveKey[] {

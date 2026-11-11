@@ -200,6 +200,178 @@ test("completed ok and refused diagnostic vectors retain exact snapshots without
   assert.equal(Object.isFrozen(before), true);
 });
 
+test("ok sparse vectors retain empty, absent and later present slots across root and dependency memo hits", () => {
+  const first = diagnostic(1, "a.ts", "first");
+  const second = diagnostic(2, "b.ts", "second");
+  const replacement = diagnostic(3, "c.ts", "replacement");
+  for (const route of ["root", "dependency"]) {
+    for (const vector of [
+      { supplied: [], expected: [], aggregate: [] },
+      { supplied: new Array(1), expected: new Array(1), aggregate: [] },
+      { supplied: [second, first], expected: [second, first], aggregate: [first, second] },
+      { supplied: [, second], expected: [, second], aggregate: [second] },
+      { supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
+    ]) {
+      let continuation = 0;
+      const child = { name: "child", cycle: "invariant",
+        compute: () => ({ kind: "ok", value: 7, diagnostics: vector.supplied }) };
+      const parent = { name: "parent", cycle: "invariant", compute: database => {
+        const value = database.get(child, null); continuation += 1;
+        return { kind: "ok", value: value + 1, diagnostics: [] };
+      } };
+      const database = product.createDatabase(null, { maxActiveDepth: 2 });
+      const selected = route === "root" ? child : parent;
+      const expected = route === "root"
+        ? { kind: "completed", value: 7, diagnostics: vector.expected }
+        : { kind: "completed", value: 8, diagnostics: [] };
+      const cold = database.run(selected, null);
+      assert.deepEqual(cold, expected);
+      const retained = route === "root" ? cold : database.run(child, null);
+      assert.deepEqual(retained, { kind: "completed", value: 7, diagnostics: vector.expected });
+      assert.equal(Object.isFrozen(retained) && Object.isFrozen(retained.diagnostics), true);
+      assert.notEqual(retained.diagnostics, vector.supplied);
+      assert.deepEqual(Object.keys(retained.diagnostics), Object.keys(vector.expected));
+      vector.expected.forEach((entry, index) => { assert.equal(retained.diagnostics[index], entry); });
+      assert.deepEqual(vector.supplied, vector.expected);
+      const previous = database.diagnostics();
+      assert.deepEqual(previous, vector.aggregate);
+      assert.equal(Object.isFrozen(previous), true);
+      vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
+      vector.supplied.length = 0;
+      vector.supplied.push(replacement);
+      const warm = database.run(selected, null);
+      assert.deepEqual(warm, expected);
+      assert.equal(warm.diagnostics, cold.diagnostics);
+      assert.deepEqual(retained, { kind: "completed", value: 7, diagnostics: vector.expected });
+      assert.deepEqual(previous, vector.aggregate);
+      assert.deepEqual(database.diagnostics(), vector.aggregate);
+      assert.deepEqual(database.stats(), route === "root"
+        ? [{ name: "child", computed: 1, hits: 1 }]
+        : [{ name: "child", computed: 1, hits: 1 }, { name: "parent", computed: 1, hits: 1 }]);
+      assert.equal(continuation, route === "root" ? 0 : 1);
+    }
+  }
+});
+
+test("nonempty refused sparse vectors retain real heads and absent tails through dependency stop carriage", () => {
+  const first = diagnostic(1, "a.ts", "first");
+  const second = diagnostic(2, "b.ts", "second");
+  const replacement = diagnostic(3, "c.ts", "replacement");
+  for (const route of ["root", "dependency"]) {
+    for (const vector of [
+      { supplied: [second], expected: [second], aggregate: [second] },
+      { supplied: [second, ,], expected: [second, ,], aggregate: [second] },
+      { supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
+    ]) {
+      let continuation = 0;
+      const child = { name: "child", cycle: "invariant",
+        compute: () => ({ kind: "refused", diagnostics: vector.supplied }) };
+      const parent = { name: "parent", cycle: "invariant", compute: database => {
+        const value = database.get(child, null); continuation += 1;
+        return { kind: "ok", value, diagnostics: [] };
+      } };
+      const database = product.createDatabase(null, { maxActiveDepth: 2 });
+      const selected = route === "root" ? child : parent;
+      const cold = database.run(selected, null);
+      assert.deepEqual(cold, { kind: "refused", diagnostics: vector.expected });
+      assert.equal(Object.isFrozen(cold) && Object.isFrozen(cold.diagnostics), true);
+      assert.notEqual(cold.diagnostics, vector.supplied);
+      assert.deepEqual(Object.keys(cold.diagnostics), Object.keys(vector.expected));
+      vector.expected.forEach((entry, index) => { assert.equal(cold.diagnostics[index], entry); });
+      assert.deepEqual(vector.supplied, vector.expected);
+      const previous = database.diagnostics();
+      assert.deepEqual(previous, vector.aggregate);
+      assert.equal(Object.isFrozen(previous), true);
+      vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
+      vector.supplied.length = 0;
+      vector.supplied.push(replacement);
+      const warm = database.run(selected, null);
+      assert.deepEqual(warm, { kind: "refused", diagnostics: vector.expected });
+      assert.equal(warm, cold);
+      assert.deepEqual(previous, vector.aggregate);
+      assert.deepEqual(database.diagnostics(), vector.aggregate);
+      assert.deepEqual(database.stats(), route === "root"
+        ? [{ name: "child", computed: 1, hits: 1 }]
+        : [{ name: "child", computed: 1, hits: 1 }, { name: "parent", computed: 2, hits: 0 }]);
+      assert.equal(continuation, 0);
+    }
+  }
+});
+
+test("recovery sparse Results publish only actual diagnostics and preserve carried refusal snapshots on retry", () => {
+  const first = diagnostic(1, "a.ts", "first");
+  const second = diagnostic(2, "b.ts", "second");
+  const replacement = diagnostic(3, "c.ts", "replacement");
+  for (const vector of [
+    { kind: "ok", supplied: [], expected: [], aggregate: [] },
+    { kind: "ok", supplied: new Array(1), expected: new Array(1), aggregate: [] },
+    { kind: "ok", supplied: [second, first], expected: [second, first], aggregate: [first, second] },
+    { kind: "ok", supplied: [, second], expected: [, second], aggregate: [second] },
+    { kind: "ok", supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
+    { kind: "refused", supplied: [second], expected: [second], aggregate: [second] },
+    { kind: "refused", supplied: [second, ,], expected: [second, ,], aggregate: [second] },
+    { kind: "refused", supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
+  ]) {
+    let recoveryCalls = 0;
+    let continuation = 0;
+    let finish = false;
+    const query = { name: "cycle", cycle: { recover: (key, chain) => {
+      recoveryCalls += 1;
+      assert.equal(key, null);
+      assert.deepEqual(chain, [{ query: "cycle", encodedKey: "N" }, { query: "cycle", encodedKey: "N" }]);
+      assert.equal(Object.isFrozen(chain) && chain.every(Object.isFrozen), true);
+      if (finish) return { kind: "ok", value: 7, diagnostics: [] };
+      return vector.kind === "ok" ? { kind: "ok", value: 7, diagnostics: vector.supplied }
+        : { kind: "refused", diagnostics: vector.supplied };
+    } }, compute: database => {
+      const value = database.get(query, null); continuation += 1;
+      return { kind: "ok", value: value + 1, diagnostics: [] };
+    } };
+    const database = product.createDatabase(null, { maxActiveDepth: 1 });
+    const cold = database.run(query, null);
+    assert.deepEqual(cold, vector.kind === "ok"
+      ? { kind: "completed", value: 8, diagnostics: [] } : { kind: "refused", diagnostics: vector.expected });
+    assert.equal(Object.isFrozen(cold) && Object.isFrozen(cold.diagnostics), true);
+    if (vector.kind === "refused") {
+      assert.notEqual(cold.diagnostics, vector.supplied);
+      assert.deepEqual(Object.keys(cold.diagnostics), Object.keys(vector.expected));
+      vector.expected.forEach((entry, index) => { assert.equal(cold.diagnostics[index], entry); });
+    }
+    assert.deepEqual(vector.supplied, vector.expected);
+    const previous = database.diagnostics();
+    assert.deepEqual(previous, vector.aggregate);
+    assert.equal(Object.isFrozen(previous), true);
+    vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
+    vector.supplied.length = 0;
+    vector.supplied.push(replacement);
+    if (vector.kind === "ok") {
+      assert.deepEqual(database.run(query, null), { kind: "completed", value: 8, diagnostics: [] });
+      assert.deepEqual(database.stats(), [{ name: "cycle", computed: 1, hits: 1 }]);
+      assert.equal(recoveryCalls, 1);
+      assert.equal(continuation, 1);
+      assert.deepEqual(database.diagnostics(), vector.aggregate);
+    } else {
+      const retry = database.run(query, null);
+      assert.deepEqual(retry, { kind: "refused", diagnostics: [replacement] });
+      assert.equal(retry.diagnostics[0], replacement);
+      assert.equal(Object.isFrozen(retry) && Object.isFrozen(retry.diagnostics), true);
+      assert.deepEqual(cold, { kind: "refused", diagnostics: vector.expected });
+      assert.deepEqual(database.stats(), [{ name: "cycle", computed: 2, hits: 0 }]);
+      assert.equal(recoveryCalls, 2);
+      assert.equal(continuation, 0);
+      assert.deepEqual(database.diagnostics(), vector.aggregate.concat(replacement));
+      finish = true;
+      assert.deepEqual(database.run(query, null), { kind: "completed", value: 8, diagnostics: [] });
+      assert.deepEqual(database.run(query, null), { kind: "completed", value: 8, diagnostics: [] });
+      assert.deepEqual(database.stats(), [{ name: "cycle", computed: 3, hits: 1 }]);
+      assert.equal(recoveryCalls, 3);
+      assert.equal(continuation, 1);
+      assert.deepEqual(database.diagnostics(), vector.aggregate.concat(replacement));
+    }
+    assert.deepEqual(previous, vector.aggregate);
+  }
+});
+
 test("A to B to C computes once, records actual hits and publishes each completed vector once", () => {
   const rootDiagnostic = diagnostic(1, "a.ts", "root");
   const middleDiagnostic = diagnostic(2, "b.ts", "middle");
@@ -684,6 +856,19 @@ const value: number = consume(database.run(dependent, null));
 consume({ kind: "completed", value: 7, diagnostics: [] });
 consume({ kind: "refused", diagnostics: [refusal] });
 consume({ kind: "depth-exceeded", chain });
+const sparse: Diagnostic[] = new Array<Diagnostic>(1);
+const sparseRefusal: [Diagnostic, ...Diagnostic[]] = [refusal];
+sparseRefusal.length = 2;
+const sparseQuery: Query<{ readonly name: string }, null, number> = {
+  name: "sparse", cycle: { recover: () => ({ kind: "refused", diagnostics: sparseRefusal }) },
+  compute: () => ({ kind: "ok", value: 7, diagnostics: sparse }),
+};
+const sparseRefusedQuery: Query<{ readonly name: string }, null, number> = {
+  name: "sparse-refused", cycle: "invariant",
+  compute: () => ({ kind: "refused", diagnostics: sparseRefusal }),
+};
+consume(database.run(sparseQuery, null));
+consume(database.run(sparseRefusedQuery, null));
 void inputs; void statistics; void diagnostics; void chain; void value;
 `);
   const cases = [

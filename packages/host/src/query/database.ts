@@ -41,7 +41,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
 
   function completed<Value>(result: Result<Value>): Result<Value> {
     const retained = retainResult(result);
-    for (const diagnostic of retained.diagnostics) diagnostics.push(diagnostic);
+    retained.diagnostics.forEach(diagnostic => { diagnostics.push(diagnostic); });
     return retained;
   }
 
