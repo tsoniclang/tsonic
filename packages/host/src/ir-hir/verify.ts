@@ -399,11 +399,14 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
       if (body === undefined || body.root !== root || "definition" in metadata && body.owner !== metadata.definition)
         report("body-owner", site, "body metadata must retain its exact owner and syntax root");
     }
-    if (metadata !== null && "initializer" in metadata && metadata.initializer !== null) {
-      const body = inventory.bodies.get(metadata.initializer);
-      const root = "initializer" in node ? node.initializer : null;
-      if (body === undefined || body.root !== root)
-        report("body-owner", site, "initializer body must retain its actual syntax initializer");
+    if (node.kind === "VariableDeclaration" || node.kind === "Parameter" || node.kind === "EnumMember" ||
+      node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") {
+      const initializer = node.tsonic.initializer;
+      if (initializer !== null) {
+        const body = inventory.bodies.get(initializer);
+        if (body === undefined || body.root !== node.initializer)
+          report("body-owner", site, "initializer body must retain its actual syntax initializer");
+      }
     }
     if (metadata !== null && "signatures" in metadata) for (const endpoint of metadata.signatures) {
       const signature = validHirIndex(endpoint.signature) ? context.types.signatures[endpoint.signature] : undefined;

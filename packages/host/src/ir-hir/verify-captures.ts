@@ -582,7 +582,6 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
       if (observation.value.bindings.kind === "available") bindings.push({ kind: "occurrence",
         occurrence: { kind: "body", value: observation.value.occurrence }, vector: observation.value.bindings.value, site });
     }
-    if (!("core" in metadata)) continue;
     const coreCapture = metadata.core;
     walkHirData({ work: hirCoreData(coreCapture), node, body: null, site }, data => {
       if (data.reference.kind === "SourceNodeRef" && readers.nodeOf(data.reference.value) === null)

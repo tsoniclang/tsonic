@@ -306,7 +306,7 @@ function readField(reader: TextReader, frame: RecordFrame): boolean {
   for (const choice of frame.choices) {
     if (choice.kind === "dictionary") {
       selected.push({ kind: "dictionary", choice });
-      fieldShape = fieldShape === null || fieldShape === choice.element ? choice.element : hirChoice(fieldShape, choice.element);
+      fieldShape = choice.element;
     } else {
       const field = choice.fields[frame.ordinal];
       if (field !== undefined && field[0] === name) {
@@ -433,8 +433,9 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   const references: WireReference[] = [];
   const wireNode = (): WireNode => ({ value: {}, edges: [], label: null });
   const put = (value: unknown): void => {
-    if (reader.pending === null) { output.value = value; reader.header = true; reader.needSeparator = true; }
-    else attach(reader.pending.frame, value);
+    output.value = value;
+    reader.header = true;
+    reader.needSeparator = true;
   };
   const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null): MutableRecord | null => {
     if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
@@ -556,8 +557,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     if (token === "[") {
       if (frame === undefined) { fail(reader, ["record"], offset); return false; }
       let element: HirShape | null = null;
-      for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "array")
-        element = element === null || element === leaf.element ? leaf.element : hirChoice(element, leaf.element);
+      for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "array") {
+        element = leaf.element;
+        break;
+      }
       if (element === null) { fail(reader, ["declared array"], offset); return false; }
       reader.cursor += 1;
       reader.pending = { frame: { kind: "array", value: [], element, owner, put: accept, phase: "first-value" }, next: reader.pending };
@@ -566,9 +569,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const scalar = (value: Scalar): void => {
       if (frame === undefined) { fail(reader, ["record"], offset); return; }
       if (!leaves.some(leaf => scalarMatches(leaf, value))) {
-        const identityShape = leaves.find(leaf => typeof leaf !== "string" && leaf.kind === "identity" && typeof value === leaf.value);
-        fail(reader, typeof identityShape !== "string" && identityShape?.kind === "identity" ?
-          [`${identityShape.prefix}:identity`] : expectedValue(shape), offset);
+        fail(reader, expectedValue(shape), offset);
         return;
       }
       accept(typeof value === "string" && leaves.some(leaf => typeof leaf !== "string" && leaf.kind === "host-code") ?

@@ -632,6 +632,8 @@ function fixtureChildren(node) {
     case "FunctionDeclaration": case "FunctionExpression": return [...(node.modifiers?.nodes ?? []), ...(node.asteriskToken === null ? [] : [node.asteriskToken]),
       ...(node.name === null ? [] : [node.name]), ...(node.typeParameters?.nodes ?? []), ...node.parameters.nodes,
       ...(node.type === null ? [] : [node.type]), ...(node.fullSignature === null ? [] : [node.fullSignature]), ...(node.body === null ? [] : [node.body])];
+    case "CallSignature": return [...(node.typeParameters?.nodes ?? []), ...node.parameters.nodes,
+      ...(node.type === null ? [] : [node.type]), ...(node.fullSignature === null ? [] : [node.fullSignature])];
     case "ArrowFunction": return [...(node.modifiers?.nodes ?? []), ...(node.typeParameters?.nodes ?? []), ...node.parameters.nodes,
       ...(node.type === null ? [] : [node.type]), ...(node.fullSignature === null ? [] : [node.fullSignature]),
       ...(node.asteriskToken === null ? [] : [node.asteriskToken]), node.equalsGreaterThanToken, ...(node.body === null ? [] : [node.body])];
@@ -3244,11 +3246,15 @@ test("HIR detached body roots retain their original structural refusal and still
   const context = contextFor(value);
   assert.deepStrictEqual(product.verifyHir(value, context), [
     violation("body-owner", { kind: "body", body: bodyIdentity }, "body identity, owner and actual module subtree must agree"),
+    violation("body-owner", { kind: "node", node: { kind: "item", value: { owner: definitionIdentity, node: 0 } } },
+      "body metadata must retain its exact owner and syntax root"),
   ]);
   const shared = syntax("EmptyStatement", 0);
   detached.statements.nodes.push(shared, shared);
   assert.deepStrictEqual(product.verifyHir(value, context), [
     violation("body-owner", { kind: "body", body: bodyIdentity }, "body identity, owner and actual module subtree must agree"),
+    violation("body-owner", { kind: "node", node: { kind: "item", value: { owner: definitionIdentity, node: 0 } } },
+      "body metadata must retain its exact owner and syntax root"),
   ]);
   detached.statements.nodes.length = 0;
   detached.statements.nodes.push(detached);
@@ -3997,3 +4003,564 @@ test("HIR origins retain every supplied lowering pass and expansion derivation i
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
   }
 });
+
+for (const escaped of ["\\u0058", "\\t"])
+  test(`HIR escaped script-kind domain refuses the complete decoded ${escaped} before any later field`, () => {
+    const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+    const invalid = original.replace('scriptKind="TS"', `scriptKind="${escaped}"`);
+    assertInvalidText(invalid, invalid.indexOf("scriptKind=") + "scriptKind=".length, ["declared field value"]);
+    const valid = original.replace('scriptKind="TS"', 'scriptKind="\\u0054S"');
+    assertComplete(product.parseHir(valid), { kind: "parsed", value: moduleWith() }, "complete escaped TS value");
+  });
+
+test("HIR generic SyntaxNode child accepts its complete declared object but not a scalar token", () => {
+  const child = syntax("EmptyStatement", 0);
+  const value = immutableTree(constructorModule(syntax("SyntaxList", 0, { children: [child] })));
+  const decoded = roundtrip(value, "generic SyntaxNode child");
+  const declaration = decoded.text.indexOf("=SyntaxList(");
+  const start = decoded.text.indexOf("children=[", declaration) + "children=[".length;
+  const end = decoded.text.indexOf("]", start);
+  assert.equal(declaration >= 0 && start > declaration && end > start, true, "the scalar opposite belongs to the real children field");
+  const invalid = `${decoded.text.slice(0, start)}true${decoded.text.slice(end)}`;
+  assertInvalidText(invalid, start, ["SyntaxNode"]);
+});
+
+test("HIR raw identity carriers and missing colon retain their distinct complete first-error domains", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const moduleToken = `mod:"${moduleIdentity}"`;
+  for (const [before, after, marker, expected] of [
+    [moduleToken, "true", "module=true", ["ModuleId"]],
+    [moduleToken, `"${moduleIdentity}"`, `module="${moduleIdentity}"`, ["mod:identity"]],
+    [moduleToken, `mod "${moduleIdentity}"`, `module=mod "${moduleIdentity}"`, [":"]],
+    ["id=n:0", 'id="0"', 'id="0"', ["NodeId"]],
+    ["id=n:0", "id=0", "id=0", ["n:identity"]],
+    ["id=n:0", "id=n:01", "id=n:01", ["canonical finite number"]],
+  ]) {
+    const text = original.replace(before, after);
+    const start = text.indexOf(marker) + (marker.startsWith("module=") ?
+      after.startsWith("mod ") ? "module=mod ".length : "module=".length :
+      after.startsWith("id=n:") ? "id=n:".length : "id=".length);
+    assertInvalidText(text, start, expected);
+  }
+  assertComplete(product.parseHir(original), { kind: "parsed", value: moduleWith() }, "complete prefixed identities");
+});
+
+for (const number of ["-1", "-0", "NaN", "+Infinity", "0.5", "9007199254740992"])
+  test(`HIR arbitrary wire root ${number} reports its actual reference position without semantic renumbering`, () => {
+    const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+    const invalid = original.replace("tree=n:0", `tree=n:${number}`);
+    assertInvalidText(invalid, invalid.indexOf("tree=") + "tree=".length, ["SourceFile"]);
+    assertComplete(product.parseHir(original), { kind: "parsed", value: moduleWith() }, "complete canonical wire root");
+  });
+
+for (const quoted of [false, true])
+  test(`HIR complete attribute prior-name prefix duplicate chooses its ${quoted ? "closing quote" : "equals"} position`, () => {
+    const row = coreArmInputs().find(input => input.field === "attribute" && input.name === "builder-state");
+    assert.equal(row !== undefined, true, "the actual closed attribute family supplies the complete public input");
+    const { module: value, call } = coreCarrier();
+    call.tsonic.core.attribute = available(row.value);
+    const decoded = roundtrip(immutableTree(value), "complete attribute prefix-duplicate opposite");
+    const start = decoded.text.indexOf("applicationTargetSpecifier=");
+    assert.equal(start >= 0, true);
+    const replacement = quoted ? '"applicationTarget"' : "applicationTarget";
+    const invalid = `${decoded.text.slice(0, start)}${replacement}${decoded.text.slice(start + "applicationTargetSpecifier".length)}`;
+    assertInvalidText(invalid, start + (quoted ? replacement.length - 1 : replacement.length), ["unique record field"]);
+  });
+
+for (const foreignDeclaration of [false, true])
+  test(`HIR declaration module ownership retains the complete ${foreignDeclaration ? "foreign" : "local"} item vector`, () => {
+    const value = moduleWith();
+    const foreign = foreignModuleWith([]);
+    const definition = foreignDeclaration ? foreign.tree.tsonic.definition : definitionIdentity;
+    value.items = [{ definition, node: ids.nodeId(0) }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value, {}, [immutableTree(foreign)])), foreignDeclaration ? [
+      violation("module-owner", { kind: "definition", definition }, "definition must belong to this module"),
+      violation("definition-reference", { kind: "definition", definition }, "declaration entry must match its actual node definition"),
+    ] : []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR declaration node ${missing ? "absence" : "presence"} retains both complete owning reports`, () => {
+    const value = moduleWith();
+    value.items = [{ definition: definitionIdentity, node: ids.nodeId(missing ? 99 : 0) }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("node-reference", { kind: "definition", definition: definitionIdentity }, "definition node does not exist"),
+      violation("node-reference", { kind: "module", module: moduleIdentity }, "node must exist in the module arena"),
+    ] : []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR declaration parent ${missing ? "missing from inventory" : "present as module root"} keeps exact path and holder outcomes`, () => {
+    const { value, node } = declarationModule("TypeAliasDeclaration");
+    const parent = ids.encodeDefId({ module: value.module, segments: [{ name: "Outer", ordinal: 0 }] });
+    const definition = ids.encodeDefId({ module: value.module, segments: [{ name: "Outer", ordinal: 0 }, { name: "Inner", ordinal: 0 }] });
+    node.tsonic.definition = definition;
+    node.tsonic.parent = missing ? parent : definitionIdentity;
+    node.name.tsonic.declaration = { kind: "definition", definition };
+    value.items = [{ definition, node: node.id }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("definition-parent", { kind: "definition", definition }, "declaration parent must exist in this module"),
+      violation("definition-reference", nodeSite(node.id), "definition must exist in the canonical declaration inventory"),
+    ] : []);
+  });
+
+for (const extra of [false, true])
+  test(`HIR direct nested body vector ${extra ? "extra retained root" : "actual empty roots"} is independently complete`, () => {
+    const value = moduleWith();
+    value.bodies[0].nestedBodies = extra ? [bodyIdentity] : [];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), extra ? [
+      violation("body-owner", { kind: "body", body: bodyIdentity }, "nested bodies must be the actual direct body roots in preorder"),
+    ] : []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR enclosing capture ${missing ? "missing local" : "actual local"} reports every retained capturedFrom holder`, () => {
+    const { value, inner } = functionModule(["required"], true);
+    const body = value.bodies.find(candidate => candidate.body === inner.tsonic.body);
+    assert.equal(body !== undefined, true);
+    const local = ids.localId(missing ? 99 : 0);
+    body.captures[0].local = local;
+    body.locals[0].capturedFrom.local = local;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("local-reference", { kind: "body", body: body.body }, "capture local does not exist in its named body"),
+      violation("local-reference", { kind: "body", body: body.body }, "qualified local must exist in its named body"),
+      violation("local-reference", { kind: "body", body: body.body }, "qualified local must exist in its named body"),
+    ] : []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR actual scope ${missing ? "missing node" : "module node"} retains both body and reference domains`, () => {
+    const value = moduleWith();
+    value.bodies[0].scopes = [{ node: ids.nodeId(missing ? 99 : 0), parent: null, attributes: [] }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("node-reference", { kind: "body", body: bodyIdentity }, "scope must name a node of this body"),
+      violation("node-reference", { kind: "body", body: bodyIdentity }, "node must exist in the module arena"),
+    ] : []);
+  });
+
+for (const role of ["this", "rest"])
+  test(`HIR complete parameter ${role} ordering checks its actual position without dropping parameter locals`, () => {
+    for (const invalid of [false, true]) {
+      const { value, body } = functionModule(["required", "required"]);
+      body.params[role === "this" ? invalid ? 1 : 0 : invalid ? 0 : 1].role = role;
+      assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+        violation("parameter-order", { kind: "body", body: body.body }, "this must be first and rest must be last"),
+      ] : []);
+    }
+  });
+
+for (const invalid of [false, true])
+  test(`HIR parameter initializer ${invalid ? "existing wrong body" : "actual null"} is a complete retained owner comparison`, () => {
+    const { value, body } = functionModule(["required"]);
+    body.params[0].initializer = invalid ? bodyIdentity : null;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+      violation("body-owner", { kind: "body", body: body.body }, "parameter initializer must be its own default-argument body"),
+    ] : []);
+  });
+
+for (const invalid of [false, true])
+  test(`HIR iteration protocol keeps its real ${invalid ? "spread and asynchronous mismatch" : "iterate and synchronous"} union data`, () => {
+    const { value, statement } = iterationModule("ForInStatement", false);
+    statement.tsonic.protocol = available({ kind: invalid ? "spread" : "iterate", asynchronous: invalid, subject: statement.expression.id,
+      iterator: ids.tyId(0), element: ids.tyId(0), completion: ids.tyId(0), sent: ids.tyId(0), next: ids.sigId(0), finish: null, fail: null });
+    const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature()] } });
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), invalid ? [
+      violation("protocol-kind", nodeSite(statement.id), "protocol must match its syntactic operation"),
+      violation("protocol-kind", nodeSite(statement.id), "iteration protocol must retain authored asynchronous mode"),
+    ] : []);
+  });
+
+for (const invalid of [false, true])
+  test(`HIR actual candidate applied signature ${invalid ? "NaN scalar data" : "existing zero"} uses its own table domain`, () => {
+    const value = moduleWith();
+    value.bodies[0].candidateLists = [{ id: ids.candidateListId(0), candidates: [candidate(0,
+      { appliedSignature: available(ids.sigId(invalid ? NaN : 0)) })] }];
+    const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature()] } });
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), invalid ? [
+      violation("signature-reference", { kind: "body", body: bodyIdentity }, "signature must exist in the supplied table"),
+    ] : []);
+  });
+
+for (const invalid of [false, true])
+  test(`HIR genuinely bodyless callable retains the complete ${invalid ? "inconsistent body" : "null body"} result`, () => {
+    const { value, node, definition } = declarationModule("InterfaceDeclaration");
+    const callable = ids.encodeDefId({ module: value.module, segments: [{ name: "item", ordinal: 0 }, { name: "call", ordinal: 0 }] });
+    const member = syntax("CallSignature", 0, { typeParameters: null, parameters: nodeList([]), type: null, fullSignature: null,
+      tsonic: { ...declarationFacts(definition), definition: callable, parameters: [], signatures: [], body: invalid ? bodyIdentity : null } });
+    node.members.nodes.push(member);
+    numberSyntaxFixture(value.tree);
+    value.items = [{ definition, node: node.id }, { definition: callable, node: member.id }]
+      .sort((left, right) => Number(left.definition > right.definition) - Number(left.definition < right.definition));
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+      violation("body-owner", nodeSite(member.id), "body metadata must retain its exact owner and syntax root"),
+    ] : []);
+  });
+
+for (const invalid of [false, true])
+  test(`HIR required nullable initializer property retains the complete ${invalid ? "wrong captured body" : "null fact"} comparison`, () => {
+    const { value, parameters } = functionModule(["required"]);
+    parameters[0].tsonic.initializer = invalid ? bodyIdentity : null;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+      violation("body-owner", nodeSite(parameters[0].id), "initializer body must retain its actual syntax initializer"),
+    ] : []);
+  });
+
+for (const invalid of [false, true])
+  test(`HIR callable advertised signature ${invalid ? "invalid numeric data" : "actual row"} preserves all real endpoint fields`, () => {
+    const { value, declaration } = functionModule([]);
+    declaration.tsonic.signatures = [{ role: "advertised", declaration: declaration.tsonic.definition,
+      body: null, signature: ids.sigId(invalid ? NaN : 0) }];
+    const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }],
+      signatures: [signature({ declaration: declaration.tsonic.definition })] } });
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), invalid ? [
+      violation("signature-reference", nodeSite(declaration.id), "signature must exist in the supplied table"),
+    ] : []);
+  });
+
+for (const foreignOwner of [false, true])
+  test(`HIR diagnostic root ${foreignOwner ? "foreign qualified owner" : "actual local owner"} preserves the complete association vector`, () => {
+    const value = moduleWithObligation();
+    const foreign = foreignModuleWith([]);
+    const reference = bodySource(foreign.tree.id, foreign.bodies[0].body);
+    if (foreignOwner) value.obligations[0].owner = reference;
+    const site = { kind: "node", node: reference };
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value, {}, [immutableTree(foreign)])), foreignOwner ? [
+      violation("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module"),
+      violation("obligation-complete", site, "every obligation must belong to its diagnostic root"),
+    ] : []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR obligation ${missing ? "missing occurrence" : "actual index occurrence"} retains final syntactic completeness`, () => {
+    const value = moduleWithObligation();
+    value.obligations[0].obligations[0].occurrence.node = ids.nodeId(missing ? 99 : 2);
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("cross-owner-qualified", { kind: "module", module: moduleIdentity }, "qualified body node must exist in its named owner"),
+      violation("obligation-complete", nodeSite(2), "every obligation must belong to its diagnostic root"),
+      violation("obligation-complete", nodeSite(2), "root must retain each syntactically required obligation"),
+    ] : []);
+  });
+
+for (const outside of [false, true])
+  test(`HIR contextual write-fit ${outside ? "outside value" : "actual occurrence value"} checks the retained subtree without semantic eligibility replay`, () => {
+    const expression = nameExpression("contextual");
+    const value = expressionModule(expression);
+    value.checkerDiagnostics = [sourceDiagnostic()];
+    value.obligations = [{ diagnostic: 0, owner: bodySource(expression.id), obligations: [{ kind: "write-fit", ordinal: 0,
+      occurrence: { body: bodyIdentity, node: expression.id }, value: { body: bodyIdentity, node: ids.nodeId(outside ? 0 : expression.id) },
+      destination: bodySource(expression.id), destinationType: ids.tyId(0) }] }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), outside ? [
+      violation("obligation-complete", nodeSite(expression.id), "write-fit value must belong to its actual occurrence subtree"),
+    ] : []);
+  });
+
+for (const numerator of [0n, -1n, 1n])
+  test(`HIR internally normalized numeric fact ${numerator} still agrees with its nonzero authored token`, () => {
+    const expression = syntax("NumericLiteral", 0, { text: "1", tokenFlags: [], tsonic: { core: absentCore(), role: "value",
+      value: emptyValue(), literal: { kind: "number", token: "1", value: { numerator, denominator: 1n, negativeZero: false } } } });
+    const value = expressionModule(expression);
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), numerator === 1n ? [] : [
+      violation("literal-exact", nodeSite(expression.id), "literal must preserve its normalized exact authored value"),
+    ]);
+  });
+
+for (const [operator, operandKind, token, integer, valid] of [
+  ["PlusToken", "BigIntLiteral", "2n", 2n, true], ["MinusToken", "BigIntLiteral", "2n", -2n, true],
+  ["PlusToken", "BigIntLiteral", "2n", 1n, false], ["MinusToken", "BigIntLiteral", "2n", -3n, false],
+  ["PlusToken", "NumericLiteral", "1e1", 10n, false], ["MinusToken", "Identifier", "operand", -2n, false],
+  ["TildeToken", "BigIntLiteral", "2n", -2n, false],
+]) test(`HIR unary bigint correlation retains the full ${operator}/${operandKind}/${integer} outcome`, () => {
+  const operand = operandKind === "Identifier" ? nameExpression(token) : syntax(operandKind, 0, { text: token, tokenFlags: [],
+    tsonic: { core: absentCore(), role: "type-literal", type: unavailable(), literal: operandKind === "BigIntLiteral" ?
+      { kind: "bigint", value: 2n } : { kind: "number", value: { numerator: 10n, denominator: 1n, negativeZero: false } } } });
+  const unary = syntax("PrefixUnaryExpression", 0, { operator, operand,
+    tsonic: { core: absentCore(), role: "type-literal", type: unavailable(), literal: { kind: "bigint", value: integer } } });
+  const value = expressionModule(unary);
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), valid ? [] : [
+    violation("literal-exact", nodeSite(unary.id), "unary literal must preserve the actual operand and sign"),
+  ]);
+});
+
+test("HIR a real lower signature owner invokes both canonical node readers while preserving the complete binding failure", () => {
+  for (const missing of [false, true]) {
+    const { foreign, definitions, scopes } = genericCandidateFixture(1);
+    const definition = definitions[0];
+    const value = moduleWith();
+    const bindings = { classBindings: missing ? [] : [{ kind: "rigid", parameter: { owner: definition, index: 0 } }],
+      methodBindings: [], capturedBindings: [], selfBindings: [{ kind: "rigid", owner: definition }] };
+    value.bodies[0].candidateLists = [{ id: ids.candidateListId(0), candidates: [candidate(0,
+      { declaration: definition, bindings: available(bindings) })] }];
+    const actualScopes = new Map([...scopes, [definitionIdentity, emptyScope()]]);
+    const context = contextFor(value, { bindingScopeOf: owner => actualScopes.get(owner) ?? null,
+      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ owner: bodySource(0) })] } }, [foreign]);
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), missing ? [{
+      rule: "binding-vector-complete", site: { kind: "body", body: bodyIdentity },
+      detail: [{ kind: "text", value: "classBindings" }, { kind: "text", value: "complete" }, { kind: "text", value: "length" }, { kind: "number", value: 0 }],
+    }] : []);
+  }
+});
+
+for (const invalid of [false, true])
+  test(`HIR actual owner-issued argument source ${invalid ? "negative node data" : "existing argument"} retains both qualified and Core reports`, () => {
+    const { module: value, call } = coreCarrier();
+    call.tsonic.core.argumentPassing = available({ role: "argument", mode: "by-value",
+      storageExpression: bodySource(ids.nodeId(invalid ? -1 : 6)) });
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+      violation("cross-owner-qualified", nodeSite(call.id), "qualified body node must exist in its named owner"),
+      violation("core-capture-reference", nodeSite(call.id), "Core capture reference must retain an existing qualified source node"),
+    ] : []);
+  });
+
+for (const local of [-1, -0, 0])
+  test(`HIR actual LocalId ${Object.is(local, -0) ? "-0" : local} is data before local-reference validation`, () => {
+    const expression = nameExpression();
+    const value = expressionModule(expression);
+    expression.tsonic.resolution = { kind: "local", local: { body: bodyIdentity, local: ids.localId(local) } };
+    value.bodies[0].locals = [{ id: ids.localId(0), declaration: bodySource(expression.id), name: "value", role: "binding",
+      checkerSlot: available(ids.tyId(0)), capturedFrom: null, mutable: true }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), local === 0 && !Object.is(local, -0) ? [] : [
+      violation("local-reference", nodeSite(expression.id), "qualified local must exist in its named body"),
+    ]);
+  });
+
+for (const missing of [false, true])
+  test(`HIR write-fit destination ${missing ? "missing actual node" : "actual left operand"} reaches the nullable local-node wrapper`, () => {
+    const expression = syntax("BinaryExpression", 0, { modifiers: null, left: nameExpression("destination"), type: null,
+      operatorToken: syntax("EqualsToken", 0), right: nameExpression("source"),
+      tsonic: { core: absentCore(), role: "assignment", value: emptyValue(), target: unavailable() } });
+    const value = expressionModule(expression);
+    value.checkerDiagnostics = [sourceDiagnostic()];
+    value.obligations = [{ diagnostic: 0, owner: bodySource(expression.id), obligations: [{ kind: "write-fit", ordinal: 0,
+      occurrence: { body: bodyIdentity, node: expression.id }, value: { body: bodyIdentity, node: expression.right.id },
+      destination: bodySource(ids.nodeId(missing ? 999 : expression.left.id)), destinationType: ids.tyId(0) }] }];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), missing ? [
+      violation("cross-owner-qualified", { kind: "module", module: moduleIdentity }, "qualified body node must exist in its named owner"),
+      violation("obligation-complete", nodeSite(expression.id), "write-fit obligation must retain its actual value and destination"),
+      violation("obligation-complete", nodeSite(expression.id), "root must retain each syntactically required obligation"),
+    ] : []);
+  });
+
+for (const qualifier of ["body", "item"])
+  test(`HIR existing local root with the wrong ${qualifier} qualifier cannot borrow that other owner's inventory`, () => {
+    for (const invalid of [false, true]) {
+      const { value, body } = functionModule(["required"]);
+      const reference = qualifier === "body" ? bodySource(ids.nodeId(0), invalid ? body.body : bodyIdentity) :
+        { kind: "item", value: { owner: invalid ? body.owner : definitionIdentity, node: ids.nodeId(0) } };
+      value.tree.tsonic.core.argumentPassing = available({ role: "argument", mode: "by-value", storageExpression: reference });
+      assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+        violation("cross-owner-qualified", nodeSite(0), qualifier === "body" ?
+          "qualified body node must exist in its named owner" : "qualified item node must exist in its named owner"),
+        violation("core-capture-reference", nodeSite(0), "Core capture reference must retain an existing qualified source node"),
+      ] : []);
+    }
+  });
+
+for (const invalid of [false, true])
+  test(`HIR parameter collector ${invalid ? "other actual declaration" : "actual Parameter declaration"} keeps genuine public inputs`, () => {
+    const { value, body } = functionModule(["required"]);
+    if (invalid) body.params[0].declaration = definitionIdentity;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), []);
+  });
+
+for (const altered of ["none", "root", "metadata"])
+  test(`HIR default initializer ${altered} keeps exact source and lexical-environment ownership`, () => {
+    const { value, parameters, initializers } = functionModule(["required", "default"]);
+    const parameter = parameters[1];
+    const initializer = initializers[0];
+    initializer.locals = [];
+    initializer.captures = [];
+    if (altered === "root") initializer.root = parameter.name;
+    if (altered === "metadata") parameter.tsonic.initializer = bodyIdentity;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), altered === "none" ? [] : [
+      violation("body-owner", nodeSite(parameter.id), "initializer body must retain its actual syntax initializer"),
+    ]);
+  });
+
+for (const omitted of [false, true])
+  test(`HIR ${omitted ? "omitted body vector" : "published actual module body"} retains both ITEM-qualified metadata holders`, () => {
+    const value = moduleWith();
+    if (omitted) value.bodies = [];
+    const site = { kind: "node", node: { kind: "item", value: { owner: definitionIdentity, node: ids.nodeId(0) } } };
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), omitted ? [
+      violation("body-owner", site, "body must exist in this module"),
+      violation("body-owner", site, "body metadata must retain its exact owner and syntax root"),
+    ] : []);
+  });
+
+for (const contradictory of [false, true])
+  test(`HIR public lexical ${contradictory ? "self-parent" : "actual parent"} facts terminate without a syntax child cycle`, () => {
+    const { value, declaration, body, parameters, initializers } = functionModule(["default"]);
+    const parameter = parameters[0];
+    const initializer = initializers[0];
+    initializer.params = body.params.map(row => ({ ...row }));
+    initializer.locals = body.locals.map(row => ({ ...row }));
+    initializer.captures = [];
+    if (contradictory) {
+      parameter.tsonic.parent = parameter.tsonic.declaration.definition;
+      declaration.tsonic.body = initializer.body;
+    }
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), contradictory ? [
+      violation("definition-parent", { kind: "definition", definition: parameter.tsonic.declaration.definition },
+        "declaration parent must be a proper definition path prefix"),
+      violation("body-owner", nodeSite(declaration.id), "body metadata must retain its exact owner and syntax root"),
+    ] : []);
+  });
+
+for (const [index, present] of [[null, false], [0, true], [-1, false], [0.5, false], [NaN, false], [99, false], [0, false]])
+  test(`HIR unresolved checker index ${index}/${present} keeps the exact complete diagnostic-reference outcome`, () => {
+    const expression = nameExpression();
+    expression.tsonic.resolution = { kind: "unresolved", checkerDiagnostic: index };
+    const value = expressionModule(expression);
+    value.checkerDiagnostics = present ? [sourceDiagnostic()] : [];
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), index === null || index === 0 && present ? [] : [
+      violation("diagnostic-reference", nodeSite(expression.id), "unresolved resolution must name an existing checker diagnostic"),
+    ]);
+  });
+
+for (const cyclic of [false, true])
+  test(`HIR actual place ${cyclic ? "active cycle" : "completed shared target"} keeps one complete graph result`, () => {
+    const expressions = [nameExpression("first"), nameExpression("second"), nameExpression("shared")];
+    const value = moduleWith(expressions.map(expression => syntax("ExpressionStatement", 0, { expression })));
+    for (const [index, expression] of expressions.entries()) {
+      const place = rootPlace();
+      if (index < 2) place.base = { kind: "place", node: expressions[cyclic && index === 0 ? 0 : 2].id };
+      expression.tsonic.value.place = available(place);
+    }
+    const decoded = roundtrip(immutableTree(value), `place completion/${cyclic}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), cyclic ? [
+      violation("place-base-acyclic", nodeSite(expressions[0].id), "place base chain must not revisit a place"),
+    ] : []);
+  });
+
+for (const holder of ["none", "own", "target"])
+  test(`HIR both actual assignment place holders retain the full ${holder} self-base outcome`, () => {
+    const left = nameExpression("destination");
+    const expression = syntax("BinaryExpression", 0, { modifiers: null, left, type: null, operatorToken: syntax("EqualsToken", 0),
+      right: nameExpression("source"), tsonic: { core: absentCore(), role: "assignment", value: emptyValue(), target: unavailable() } });
+    const value = expressionModule(expression);
+    const own = rootPlace();
+    const target = rootPlace();
+    if (holder === "own") own.base = { kind: "place", node: left.id };
+    if (holder === "target") target.base = { kind: "place", node: left.id };
+    left.tsonic.value.place = available(own);
+    expression.tsonic.target = available(target);
+    const decoded = roundtrip(immutableTree(value), `two retained place holders/${holder}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), holder === "none" ? [] : [
+      violation("place-base-acyclic", nodeSite(left.id), "place base chain must not revisit a place"),
+    ]);
+  });
+
+for (const endpoint of ["actual-value", "null-metadata", "no-memory", "unavailable"])
+  test(`HIR descriptor endpoint ${endpoint} uses genuine checked node metadata rather than an invented lookup result`, () => {
+    const { value, foreign, expressions, references, expression, array } = foreignMemoryFixture();
+    let targetModule = foreign;
+    let reference = references[0];
+    if (endpoint === "null-metadata") reference = referenceIn(foreign, foreign.tree.endOfFileToken);
+    if (endpoint === "unavailable") expressions[0].tsonic.memory = unavailable("checker-error");
+    if (endpoint === "no-memory") {
+      const { statement } = iterationModule("ForInStatement", false);
+      targetModule = foreignModuleWith([statement], "protocol.ts");
+      reference = referenceIn(targetModule, statement);
+    }
+    array.element = available(reference);
+    const decoded = roundtrip(immutableTree(value), `descriptor endpoint/${endpoint}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(targetModule)])), endpoint === "actual-value" ? [] : [
+      violation("memory-capture-reference", nodeSite(expression.id), "layout edge must name the required captured descriptor kind"),
+    ]);
+  });
+
+for (const reason of [null, "not-provided", "checker-error", "parameter-dependent"])
+  test(`HIR value-layout field availability ${reason} remains complete captured data and is not fabricated empty`, () => {
+    const expression = callExpression();
+    const value = expressionModule(expression);
+    const capture = layoutCapture("value");
+    capture.fields = reason === null ? available([]) : unavailable(reason);
+    expression.tsonic.memory = available(capture);
+    const decoded = roundtrip(immutableTree(value), `value-layout fields/${reason}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
+  });
+
+for (const missing of [false, true])
+  test(`HIR array descriptor ${missing ? "missing endpoint" : "actual foreign value"} retains the whole qualified reference vector`, () => {
+    const { value, foreign, expression, array } = foreignMemoryFixture();
+    if (missing) array.element = available(bodySource(ids.nodeId(99)));
+    const decoded = roundtrip(immutableTree(value), `array descriptor/${missing}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), missing ? [
+      violation("cross-owner-qualified", nodeSite(expression.id), "qualified body node must exist in its named owner"),
+      violation("memory-capture-reference", nodeSite(expression.id), "layout edge must name the required captured descriptor kind"),
+    ] : []);
+  });
+
+for (const cyclic of [false, true])
+  test(`HIR distinct field-descriptor ${cyclic ? "active backedge" : "diamond completion"} preserves exact occurrence identity`, () => {
+    const expressions = [callExpression(), callExpression(), callExpression(), callExpression()];
+    const value = moduleWith(expressions.map(expression => syntax("ExpressionStatement", 0, { expression })));
+    const references = expressions.map(expression => bodySource(expression.id));
+    const root = layoutCapture("value", references[0]);
+    root.fields = available([references[1], references[2]]);
+    const first = layoutCapture("field", references[1]);
+    first.selector = bodySource(expressions[1].expression.id);
+    first.fieldLayout = available(references[cyclic ? 0 : 3]);
+    const second = layoutCapture("field", references[2]);
+    second.selector = bodySource(expressions[2].expression.id);
+    second.fieldLayout = available(references[3]);
+    const leaf = layoutCapture("value", references[3]);
+    for (const [index, capture] of [root, first, second, leaf].entries()) expressions[index].tsonic.memory = available(capture);
+    const decoded = roundtrip(immutableTree(value), `descriptor diamond/${cyclic}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), cyclic ? [
+      violation("memory-layout-acyclic", nodeSite(expressions[0].id), "captured layout graph must be acyclic"),
+    ] : []);
+  });
+
+for (const operation of ["size", "field-offset"])
+  test(`HIR ${operation} observation retains complete existing and missing endpoint outcomes without changing its occurrence`, () => {
+    for (const missing of [false, true]) {
+      const { value, foreign, expression, references } = foreignMemoryFixture();
+      const observation = observationCapture(operation);
+      if (operation === "size") observation.layout = available(missing ? bodySource(ids.nodeId(99)) : references[0]);
+      else observation.field = available(missing ? bodySource(ids.nodeId(99)) : references[1]);
+      expression.tsonic.observation = available(observation);
+      const decoded = roundtrip(immutableTree(value), `observation endpoint/${operation}/${missing}`);
+      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [immutableTree(foreign)])), missing ? [
+        violation("cross-owner-qualified", nodeSite(expression.id), "qualified body node must exist in its named owner"),
+        violation("memory-capture-reference", nodeSite(expression.id), operation === "size" ?
+          "observation layout must name a value or array descriptor" : "observation field must name a field descriptor"),
+      ] : []);
+    }
+  });
+
+for (const kind of ["VariableDeclaration", "Parameter", "EnumMember", "PropertySignature", "PropertyDeclaration"])
+  test(`HIR actual ${kind} initializer carrier has its required nullable syntax field and full captured-body opposite`, () => {
+    for (const invalid of [false, true]) {
+      let value;
+      let declaration;
+      if (kind === "VariableDeclaration") {
+        ({ value, declaration } = variableModule());
+      } else if (kind === "Parameter") {
+        const fixture = functionModule(["required"]);
+        value = fixture.value;
+        declaration = fixture.parameters[0];
+      } else {
+        const fixture = declarationModule(kind === "EnumMember" ? "EnumDeclaration" :
+          kind === "PropertySignature" ? "InterfaceDeclaration" : "ClassDeclaration");
+        value = fixture.value;
+        const definition = ids.encodeDefId({ module: value.module,
+          segments: [{ name: "item", ordinal: 0 }, { name: "field", ordinal: 0 }] });
+        const name = syntax("Identifier", 0, { text: "field", tsonic: { core: absentCore(), role: "declaration-name",
+          declaration: { kind: "definition", definition } } });
+        declaration = syntax(kind, 0, { modifiers: null, name, postfixToken: null,
+          ...(kind === "EnumMember" ? {} : { type: null }), initializer: null,
+          tsonic: { ...declarationFacts(fixture.definition), declaration: { kind: "definition", definition },
+            declaredType: available(ids.tyId(0)), initializer: null } });
+        fixture.node.members.nodes.push(declaration);
+        fixture.node.tsonic.members = [definition];
+        numberSyntaxFixture(value.tree);
+        value.items = [{ definition: fixture.definition, node: fixture.node.id }, { definition, node: declaration.id }]
+          .sort((left, right) => Number(left.definition > right.definition) - Number(left.definition < right.definition));
+      }
+      declaration.tsonic.initializer = invalid ? bodyIdentity : null;
+      assert.deepStrictEqual(product.verifyHir(immutableTree(value), contextFor(value)), invalid ? [
+        violation("body-owner", nodeSite(declaration.id), "initializer body must retain its actual syntax initializer"),
+      ] : []);
+    }
+  });
