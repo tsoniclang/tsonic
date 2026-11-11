@@ -1,6 +1,6 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, BodyPath, DefId, DefinitionPath, LocalRef, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
+import { encodeBodyId, encodeDefId } from "../ids/index.js";
 import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
@@ -79,21 +79,55 @@ type HirOwnerInput = { readonly kind: "body"; readonly identity: BodyId } |
 interface HirDefinitionOwner { readonly definition: DefId; readonly path: DefinitionPath }
 interface HirBodyOwner extends HirDefinitionOwner { readonly body: BodyPath }
 
-export function hirOwnerOf(input: { readonly kind: "body"; readonly identity: BodyId }): HirBodyOwner | null;
-export function hirOwnerOf(input: { readonly kind: "definition"; readonly identity: DefId }): HirDefinitionOwner | null;
-export function hirOwnerOf(input: HirOwnerInput): HirDefinitionOwner | null;
-export function hirOwnerOf(input: HirOwnerInput): HirBodyOwner | HirDefinitionOwner | null {
-  const body = input.kind === "body" ? decodeBodyId(input.identity) : null;
-  const definition = input.kind === "definition" ? input.identity : body?.kind === "decoded" ? body.value.owner : null;
-  if (definition === null) return null;
-  const path = decodeDefId(definition);
-  if (path.kind === "invalid") return null;
-  return body?.kind === "decoded" ? { definition, path: path.value, body: body.value } : { definition, path: path.value };
+export type HirPathResult<Path> = { readonly kind: "unknown" } | { readonly kind: "mismatch" } |
+  { readonly kind: "known"; readonly value: Path };
+export interface HirIdentityPaths {
+  readonly bodyPathOf: (identity: BodyId) => HirPathResult<BodyPath>;
+  readonly definitionPathOf: (identity: DefId) => HirPathResult<DefinitionPath>;
+}
+
+export function createHirIdentityPaths(context: HirVerificationContext): HirIdentityPaths {
+  const bodies = new Map<BodyId, HirPathResult<BodyPath>>();
+  const definitions = new Map<DefId, HirPathResult<DefinitionPath>>();
+  return {
+    bodyPathOf: identity => {
+      const previous = bodies.get(identity);
+      if (previous !== undefined) return previous;
+      const path = context.bodyPathOf(identity);
+      const result: HirPathResult<BodyPath> = path === null ? { kind: "unknown" } :
+        encodeBodyId(path) === identity ? { kind: "known", value: path } : { kind: "mismatch" };
+      bodies.set(identity, result);
+      return result;
+    },
+    definitionPathOf: identity => {
+      const previous = definitions.get(identity);
+      if (previous !== undefined) return previous;
+      const path = context.definitionPathOf(identity);
+      const result: HirPathResult<DefinitionPath> = path === null ? { kind: "unknown" } :
+        encodeDefId(path) === identity ? { kind: "known", value: path } : { kind: "mismatch" };
+      definitions.set(identity, result);
+      return result;
+    },
+  };
+}
+
+export function hirOwnerOf(input: { readonly kind: "body"; readonly identity: BodyId }, paths: HirIdentityPaths): HirBodyOwner | null;
+export function hirOwnerOf(input: { readonly kind: "definition"; readonly identity: DefId }, paths: HirIdentityPaths): HirDefinitionOwner | null;
+export function hirOwnerOf(input: HirOwnerInput, paths: HirIdentityPaths): HirDefinitionOwner | null;
+export function hirOwnerOf(input: HirOwnerInput, paths: HirIdentityPaths): HirBodyOwner | HirDefinitionOwner | null {
+  if (input.kind === "body") {
+    const body = paths.bodyPathOf(input.identity);
+    if (body.kind !== "known") return null;
+    const path = paths.definitionPathOf(body.value.owner);
+    return path.kind === "known" ? { definition: body.value.owner, path: path.value, body: body.value } : null;
+  }
+  const path = paths.definitionPathOf(input.identity);
+  return path.kind === "known" ? { definition: input.identity, path: path.value } : null;
 }
 
 export function sourceNodeExists(reference: SourceNodeRef, module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext): boolean {
-  return sourceNodeData(reference, module, inventory, context) !== null;
+  inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths): boolean {
+  return sourceNodeData(reference, module, inventory, context, paths) !== null;
 }
 
 export interface HirForeignNode {
@@ -106,10 +140,10 @@ export interface HirForeignNode {
 export type HirSourceNode = { readonly kind: "local"; readonly node: HirNode } | HirForeignNode;
 
 export function sourceNodeData(reference: SourceNodeRef, module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext): HirSourceNode | null {
+  inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths): HirSourceNode | null {
   if (!validHirIndex(reference.value.node)) return null;
   const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
-    { kind: "definition", identity: reference.value.owner });
+    { kind: "definition", identity: reference.value.owner }, paths);
   if (owner === null) return null;
   if (owner.path.module === module.module) {
     const entry = qualifiedLocalEntry(reference, inventory);
@@ -120,22 +154,22 @@ export function sourceNodeData(reference: SourceNodeRef, module: HirModule,
 }
 
 export function localExists(reference: LocalRef, module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext): boolean {
+  inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths): boolean {
   if (!validHirIndex(reference.local)) return false;
-  const owner = hirOwnerOf({ kind: "body", identity: reference.body });
+  const owner = hirOwnerOf({ kind: "body", identity: reference.body }, paths);
   if (owner === null) return false;
   if (owner.path.module !== module.module) return context.localExists(reference);
   return inventory.bodies.get(reference.body)?.locals[reference.local] !== undefined;
 }
 
-export function localSourceNode(reference: SourceNodeRef, module: HirModule, inventory: HirInventory): HirNode | null {
-  const entry = localSourceEntry(reference, module, inventory);
+export function localSourceNode(reference: SourceNodeRef, module: HirModule, inventory: HirInventory, paths: HirIdentityPaths): HirNode | null {
+  const entry = localSourceEntry(reference, module, inventory, paths);
   return entry === null ? null : entry.node;
 }
 
-export function localSourceEntry(reference: SourceNodeRef, module: HirModule, inventory: HirInventory): HirNodeEntry | null {
+export function localSourceEntry(reference: SourceNodeRef, module: HirModule, inventory: HirInventory, paths: HirIdentityPaths): HirNodeEntry | null {
   const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
-    { kind: "definition", identity: reference.value.owner });
+    { kind: "definition", identity: reference.value.owner }, paths);
   if (owner === null || owner.path.module !== module.module || !validHirIndex(reference.value.node)) return null;
   return qualifiedLocalEntry(reference, inventory);
 }
@@ -157,7 +191,7 @@ type BodyScopeVisit = (
   | { readonly kind: "leave"; readonly range: MutableBodyScopeRange }
 ) & { readonly next: BodyScopeVisit | null };
 
-export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory): readonly BodyScopeRange[] {
+export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths): readonly BodyScopeRange[] {
   const declarations = new Map<DefId, HirNode>();
   for (const item of module.items) {
     const node = inventory.nodesById.get(item.node);
@@ -179,8 +213,8 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
     if (environment !== undefined) parameterEnvironments.set(node, environment);
   }
   for (const body of module.bodies) {
-    const identity = decodeBodyId(body.body);
-    if (identity.kind !== "decoded" || identity.value.role !== "default-argument") continue;
+    const identity = paths.bodyPathOf(body.body);
+    if (identity.kind !== "known" || identity.value.role !== "default-argument") continue;
     const node = inventory.parents.get(body.root);
     if (node === undefined || node === null || declarations.get(body.owner) !== node ||
       (node.kind !== "Parameter" && node.kind !== "BindingElement") || node.initializer !== body.root) continue;
@@ -230,7 +264,7 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
 }
 
 export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
+  inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths, report: HirReport): void {
   const definitions = new Set<string>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   const checkedDefinitions = new Set<string>();
   const checkedBodies = new Set<string>();
@@ -247,15 +281,15 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         break;
       }
       case "NodeRef":
-        if (!sourceNodeExists({ kind: "body", value: reference.value }, module, inventory, context))
+        if (!sourceNodeExists({ kind: "body", value: reference.value }, module, inventory, context, paths))
           report("cross-owner-qualified", data.site, "qualified body node must exist in its named owner");
         break;
       case "ItemNodeRef":
-        if (!sourceNodeExists({ kind: "item", value: reference.value }, module, inventory, context))
+        if (!sourceNodeExists({ kind: "item", value: reference.value }, module, inventory, context, paths))
           report("cross-owner-qualified", data.site, "qualified item node must exist in its named owner");
         break;
       case "LocalRef":
-        if (!localExists(reference.value, module, inventory, context))
+        if (!localExists(reference.value, module, inventory, context, paths))
           report("local-reference", data.site, "qualified local must exist in its named body");
         break;
       case "TyId":
@@ -277,8 +311,10 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         break;
       case "DefId": {
         const value = reference.value;
-        const owner = hirOwnerOf({ kind: "definition", identity: value });
-        if (owner === null) report("definition-reference", data.site, "invalid definition identity");
+        const path = paths.definitionPathOf(value);
+        if (path.kind === "mismatch") { report("identity-path-exact", data.site, "definition path must encode its exact supplied identity"); break; }
+        const owner = hirOwnerOf({ kind: "definition", identity: value }, paths);
+        if (owner === null) report("definition-reference", data.site, "definition must exist in the canonical declaration inventory");
         else {
           if (!checkedDefinitions.has(value)) {
             checkedDefinitions.add(value);
@@ -287,7 +323,7 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
           }
           if (!definitions.has(value)) {
             let exists = scopeExists.get(value);
-            if (exists === undefined) { exists = context.bindingScopeOf(encodeDefId(owner.path)) !== null; scopeExists.set(value, exists); }
+            if (exists === undefined) { exists = context.bindingScopeOf(value) !== null; scopeExists.set(value, exists); }
             if (!exists) report("definition-reference", data.site, "definition must exist in the canonical declaration inventory");
           }
         }
@@ -297,8 +333,13 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
         const value = reference.value;
         if (checkedBodies.has(value)) break;
         checkedBodies.add(value);
-        const owner = hirOwnerOf({ kind: "body", identity: value });
-        if (owner === null) report("body-owner", data.site, "invalid body identity");
+        const path = paths.bodyPathOf(value);
+        if (path.kind === "mismatch") { report("identity-path-exact", data.site, "body path must encode its exact supplied identity"); break; }
+        if (path.kind === "known" && paths.definitionPathOf(path.value.owner).kind === "mismatch") {
+          report("identity-path-exact", data.site, "definition path must encode its exact supplied identity"); break;
+        }
+        const owner = hirOwnerOf({ kind: "body", identity: value }, paths);
+        if (owner === null) report("body-owner", data.site, "body must exist in the canonical identity inventory");
         else {
           if (!validHirIndex(owner.body.ordinal))
             report("ordinal-domain", data.site, "body ordinal must be a nonnegative safe integer other than negative zero");
@@ -307,7 +348,7 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
             for (const segment of owner.path.segments) if (!validHirIndex(segment.ordinal))
               report("ordinal-domain", data.site, "definition segment ordinal must be a nonnegative safe integer other than negative zero");
           }
-          if (owner.path.module === module.module && !inventory.bodies.has(encodeBodyId(owner.body)))
+          if (owner.path.module === module.module && !inventory.bodies.has(value))
             report("body-owner", data.site, "body must exist in this module");
         }
       }

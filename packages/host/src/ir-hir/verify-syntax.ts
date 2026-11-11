@@ -37,11 +37,18 @@ export interface HirLiteralShape {
   readonly values: readonly (string | number | boolean | null)[];
 }
 
-export interface HirIdentityShape {
+export interface HirNumericIdentityShape {
   readonly kind: "identity";
-  readonly prefix: string;
-  readonly value: "string" | "number";
+  readonly prefix: "n" | "l" | "t" | "sig" | "cand";
+  readonly value: "number";
 }
+export interface HirStringIdentityShape {
+  readonly kind: "identity";
+  readonly prefix: "mod" | "def" | "body" | "exp";
+  readonly value: "string";
+}
+export type HirIdentityShape = HirNumericIdentityShape | HirStringIdentityShape;
+export interface HirHostCodeShape { readonly kind: "host-code" }
 export interface HirArrayShape { readonly kind: "array"; readonly element: HirShape }
 export interface HirChoiceShape { readonly kind: "choice"; readonly alternatives: readonly HirShape[] }
 export interface HirRecordShape {
@@ -102,8 +109,8 @@ export type HirSyntaxName = PlainTokenKind
   | "NullKeyword" | "TrueKeyword" | "FalseKeyword" | "ThisKeyword" | "SuperKeyword" | "ImportKeyword"
   | "AnyKeyword" | "BigIntKeyword" | "BooleanKeyword" | "IntrinsicKeyword" | "NeverKeyword" | "NumberKeyword"
   | "ObjectKeyword" | "StringKeyword" | "SymbolKeyword" | "UndefinedKeyword" | "UnknownKeyword" | "VoidKeyword";
-type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "ComponentId" | "NodeId" | "TyId" | "CandidateListId"
-  | "PackageId" | "DefId" | "GroupId" | "ExpansionId" | "LocalId" | "SigId" | "TextRange" | "Origin" | "NodeRef"
+type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" | "CandidateListId" | "HostDiagnosticCode"
+  | "DefId" | "ExpansionId" | "LocalId" | "SigId" | "TextRange" | "Origin" | "NodeRef"
   | "ItemNodeRef" | "SourceNodeRef" | "LocalRef" | "LibraryModuleIdentity" | "TypeParameterIdentity"
   | "TypeParameterData" | "TypeBinding" | "SelfBinding" | "BindingVector" | "ExactRational" | "LiteralValue"
   | "LiteralTypeValue" | "NonNumericLiteralValue" | "MemberKey" | "MemberOrigin" | "PassingMode"
@@ -125,7 +132,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "ComponentId" | "No
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
   | "HirUnaryOperator" | "HirBinaryOperator" | "ProofObligation" | "HirDiagnosticRoot" | "HirModule";
-type HirShapeBody = HirIdentityShape | HirLiteralShape | HirArrayShape | HirChoiceShape | HirRecordShape | HirDictionaryShape;
+type HirShapeBody = HirIdentityShape | HirHostCodeShape | HirLiteralShape | HirArrayShape | HirChoiceShape | HirRecordShape | HirDictionaryShape;
 export type HirShape = "string" | "number" | "bigint" | "boolean" | "null" | "SyntaxNode" | HirSchemaName | HirShapeBody;
 export type HirField = readonly [string, HirShape] | readonly [string, HirLiteralShape, true];
 export interface HirObject { readonly [field: string]: unknown }
@@ -524,9 +531,8 @@ interface HirSyntaxSchema {
   readonly VoidKeyword: HirShapeBody;
 }
 export interface HirSchema extends HirSyntaxSchema {
-  readonly PackageId: HirShapeBody;
+  readonly HostDiagnosticCode: HirHostCodeShape;
   readonly DefId: HirShapeBody;
-  readonly GroupId: HirShapeBody;
   readonly ExpansionId: HirShapeBody;
   readonly LocalId: HirShapeBody;
   readonly SigId: HirShapeBody;
@@ -641,14 +647,17 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirModule: HirShapeBody;
   readonly ModuleId: HirShapeBody;
   readonly BodyId: HirShapeBody;
-  readonly ComponentId: HirShapeBody;
   readonly NodeId: HirShapeBody;
   readonly TyId: HirShapeBody;
   readonly CandidateListId: HirShapeBody;
 }
 
-export function hirIdentity(prefix: string, value: "string" | "number"): HirIdentityShape {
-  return Object.freeze({ kind: "identity", prefix, value });
+export function hirNumericIdentity(prefix: HirNumericIdentityShape["prefix"]): HirNumericIdentityShape {
+  return Object.freeze({ kind: "identity", prefix, value: "number" });
+}
+
+export function hirStringIdentity(prefix: HirStringIdentityShape["prefix"]): HirStringIdentityShape {
+  return Object.freeze({ kind: "identity", prefix, value: "string" });
 }
 
 export function hirLiteral(...values: readonly (string | number | boolean | null)[]): HirLiteralShape {
@@ -1219,7 +1228,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
 }
 
 export type HirShapeLeaf = "string" | "number" | "bigint" | "boolean" | "null" | "SyntaxNode"
-  | HirIdentityShape | HirLiteralShape | HirArrayShape | HirRecordShape | HirDictionaryShape;
+  | HirIdentityShape | HirHostCodeShape | HirLiteralShape | HirArrayShape | HirRecordShape | HirDictionaryShape;
 
 interface PendingShape { readonly shape: HirShape; readonly next: PendingShape | null }
 

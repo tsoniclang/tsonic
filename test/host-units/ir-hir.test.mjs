@@ -150,8 +150,8 @@ test("HIR iterative traversal visits each supplied object once without copying s
   const cyclic = syntax("SyntaxList", 0, { children: [] });
   cyclic.children.push(cyclic);
   immutableTree(cyclic);
-  assert.throws(() => walkSyntaxTree(cyclic, []), { name: "TypeError", message: "Syntax child cycle at root.children[0]" });
-  assert.throws(() => indexSyntaxTree(cyclic), { name: "TypeError", message: "Syntax child cycle at root.children[0]" });
+  assert.throws(() => walkSyntaxTree(cyclic, []), { name: "TypeError", message: "Syntax child cycle at $.root.children[0]" });
+  assert.throws(() => indexSyntaxTree(cyclic), { name: "TypeError", message: "Syntax child cycle at $.root.children[0]" });
 });
 
 test("HIR pure walkers handle a genuine 100000-level declared syntax chain iteratively", () => {
@@ -649,7 +649,31 @@ function contextFor(value, additions = {}, additionalModules = []) {
   const lexicalScopes = new Map();
   const checkedNodes = new Map();
   const declaredLocals = new Set();
+  const bodyPaths = new Map();
+  const definitionPaths = new Map();
+  const readPaths = root => {
+    const pending = [root];
+    const seen = new Set();
+    for (const input of pending) {
+      if (typeof input === "string") {
+        const body = ids.decodeBodyId(input);
+        if (body.kind === "decoded") {
+          bodyPaths.set(ids.encodeBodyId(body.value), immutableTree(body.value));
+          const owner = ids.decodeDefId(body.value.owner);
+          assert.equal(owner.kind === "decoded", true, "real body decoder supplies an owner-issued definition");
+          definitionPaths.set(ids.encodeDefId(owner.value), immutableTree(owner.value));
+        } else {
+          const definition = ids.decodeDefId(input);
+          if (definition.kind === "decoded") definitionPaths.set(ids.encodeDefId(definition.value), immutableTree(definition.value));
+        }
+      } else if (input !== null && typeof input === "object" && !seen.has(input)) {
+        seen.add(input);
+        for (const child of Object.values(input)) pending.push(child);
+      }
+    }
+  };
   for (const module of [value, ...additionalModules]) {
+    readPaths(module);
     declarations.add(module.tree.tsonic.definition);
     for (const item of module.items) declarations.add(item.definition);
     for (const body of module.bodies) for (const local of body.locals)
@@ -675,12 +699,62 @@ function contextFor(value, additions = {}, additionalModules = []) {
     }
   }
   return { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [] },
+    bodyPathOf: identity => bodyPaths.get(identity) ?? null,
+    definitionPathOf: identity => definitionPaths.get(identity) ?? null,
     bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
     bindingScopeAt: reference => lexicalScopes.get(JSON.stringify(reference)) ?? null,
     nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
     nodeOf: reference => checkedNodes.get(JSON.stringify(reference)) ?? null,
     localExists: reference => declaredLocals.has(JSON.stringify(reference)), ...additions };
 }
+
+for (const mode of ["known", "unknown", "mismatch"])
+  test(`HIR authenticates supplied canonical definition paths with complete ${mode} outcome`, () => {
+    const path = { module: ids.encodeModuleId({ package: ids.encodePackageId("/external"), path: "value.ts" }),
+      segments: [{ name: "Value", ordinal: 0 }] };
+    const definition = ids.encodeDefId(path);
+    const expression = nameExpression("external");
+    expression.tsonic.resolution = { kind: "definition", definition, aliases: [] };
+    const value = immutableTree(expressionModule(expression));
+    const base = contextFor(value);
+    const context = { ...base,
+      definitionPathOf: identity => identity !== definition ? base.definitionPathOf(identity) :
+        mode === "unknown" ? null : mode === "mismatch" ? { ...path, segments: [{ name: "Other", ordinal: 0 }] } : path,
+      bindingScopeOf: identity => identity === definition ? emptyScope() : base.bindingScopeOf(identity),
+    };
+    assert.deepStrictEqual(product.verifyHir(value, context), mode === "known" ? [] : [
+      violation(mode === "mismatch" ? "identity-path-exact" : "definition-reference", nodeSite(2),
+        mode === "mismatch" ? "definition path must encode its exact supplied identity" : "definition must exist in the canonical declaration inventory"),
+    ]);
+  });
+
+for (const mode of ["known", "unknown", "mismatch"])
+  test(`HIR authenticates actual module body paths and retains the complete ${mode} holder result`, () => {
+    const value = immutableTree(moduleWith());
+    const base = contextFor(value);
+    const path = { owner: definitionIdentity, role: "module", ordinal: 0 };
+    const context = { ...base, bodyPathOf: identity => identity !== bodyIdentity ? base.bodyPathOf(identity) :
+      mode === "unknown" ? null : mode === "mismatch" ? { ...path, ordinal: 1 } : path };
+    assert.deepStrictEqual(product.verifyHir(value, context), mode === "known" ? [] : [
+      violation(mode === "mismatch" ? "identity-path-exact" : "body-owner", nodeSite(0),
+        mode === "mismatch" ? "body path must encode its exact supplied identity" : "body must exist in the canonical identity inventory"),
+    ]);
+  });
+
+for (const mismatch of [false, true]) test(`HIR the body owner uses the same authenticated definition path with ${mismatch ? "mismatch" : "unknown"} declaration`, () => {
+  const value = immutableTree(moduleWith());
+  const base = contextFor(value);
+  const context = { ...base, definitionPathOf: () => mismatch ?
+    { module: value.module, segments: [{ name: "other", ordinal: 0 }] } : null };
+  const rule = mismatch ? "identity-path-exact" : "definition-reference";
+  const definitionDetail = mismatch ? "definition path must encode its exact supplied identity" : "definition must exist in the canonical declaration inventory";
+  assert.deepStrictEqual(product.verifyHir(value, context), [
+    violation(rule, nodeSite(0), definitionDetail),
+    violation(mismatch ? "identity-path-exact" : "body-owner", nodeSite(0),
+      mismatch ? definitionDetail : "body must exist in the canonical identity inventory"),
+    violation(rule, { kind: "body", body: bodyIdentity }, definitionDetail),
+  ]);
+});
 
 function freshContextFor(value, additionalModules) {
   const context = contextFor(value, {}, additionalModules);
@@ -851,14 +925,58 @@ test("HIR graph judgments wait for clean EOF and never mask actual stream faults
   assertInvalidText(dangling, dangling.indexOf("tree=n:999") + 5, ["declared syntax node"]);
 });
 
+function authoredWireBlock(id, targets) {
+  return `n:${id}=Block(id=n:${id}, origin=Origin(module=mod:"${moduleIdentity}", start=0, length=100, derived=[]), parent=n:0, flags=[], loc=TextRange(pos=0, end=100), statements=NodeList(loc=TextRange(pos=0, end=100), nodes=[${targets.map(target => `n:${target}`).join(", ")}]), multiLine=false, tsonic=null)`;
+}
+
 for (const pair of [false, true]) test(`HIR ${pair ? "two-binding" : "self-binding"} child cycle text reports its closing reference, not an arena-id refusal`, () => {
   const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
-  const block = (id, target) => `n:${id}=Block(id=n:${id}, origin=Origin(module=mod:"${moduleIdentity}", start=0, length=100, derived=[]), parent=n:0, flags=[], loc=TextRange(pos=0, end=100), statements=NodeList(loc=TextRange(pos=0, end=100), nodes=[n:${target}]), multiLine=false, tsonic=null)`;
-  const text = original.replace("nodes=[]", "nodes=[n:2]") + "\n" + block(2, pair ? 3 : 2) + (pair ? "\n" + block(3, 2) : "");
+  const text = original.replace("nodes=[]", "nodes=[n:2]") + "\n" + authoredWireBlock(2, [pair ? 3 : 2]) + (pair ? "\n" + authoredWireBlock(3, [2]) : "");
   const closing = text.lastIndexOf("nodes=[n:2]") + 7;
   assertInvalidText(text, closing, ["acyclic syntax reference"]);
   const mixed = text.replace(/multiLine=false, tsonic=null\)$/u, "multiLine=@, tsonic=null)");
-  assertInvalidText(mixed, mixed.indexOf("multiLine=@") + "multiLine=".length, ["boolean"]);
+  assertInvalidText(mixed, mixed.indexOf("multiLine=@") + "multiLine=".length, ["identifier"]);
+});
+
+test("HIR prefix-cycle choice is text-order first even when DFS meets the later-closing component first", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const first = authoredWireBlock(2, [4]);
+  const earliest = authoredWireBlock(3, [3]);
+  const last = authoredWireBlock(4, [2]);
+  const text = original.replace("nodes=[]", "nodes=[n:2, n:3]") + `\n${first}\n${earliest}\n${last}`;
+  assertInvalidText(text, text.indexOf(earliest) + earliest.indexOf("nodes=[n:3]") + 7, ["acyclic syntax reference"]);
+});
+
+for (const danglingFirst of [false, true]) test(`HIR graph priority preserves ${danglingFirst ? "dangling" : "cycle-closing"} first reference`, () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const block = authoredWireBlock(2, danglingFirst ? [99, 2] : [2, 99]);
+  const text = original.replace("nodes=[]", "nodes=[n:2]") + `\n${block}`;
+  assertInvalidText(text, text.indexOf(block) + block.indexOf("nodes=[") + 7,
+    [danglingFirst ? "declared syntax node" : "acyclic syntax reference"]);
+});
+
+for (const backward of [false, true]) test(`HIR ${backward ? "backward" : "forward"} wrong-family reference waits for clean EOF and loses to a later lexical fault`, () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const text = backward ? original.replace("endOfFileToken=n:1", "endOfFileToken=n:0") : original.replace("tree=n:0", "tree=n:1");
+  const marker = backward ? "endOfFileToken=n:0" : "tree=n:1";
+  assertInvalidText(text, text.indexOf(marker) + (backward ? "endOfFileToken=".length : 5), [backward ? "EndOfFile" : "SourceFile"]);
+  const finalLine = text.lastIndexOf("\nn:1=");
+  const later = text.slice(0, finalLine) + text.slice(finalLine).replace(`mod:"${moduleIdentity}"`, 'mod:"\\q"');
+  assertInvalidText(later, later.lastIndexOf("\\q") + 1, ["JSON escape"]);
+});
+
+for (const danglingFirst of [false, true]) test(`HIR wrong-family versus dangling graph errors select their genuine ${danglingFirst ? "dangling" : "wrong-family"} first token`, () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const text = original.replace("tree=n:0", `tree=n:${danglingFirst ? 99 : 1}`)
+    .replace("endOfFileToken=n:1", `endOfFileToken=n:${danglingFirst ? 0 : 99}`);
+  assertInvalidText(text, text.indexOf("tree=n:") + 5, [danglingFirst ? "declared syntax node" : "SourceFile"]);
+});
+
+test("HIR a wrong-family cycle-closing reference has the same-token family priority", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const block = authoredWireBlock(2, [0]);
+  const text = original.replace("nodes=[]", "nodes=[n:2]") + `\n${block}`;
+  assertInvalidText(text, text.indexOf(block) + block.indexOf("nodes=[n:0]") + 7, ["Statement"]);
 });
 
 test("HIR dictionary duplicate priority and an earlier descending decoded character survive later lexical failure", () => {
@@ -1278,42 +1396,63 @@ test("HIR actual local resolution keeps its body qualifier and rejects a missing
   ]);
 });
 
-test("HIR one genuine identity qualification boundary refuses malformed definitions and body owners without a fallback reader", () => {
+test("HIR unknown canonical definition and body identities never invent a fallback reader", () => {
+  const unknown = ids.encodeDefId({ module: ids.encodeModuleId({ package: ids.encodePackageId("/missing"), path: "unknown.ts" }),
+    segments: [{ name: "unknown", ordinal: 0 }] });
+  const unknownBody = ids.encodeBodyId({ owner: unknown, role: "function", ordinal: 0 });
   const cases = [
-    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "definition", definition: "not-a-definition", aliases: [] } }, [
-      violation("definition-reference", nodeSite(2), "invalid definition identity"),
+    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "definition", definition: unknown, aliases: [] } }, [
+      violation("definition-reference", nodeSite(2), "definition must exist in the canonical declaration inventory"),
     ]],
-    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "local", local: { body: "not-a-body", local: 0 } } }, [
+    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "local", local: { body: unknownBody, local: 0 } } }, [
       violation("local-reference", nodeSite(2), "qualified local must exist in its named body"),
-      violation("body-owner", nodeSite(2), "invalid body identity"),
+      violation("body-owner", nodeSite(2), "body must exist in the canonical identity inventory"),
     ]],
-    [{ core: absentCore(), role: "label", target: { body: "not-a-body", node: 0 } }, [
+    [{ core: absentCore(), role: "label", target: { body: unknownBody, node: 0 } }, [
       violation("cross-owner-qualified", nodeSite(2), "qualified body node must exist in its named owner"),
-      violation("body-owner", nodeSite(2), "invalid body identity"),
+      violation("body-owner", nodeSite(2), "body must exist in the canonical identity inventory"),
     ]],
   ];
   for (const [metadata, expected] of cases) {
     const node = nameExpression("qualified");
     node.tsonic = metadata;
     const value = expressionModule(node);
-    const decoded = roundtrip(immutableTree(value), `invalid identity/${metadata.role}/${metadata.resolution?.kind ?? "label"}`);
-    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
-      nodeOf: () => assert.fail("malformed identities never enter the canonical foreign-node reader"),
-      localExists: () => assert.fail("malformed identities never enter the canonical foreign-local reader"),
-    })), expected);
+    const decoded = roundtrip(immutableTree(value), `unknown identity/${metadata.role}/${metadata.resolution?.kind ?? "label"}`);
+    const base = contextFor(decoded.value);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, { ...base,
+      definitionPathOf: identity => identity === unknown ? null : base.definitionPathOf(identity),
+      bodyPathOf: identity => identity === unknownBody ? null : base.bodyPathOf(identity),
+      nodeOf: () => assert.fail("unknown canonical paths never enter the foreign-node reader"),
+      localExists: () => assert.fail("unknown canonical paths never enter the foreign-local reader"),
+    }), expected);
   }
   const { module: value, call } = coreCarrier();
   call.tsonic.core.markers = available({ struct: null, field: { name: "field",
-    typeNode: { kind: "item", value: { owner: "not-a-definition", node: 0 } }, type: unavailable(), readonly: true },
+    typeNode: { kind: "item", value: { owner: unknown, node: 0 } }, type: unavailable(), readonly: true },
   defaultValue: null, jsString: false });
-  const decoded = roundtrip(immutableTree(value), "invalid qualified item owner");
-  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {
+  const decoded = roundtrip(immutableTree(value), "unknown qualified item owner");
+  const base = contextFor(decoded.value);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, { ...base,
+    definitionPathOf: identity => identity === unknown ? null : base.definitionPathOf(identity),
     nodeOf: () => assert.fail("invalid item ownership has no foreign-node fallback"),
-  })), [
+  }), [
     violation("cross-owner-qualified", nodeSite(2), "qualified item node must exist in its named owner"),
-    violation("definition-reference", nodeSite(2), "invalid definition identity"),
+    violation("definition-reference", nodeSite(2), "definition must exist in the canonical declaration inventory"),
     violation("core-capture-reference", nodeSite(2), "Core capture reference must retain an existing qualified source node"),
   ]);
+});
+
+test("HIR text decoding rejects malformed durable IDs at the actual owning boundary, not in a typed verifier", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const [prefix, value, malformed, expected] of [
+    ["mod", moduleIdentity, "not-a-module", "ModuleId"],
+    ["def", definitionIdentity, "not-a-definition", "DefId"],
+    ["body", bodyIdentity, "not-a-body", "BodyId"],
+  ]) {
+    const marker = `${prefix}:"${malformed}"`;
+    const text = original.replace(`${prefix}:"${value}"`, marker);
+    assertInvalidText(text, text.indexOf(marker), [expected]);
+  }
 });
 
 test("HIR place-base-acyclic rejects an actual place-reference cycle without using numeric node order", () => {
@@ -1487,6 +1626,9 @@ test("HIR fresh actual declarations retain generic phases, all six ports and exa
 import type { HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
+import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
+import { hostDiagnosticCode } from "./diag/index.js";
+import type { HostDiagnosticCode } from "./diag/contract.js";
 import type { ComponentSelector, TypeComponent } from "./ir-types/contract.js";
 export function generic<P extends Phase>(root: SourceFile<P>, node: SyntaxNode<P>, stop: readonly NodeId[]) {
 const children: ChildrenOfSyntax = childrenOfSyntax; const index: IndexSyntaxTree = indexSyntaxTree; const walk: WalkSyntaxTree = walkSyntaxTree;
@@ -1495,6 +1637,13 @@ return { childResult, indexResult, walkResult }; }
 export function checked(module: HirModule, context: HirVerificationContext) {
 const parse: ParseHir = parseHir; const print: PrintHir = printHir; const verify: VerifyHir = verifyHir;
 return { text: print(module), decoded: parse(print(module)), violations: verify(module, context) }; }
+export function ownedOutput(text:string) {
+const decoded=parseHir(text);
+if(decoded.kind==="invalid-text")return decoded;
+const module:HirModule=decoded.value; const identity:NodeId=module.tree.id;
+const diagnostic:HostDiagnosticCode=hostDiagnosticCode("HIR_CONSUMER");
+return {module,identity,diagnostic,node:issueNode(NaN),local:issueLocal(-0),type:issueType(Infinity),
+signature:issueSignature(-1),candidates:issueCandidates(0.5),expansion:issueExpansion("authored")}; }
 export function sparseArenas(module:HirModule,context:HirVerificationContext) {
 return verifyHir({...module,bodies:module.bodies.map(body=>({...body,
 locals:new Array<HirLocal>(1),candidateLists:new Array<HirCandidateList>(1)}))},context); }
@@ -1545,9 +1694,13 @@ nodes.push(block); return block; }
     ["mutable-capture.ts", 'import type { HirCoreCapture } from "./ir-hir/contract.js"; export function bad(value:HirCoreCapture){ value.flowState={kind:"available",value:null}; }', 2540],
     ["mutable-range.ts", 'import type { TextRange } from "./ir-hir/contract.js"; export function bad(value:TextRange){ value.pos=0; }', 2540],
     ["missing-context.ts", 'import { verifyHir } from "./ir-hir/index.js"; import type { HirModule } from "./ir-hir/contract.js"; export function bad(value:HirModule){ return verifyHir(value); }', 2554],
-    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
-    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
-    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
+    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
+    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
+    ["missing-body-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-definition-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["foreign-node-brand.ts", 'import type { NodeId } from "./ids/contract.js"; export const forged:NodeId=0;', 2322],
+    ["foreign-host-code-brand.ts", 'import type { HostDiagnosticCode } from "./diag/contract.js"; export const forged:HostDiagnosticCode="HOST_CODE";', 2322],
     ["retired-for-kind-parameter.ts", 'import type { ForInOrOfStatement, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=ForInOrOfStatement<SyntaxPhase,"ForInStatement">;', 2314],
     ["retired-clause-kind-parameter.ts", 'import type { CaseOrDefaultClause, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=CaseOrDefaultClause<SyntaxPhase,"CaseClause">;', 2314],
     ["missing-child.ts", 'import type { SyntaxList, SyntaxPhase } from "./ir-hir/contract.js"; export const incomplete:SyntaxList<SyntaxPhase>={kind:"SyntaxList"};', 2740],
@@ -3051,7 +3204,7 @@ test("HIR declared child-object cycles are exact-path caller defects while scala
   const context = contextFor(value);
   block.statements.nodes.push(block);
   immutableTree(value);
-  const expected = { name: "TypeError", message: "Syntax child cycle at tree.statements.nodes[0].statements.nodes[0]" };
+  const expected = { name: "TypeError", message: "Syntax child cycle at $.tree.statements.nodes[0].statements.nodes[0]" };
   assert.throws(() => product.printHir(value), expected);
   assert.throws(() => product.verifyHir(value, context), expected);
   const first = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
@@ -3060,10 +3213,31 @@ test("HIR declared child-object cycles are exact-path caller defects while scala
   const pairContext = contextFor(pair);
   first.statements.nodes.push(second);
   immutableTree(pair);
-  const paired = { name: "TypeError", message: "Syntax child cycle at tree.statements.nodes[0].statements.nodes[0].statements.nodes[0]" };
+  const paired = { name: "TypeError", message: "Syntax child cycle at $.tree.statements.nodes[0].statements.nodes[0].statements.nodes[0]" };
   assert.throws(() => product.printHir(pair), paired);
   assert.throws(() => product.verifyHir(pair, pairContext), paired);
-  assert.throws(() => walkSyntaxTree(first, []), { name: "TypeError", message: "Syntax child cycle at root.statements.nodes[0].statements.nodes[0]" });
+  assert.throws(() => walkSyntaxTree(first, []), { name: "TypeError", message: "Syntax child cycle at $.root.statements.nodes[0].statements.nodes[0]" });
+});
+
+test("HIR detached body roots retain their original structural refusal and still obey the actual child-cycle caller law", () => {
+  const value = moduleWith();
+  const detached = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  value.bodies[0].root = detached;
+  const context = contextFor(value);
+  assert.deepStrictEqual(product.verifyHir(value, context), [
+    violation("body-owner", { kind: "body", body: bodyIdentity }, "body identity, owner and actual module subtree must agree"),
+  ]);
+  const shared = syntax("EmptyStatement", 0);
+  detached.statements.nodes.push(shared, shared);
+  assert.deepStrictEqual(product.verifyHir(value, context), [
+    violation("body-owner", { kind: "body", body: bodyIdentity }, "body identity, owner and actual module subtree must agree"),
+  ]);
+  detached.statements.nodes.length = 0;
+  detached.statements.nodes.push(detached);
+  immutableTree(value);
+  const expected = { name: "TypeError", message: "Syntax child cycle at $.bodies[0].root.statements.nodes[0]" };
+  assert.throws(() => product.printHir(value), expected);
+  assert.throws(() => product.verifyHir(value, context), expected);
 });
 
 test("HIR numeric member keys preserve exact normalized rationals and their complete normalization opposite", () => {

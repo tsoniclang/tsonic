@@ -1,6 +1,11 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type { HirModule, ParseHir } from "./contract.js";
-import type { HirDictionaryShape, HirField, HirRecordShape, HirSchema, HirShape, HirShapeLeaf } from "./verify-syntax.js";
+import type { BodyId, CandidateListId, DefId, ExpansionId, LocalId, ModuleId, NodeId, SigId, TyId } from "../ids/contract.js";
+import { candidateListId, decodeBodyId, decodeDefId, decodeModuleId,
+  encodeBodyId, encodeDefId, encodeModuleId, expansionId,
+  localId, nodeId, sigId, tyId } from "../ids/index.js";
+import { hostDiagnosticCode } from "../diag/index.js";
+import type { HirDictionaryShape, HirField, HirIdentityShape, HirNumericIdentityShape, HirRecordShape, HirSchema, HirShape, HirShapeLeaf, HirStringIdentityShape } from "./verify-syntax.js";
 import { hirChoice, hirRecordChoices, hirShapeLeaves } from "./verify-syntax.js";
 import { createHirSchema } from "./verify-captures.js";
 
@@ -69,14 +74,15 @@ interface ArrayFrame {
   phase: "first-value" | "value" | "delimiter";
 }
 interface PendingFrame { readonly frame: RecordFrame | ArrayFrame; readonly next: PendingFrame | null }
-interface WireReference { readonly shape: HirShape; readonly offset: number }
+interface WireReference { readonly shape: HirShape; readonly offset: number; readonly node: WireNode }
 interface WireNode {
   readonly value: MutableRecord;
   readonly edges: WireEdge[];
+  label: string | null;
 }
 interface WireEdge { readonly target: WireNode; readonly ordinal: number; readonly offset: number }
 type WireBinding =
-  | { readonly kind: "pending"; readonly node: WireNode; readonly references: [WireReference, ...WireReference[]] }
+  | { readonly kind: "pending"; readonly node: WireNode }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
 interface HirOutput { value: unknown }
 type DecodedCharacter = (value: string, offset: number) => void;
@@ -223,6 +229,7 @@ function scalarMatches(shape: HirShapeLeaf, value: Scalar): boolean {
     }
   }
   switch (shape.kind) {
+    case "host-code": return typeof value === "string";
     case "literal": return shape.values.some(candidate => Object.is(candidate, value));
     case "identity": case "array": case "record": case "dictionary": return false;
   }
@@ -231,13 +238,14 @@ function scalarMatches(shape: HirShapeLeaf, value: Scalar): boolean {
 function scalarKindMatches(shape: HirShapeLeaf, kind: "string" | "number" | "bigint"): boolean {
   if (typeof shape === "string") return shape === kind;
   switch (shape.kind) {
+    case "host-code": return kind === "string";
     case "literal": return shape.values.some(value => typeof value === kind);
     case "identity": case "array": case "record": case "dictionary": return false;
   }
 }
 
 function stringDomain(leaves: readonly HirShapeLeaf[], shape: HirShape, offset: number): StringDomain | null {
-  if (leaves.includes("string")) return null;
+  if (leaves.includes("string") || leaves.some(leaf => typeof leaf !== "string" && leaf.kind === "host-code")) return null;
   const values: string[] = [];
   for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "literal")
     for (const value of leaf.values) if (typeof value === "string") values.push(value);
@@ -346,9 +354,38 @@ function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
 
 type WireVisit = { readonly node: WireNode; readonly leaving: boolean; readonly next: WireVisit | null };
 
-function closesWireCycle(nodes: Iterable<WireNode>, prefix: number): boolean {
+function ownedNumericIdentity(shape: HirNumericIdentityShape, value: number): NodeId | LocalId | TyId | SigId | CandidateListId {
+  switch (shape.prefix) {
+    case "n": return nodeId(value);
+    case "l": return localId(value);
+    case "t": return tyId(value);
+    case "sig": return sigId(value);
+    case "cand": return candidateListId(value);
+  }
+}
+
+function ownedStringIdentity(shape: HirStringIdentityShape, value: string): ModuleId | DefId | BodyId | ExpansionId | null {
+  switch (shape.prefix) {
+    case "mod": {
+      const decoded = decodeModuleId(value);
+      return decoded.kind === "decoded" ? encodeModuleId(decoded.value) : null;
+    }
+    case "def": {
+      const decoded = decodeDefId(value);
+      return decoded.kind === "decoded" ? encodeDefId(decoded.value) : null;
+    }
+    case "body": {
+      const decoded = decodeBodyId(value);
+      return decoded.kind === "decoded" ? encodeBodyId(decoded.value) : null;
+    }
+    case "exp": return expansionId(value);
+  }
+}
+
+function closesWireCycle(arena: ReadonlyMap<number, WireBinding>, prefix: number): boolean {
   const colors = new Map<WireNode, "active" | "complete">();
-  for (const root of nodes) {
+  for (const binding of arena.values()) {
+    const root = binding.node;
     if (colors.has(root)) continue;
     let pending: WireVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
@@ -367,14 +404,14 @@ function closesWireCycle(nodes: Iterable<WireNode>, prefix: number): boolean {
   return false;
 }
 
-function firstWireCycle(nodes: readonly WireNode[], edges: readonly WireEdge[]): WireEdge | null {
+function firstWireCycle(arena: ReadonlyMap<number, WireBinding>, edges: readonly WireEdge[]): WireEdge | null {
   let result: WireEdge | null = null;
-  if (closesWireCycle(nodes, edges.length)) {
+  if (closesWireCycle(arena, edges.length)) {
     let low = 0;
     let high = edges.length;
     while (low + 1 < high) {
       const middle = Math.floor((low + high) / 2);
-      if (closesWireCycle(nodes, middle)) high = middle;
+      if (closesWireCycle(arena, middle)) high = middle;
       else low = middle;
     }
     for (const edge of edges) if (edge.ordinal === high - 1) result = edge;
@@ -387,37 +424,24 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   const roots = new Set<WireNode>();
   const declared: { readonly node: WireNode; readonly offset: number }[] = [];
   const edges: WireEdge[] = [];
+  const references: WireReference[] = [];
   let pending: PendingFrame | null = null;
   let header = false;
   let needSeparator = false;
-  const wireNode = (): WireNode => ({ value: {}, edges: [] });
+  const wireNode = (): WireNode => ({ value: {}, edges: [], label: null });
   const put = (value: unknown): void => {
     if (pending === null) { output.value = value; header = true; needSeparator = true; }
     else attach(pending.frame, value);
   };
-  const identity = (shape: HirShape, prefix: string, value: string | number, offset: number, owner: WireNode | null): unknown => {
-    const leaves = hirShapeLeaves(shape, schema);
-    if (leaves.some(leaf => typeof leaf !== "string" && leaf.kind === "identity" &&
-      leaf.prefix === prefix && typeof value === leaf.value)) return value;
-    const syntax = leaves.some(leaf => leaf === "SyntaxNode" ||
-      typeof leaf !== "string" && leaf.kind === "record" && leaf.syntax);
-    if (!syntax || prefix !== "n" || typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
+  const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null): MutableRecord | null => {
+    if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
       fail(reader, expectedValue(shape), offset);
       return null;
     }
     const previous = arena.get(value);
-    if (previous?.kind === "declared" && !hirRecordChoices(shape, previous.label, schema).some(choice =>
-      choice.kind === "record" && choice.syntax)) {
-      fail(reader, expectedValue(shape), offset);
-      return null;
-    }
-    let binding: WireBinding;
-    if (previous === undefined) binding = { kind: "pending", node: wireNode(), references: [{ shape, offset }] };
-    else {
-      binding = previous;
-      if (binding.kind === "pending") binding.references.push({ shape, offset });
-    }
+    const binding: WireBinding = previous ?? { kind: "pending", node: wireNode() };
     arena.set(value, binding);
+    references.push({ shape, offset, node: binding.node });
     if (owner === null) roots.add(binding.node);
     else {
       const edge: WireEdge = { target: binding.node, ordinal: edges.length, offset };
@@ -431,16 +455,20 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const frame = pending?.frame;
     if (frame === undefined && reader.cursor === reader.text.length) {
       if (!header) { fail(reader, ["record"]); return false; }
-      let unresolved: WireReference | null = null;
-      const nodes: WireNode[] = [];
-      for (const binding of arena.values()) {
-        nodes.push(binding.node);
-        if (binding.kind === "pending" && (unresolved === null || binding.references[0].offset < unresolved.offset))
-          unresolved = binding.references[0];
+      let invalidTarget: { readonly reference: WireReference; readonly expected: readonly string[] } | null = null;
+      for (const reference of references) {
+        if (reference.node.label === null) {
+          invalidTarget = { reference, expected: ["declared syntax node"] };
+          break;
+        }
+        if (!hirRecordChoices(reference.shape, reference.node.label, schema).some(choice => choice.kind === "record" && choice.syntax)) {
+          invalidTarget = { reference, expected: expectedValue(reference.shape) };
+          break;
+        }
       }
-      const cycle = firstWireCycle(nodes, edges);
-      if (unresolved !== null && (cycle === null || unresolved.offset < cycle.offset)) {
-        fail(reader, ["declared syntax node"], unresolved.offset);
+      const cycle = firstWireCycle(arena, edges);
+      if (invalidTarget !== null && (cycle === null || invalidTarget.reference.offset <= cycle.offset)) {
+        fail(reader, invalidTarget.expected, invalidTarget.reference.offset);
         return false;
       }
       if (cycle !== null) { fail(reader, ["acyclic syntax reference"], cycle.offset); return false; }
@@ -540,7 +568,8 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
           [`${identityShape.prefix}:identity`] : expectedValue(shape), offset);
         return;
       }
-      accept(value);
+      accept(typeof value === "string" && leaves.some(leaf => typeof leaf !== "string" && leaf.kind === "host-code") ?
+        hostDiagnosticCode(value) : value);
     };
     if (token === "\"") {
       if (!leaves.some(leaf => scalarKindMatches(leaf, "string"))) {
@@ -575,15 +604,6 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     }
     whitespace(reader);
     if (reader.text.charAt(reader.cursor) === "(") {
-      if (declaration !== null) {
-        const binding = arena.get(declaration.position);
-        if (binding?.kind === "pending") for (const reference of binding.references) {
-          if (!hirRecordChoices(reference.shape, label, schema).some(choice => choice.kind === "record" && choice.syntax)) {
-            fail(reader, expectedValue(reference.shape), reference.offset);
-            return false;
-          }
-        }
-      }
       const choices = hirRecordChoices(shape, label, schema);
       if (choices.length === 0) {
         fail(reader, declaration !== null ? ["syntax node declaration"] : [typeof shape === "string" ? shape : "declared record"], offset);
@@ -599,6 +619,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       else {
         const previous = arena.get(declaration.position);
         const node = previous === undefined ? wireNode() : previous.node;
+        node.label = label;
         value = node.value;
         recordOwner = node;
         arena.set(declaration.position, { kind: "declared", node, label, offset: declaration.offset });
@@ -610,28 +631,30 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         choices: frameChoices(choices), selected: [], ordinal: 0, phase: "first-field", name: "", shape: "null" }, next: pending };
       continue;
     }
-    const identityShapes = leaves.filter(leaf => typeof leaf !== "string" && leaf.kind === "identity" && leaf.prefix === label);
+    let ownerShape: HirIdentityShape | null = null;
+    for (const leaf of leaves) if (typeof leaf !== "string" && leaf.kind === "identity" && leaf.prefix === label) ownerShape = leaf;
     const syntax = label === "n" && leaves.some(leaf => leaf === "SyntaxNode" ||
       typeof leaf !== "string" && leaf.kind === "record" && leaf.syntax);
-    if (identityShapes.length === 0 && !syntax) {
+    if (ownerShape === null && !syntax) {
       fail(reader, expectedValue(shape), offset);
       return false;
     }
     if (reader.text.charAt(reader.cursor) !== ":") { fail(reader, [":"]); return false; }
     reader.cursor += 1;
     whitespace(reader);
-    let value: string | number;
     const payloadOffset = reader.cursor;
     if (reader.text.charAt(reader.cursor) === "\"") {
-      if (!identityShapes.some(leaf => typeof leaf !== "string" && leaf.kind === "identity" && leaf.value === "string")) {
+      if (ownerShape === null || ownerShape.value !== "string") {
         fail(reader, ["number identity"], payloadOffset);
         return false;
       }
       const content = quoted(reader, null);
       if (content === null) return false;
-      value = content;
+      const issued = ownedStringIdentity(ownerShape, content);
+      if (issued === null) { fail(reader, expectedValue(shape), offset); return false; }
+      accept(issued);
     } else {
-      if (!syntax && !identityShapes.some(leaf => typeof leaf !== "string" && leaf.kind === "identity" && leaf.value === "number")) {
+      if (ownerShape !== null && ownerShape.value !== "number") {
         fail(reader, ["string identity"], payloadOffset);
         return false;
       }
@@ -642,11 +665,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       const content = numeric(reader, payloadOffset);
       if (content === null) return false;
       if (typeof content.value !== "number") { fail(reader, ["number identity"], payloadOffset); return false; }
-      value = content.value;
+      const issued = ownerShape === null ? syntaxReference(shape, content.value, offset, owner) : ownedNumericIdentity(ownerShape, content.value);
+      if (reader.failed) return false;
+      accept(issued);
     }
-    const data = identity(shape, label, value, offset, owner);
-    if (reader.failed) return false;
-    accept(data);
   }
   return false;
 }

@@ -3,7 +3,7 @@ import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObserva
 import type { HirBindingRequest, HirSourceNode } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
-import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
+import { hirArray, hirChoice, hirDiscriminant, hirNumericIdentity, hirStringIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
   createSyntaxSchema, hirRecordChoices, walkHirData } from "./verify-syntax.js";
 
 function captured(value: HirShape): HirChoiceShape {
@@ -50,12 +50,12 @@ export function createHirSchema(): HirSchema {
 
   return Object.freeze({
     ...createSyntaxSchema(),
-    PackageId: hirIdentity("pkg", "string"), ModuleId: hirIdentity("mod", "string"),
-    DefId: hirIdentity("def", "string"), BodyId: hirIdentity("body", "string"),
-    GroupId: hirIdentity("group", "string"), ComponentId: hirIdentity("component", "string"),
-    ExpansionId: hirIdentity("exp", "string"), NodeId: hirIdentity("n", "number"),
-    LocalId: hirIdentity("l", "number"), TyId: hirIdentity("t", "number"),
-    SigId: hirIdentity("sig", "number"), CandidateListId: hirIdentity("cand", "number"),
+    ModuleId: hirStringIdentity("mod"),
+    DefId: hirStringIdentity("def"), BodyId: hirStringIdentity("body"),
+    ExpansionId: hirStringIdentity("exp"), NodeId: hirNumericIdentity("n"),
+    LocalId: hirNumericIdentity("l"), TyId: hirNumericIdentity("t"),
+    SigId: hirNumericIdentity("sig"), CandidateListId: hirNumericIdentity("cand"),
+    HostDiagnosticCode: Object.freeze({ kind: "host-code" }),
     TextRange: syntaxRange,
     Origin: hirRecord("Origin", [["module", "ModuleId"], ["start", "number"], ["length", "number"],
       ["derived", hirArray(hirChoice(hirVariant("lowering", [["pass", hirLiteral("front", "decls", "infer", "elaborate",
@@ -104,7 +104,7 @@ export function createHirSchema(): HirSchema {
       ["sum-arm", [["family", "SumFamily"], ["index", "number"]]], ["awaited", []],
     ]),
     TypeComponent: hirRecord("TypeComponent", [["root", sourceReference], ["path", hirArray("ComponentSelector")]]),
-    DiagnosticCode: hirChoice(hirVariant("host", [["name", "string"], ["rendered", "string"]]),
+    DiagnosticCode: hirChoice(hirVariant("host", [["name", "HostDiagnosticCode"], ["rendered", "string"]]),
       hirVariant("checker", [["number", "number"], ["rendered", "string"]]),
       hirVariant("extension", [["number", "number"], ["extensionCode", "string"], ["rendered", "string"]])),
     DiagnosticSite: hirChoice(hirVariant("source", [["origin", origin]]), hirVariant("file", [["path", "string"]]), hirVariant("none", [])),

@@ -1,13 +1,13 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
-import { decodeBodyId, decodeDefId, decodeModuleId, encodeDefId } from "../ids/index.js";
+import { encodeDefId } from "../ids/index.js";
 import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirNodeData, hirObligationsData } from "./text-data.js";
-import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeData, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
-import type { HirBindingRequest } from "./verify-bindings.js";
+import { createHirIdentityPaths, hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeData, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import type { HirBindingRequest, HirIdentityPaths } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
 import { syntaxChildEdges } from "./children.js";
@@ -15,8 +15,8 @@ import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 
 type NodeFrame = (
-  | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath }
-  | { readonly kind: "leave"; readonly entry: HirNodeEntry }
+  | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
+  | { readonly kind: "leave"; readonly node: HirNode; readonly entry: HirNodeEntry | null }
 ) & { readonly next: NodeFrame | null };
 
 export function createHirInventory(module: HirModule): HirInventory {
@@ -42,16 +42,23 @@ export function createHirInventory(module: HirModule): HirInventory {
   const bodyParents = new Map<HirBody, HirBody | null>();
   const repeated: HirNodeEntry[] = [];
   const active = new Set<HirNode>();
+  const outside = new Set<HirNode>();
   for (const body of module.bodies) {
     if (!bodies.has(body.body)) bodies.set(body.body, body);
     if (!roots.has(body.root)) roots.set(body.root, body);
   }
-  let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, path: { parent: null, field: "tree" }, next: null };
+  const bodyRoots = module.bodies.reduceRight<NodeFrame | null>((next, body, index) => ({
+    kind: "enter", node: body.root, parent: null, member: false,
+    path: hirChildPath({ parent: null, field: "bodies" }, [index, "root"]), next,
+  }), null);
+  let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, member: true,
+    path: { parent: null, field: "tree" }, next: bodyRoots };
   while (pending !== null) {
     const frame = pending;
     pending = pending.next;
     if (frame.kind === "leave") {
-      active.delete(frame.entry.node);
+      active.delete(frame.node);
+      if (frame.entry === null) continue;
       frame.entry.end = nodes.length;
       ends.set(frame.entry.node, nodes.length);
       const parent = frame.entry.parent;
@@ -64,7 +71,20 @@ export function createHirInventory(module: HirModule): HirInventory {
     }
     if (active.has(frame.node)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);
     const previous = entriesByNode.get(frame.node);
-    if (previous !== undefined) { repeated.push(previous); recordReceiver(frame.parent, previous); continue; }
+    if (previous !== undefined) {
+      if (frame.member) { repeated.push(previous); recordReceiver(frame.parent, previous); }
+      continue;
+    }
+    if (!frame.member) {
+      if (outside.has(frame.node)) continue;
+      outside.add(frame.node);
+      active.add(frame.node);
+      pending = syntaxChildEdges(frame.node).reduceRight<NodeFrame | null>((next, child) => ({
+        kind: "enter", node: child.node, parent: null, member: false,
+        path: hirChildPath(frame.path, child.fields), next,
+      }), { kind: "leave", node: frame.node, entry: null, next: pending });
+      continue;
+    }
     const declaredBody = roots.get(frame.node);
     const inheritedBody = frame.parent === null ? null : frame.parent.body;
     const body = declaredBody ?? inheritedBody;
@@ -88,9 +108,9 @@ export function createHirInventory(module: HirModule): HirInventory {
       entriesById.set(frame.node.id, entry);
     }
     if (body !== null) owners.set(frame.node, body);
-    const following: NodeFrame = { kind: "leave", entry, next: pending };
+    const following: NodeFrame = { kind: "leave", node: frame.node, entry, next: pending };
     pending = syntaxChildEdges(frame.node).reduceRight<NodeFrame | null>((next, child) => ({
-      kind: "enter", node: child.node, parent: entry, path: hirChildPath(frame.path, child.fields), next,
+      kind: "enter", node: child.node, parent: entry, member: true, path: hirChildPath(frame.path, child.fields), next,
     }), following);
   }
   return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, receivers: Object.freeze(receivers),
@@ -128,9 +148,7 @@ function syntaxViolations(module: HirModule, inventory: HirInventory, report: Hi
     report("node-dense-preorder", { kind: "node", node: entry.source }, "syntax node occurs more than once");
 }
 
-function declarationViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
-  const moduleSite: HirSite = { kind: "module", module: module.module };
-  if (decodeModuleId(module.module).kind === "invalid") report("module-owner", moduleSite, "invalid module identity");
+function declarationViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): void {
   const seen = new Set<string>();
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
   let previous: string | null = null;
@@ -140,8 +158,8 @@ function declarationViolations(module: HirModule, inventory: HirInventory, repor
     seen.add(item.definition);
     if (previous !== null && item.definition <= previous) report("stable-order", site, "definitions must be in identity order");
     previous = item.definition;
-    const path = decodeDefId(item.definition);
-    if (path.kind === "invalid" || path.value.module !== module.module) report("module-owner", site, "definition must belong to this module");
+    const path = paths.definitionPathOf(item.definition);
+    if (path.kind === "known" && path.value.module !== module.module) report("module-owner", site, "definition must belong to this module");
     const node = inventory.nodesById.get(item.node);
     if (node === undefined) { report("node-reference", site, "definition node does not exist"); continue; }
     const metadata = node.tsonic;
@@ -154,9 +172,9 @@ function declarationViolations(module: HirModule, inventory: HirInventory, repor
       const parent = metadata.parent;
       if (parent !== null && !definitions.has(parent))
         report("definition-parent", site, "declaration parent must exist in this module");
-      if (path.kind === "decoded") {
-        const parentPath = parent === null ? null : decodeDefId(parent);
-        if (parentPath !== null && parentPath.kind === "decoded" &&
+      if (path.kind === "known") {
+        const parentPath = parent === null ? null : paths.definitionPathOf(parent);
+        if (parentPath !== null && parentPath.kind === "known" &&
           (parentPath.value.module !== path.value.module || parentPath.value.segments.length >= path.value.segments.length ||
             encodeDefId({ module: path.value.module,
               segments: path.value.segments.slice(0, parentPath.value.segments.length) }) !== parent))
@@ -183,9 +201,9 @@ interface HirCandidateArena {
   readonly lists: readonly HirCandidateList[];
 }
 
-function bodyViolations(module: HirModule, inventory: HirInventory, report: HirReport): readonly HirCandidateArena[] {
+function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirIdentityPaths, report: HirReport): readonly HirCandidateArena[] {
   const arenas: HirCandidateArena[] = [];
-  const lexicalRanges = hirLexicalBodyRanges(module, inventory);
+  const lexicalRanges = hirLexicalBodyRanges(module, inventory, paths);
   const lexicalBodies = new Map<BodyId, typeof lexicalRanges[number]>();
   for (const range of lexicalRanges) if (!lexicalBodies.has(range.body.body)) lexicalBodies.set(range.body.body, range);
   const definitions = new Set<DefId>([module.tree.tsonic.definition, ...module.items.map(item => item.definition)]);
@@ -205,8 +223,8 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
     seen.add(body.body);
     if (previousBody !== null && body.body <= previousBody) report("stable-order", site, "bodies must be in identity order");
     previousBody = body.body;
-    const path = decodeBodyId(body.body);
-    if (path.kind === "invalid" || path.value.owner !== body.owner || !definitions.has(body.owner) ||
+    const path = paths.bodyPathOf(body.body);
+    if (path.kind === "known" && path.value.owner !== body.owner || !definitions.has(body.owner) ||
       !inventory.starts.has(body.root) || inventory.owners.get(body.root) !== body)
       report("body-owner", site, "body identity, owner and actual module subtree must agree");
     const nested = actualNested.get(body) ?? [];
@@ -239,8 +257,8 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
         report("parameter-order", site, "this must be first and rest must be last");
       if (parameter.initializer !== null) {
         const initializer = inventory.bodies.get(parameter.initializer);
-        const identity = decodeBodyId(parameter.initializer);
-        if (initializer === undefined || initializer.owner !== parameter.declaration || identity.kind === "invalid" ||
+        const identity = paths.bodyPathOf(parameter.initializer);
+        if (initializer === undefined || initializer.owner !== parameter.declaration || identity.kind !== "known" ||
           identity.value.role !== "default-argument") report("body-owner", site, "parameter initializer must be its own default-argument body");
       }
     });
@@ -487,7 +505,8 @@ function writeFitOf(node: HirNode): HirWriteFit | null {
   return null;
 }
 
-function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, report: HirReport): void {
+function obligationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext,
+  paths: HirIdentityPaths, report: HirReport): void {
   const moduleSite: HirSite = { kind: "module", module: module.module };
   const seen = new Set<number>();
   for (const root of module.obligations) {
@@ -495,7 +514,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
     if (!validHirIndex(root.diagnostic) || module.checkerDiagnostics[root.diagnostic] === undefined || seen.has(root.diagnostic))
       report("diagnostic-reference", site, "diagnostic root must name one existing diagnostic");
     seen.add(root.diagnostic);
-    const ownerEntry = localSourceEntry(root.owner, module, inventory);
+    const ownerEntry = localSourceEntry(root.owner, module, inventory, paths);
     const owner = ownerEntry === null ? null : ownerEntry.node;
     if (ownerEntry === null)
       report("diagnostic-root-owner", site, "diagnostic root must be an existing node in this module");
@@ -510,7 +529,7 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
       if (!Object.is(obligation.ordinal, ordinal)) report("obligation-order", site, "obligations must retain dense declared order");
       const occurrenceEntry = inventory.entriesById.get(obligation.occurrence.node);
       const reference: SourceNodeRef = { kind: "body", value: obligation.occurrence };
-      const associated = ownerEntry !== null && occurrenceEntry !== undefined && sourceNodeExists(reference, module, inventory, context) &&
+      const associated = ownerEntry !== null && occurrenceEntry !== undefined && sourceNodeExists(reference, module, inventory, context, paths) &&
         containsHirNode(ownerEntry, occurrenceEntry) && ownerEntry.body === occurrenceEntry.body;
       if (!associated)
         report("obligation-complete", site, "every obligation must belong to its diagnostic root");
@@ -531,11 +550,11 @@ function obligationViolations(module: HirModule, inventory: HirInventory, contex
         else if (associated) present[2].add(occurrence);
       } else if (obligation.kind === "write-fit") {
         const expected = writeFitOf(occurrence);
-        const value = localSourceEntry({ kind: "body", value: obligation.value }, module, inventory);
+        const value = localSourceEntry({ kind: "body", value: obligation.value }, module, inventory, paths);
         if (expected !== null) {
           const body = inventory.owners.get(expected.value);
           if (body === undefined || !Object.is(obligation.value.node, expected.value.id) || obligation.value.body !== body.body ||
-            localSourceNode(obligation.destination, module, inventory) !== expected.destination)
+            localSourceNode(obligation.destination, module, inventory, paths) !== expected.destination)
             report("obligation-complete", site, "write-fit obligation must retain its actual value and destination");
           else if (associated) present[0].add(occurrence);
         } else if (value === null || !containsHirNode(occurrenceEntry, value))
@@ -668,18 +687,19 @@ export const verifyHir: VerifyHir = (module, context) => {
   const hirSchema = createHirSchema();
   const violations: Violation<HirRule, HirSite>[] = [];
   const report: HirReport = (rule, site, reason) => { violations.push({ rule, site, detail: [{ kind: "text", value: reason }] }); };
+  const paths = createHirIdentityPaths(context);
   const inventory = createHirInventory(module);
   syntaxViolations(module, inventory, report);
-  declarationViolations(module, inventory, report);
-  const arenas = bodyViolations(module, inventory, report);
+  declarationViolations(module, inventory, paths, report);
+  const arenas = bodyViolations(module, inventory, paths, report);
   const roots = verificationRoots(module, inventory);
-  verifyHirReferences(roots, module, inventory, context, report);
+  verifyHirReferences(roots, module, inventory, context, paths, report);
   const requests: HirBindingRequest[] = [];
   candidateViolations(inventory, context, arenas, requests, report);
   literalViolations(module, inventory, report, roots);
-  obligationViolations(module, inventory, context, report);
+  obligationViolations(module, inventory, context, paths, report);
   const readers: HirCaptureReaders = {
-    nodeOf: reference => sourceNodeData(reference, module, inventory, context),
+    nodeOf: reference => sourceNodeData(reference, module, inventory, context, paths),
   };
   verifyHirCaptures(inventory.entries, readers, report, hirSchema, requests);
   verifyHirPlaces(inventory, report);
