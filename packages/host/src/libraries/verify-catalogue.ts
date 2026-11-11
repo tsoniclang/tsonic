@@ -185,7 +185,7 @@ function verifySignatures(signatures: readonly LibrarySignature[], site: Located
 
 interface ScopeRequest {
   readonly roots: readonly LibraryTypeId[];
-  readonly names: ReadonlySet<string>;
+  readonly names: readonly ReadonlySet<string>[];
   readonly site: LocatedSite;
 }
 
@@ -199,8 +199,9 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
     } else {
       if (!Number.isSafeInteger(type.id) || Object.is(type.id, -0) || type.id !== position) {
         output.push(violation("type-id-dense", { kind: "type", module: module.identity, type: type.id }, String(position)));
+      } else {
+        types.set(type.id, type);
       }
-      types.set(type.id, type);
     }
   }
   const checkReferences = (references: readonly LibraryTypeId[], owner: LocatedSite): void => {
@@ -210,7 +211,8 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
       }
     }
   };
-  for (const type of types.values()) {
+  for (const type of module.types) {
+    if (type === undefined) continue;
     const typeSite: LibrarySite = { kind: "type", module: module.identity, type: type.id };
     checkReferences(referenceSlots(type), typeSite);
     if (type.kind === "function") verifySignatures([type.signature], typeSite, output);
@@ -245,8 +247,8 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
       for (const signature of values) {
         const roots = signatureSlots(signature);
         checkReferences(roots, owner);
-        scopeRequests.push({ roots, names: new Set([...outerNames,
-          ...signature.typeParameters.map(parameter => parameter.name)]), site: owner });
+        scopeRequests.push({ roots, names: [outerNames,
+          new Set(signature.typeParameters.map(parameter => parameter.name))], site: owner });
       }
     };
     signatures(declaration.signatures, exportSite);
@@ -262,7 +264,7 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
       signatures(member.signatures, memberSite);
     }
     checkReferences(declarationRoots, exportSite);
-    scopeRequests.push({ roots: declarationRoots, names: outerNames, site: exportSite });
+    scopeRequests.push({ roots: declarationRoots, names: [outerNames], site: exportSite });
   }
   verifyScopes(types, scopeRequests, output);
   let previousRole: LibraryExportIdentity | null = null;
@@ -320,7 +322,7 @@ function verifyScopes(types: ReadonlyMap<LibraryTypeId, LibraryType>,
     for (const root of request.roots) {
       const names = freeNames.get(root);
       if (names === undefined) continue;
-      for (const name of names) if (!request.names.has(name)) missing.add(name);
+      for (const name of names) if (!request.names.some(binders => binders.has(name))) missing.add(name);
     }
     for (const name of [...missing].sort(compareText)) {
       output.push(violation("type-parameter-resolves", request.site, name));

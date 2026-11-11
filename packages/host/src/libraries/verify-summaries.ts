@@ -5,7 +5,7 @@ import type {
 } from "../snapshot/contract.js";
 import type { LibraryCatalogue, LibrarySignature } from "./contract.js";
 import {
-  catalogueIndex, checkLibraryCatalogue, compareExports, compareText, exportIdentityData, exportKey,
+  catalogueIndex, checkLibraryCatalogue, compareExports, compareText, exportIdentityData, exportKey, moduleIdentityData,
   orderedViolations, violation,
 } from "./verify-catalogue.js";
 import type { CatalogueIndex, ExportEntry, LibraryViolation, LocatedSite } from "./verify-catalogue.js";
@@ -31,9 +31,13 @@ function producerData(producer: LibrarySummaryProducer): readonly KeyData[] {
   }
 }
 
-function callbackSignatures(entry: ExportEntry, parameter: number): readonly LibrarySignature[] {
+function callbackSignatures(entry: ExportEntry, parameter: number,
+  cache: Map<string, readonly LibrarySignature[]>): readonly LibrarySignature[] {
   const formal = entry.signature?.parameters[parameter];
   if (formal === undefined) return [];
+  const key = encodeKey([moduleIdentityData(entry.module.identity), formal.type]);
+  const previous = cache.get(key);
+  if (previous !== undefined) return previous;
   const work: LibraryTypeId[] = [formal.type];
   const visited = new Set<LibraryTypeId>();
   const signatures: LibrarySignature[] = [];
@@ -47,11 +51,12 @@ function callbackSignatures(entry: ExportEntry, parameter: number): readonly Lib
       for (const child of type.types) work.push(child);
     }
   }
+  cache.set(key, signatures);
   return signatures;
 }
 
 export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: CatalogueIndex,
-  output: LibraryViolation[]): boolean {
+  output: LibraryViolation[], callbacks: Map<string, readonly LibrarySignature[]>): boolean {
   const initial = output.length;
   const site = (table: "projection" | "producer" | "origins" | "boundary" | "parameter" | "capture" |
     "write" | "retention" | "callback", position: number | null): LocatedSite =>
@@ -232,7 +237,7 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     }
     previousCallback = callback.parameterIndex;
     if (entry != null) {
-      const signatures = callbackSignatures(entry, callback.parameterIndex);
+      const signatures = callbackSignatures(entry, callback.parameterIndex, callbacks);
       const targetParameter = (value: number): void => {
         if (!integral(value) || signatures.length === 0 || signatures.some(signature => value >= signature.parameters.length)) {
           output.push(violation("authored-summary-parameter-range", owner, "callback", encodeKey(value)));
@@ -259,6 +264,7 @@ export function checkAuthoredSummaries(catalogue: LibraryCatalogue,
   declared: readonly LibraryAuthoredSummary[]): readonly LibraryViolation[] {
   const output: LibraryViolation[] = [...checkLibraryCatalogue(catalogue)];
   const index = catalogueIndex(catalogue);
+  const callbacks = new Map<string, readonly LibrarySignature[]>();
   const identities = new Set<string>();
   let previous: LibraryAuthoredSummary | null = null;
   for (const summary of declared) {
@@ -270,7 +276,7 @@ export function checkAuthoredSummaries(catalogue: LibraryCatalogue,
     const key = exportKey(summary.identity);
     if (identities.has(key)) output.push(violation("authored-summary-identity-unique", site));
     identities.add(key);
-    validateAuthoredSummary(summary, index, output);
+    validateAuthoredSummary(summary, index, output, callbacks);
   }
   return orderedViolations(output);
 }
