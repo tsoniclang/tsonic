@@ -1,0 +1,7 @@
+{
+  "name": "missing-record-fields",
+  "level": "function",
+  "rule": "invalid-text",
+  "input": "test/host-cases/ir-types/function/missing-record-fields.input.json",
+  "expected": "test/host-cases/ir-types/function/missing-record-fields.expected.json"
+}

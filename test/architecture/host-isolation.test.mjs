@@ -256,6 +256,8 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   const expectedInventory = [...modules.map(module => module.contract),
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
+    ...["index.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "normalize.ts",
+      "substitute.ts", "print.ts", "parse.ts", "verify.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
@@ -281,7 +283,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 through A11 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 through A13 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -300,12 +302,18 @@ test("A7 through A11 genuine emitted contracts accept current forms and reject e
         "export function read(context: ProgramVerificationContext) { const { limits, ...legacy } = context; void limits; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["old-program-signature-context", [["ir-program", "ProgramVerificationContext"]],
         "export function read(context: ProgramVerificationContext) { const { signatureIdOf, ...legacy } = context; void signatureIdOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-module-path-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { modulePathOf, ...legacy } = context; void modulePathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-definition-path-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
       ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
         "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
       ["publication-without-usage", [["ir-types", "TypePublication, TypePublicationResult"]],
         "export function read(value: TypePublication) { const result: TypePublicationResult = { kind: 'complete', value }; return result; }", 2322],
       ["tir-module-without-module", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
         "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["old-tir-flat-binding-scopes", [["ir-tir", "TirVerifierInput"]],
+        "export function read(input: TirVerifierInput) { const { bindingScopesOf, ...legacy } = input; void bindingScopesOf; const old = { ...legacy, bindingScopes: [] }; const current: TirVerifierInput = old; return current; }", 2741],
       ["tir-site-with-body-node", [["ir-tir", "TirSite"], ["ids", "NodeRef"]],
         "export function read(node: NodeRef) { const site: TirSite = { kind: 'node', node }; return site; }", 2322],
       ["signature-with-type-root", [["ir-types", "SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"], ["ids", "TyId"]],
@@ -335,13 +343,17 @@ test("A7 through A11 genuine emitted contracts accept current forms and reject e
     write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, artifact.tir.signature, bindings, limits); }\n');
     write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
       '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
+    write("positive-program-paths.mts", imports([["ir-program", "ProgramVerificationContext, ProgramRule"], ["ids", "ModuleId, DefId"]]) +
+      '\nexport function current(context: ProgramVerificationContext, module: ModuleId, definition: DefId) { const rule: ProgramRule = "identity-path-exact"; return { module: context.modulePathOf(module), definition: context.definitionPathOf(definition), rule }; }\n');
+    write("positive-tir-scopes.mts", imports([["ir-tir", "TirVerifierInput, TirBindingTarget"], ["ir-types", "BodyInstance"], ["ids", "ModuleId"]]) +
+      '\nexport function current(input: TirVerifierInput, instance: BodyInstance, module: ModuleId) { const body: TirBindingTarget = { kind: "body", instance }; const outside: TirBindingTarget = { kind: "module", module }; return { body: input.bindingScopesOf(body), outside: input.bindingScopesOf(outside) }; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
       noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
       noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
       verbatimModuleSyntax: true,
-    }, files: ["positive.mts", "positive-hir-paths.mts", ...rows.map(([name]) => name + ".mts")] }));
+    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", "positive-tir-scopes.mts", ...rows.map(([name]) => name + ".mts")] }));
     const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
       cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
     });

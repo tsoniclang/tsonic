@@ -1,0 +1,7 @@
+{
+  "name": "cross-owner-qualified-invalid",
+  "level": "verifier",
+  "rule": "cross-owner-qualified",
+  "input": "test/host-cases/ir-types/verifier/cross-owner-qualified-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/cross-owner-qualified-invalid.expected.json"
+}

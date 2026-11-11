@@ -1,0 +1,19 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "nominal-definition",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "definition"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

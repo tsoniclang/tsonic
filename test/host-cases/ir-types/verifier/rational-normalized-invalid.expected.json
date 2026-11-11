@@ -1,0 +1,19 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "rational-normalized",
+      "site": {
+        "kind": "type",
+        "type": 1
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "value"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

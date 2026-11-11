@@ -1,5 +1,5 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { BodyId, DefId, ModuleId, NodeId, PackageId, SigId } from "../ids/contract.js";
+import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
 } from "../ir-types/contract.js";
@@ -129,7 +129,7 @@ export type InstantiationResult =
 export type ProgramRule =
   | "schema-supported" | "root-package-resolves" | "packages-order" | "package-dependencies-order"
   | "package-dependency-resolves" | "package-exports-order" | "package-export-resolves"
-  | "modules-order" | "module-package-resolves" | "items-order" | "item-definition-resolves"
+  | "modules-order" | "module-package-resolves" | "identity-path-exact" | "items-order" | "item-definition-resolves"
   | "definition-node-resolves" | "definition-node-owner-exact" | "module-node-id-dense"
   | "exports-order" | "export-definition-resolves" | "signatures-order" | "signature-reference-resolves"
   | "signature-endpoints-exact" | "body-index-order" | "body-owner-resolves" | "body-module-resolves"
@@ -162,6 +162,8 @@ export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParse
 export interface ProgramVerificationContext {
   readonly facts: FactsVerificationContext;
   readonly limits: InstantiationLimits;
+  readonly modulePathOf: (module: ModuleId) => ModulePath | null;
+  readonly definitionPathOf: (definition: DefId) => DefinitionPath | null;
   readonly tirOf: (module: ModuleId) => TirVerifierInput | null;
   readonly signatureIdOf: (
     definition: DefId, kind: "advertised" | "api-signature" | "api-body", ordinal: number, bindings: ArtifactBindings,

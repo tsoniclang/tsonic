@@ -1,0 +1,7 @@
+{
+  "name": "intersection-order-invalid",
+  "level": "verifier",
+  "rule": "intersection-order",
+  "input": "test/host-cases/ir-types/verifier/intersection-order-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/intersection-order-invalid.expected.json"
+}

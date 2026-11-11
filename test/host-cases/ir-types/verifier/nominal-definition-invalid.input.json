@@ -1,0 +1,13 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "enum",
+        "definition": "D[M[P[case];main.ts];field]"
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

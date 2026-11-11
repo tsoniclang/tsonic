@@ -1,0 +1,7 @@
+{
+  "name": "self-owner-invalid",
+  "level": "verifier",
+  "rule": "self-owner",
+  "input": "test/host-cases/ir-types/verifier/self-owner-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/self-owner-invalid.expected.json"
+}

@@ -621,11 +621,15 @@ export type TirMemberOccurrence =
   | { readonly kind: "construction-part"; readonly node: NodeId; readonly ordinal: number;
       readonly source: NodeRef; readonly destination: TypeComponent; readonly part: number };
 
+export type TirBindingTarget =
+  | { readonly kind: "body"; readonly instance: BodyInstance }
+  | { readonly kind: "module"; readonly module: ModuleId };
+
 export interface TirVerifierInput {
   readonly source: HirModule;
   readonly module: TirModule;
   readonly types: TypeTable;
-  readonly bindingScopes: readonly BindingScope[];
+  readonly bindingScopesOf: (target: TirBindingTarget) => readonly BindingScope[] | null;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberTable | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;

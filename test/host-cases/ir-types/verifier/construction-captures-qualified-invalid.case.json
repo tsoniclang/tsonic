@@ -1,0 +1,7 @@
+{
+  "name": "construction-captures-qualified-invalid",
+  "level": "verifier",
+  "rule": "construction-captures-qualified",
+  "input": "test/host-cases/ir-types/verifier/construction-captures-qualified-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/construction-captures-qualified-invalid.expected.json"
+}

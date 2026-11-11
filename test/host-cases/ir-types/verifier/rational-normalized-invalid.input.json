@@ -1,0 +1,25 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      },
+      {
+        "kind": "literal",
+        "value": {
+          "kind": "number",
+          "value": {
+            "numerator": "2",
+            "denominator": "4",
+            "negativeZero": false
+          }
+        },
+        "base": 0
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

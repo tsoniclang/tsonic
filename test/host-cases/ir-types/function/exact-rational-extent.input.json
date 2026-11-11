@@ -1,0 +1,32 @@
+{
+  "operation": "text",
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      },
+      {
+        "kind": "fixed-array",
+        "element": 0,
+        "extent": {
+          "length": "9007199254740993",
+          "runtimeBase": "bigint"
+        }
+      },
+      {
+        "kind": "literal",
+        "value": {
+          "kind": "number",
+          "value": {
+            "numerator": "1",
+            "denominator": "2",
+            "negativeZero": false
+          }
+        },
+        "base": 0
+      }
+    ],
+    "signatures": []
+  }
+}

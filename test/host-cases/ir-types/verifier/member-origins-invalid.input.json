@@ -1,0 +1,31 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "shape",
+        "members": [
+          {
+            "key": {
+              "kind": "text",
+              "value": "a"
+            },
+            "origins": [],
+            "readOrigins": [],
+            "writeOrigins": [],
+            "kind": "property",
+            "read": null,
+            "write": null,
+            "optional": false,
+            "readonly": true
+          }
+        ],
+        "indexes": [],
+        "calls": [],
+        "constructs": []
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

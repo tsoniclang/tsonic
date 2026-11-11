@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "parameter-identity",
+      "site": {
+        "kind": "signature",
+        "signature": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "typeParameters"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,7 @@
+{
+  "name": "exact-rational-extent",
+  "level": "function",
+  "rule": "text-roundtrip",
+  "input": "test/host-cases/ir-types/function/exact-rational-extent.input.json",
+  "expected": "test/host-cases/ir-types/function/exact-rational-extent.expected.json"
+}

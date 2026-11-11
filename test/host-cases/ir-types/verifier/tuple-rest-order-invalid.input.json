@@ -1,0 +1,25 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "tuple",
+        "elements": [
+          {
+            "kind": "rest",
+            "type": 0,
+            "declaration": null
+          },
+          {
+            "kind": "required",
+            "type": 0,
+            "declaration": null
+          }
+        ],
+        "readonly": false
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}
