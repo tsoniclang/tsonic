@@ -1,10 +1,7 @@
-import type {
-  BoundProducerId, KeyData, LibraryExportIdentity, LibraryTypeId, OpenBoundaryId, OriginsId, ProducerId, ProjectionPathId,
-} from "../ids/contract.js";
+import type { KeyData, LibraryTypeId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type {
-  LibraryAuthoredSummary, LibrarySummaryBoundary, LibrarySummaryCaptureEffect, LibrarySummaryParameterEffect,
-  LibrarySummaryEffectPaths, LibrarySummaryPath, LibrarySummaryProducer,
+  LibraryAuthoredSummary, LibrarySummaryEffectPaths, LibrarySummaryProducer,
 } from "../snapshot/contract.js";
 import type { LibraryCatalogue, LibrarySignature } from "./contract.js";
 import {
@@ -12,68 +9,6 @@ import {
   orderedViolations, violation,
 } from "./verify-catalogue.js";
 import type { CatalogueIndex, ExportEntry, LibraryViolation, LocatedSite } from "./verify-catalogue.js";
-
-export interface CheckedPath extends LibrarySummaryPath {
-  readonly id: ProjectionPathId;
-  readonly parent: ProjectionPathId | null;
-}
-
-export type CheckedProducer = LibrarySummaryProducer & {
-  readonly id: ProducerId;
-  readonly path: ProjectionPathId | null;
-};
-
-export interface CheckedBoundary extends LibrarySummaryBoundary {
-  readonly id: OpenBoundaryId;
-  readonly subject: ProducerId;
-  readonly owner: ProducerId | null;
-}
-
-export type CheckedOrigins = {
-  readonly id: OriginsId;
-  readonly producers: readonly BoundProducerId[];
-  readonly includesAbsence: boolean;
-} & (
-  | { readonly kind: "complete" }
-  | { readonly kind: "open"; readonly boundaries: readonly [OpenBoundaryId, ...OpenBoundaryId[]] }
-);
-
-export type CheckedEffectPaths =
-  | { readonly kind: "complete"; readonly paths: readonly ProjectionPathId[] }
-  | { readonly kind: "open"; readonly paths: readonly ProjectionPathId[];
-      readonly boundaries: readonly [OpenBoundaryId, ...OpenBoundaryId[]] };
-
-export interface CheckedParameterEffect extends LibrarySummaryParameterEffect {
-  readonly reads: CheckedEffectPaths;
-  readonly writes: CheckedEffectPaths;
-}
-
-export interface CheckedCaptureEffect extends LibrarySummaryCaptureEffect {
-  readonly reads: CheckedEffectPaths;
-  readonly writes: CheckedEffectPaths;
-}
-
-export type CheckedEscapeTarget =
-  | { readonly kind: "return" | "throw" }
-  | { readonly kind: "shared"; readonly identity: LibraryExportIdentity;
-      readonly path: ProjectionPathId | null }
-  | { readonly kind: "parameter" | "capture"; readonly index: number; readonly path: ProjectionPathId | null }
-  | { readonly kind: "receiver"; readonly path: ProjectionPathId | null }
-  | { readonly kind: "callback" | "suspension"; readonly site: number }
-  | { readonly kind: "external"; readonly boundary: OpenBoundaryId };
-
-export interface CheckedSummary extends LibraryAuthoredSummary {
-  readonly projections: readonly CheckedPath[];
-  readonly producers: readonly CheckedProducer[];
-  readonly origins: readonly CheckedOrigins[];
-  readonly boundaries: readonly CheckedBoundary[];
-  readonly parameters: readonly CheckedParameterEffect[];
-  readonly captures: readonly CheckedCaptureEffect[];
-  readonly result: OriginsId;
-  readonly thrown: OriginsId;
-  readonly writes: readonly { readonly target: ProducerId; readonly value: OriginsId }[];
-  readonly retention: readonly { readonly source: ProducerId; readonly into: CheckedEscapeTarget }[];
-}
 
 export function ordinal(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0) && value < length;
@@ -116,7 +51,7 @@ function callbackSignatures(entry: ExportEntry, parameter: number): readonly Lib
 }
 
 export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: CatalogueIndex,
-  output: LibraryViolation[]): summary is CheckedSummary {
+  output: LibraryViolation[]): boolean {
   const initial = output.length;
   const site = (table: "projection" | "producer" | "origins" | "boundary" | "parameter" | "capture" |
     "write" | "retention" | "callback", position: number | null): LocatedSite =>
@@ -247,11 +182,18 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
   }
   reference(summary.result, summary.origins, site("origins", null), "result");
   reference(summary.thrown, summary.origins, site("origins", null), "thrown");
+  let previousWrite: string | null = null;
   for (const [position, write] of summary.writes.entries()) {
     const owner = site("write", position);
     reference(write.target, summary.producers, owner, "producer");
     reference(write.value, summary.origins, owner, "origins");
+    const key = encodeKey([write.target, write.value]);
+    if (previousWrite !== null && compareText(previousWrite, key) >= 0) {
+      output.push(violation("authored-summary-effects-order", owner));
+    }
+    previousWrite = key;
   }
+  let previousRetention: string | null = null;
   for (const [position, retention] of summary.retention.entries()) {
     const owner = site("retention", position);
     reference(retention.source, summary.producers, owner, "producer");
@@ -270,6 +212,16 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
       case "external": reference(target.boundary, summary.boundaries, owner, "boundary"); break;
       case "return": case "throw": break;
     }
+    const key = encodeKey([retention.source, target.kind === "shared"
+      ? [target.kind, exportIdentityData(target.identity), target.path]
+      : target.kind === "parameter" || target.kind === "capture" ? [target.kind, target.index, target.path]
+      : target.kind === "receiver" ? [target.kind, target.path]
+      : target.kind === "callback" || target.kind === "suspension" ? [target.kind, target.site]
+      : target.kind === "external" ? [target.kind, target.boundary] : [target.kind]]);
+    if (previousRetention !== null && compareText(previousRetention, key) >= 0) {
+      output.push(violation("authored-summary-effects-order", owner));
+    }
+    previousRetention = key;
   }
   let previousCallback: number | null = null;
   for (const [position, callback] of summary.callbacks.entries()) {
@@ -287,9 +239,14 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
         }
       };
       if (callback.rejection !== null) targetParameter(callback.rejection);
+      let previousInput: number | null = null;
       for (const input of callback.inputs) {
         targetParameter(input.parameterIndex);
         if (input.kind === "argument-element") parameter(input.sourceParameterIndex, owner);
+        if (previousInput !== null && previousInput >= input.parameterIndex) {
+          output.push(violation("authored-summary-effects-order", owner));
+        }
+        previousInput = input.parameterIndex;
       }
     }
   }
