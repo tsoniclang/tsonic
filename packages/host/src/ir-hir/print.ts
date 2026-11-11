@@ -194,7 +194,7 @@ export const printHir: PrintHir = module => {
     const active = new Set<HirNode>();
     let pending: PendingSyntax | null = { kind: "enter", node, path, next: null };
     while (pending !== null) {
-      const frame = pending;
+      const frame: PendingSyntax = pending;
       pending = frame.next;
       if (frame.kind === "leave") { active.delete(frame.node); continue; }
       if (active.has(frame.node)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);

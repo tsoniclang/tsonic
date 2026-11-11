@@ -25,7 +25,7 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
   const result: SyntaxNode<PhaseType>[] = [];
   let pending: PendingNode<PhaseType> | null = { kind: "enter", node: root, path: { parent: null, field: "root" }, next: null };
   while (pending !== null) {
-    const frame = pending;
+    const frame: PendingNode<PhaseType> = pending;
     pending = pending.next;
     const current = frame.node;
     if (frame.kind === "leave") { active.delete(current); continue; }
@@ -182,7 +182,7 @@ export function walkHirFields(work: HirDataWork, visit: (value: HirFieldVisit) =
   let pending: PendingField | null = { kind: "value", work, parent: plainReference, field: null, path: null, next: null };
   const onPath = new Set<object>();
   while (pending !== null) {
-    const frame = pending;
+    const frame: PendingField = pending;
     pending = frame.next;
     if (frame.kind === "leave") { onPath.delete(frame.owner); continue; }
     visit({ reference: frame.work.reference, parent: frame.parent, field: frame.field });

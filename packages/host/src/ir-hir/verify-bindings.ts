@@ -244,7 +244,7 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory,
     if (seen.has(root.body)) continue;
     let pending: BodyScopeVisit | null = { kind: "enter", range: root, next: null };
     while (pending !== null) {
-      const frame = pending;
+      const frame: BodyScopeVisit = pending;
       pending = frame.next;
       if (frame.kind === "leave") {
         frame.range.end = ordinal;

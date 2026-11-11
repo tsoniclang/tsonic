@@ -1236,7 +1236,7 @@ export function hirShapeLeaves(input: HirShape, schema: HirSchema): readonly Hir
   const leaves: HirShapeLeaf[] = [];
   let pending: PendingShape | null = { shape: input, next: null };
   while (pending !== null) {
-    const shape = pending.shape;
+    const shape: HirShape = pending.shape;
     pending = pending.next;
     if (typeof shape === "string") {
       if (shape === "string" || shape === "number" || shape === "bigint" || shape === "boolean" ||

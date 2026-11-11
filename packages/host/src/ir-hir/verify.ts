@@ -54,7 +54,7 @@ export function createHirInventory(module: HirModule): HirInventory {
   let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, member: true,
     path: { parent: null, field: "tree" }, next: bodyRoots };
   while (pending !== null) {
-    const frame = pending;
+    const frame: NodeFrame = pending;
     pending = pending.next;
     if (frame.kind === "leave") {
       active.delete(frame.node);
@@ -640,7 +640,7 @@ function bigintTokenMatches(text: string, value: bigint): boolean {
   return (negative ? -BigInt(digits) : BigInt(digits)) === value;
 }
 
-function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport,
+function literalViolations(inventory: HirInventory, report: HirReport,
   roots: readonly HirDataRoot[]): void {
   for (const entry of inventory.entries) {
     const node = entry.node;
@@ -696,7 +696,7 @@ export const verifyHir: VerifyHir = (module, context) => {
   verifyHirReferences(roots, module, inventory, context, paths, report);
   const requests: HirBindingRequest[] = [];
   candidateViolations(inventory, context, arenas, requests, report);
-  literalViolations(module, inventory, report, roots);
+  literalViolations(inventory, report, roots);
   obligationViolations(module, inventory, context, paths, report);
   const readers: HirCaptureReaders = {
     nodeOf: reference => sourceNodeData(reference, module, inventory, context, paths),

@@ -344,8 +344,11 @@ function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
   if (frame.kind === "array") frame.value.push(value);
   else {
     Object.defineProperty(frame.value, frame.name, { value, configurable: true, enumerable: true, writable: true });
-    frame.choices = frame.selected.filter(selection => selection.kind === "dictionary" ||
-      selection.field[2] !== true || selection.field[1].values.some(candidate => Object.is(candidate, value)))
+    frame.choices = frame.selected.filter(selection => {
+      if (selection.kind === "dictionary") return true;
+      const field: HirField = selection.field;
+      return field[2] !== true || field[1].values.some(candidate => Object.is(candidate, value));
+    })
       .map(selection => selection.choice);
     frame.ordinal += 1;
   }
@@ -389,7 +392,7 @@ function closesWireCycle(arena: ReadonlyMap<number, WireBinding>, prefix: number
     if (colors.has(root)) continue;
     let pending: WireVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
-      const frame = pending;
+      const frame: WireVisit = pending;
       pending = frame.next;
       if (frame.leaving) { colors.set(frame.node, "complete"); continue; }
       const previous = colors.get(frame.node);
@@ -452,7 +455,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
   };
   while (!reader.failed) {
     const newline = whitespace(reader);
-    const frame = pending?.frame;
+    const frame: RecordFrame | ArrayFrame | undefined = pending?.frame;
     if (frame === undefined && reader.cursor === reader.text.length) {
       if (!header) { fail(reader, ["record"]); return false; }
       let invalidTarget: { readonly reference: WireReference; readonly expected: readonly string[] } | null = null;
@@ -488,7 +491,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     if (frame === undefined && needSeparator && !newline) { fail(reader, ["newline"]); return false; }
     const character = reader.text.charAt(reader.cursor);
     if (pending !== null && pending.frame.phase === "delimiter") {
-      const frame = pending.frame;
+      const frame: RecordFrame | ArrayFrame = pending.frame;
       const closing = frame.kind === "record" ? ")" : "]";
       if (character === closing) {
         if (frame.kind === "record") {
@@ -547,7 +550,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     }
     const offset = reader.cursor;
     const token = reader.text.charAt(reader.cursor);
-    const owner = frame === undefined ? null : frame.owner;
+    const owner: WireNode | null = frame === undefined ? null : frame.owner;
     const accept = declaration !== null ? (): void => { needSeparator = true; } :
       frame === undefined ? put : (value: unknown): void => { attach(frame, value); };
     if (token === "[") {
@@ -614,7 +617,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         return false;
       }
       let value: MutableRecord;
-      let recordOwner = owner;
+      let recordOwner: WireNode | null = owner;
       if (declaration === null) value = {};
       else {
         const previous = arena.get(declaration.position);

@@ -390,7 +390,7 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     if (colors.has(root.entry.node)) continue;
     let pending: PlaceVisit | null = { vertex: root, leaving: false, next: null };
     while (pending !== null) {
-      const frame = pending;
+      const frame: PlaceVisit = pending;
       pending = frame.next;
       if (frame.leaving) { colors.set(frame.vertex.entry.node, "complete"); continue; }
       const previous = colors.get(frame.vertex.entry.node);
@@ -513,7 +513,7 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
     if (colors.has(root.ordinal)) continue;
     let pending: MemoryVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
-      const frame = pending;
+      const frame: MemoryVisit = pending;
       pending = frame.next;
       if (frame.leaving) { colors.set(frame.node.ordinal, "complete"); continue; }
       const previous = colors.get(frame.node.ordinal);
