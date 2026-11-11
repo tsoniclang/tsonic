@@ -65,6 +65,8 @@ export interface ConstantRecord {
   readonly value: ConstValue;
 }
 
+export type SupportedProgramSchema = 1;
+
 export interface ProgramIndex {
   readonly schema: number;
   readonly rootPackage: PackageId;
@@ -158,6 +160,7 @@ export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => s
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
 export interface ProgramVerificationContext {
   readonly facts: FactsVerificationContext;
+  readonly limits: InstantiationLimits;
   readonly tirOf: (module: ModuleId) => TirVerifierInput | null;
 }
 export type VerifyProgramIndex = (

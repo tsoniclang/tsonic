@@ -2,10 +2,14 @@
   "kind": "accepted",
   "value": {
     "thrown": {
-      "pass": "infer",
-      "query": null,
-      "origin": null,
-      "message": "no invented query or origin"
+      "name": "Error",
+      "message": "no invented query or origin",
+      "cause": {
+        "pass": "infer",
+        "query": null,
+        "origin": null,
+        "message": "no invented query or origin"
+      }
     }
   },
   "diagnostics": []

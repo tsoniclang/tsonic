@@ -4,6 +4,8 @@ export type HostDiagnosticCode = string & {
   readonly diagnosticKind: "host";
 };
 
+export type HostDiagnosticCodeConstructor = (name: string) => HostDiagnosticCode;
+
 export type DiagnosticCode =
   | { readonly kind: "host"; readonly name: HostDiagnosticCode; readonly rendered: string }
   | { readonly kind: "checker"; readonly number: number; readonly rendered: string }

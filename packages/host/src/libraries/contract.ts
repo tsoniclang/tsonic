@@ -168,7 +168,7 @@ export interface LibraryExportBinding {
 export type BindSummaries = (
   bound: BoundLibraries,
   declared: readonly LibraryAuthoredSummary[],
-  signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding,
+  signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding | null,
 ) => Result<Libraries>;
 
 export type LibraryRolesOf = (libraries: BoundLibraries, role: LibraryRole) => readonly DefId[];
@@ -186,7 +186,7 @@ export type LibraryRule =
   | "authored-summary-id-dense" | "authored-summary-reference-resolves" | "authored-summary-path-parent-precedes"
   | "authored-summary-parameter-range" | "authored-summary-capture-range" | "authored-summary-site-integral"
   | "authored-summary-producer-unique" | "authored-summary-origins-order" | "authored-summary-effects-order"
-  | "summary-binding-definition-exact" | "summary-binding-signature-exact" | "summary-binding-member-exact";
+  | "summary-binding-definition-exact" | "summary-binding-signature-exact";
 
 export type LibrarySite =
   | { readonly kind: "catalogue" }
@@ -213,7 +213,7 @@ export interface LibraryRoleVerificationContext {
 }
 
 export interface LibraryVerificationContext extends LibraryRoleVerificationContext {
-  readonly signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding;
+  readonly signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding | null;
 }
 
 export type VerifyBoundLibraries = (libraries: BoundLibraries,

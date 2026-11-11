@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { hostCatalogue, sourceOwner } from "./host/catalogue.mjs";
+import { hostCatalogue, publicEntry, sourceOwner } from "./host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "./host/isolation.mjs";
 import { createInspectionDeps, inspectHost } from "./host/inspect.mjs";
 
@@ -262,9 +262,13 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     const ownSources = inventory.filter(path => sourceOwner(hostCatalogue, path)?.name === module.name);
     const closure = new Set(ownSources);
     for (const source of closure) for (const edge of graph) if (edge.source === source && edge.target !== null) closure.add(edge.target);
-    const interfaces = [...closure].filter(path => !ownSources.includes(path)).sort();
+    const production = [...closure].filter(path => !ownSources.includes(path)).sort();
+    const interfaces = production.filter(path => {
+      const dependency = sourceOwner(hostCatalogue, path);
+      return dependency !== undefined && publicEntry(dependency, path);
+    });
     const report = await compileIsolated(deps, module, {
-      root: repository, sourceFiles: ownSources, interfaceSources: interfaces, declarationSources: interfaces,
+      root: repository, sourceFiles: ownSources, interfaceSources: interfaces, declarationSources: production,
       outputDirectory: ".temp/host-current-isolation",
     });
     assert.equal(report.status, "passed", `${module.name}: ${label(report)}`);
@@ -272,6 +276,67 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true, "no undeclared compiler source");
     assert.equal(report.provenance.length, interfaces.length, "every public dependency has genuine fresh declaration provenance");
     assert.equal(report.sourceInventory.length, closure.size, "complete explicit original module source closure");
+  });
+});
+
+test("A7 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+  await fixture([], async ({ root, deps, write }) => {
+    const imports = entries => entries.map(([owner, names]) =>
+      `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
+    const rows = [
+      ["old-mir", [["ir-mir", "VerifyMir, MirBody"], ["ir-tir", "TirBody"], ["ir-types", "TypeOf, SignatureOf"]],
+        "export function read(verify: VerifyMir, body: MirBody, source: TirBody, typeOf: TypeOf, signatureOf: SignatureOf) { return verify(body, source, typeOf, signatureOf); }", 2554],
+      ["old-mir-context", [["ir-mir", "MirVerificationContext"]],
+        "export function read(context: MirVerificationContext) { const { bodyOwner, ...legacy } = context; void bodyOwner; const current: MirVerificationContext = legacy; return current; }", 2741],
+      ["old-backward", [["dataflow", "BackwardProblem, BlockState"], ["ir-mir", "MirTerminator"]],
+        "export function read(problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[]) { return problem.terminator(term, states); }", 2554],
+      ["old-program-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { limits, ...legacy } = context; void limits; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
+        "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
+      ["old-library-projection", [["libraries", "LibraryVerificationContext, LibraryExportBinding"], ["ids", "LibraryExportIdentity"]],
+        "export function read(context: LibraryVerificationContext, identity: LibraryExportIdentity) { const current: LibraryExportBinding = context.signatureOfExport(identity); return current; }", 2322],
+      ["unsupported-schema", [["ir-program", "SupportedProgramSchema"]],
+        "export const value: SupportedProgramSchema = 2;", 2322],
+      ...["block-terminator-total", "unwind-cleanup-complete", "suspension-return-cleanup", "effect-path-exact", "rvalue-effect-free"]
+        .map(rule => ["removed-" + rule, [["ir-mir", "MirRule"]], `export const value: MirRule = ${JSON.stringify(rule)};`, 2322]),
+      ...["module", "definition"].map(kind => ["removed-tir-" + kind, [["ir-tir", "TirSite"]],
+        `export const value: TirSite["kind"] = ${JSON.stringify(kind)};`, 2322]),
+      ["removed-library-member-rule", [["libraries", "LibraryRule"]],
+        'export const value: LibraryRule = "summary-binding-member-exact";', 2322],
+    ];
+    const positive = imports([
+      ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
+      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema"],
+      ["ir-tir", "TypedBinding, TypedBindingElement"], ["libraries", "LibraryVerificationContext, LibraryExportBinding"],
+      ["ids", "LibraryExportIdentity"],
+    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection };\n}\n';
+    write("positive.mts", positive);
+    for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
+    write("tsconfig.json", JSON.stringify({ compilerOptions: {
+      strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
+      noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
+      noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
+      verbatimModuleSyntax: true,
+    }, files: ["positive.mts", ...rows.map(([name]) => name + ".mts")] }));
+    const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
+      cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
+    });
+    if (result.error !== undefined) throw result.error;
+    const output = `${result.stdout}${result.stderr}`;
+    const diagnostics = [...output.matchAll(/^(.+)\((\d+),(\d+)\): error TS(\d+):/gmu)].map(match => ({
+      file: match[1].split(/[\\/]/u).at(-1), code: Number(match[4]),
+    })).sort((left, right) => left.file.localeCompare(right.file));
+    const expected = rows.map(([name, , , code]) => ({ file: name + ".mts", code }))
+      .sort((left, right) => left.file.localeCompare(right.file));
+    const evidence = resolve(repository, ".temp/host-a7-consumer-evidence");
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(resolve(evidence, "compiler.log"), output);
+    writeFileSync(resolve(evidence, "diagnostics.json"), `${JSON.stringify(diagnostics, null, 2)}\n`);
+    assert.equal(result.status, 1, output.slice(-6000));
+    assert.equal(result.signal, null);
+    assert.equal([...output.matchAll(/error TS\d+:/gu)].length, diagnostics.length, "no unlocated error is ignored");
+    assert.deepEqual(diagnostics, expected, "only the complete independently authored removed-form diagnostics occur");
   });
 });
 
