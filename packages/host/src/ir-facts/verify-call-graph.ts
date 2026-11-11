@@ -4,7 +4,7 @@ import { encodeComponentId, encodeKey } from "../ids/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
-import { artifactData, ownerKey, validIndex } from "./verify-relations.js";
+import { artifactData, compareNumbers, ownerKey, validIndex } from "./verify-relations.js";
 
 const definitionSite = (definition: DefId): FactsSite => ({
   kind: "summary", summary: { definition, bindings: { kind: "parametric" } },
@@ -13,6 +13,7 @@ const definitionSite = (definition: DefId): FactsSite => ({
 const componentSite = (component: CallComponent): FactsSite => ({ kind: "component", component: component.id });
 
 interface ComponentWork {
+  readonly occurrence: number;
   readonly component: CallComponent;
   readonly expected: Set<ComponentId>;
   readonly dependents: ComponentWork[];
@@ -22,7 +23,8 @@ interface ComponentWork {
 const compareEdges = (left: CallEdge, right: CallEdge): number => {
   if (left.caller !== right.caller) return left.caller < right.caller ? -1 : 1;
   if (left.at.body !== right.at.body) return left.at.body < right.at.body ? -1 : 1;
-  if (left.at.node !== right.at.node) return left.at.node < right.at.node ? -1 : 1;
+  const nodeOrder = compareNumbers(left.at.node, right.at.node);
+  if (nodeOrder !== 0) return nodeOrder;
   if (left.kind !== right.kind) return left.kind < right.kind ? -1 : 1;
   switch (left.callee.kind) {
     case "definition":
@@ -40,7 +42,8 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
           const leftOwner = ownerKey(left.callee.boundary.owner);
           const rightOwner = ownerKey(right.callee.boundary.owner);
           if (leftOwner !== rightOwner) return leftOwner < rightOwner ? -1 : 1;
-          if (left.callee.boundary.boundary !== right.callee.boundary.boundary) return left.callee.boundary.boundary - right.callee.boundary.boundary;
+          const boundaryOrder = compareNumbers(left.callee.boundary.boundary, right.callee.boundary.boundary);
+          if (boundaryOrder !== 0) return boundaryOrder;
           break;
         }
       }
@@ -65,7 +68,7 @@ const reachedMembers = (
     const targets = edges.get(definition);
     if (targets === undefined) continue;
     for (const target of targets) {
-      if (membership.get(target) === component && !visited.has(target)) pending.push(target);
+      if (membership.get(target)?.occurrence === component.occurrence && !visited.has(target)) pending.push(target);
     }
   }
   return visited.size;
@@ -100,7 +103,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       report("components-order", site, "Components must be distinct and ordered by identity.");
     }
     previousComponent = component.id;
-    const state: ComponentWork = { component, expected: new Set(), dependents: [], remaining: 0 };
+    const state: ComponentWork = { occurrence: work.length, component, expected: new Set(), dependents: [], remaining: 0 };
     work.push(state);
     components.set(component.id, state);
     const [first, ...rest] = component.definitions;
@@ -193,7 +196,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       report("component-dependencies-exact", site, "Dependencies must be exactly the other components named by closed call edges.");
     }
     const first = component.definitions[0];
-    if (first !== undefined && membership.get(first) === state &&
+    if (first !== undefined && membership.get(first)?.occurrence === state.occurrence &&
       (reachedMembers(first, state, membership, forward) !== component.definitions.length ||
         reachedMembers(first, state, membership, reverse) !== component.definitions.length)) {
       report("component-membership-exact", site, "The members of a component must be mutually reachable through actual call edges.");
@@ -202,27 +205,27 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
 
   const pending: ComponentWork[] = [];
   for (const state of work) {
-    const selected = new Set<ComponentWork>();
+    const selected = new Map<number, ComponentWork>();
     for (const identity of state.component.dependencies) {
       const dependency = components.get(identity);
-      if (dependency !== undefined) selected.add(dependency);
+      if (dependency !== undefined) selected.set(dependency.occurrence, dependency);
     }
     state.remaining = selected.size;
     if (selected.size === 0) pending.push(state);
-    for (const dependency of selected) {
+    for (const dependency of selected.values()) {
       dependency.dependents.push(state);
     }
   }
-  const completed = new Set<ComponentWork>();
+  const completed = new Set<number>();
   for (const state of pending) {
-    completed.add(state);
+    completed.add(state.occurrence);
     for (const dependent of state.dependents) {
       dependent.remaining -= 1;
       if (dependent.remaining === 0) pending.push(dependent);
     }
   }
   for (const state of work) {
-    if (!completed.has(state)) {
+    if (!completed.has(state.occurrence)) {
       report("component-acyclic", componentSite(state.component), "The condensation graph must be acyclic; recursion belongs inside one component.");
     }
   }

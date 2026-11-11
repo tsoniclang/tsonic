@@ -2,7 +2,7 @@ import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Signature } from "../ir-types/contract.js";
 import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
-import { escapeData, nodeOwnedBy, relationalUsage, summaryBindingInputs, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
+import { compareNumbers, escapeData, nodeOwnedBy, relationalUsage, summaryBindingInputs, validIndex, verifyFactBindings, verifyRelationalArena } from "./verify-relations.js";
 
 interface CallbackFormals {
   readonly signatures: readonly Signature[];
@@ -42,9 +42,10 @@ export const verifySummary: VerifySummary = (summary, context) => {
     report("summary-binding-dependence", "Summary dependence equals the supplied declaration's actual binding dependence.");
   }
   const checkPaths = (paths: EffectPaths): void => {
-    let previous = -1;
+    let previous: number | null = null;
     for (const path of paths.paths) {
-      if (!validIndex(path, summary.arena.projections.length) || !Object.is(summary.arena.projections[path]?.id, path) || path <= previous) {
+      if (!validIndex(path, summary.arena.projections.length) || !Object.is(summary.arena.projections[path]?.id, path) ||
+        previous !== null && compareNumbers(previous, path) >= 0) {
         report("summary-finite", "Effect paths are distinct ordered references into the summary's own finite arena.");
       }
       previous = path;
@@ -91,7 +92,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
       !validIndex(write.value, summary.arena.origins.length) || !Object.is(summary.arena.origins[write.value]?.id, write.value)) {
       report("write-origins-resolves", "A summary write retains its actual producer and value origins in this arena.");
     }
-    if (previousWrite !== null && (previousWrite[0] > write.target || previousWrite[0] === write.target && previousWrite[1] >= write.value)) {
+    if (previousWrite !== null && (compareNumbers(previousWrite[0], write.target) || compareNumbers(previousWrite[1], write.value)) >= 0) {
       report("writes-order", "Summary writes are distinct and ordered by target producer and value origins.");
     }
     previousWrite = [write.target, write.value];
@@ -121,16 +122,17 @@ export const verifySummary: VerifySummary = (summary, context) => {
       report("cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner.");
     }
     const key = targetKey(target);
-    if (previousRetention !== null && (previousRetention[0] > retention.source || previousRetention[0] === retention.source && previousRetention[1] >= key)) {
+    if (previousRetention !== null && (compareNumbers(previousRetention[0], retention.source) > 0 ||
+      compareNumbers(previousRetention[0], retention.source) === 0 && previousRetention[1] >= key)) {
       report("retention-order", "Retention entries are distinct and ordered by source and complete target identity.");
     }
     previousRetention = [retention.source, key];
   }
-  let previousCallback = -1;
+  let previousCallback: number | null = null;
   const callbackFormals = new Map<number, CallbackFormals | null>();
   const callbackFormalSets = new Map<string, CallbackFormals>();
   for (const callback of summary.callbacks) {
-    if (callback.parameterIndex <= previousCallback) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
+    if (previousCallback !== null && compareNumbers(previousCallback, callback.parameterIndex) >= 0) report("callbacks-order", "Callback entries retain distinct declaration parameter order.");
     previousCallback = callback.parameterIndex;
     const parameterExists = formalExists(callback.parameterIndex);
     if (!parameterExists) {
@@ -155,7 +157,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
           }
         }
         if (calls !== null) {
-          const key = encodeKey([...seen].sort((left, right) => left - right));
+          const key = encodeKey([...seen].sort(compareNumbers));
           const shared = callbackFormalSets.get(key);
           if (shared !== undefined) formals = shared;
           else {
@@ -189,9 +191,9 @@ export const verifySummary: VerifySummary = (summary, context) => {
       report("callback-input-resolves", "A callback rejection channel names an actual callback formal.");
     }
   }
-  let previousInvocationOnly = -1;
+  let previousInvocationOnly: number | null = null;
   for (const parameter of summary.invocationOnlyParameters) {
-    if (parameter <= previousInvocationOnly) report("invocation-only-parameters-order", "Invocation-only parameters are distinct and ordered by declaration index.");
+    if (previousInvocationOnly !== null && compareNumbers(previousInvocationOnly, parameter) >= 0) report("invocation-only-parameters-order", "Invocation-only parameters are distinct and ordered by declaration index.");
     if (!formalExists(parameter)) {
       report("invocation-only-parameter-resolves", "An invocation-only index names an actual declaration parameter.");
     }

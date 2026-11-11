@@ -4,7 +4,11 @@ import type {
   LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef, OpenBoundaryId, OriginsId, PlaceId, ProducerId, ItemNodeRef,
   ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId, BodyId,
 } from "../ids/contract.js";
-import { decodeBodyId, decodeComponentId, decodeDefId, encodeBodyId, encodeComponentId, encodeDefId } from "../ids/index.js";
+import {
+  blockId, boundProducerId, decodeBodyId, decodeComponentId, decodeDefId, encodeBodyId, encodeComponentId, encodeDefId,
+  layoutId, localId, memoryFieldId, nodeId, openBoundaryId, originsId, placeId, producerId, projectionPathId, sigId,
+  tyId, valueContextId,
+} from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
@@ -285,41 +289,27 @@ const identityPrefix = (state: State, input: SyntaxValue, prefix: string, payloa
   return punctuation(state, ":");
 };
 const numeric = <Identity extends number>(state: State, input: SyntaxValue, prefix: string,
-  validate: (value: Atom) => value is Identity): Decoded<Identity> =>
+  construct: (value: number) => Identity): Decoded<Identity> =>
   then(identityPrefix(state, input, prefix, "number"), () => {
     const value = peek(state);
     if (value.kind === "invalid" && value.family === "number") return { kind: "invalid", failure: value.failure };
-    if (value.kind !== "scalar" || !validate(value.value)) return fail(state, value, ["number"]);
-    advance(state, value); return accept(value.value);
+    if (value.kind !== "scalar" || typeof value.value !== "number") return fail(state, value, ["number"]);
+    advance(state, value); return accept(construct(value.value));
   });
-const block: Decode<BlockId> = (state, input) => numeric(state, input, "b",
-  (value): value is BlockId => typeof value === "number");
-const bound: Decode<BoundProducerId> = (state, input) => numeric(state, input, "bound",
-  (value): value is BoundProducerId => typeof value === "number");
-const layout: Decode<LayoutId> = (state, input) => numeric(state, input, "layout",
-  (value): value is LayoutId => typeof value === "number");
-const local: Decode<LocalId> = (state, input) => numeric(state, input, "l",
-  (value): value is LocalId => typeof value === "number");
-const field: Decode<MemoryFieldId> = (state, input) => numeric(state, input, "field",
-  (value): value is MemoryFieldId => typeof value === "number");
-const node: Decode<NodeId> = (state, input) => numeric(state, input, "n",
-  (value): value is NodeId => typeof value === "number");
-const boundary: Decode<OpenBoundaryId> = (state, input) => numeric(state, input, "boundary",
-  (value): value is OpenBoundaryId => typeof value === "number");
-const originsIdentity: Decode<OriginsId> = (state, input) => numeric(state, input, "origins",
-  (value): value is OriginsId => typeof value === "number");
-const place: Decode<PlaceId> = (state, input) => numeric(state, input, "p",
-  (value): value is PlaceId => typeof value === "number");
-const producerIdentity: Decode<ProducerId> = (state, input) => numeric(state, input, "producer",
-  (value): value is ProducerId => typeof value === "number");
-const path: Decode<ProjectionPathId> = (state, input) => numeric(state, input, "path",
-  (value): value is ProjectionPathId => typeof value === "number");
-const signature: Decode<SigId> = (state, input) => numeric(state, input, "sig",
-  (value): value is SigId => typeof value === "number");
-const typeIdentity: Decode<TyId> = (state, input) => numeric(state, input, "t",
-  (value): value is TyId => typeof value === "number");
-const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state, input, "context",
-  (value): value is ValueContextId => typeof value === "number");
+const block: Decode<BlockId> = (state, input) => numeric(state, input, "b", blockId);
+const bound: Decode<BoundProducerId> = (state, input) => numeric(state, input, "bound", boundProducerId);
+const layout: Decode<LayoutId> = (state, input) => numeric(state, input, "layout", layoutId);
+const local: Decode<LocalId> = (state, input) => numeric(state, input, "l", localId);
+const field: Decode<MemoryFieldId> = (state, input) => numeric(state, input, "field", memoryFieldId);
+const node: Decode<NodeId> = (state, input) => numeric(state, input, "n", nodeId);
+const boundary: Decode<OpenBoundaryId> = (state, input) => numeric(state, input, "boundary", openBoundaryId);
+const originsIdentity: Decode<OriginsId> = (state, input) => numeric(state, input, "origins", originsId);
+const place: Decode<PlaceId> = (state, input) => numeric(state, input, "p", placeId);
+const producerIdentity: Decode<ProducerId> = (state, input) => numeric(state, input, "producer", producerId);
+const path: Decode<ProjectionPathId> = (state, input) => numeric(state, input, "path", projectionPathId);
+const signature: Decode<SigId> = (state, input) => numeric(state, input, "sig", sigId);
+const typeIdentity: Decode<TyId> = (state, input) => numeric(state, input, "t", tyId);
+const contextIdentity: Decode<ValueContextId> = (state, input) => numeric(state, input, "context", valueContextId);
 const definition: Decode<DefId> = (state, input) =>
   then(identityPrefix(state, input, "def", "string"), () => then(scalarString(state, peek(state)), value => {
     const decoded = decodeDefId(value);

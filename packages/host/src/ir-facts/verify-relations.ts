@@ -16,6 +16,14 @@ import type {
 export const validIndex = (index: number, length: number): boolean =>
   Number.isSafeInteger(index) && index >= 0 && index < length && !Object.is(index, -0);
 
+export const compareNumbers = (left: number, right: number): number => {
+  if (Object.is(left, right)) return 0;
+  if (Number.isNaN(left)) return 1;
+  if (Number.isNaN(right)) return -1;
+  if (left === right) return Object.is(left, -0) ? -1 : 1;
+  return left < right ? -1 : 1;
+};
+
 export const relationalUsage = (arena: RelationalArena): {
   readonly records: number; readonly references: number; readonly depth: number; readonly alternatives: number;
 } => {
@@ -285,6 +293,26 @@ export const collectSelectionChecks = (
     }
   };
   const member = selection.decision;
+  const key = (value: MemberKey): void => {
+    if (value.kind === "symbol" && !context.definitionExists(value.declaration)) {
+      report("producer-resolves", "A selected member symbol key retains its actual declaration.");
+    }
+  };
+  key(member.key);
+  for (const origin of member.origins) {
+    switch (origin.kind) {
+      case "declared":
+        if (!context.definitionExists(origin.declaration)) report("producer-resolves", "A selected member origin retains its actual declaration.");
+        break;
+      case "class-prototype":
+        if (!context.definitionExists(origin.owner)) report("producer-resolves", "A selected member origin retains its actual declaration.");
+        break;
+      case "mapped":
+        if (!context.nodeExists(origin.owner)) report("node-resolves", "A selected member origin retains its actual qualified source occurrence.");
+        key(origin.key);
+        break;
+    }
+  }
   type(member.read); type(member.write); endpoint(member.getter); endpoint(member.setter);
   for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
     report("producer-resolves", "A selected member retains its actual selected declaration group.");
@@ -480,9 +508,10 @@ export const verifyRelationalArena = (
       (expected.receiver !== value.receiver || expected.arguments.some((argument, position) => argument !== value.arguments[position]))) {
       report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives.");
     }
-    let previousCapture = -1;
+    let previousCapture: number | null = null;
     for (const capture of value.captures) {
-      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) || capture.index <= previousCapture ||
+      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) ||
+        previousCapture !== null && compareNumbers(previousCapture, capture.index) >= 0 ||
         !validIndex(capture.location, arena.boundProducers.length) || !Object.is(arena.boundProducers[capture.location]?.id, capture.location)) {
         report("capture-locations-exact", site, "Captured locations must retain distinct ordered indices and actual bound storage locations.");
       }
@@ -517,12 +546,12 @@ export const verifyRelationalArena = (
   for (const [index, origins] of arena.origins.entries()) {
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
     if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
-    let previous = -1;
+    let previous: number | null = null;
     for (const bound of origins.producers) {
       if (!validIndex(bound, arena.boundProducers.length) || !Object.is(arena.boundProducers[bound]?.id, bound)) {
         report("bound-producer-resolves", site, "An origin alternative must reference an actual bound producer in its own arena.");
       }
-      if (bound <= previous) {
+      if (previous !== null && compareNumbers(previous, bound) >= 0) {
         report("origin-alternatives-order", site, "Origin alternatives must be distinct and ordered by canonical bound-producer identity.");
       }
       previous = bound;
