@@ -11,7 +11,7 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
-import { encodeDefId, encodeKey, encodeModuleId, encodePackageId, sigId, tyId } from "../../packages/host/dist/ids/index.js";
+import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, encodePackageId, sigId, tyId } from "../../packages/host/dist/ids/index.js";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -139,6 +139,14 @@ function identityKey(identity) {
   const module = identity.module;
   return encodeKey([[module.providerId, module.providerVersion, module.packageName,
     module.moduleSpecifier, module.providerModuleId], identity.exportId, identity.memberId, identity.signatureId]);
+}
+
+function onlyLookup(identity, value) {
+  const key = identityKey(identity);
+  return actual => {
+    assert.equal(identityKey(actual), key, "only the explicit canonical export projection is admitted");
+    return value;
+  };
 }
 
 function roleError(identity) {
@@ -289,7 +297,7 @@ test("every factual type arm/native primitive/passing mode/property/visibility a
     { kind: "number", value: { numerator: -7n, denominator: 11n, negativeZero: false } },
     { kind: "bigint", value: 9007199254740993n }, { kind: "string", value: "\uD800" },
     { kind: "boolean", value: true }, { kind: "boolean", value: false }, { kind: "absence" },
-    { kind: "unique-symbol", declaration: "D[M[P[project];input.ts];symbol]" },
+    { kind: "unique-symbol", declaration: definitionId("symbol") },
   ];
   const parameters = passing.map((passingMode, index) => ({ name: `parameter${index}`, type: 0,
     passingMode, optional: index % 2 === 0, rest: false, defaultType: index % 2 === 0 ? 0 : null }));
@@ -380,6 +388,46 @@ test("dense library type IDs and every direct reference position preserve exact 
   }
 });
 
+test("every declaration/member/signature/default/constraint reference reports its actual owning full identity", () => {
+  const module = identity();
+  const root = exportIdentity(module);
+  const memberIdentity = exportIdentity(module, "export", "member");
+  const binder = { name: "T", constraints: [], defaultType: null, variance: "invariant" };
+  const parameter = { name: "p", type: 0, passingMode: "by-value", optional: false, rest: false, defaultType: null };
+  const scenarios = [
+    [declaration({ type: 9 }), root],
+    [declaration({ typeParameters: [{ ...binder, constraints: [9] }] }), root],
+    [declaration({ typeParameters: [{ ...binder, defaultType: 9 }] }), root],
+    [declaration({ heritage: [{ kind: "extends", type: 9 }] }), root],
+    [declaration({ heritage: [{ kind: "implements", type: 9 }] }), root],
+    [declaration({ members: [member({ type: 9 })] }), memberIdentity],
+    [declaration({ signatures: [signature({ parameters: [{ ...parameter, type: 9 }] })] }), root],
+    [declaration({ signatures: [signature({ parameters: [{ ...parameter, defaultType: 9 }] })] }), root],
+    [declaration({ signatures: [signature({ returnType: 9 })] }), root],
+    [declaration({ signatures: [signature({ typeParameters: [{ ...binder, constraints: [9] }] })] }), root],
+    [declaration({ signatures: [signature({ typeParameters: [{ ...binder, defaultType: 9 }] })] }), root],
+    [declaration({ members: [member({ signatures: [signature({ parameters: [{ ...parameter, type: 9 }] })] })] }), memberIdentity],
+    [declaration({ members: [member({ signatures: [signature({ parameters: [{ ...parameter, defaultType: 9 }] })] })] }), memberIdentity],
+    [declaration({ members: [member({ signatures: [signature({ returnType: 9 })] })] }), memberIdentity],
+    [declaration({ members: [member({ signatures: [signature({ typeParameters: [{ ...binder, constraints: [9] }] })] })] }), memberIdentity],
+    [declaration({ members: [member({ signatures: [signature({ typeParameters: [{ ...binder, defaultType: 9 }] })] })] }), memberIdentity],
+  ];
+  for (const [value, identity] of scenarios) {
+    assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: [{ id: 0, kind: "unknown" }], exports: [value] })]))),
+      [finding("type-reference-resolves", { kind: "export", identity }, encodeKey(9))]);
+  }
+  for (const value of [signature({ parameters: [{ ...parameter, type: 9 }] }),
+    signature({ parameters: [{ ...parameter, defaultType: 9 }] }), signature({ returnType: 9 }),
+    signature({ typeParameters: [{ ...binder, constraints: [9] }] }), signature({ typeParameters: [{ ...binder, defaultType: 9 }] })]) {
+    assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: [
+      { id: 0, kind: "function", signature: value },
+    ] })]))), [finding("type-reference-resolves", { kind: "type", module, type: 0 }, encodeKey(9))]);
+  }
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: [{ id: 0, kind: "type-parameter", name: "T" }],
+    exports: [declaration({ members: [member({ type: 0 })] })] })]))),
+    [finding("type-parameter-resolves", { kind: "export", identity: memberIdentity }, "T")]);
+});
+
 test("declaration/member/signature/export-name uniqueness and rest-last are separately checked with full vectors", () => {
   const module = identity();
   const root = exportIdentity(module);
@@ -413,12 +461,35 @@ test("duplicate arena IDs never overwrite a supplied row or mask its independent
     finding("type-reference-resolves", { kind: "type", module, type: 1 }, encodeKey(1))]);
 });
 
+test("only own dense arena slots resolve; inherited client values never impersonate rows", () => {
+  const module = identity();
+  const types = new Array(1);
+  const prototype = Object.create(Array.prototype);
+  Object.defineProperty(prototype, "0", { value: { id: 0, kind: "unknown" }, enumerable: true });
+  Object.setPrototypeOf(types, prototype);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types })]))),
+    [finding("type-id-dense", { kind: "module", module }, "0")]);
+  const { input, summary } = summaryInput();
+  const projections = new Array(1);
+  const pathPrototype = Object.create(Array.prototype);
+  Object.defineProperty(pathPrototype, "0", { value: { id: 0, parent: null, projection: { kind: "element" } }, enumerable: true });
+  Object.setPrototypeOf(projections, pathPrototype);
+  assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, projections }])),
+    [finding("authored-summary-id-dense", summarySite(summary.identity, "projection", 0))]);
+});
+
 test("generic family arity and binder names have independent exact valid/opposite cases", () => {
   const module = identity();
   const site = { kind: "export", identity: exportIdentity(module) };
   const parameter = { name: "T", constraints: [], defaultType: null, variance: "invariant" };
   const valid = declaration({ typeFamily: { exportName: "export", typeArgumentCount: 1 }, typeParameters: [parameter] });
   assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [valid] })]))), []);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [
+    declaration({ typeFamily: { exportName: "export", typeArgumentCount: 0 } }),
+  ] })]))), []);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [
+    declaration({ typeFamily: { exportName: "export", typeArgumentCount: -0 } }),
+  ] })]))), [finding("type-family-arity-exact", site)]);
   for (const count of [-1, -0, 0, 2, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [
       { ...valid, typeFamily: { exportName: "export", typeArgumentCount: count } },
@@ -430,6 +501,12 @@ test("generic family arity and binder names have independent exact valid/opposit
   assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [
     declaration({ signatures: [signature({ typeParameters: [parameter, { ...parameter }] })] }),
   ] })]))), [finding("type-parameter-names-unique", site, "T")]);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: [
+    { id: 0, kind: "function", signature: signature({ name: "actual callable name", typeParameters: [parameter, { ...parameter }] }) },
+  ] })]))), [finding("type-parameter-names-unique", { kind: "type", module, type: 0 }, "T")]);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ exports: [
+    declaration({ members: [member({ signatures: [signature({ typeParameters: [parameter, { ...parameter }] })] })] }),
+  ] })]))), [finding("type-parameter-names-unique", { kind: "export", identity: exportIdentity(module, "export", "member") }, "T")]);
 });
 
 test("exact rationals reject each real malformed number/property value without rejecting negative zero or native precision", () => {
@@ -482,6 +559,26 @@ test("binder visibility follows actual signature/declaration roots through share
   ] })]))), []);
 });
 
+test("local and outer generic scopes retain all missing names and coalesce repeated arena name seeds", () => {
+  const module = identity();
+  const parameter = name => ({ name, constraints: [], defaultType: null, variance: "invariant" });
+  const types = [{ id: 0, kind: "type-parameter", name: "T" }, { id: 1, kind: "type-parameter", name: "U" },
+    { id: 2, kind: "type-parameter", name: "T" }, { id: 3, kind: "tuple", elementTypes: [0, 1, 2] }];
+  const valid = declaration({ type: 0, typeParameters: [parameter("T")],
+    signatures: [signature({ returnType: 1, typeParameters: [parameter("U")] })] });
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types, exports: [valid] })]))), []);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types,
+    exports: [{ ...valid, signatures: [signature({ returnType: 0, typeParameters: [parameter("T")] })] }] })]))), []);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types,
+    exports: [{ ...valid, type: 1 }] })]))),
+    [finding("type-parameter-resolves", { kind: "export", identity: exportIdentity(module) }, "U")]);
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types,
+    exports: [declaration({ type: 3 })] })]))), [
+    finding("type-parameter-resolves", { kind: "export", identity: exportIdentity(module) }, "T"),
+    finding("type-parameter-resolves", { kind: "export", identity: exportIdentity(module) }, "U"),
+  ]);
+});
+
 test("a real 100000-row reference chain and wide shared arena are checked iteratively without a hidden cap", () => {
   const types = Array.from({ length: 100000 }, (_, id) => id === 0
     ? { id, kind: "unknown" } : { id, kind: "array", elementType: id - 1 });
@@ -490,6 +587,21 @@ test("a real 100000-row reference chain and wide shared arena are checked iterat
   const shared = [{ id: 0, kind: "number" }, { id: 1, kind: "tuple", elementTypes: Array(100000).fill(0) }];
   assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: shared,
     exports: [declaration({ type: 1 })] })]))), []);
+});
+
+test("100000 nested generic functions and a fully bound shared-name arena do not copy visible scopes per node", () => {
+  const binder = { name: "T", constraints: [], defaultType: null, variance: "invariant" };
+  const types = Array.from({ length: 100000 }, (_, id) => id === 0 ? { id, kind: "type-parameter", name: "T" }
+    : { id, kind: "function", signature: signature({ typeParameters: [binder], returnType: id - 1 }) });
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types,
+    exports: [declaration({ type: 99999 })] })]))), []);
+  const names = Array.from({ length: 10000 }, (_, index) => `T${index}`);
+  const parameters = names.map(name => ({ ...binder, name }));
+  const shared = names.map((name, id) => ({ id, kind: "type-parameter", name }));
+  shared.push({ id: 10000, kind: "tuple", elementTypes: names.map((_, id) => id) });
+  const signatures = Array.from({ length: 10000 }, (_, index) => signature({ id: `s${index}`, returnType: index }));
+  assert.deepEqual(product.verifyLibraryCatalogue(immutable(catalogue([moduleValue({ types: shared,
+    exports: [declaration({ type: 10000, typeParameters: parameters, signatures })] })]))), []);
 });
 
 test("roles resolve complete export/member/signature identities, not object identity or spelling", () => {
@@ -545,6 +657,11 @@ test("every role name and empty/single/multiple role-to-definition lookup uses c
     const second = { identity: exportIdentity(module, "z"), role, definition: definitionId("a") };
     assert.deepEqual(product.libraryRolesOf({ sources: [], sourceRoles: [] }, role), []);
     assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles: [first] }), role), [definitionId("z")]);
+    const catalogueValue = catalogue([moduleValue({ exports: [declaration()], roles: [{ identity: exportIdentity(module), role }] })]);
+    assert.deepEqual(product.libraryRoleOf(immutable(catalogueValue), exportIdentity(module)), role);
+    assert.deepEqual(product.bindRoles(catalogueValue, onlyLookup(exportIdentity(module), definitionId("a"))), { kind: "ok", value: {
+      sources: catalogueValue.sources, sourceRoles: [{ identity: exportIdentity(module), role, definition: definitionId("a") }],
+    }, diagnostics: [] });
     for (const sourceRoles of [[first, second], [second, first]]) {
       assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles }), role), [definitionId("z"), definitionId("a")]);
     }
@@ -554,6 +671,41 @@ test("every role name and empty/single/multiple role-to-definition lookup uses c
   assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles: [second, first] }), "pointer"),
     [definitionId("same"), definitionId("same")]);
   assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles: [first, second] }), "load"), []);
+});
+
+test("role ordering is total over every module/export/member/signature field and same-identity definition ties", () => {
+  const modules = [identity({ providerId: "a", moduleSpecifier: "a", providerModuleId: "a" }),
+    identity({ providerId: "a", moduleSpecifier: "a", providerModuleId: "z" }),
+    identity({ providerId: "a", moduleSpecifier: "z", providerModuleId: "a" }),
+    identity({ providerId: "a", packageName: "", moduleSpecifier: "a", providerModuleId: "a" }),
+    identity({ providerId: "a", packageName: "null", moduleSpecifier: "a", providerModuleId: "a" }),
+    identity({ providerId: "a", providerVersion: "2", moduleSpecifier: "a", providerModuleId: "a" }),
+    identity({ providerId: "z", moduleSpecifier: "a", providerModuleId: "a" })];
+  const ordered = modules.map((module, index) => ({ identity: exportIdentity(module), role: "pointer", definition: definitionId(String(index)) }));
+  for (let index = 1; index < ordered.length; index += 1) {
+    for (const sourceRoles of [[ordered[index - 1], ordered[index]], [ordered[index], ordered[index - 1]]]) {
+      assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles }), "pointer"),
+        [ordered[index - 1].definition, ordered[index].definition]);
+    }
+  }
+  const first = { identity: exportIdentity(modules[0]), role: "pointer", definition: definitionId("a") };
+  const second = { ...first, definition: definitionId("z") };
+  for (const sourceRoles of [[first, second], [second, first]]) {
+    assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles }), "pointer"), [first.definition, second.definition]);
+  }
+  assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles: [first, { ...first }] }), "pointer"),
+    [first.definition, first.definition]);
+  const identities = [exportIdentity(modules[0], "a"), exportIdentity(modules[0], "a", null, "a"),
+    exportIdentity(modules[0], "a", null, "z"), exportIdentity(modules[0], "a", "a"),
+    exportIdentity(modules[0], "a", "a", "a"), exportIdentity(modules[0], "a", "a", "z"),
+    exportIdentity(modules[0], "a", "z"), exportIdentity(modules[0], "z")];
+  for (let index = 1; index < identities.length; index += 1) {
+    const left = { identity: identities[index - 1], role: "pointer", definition: first.definition };
+    const right = { identity: identities[index], role: "pointer", definition: second.definition };
+    for (const sourceRoles of [[left, right], [right, left]]) {
+      assert.deepEqual(product.libraryRolesOf(immutable({ sources: [], sourceRoles }), "pointer"), [first.definition, second.definition]);
+    }
+  }
 });
 
 test("role binding is a pure exact supplied-identity projection in both catalogue input orders", () => {
@@ -606,6 +758,12 @@ test("role binding refuses every missing, foreign-owner, duplicate and ambiguous
   ] })]));
   assert.deepEqual(product.bindRoles(multiple, () => { throw new Error("No invalid lookup."); }),
     { kind: "refused", diagnostics: [roleError(exportIdentity(module, "a")), roleError(exportIdentity(module, "z"))] });
+  const local = moduleValue({ identity: module, exports: [declaration()], roles: [{ identity: selected, role: "pointer" }] });
+  const foreignOwner = moduleValue({ identity: identity({ providerId: "elsewhere" }), roles: [{ identity: selected, role: "pointer" }] });
+  for (const modules of [[local, foreignOwner], [foreignOwner, local]]) {
+    assert.deepEqual(product.bindRoles(immutable(catalogue(modules)), () => { throw new Error("Duplicate cross-owner identity never projects."); }),
+      { kind: "refused", diagnostics: [roleError(selected)] });
+  }
 });
 
 test("bound-role existence and authoritative correspondence are independent complete rules", () => {
@@ -664,6 +822,20 @@ test("bound-role global ordering uses every identity component and does not muta
   }), []);
 });
 
+test("ambiguous authored role rows yield their entire catalogue-and-bound vector without choosing either role", () => {
+  const module = identity();
+  const identityValue = exportIdentity(module);
+  const role = { identity: identityValue, role: "pointer" };
+  const sources = catalogue([moduleValue({ exports: [declaration()], roles: [role, { ...role }] })]).sources;
+  const definition = definitionId("api");
+  const context = { definitionExists: value => value === definition,
+    definitionOfExport: () => { throw new Error("An ambiguous authored role never projects a winning definition."); } };
+  const exact = finding("role-binding-exact", { kind: "export", identity: identityValue });
+  const unique = finding("role-identities-unique", { kind: "export", identity: identityValue });
+  assert.deepEqual(product.verifyBoundLibraries(immutable({ sources, sourceRoles: [{ ...role, definition }] }), context), [exact, unique]);
+  assert.deepEqual(product.verifyBoundLibraries(immutable({ sources, sourceRoles: [] }), context), [exact, exact, unique]);
+});
+
 test("authored summaries accept a genuine empty function law and reject absent export/member/signature identities", () => {
   const { input, summary } = summaryInput();
   assert.deepEqual(product.verifyAuthoredSummaries(immutable(input), immutable([])), []);
@@ -711,6 +883,30 @@ test("every authored ID table checks dense own slots and preserves the complete 
   const sparse = new Array(1);
   assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, projections: sparse }])),
     [finding("authored-summary-id-dense", summarySite(summary.identity, "projection", 0))]);
+  for (const id of [-1, -0, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const [table, changes] of [
+      ["projection", { projections: [{ id, parent: null, projection: { kind: "element" } }] }],
+      ["producer", { producers: [{ ...receiver, id }] }],
+      ["boundary", { producers: [receiver], boundaries: [{ id, kind: "external-input", site: 0, subject: 0, owner: null, detail: "reason" }] }],
+    ]) assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, ...changes }])),
+      [finding("authored-summary-id-dense", summarySite(summary.identity, table, 0))]);
+    assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary,
+      origins: [{ id, kind: "complete", producers: [], includesAbsence: false }],
+    }])), expectedSummaryOrder([
+      finding("authored-summary-id-dense", summarySite(summary.identity, "origins", 0)),
+      finding("authored-summary-reference-resolves", summarySite(summary.identity, "origins", null), "result", encodeKey(0)),
+      finding("authored-summary-reference-resolves", summarySite(summary.identity, "origins", null), "thrown", encodeKey(0)),
+    ]));
+  }
+  for (const [table, property] of [["producer", "producers"], ["boundary", "boundaries"]]) {
+    assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, [property]: new Array(1) }])),
+      [finding("authored-summary-id-dense", summarySite(summary.identity, table, 0))]);
+  }
+  assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, origins: new Array(1) }])), expectedSummaryOrder([
+    finding("authored-summary-id-dense", summarySite(summary.identity, "origins", 0)),
+    finding("authored-summary-reference-resolves", summarySite(summary.identity, "origins", null), "result", encodeKey(0)),
+    finding("authored-summary-reference-resolves", summarySite(summary.identity, "origins", null), "thrown", encodeKey(0)),
+  ]));
 });
 
 test("authored projection references and parent-before-child are separately verified without a path repair", () => {
@@ -815,6 +1011,11 @@ test("every authored reference-bearing table has a minimal complete dangling-ref
     [{ producers: [receiver], retention: [{ source: 0, into: { kind: "shared", identity: missing, path: null } }] }, "retention"],
   ]) assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, ...changes }])),
     [finding("authored-summary-reference-resolves", summarySite(summary.identity, table, 0), "export", identityKey(missing))]);
+  for (const value of [-1, -0, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([{ ...summary, producers: [receiver],
+      origins: [{ id: 0, kind: "complete", producers: [value], includesAbsence: false }],
+    }])), [finding("authored-summary-reference-resolves", summarySite(summary.identity, "origins", 0), "producer", encodeKey(value))]);
+  }
 });
 
 test("complete/open origins and read/write footprints retain strict ordered alternatives and boundaries", () => {
@@ -974,6 +1175,19 @@ test("callbacks require every callable alternative to admit the inner parameter 
   const unresolved = exportIdentity(module, "missing", null, "signature");
   assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([authoredSummary(unresolved, { callbacks: [callback] })])),
     [finding("authored-summary-identity-resolves", summarySite(unresolved, "parameter", null))]);
+  const noSignature = exportIdentity(module);
+  assert.deepEqual(product.verifyAuthoredSummaries(input, immutable([authoredSummary(noSignature, { callbacks: [
+    { ...callback, inputs: [{ kind: "receiver-element", parameterIndex: 0 }] },
+  ] })])), expectedSummaryOrder([
+    finding("authored-summary-identity-resolves", summarySite(noSignature, "parameter", null)),
+    finding("authored-summary-parameter-range", summarySite(noSignature, "callback", 0), "callback", encodeKey(0)),
+  ]));
+  const badType = catalogue([moduleValue({ exports: [declaration({ signatures: [signature({ parameters: [parameter(9)] })] })] })]);
+  const badIdentity = exportIdentity(module, "export", null, "signature");
+  assert.deepEqual(product.verifyAuthoredSummaries(immutable(badType), immutable([authoredSummary(badIdentity, { callbacks: [
+    { ...callback, inputs: [{ kind: "receiver-element", parameterIndex: 0 }] },
+  ] })])), [finding("type-reference-resolves", { kind: "export", identity: exportIdentity(module) }, encodeKey(9)),
+    finding("authored-summary-parameter-range", summarySite(badIdentity, "callback", 0), "callback", encodeKey(0))]);
 });
 
 test("summary binding keeps genuine absence empty and preserves the actual staged source/role vectors", () => {
@@ -996,6 +1210,141 @@ test("summary binding keeps genuine absence empty and preserves the actual stage
   assert.equal(actual.value.sources === staged.sources && actual.value.sourceRoles === staged.sourceRoles, true);
 });
 
+test("all unused required/optional/default/rest formals retain dense identities, origins and no-flow rows", () => {
+  const module = identity();
+  const summary = authoredSummary(exportIdentity(module, "export", null, "signature"));
+  const input = catalogue([moduleValue({ types: [{ id: 0, kind: "unknown" }], exports: [declaration({ signatures: [signature({
+    parameters: ["required", "optional", "default", "rest"].map((kind, index) => ({ name: `p${index}`, type: 0,
+      passingMode: "by-value", optional: kind === "optional" || kind === "default", rest: kind === "rest", defaultType: kind === "default" ? 0 : null })),
+  })] })] })]);
+  const definition = definitionId("api");
+  const parameters = ["required", "optional", "default", "rest"].map((kind, index) => ({ declaration: definitionId(`p${index}`),
+    kind, type: tyId(0), passing: "by-value", initializer: kind === "default"
+      ? encodeBodyId({ owner: definitionId(`p${index}`), role: "initializer", ordinal: 0 }) : null }));
+  const binding = immutable(exportBinding(definition, { signature: declaredSignature(definition, { parameters }) }));
+  const bound = immutable({ sources: input.sources, sourceRoles: [] });
+  const complete = { kind: "complete", paths: [] };
+  const expected = emptySummary(binding, {
+    arena: { projections: [], producers: [0, 1, 2, 3].map(index => ({ id: index, kind: "parameter", index, path: null })),
+      contexts: [{ id: 0, receiver: null, arguments: [1, 2, 3, 4], captures: [] }],
+      boundProducers: [0, 1, 2, 3].map(id => ({ id, producer: id, bindings: binding.bindings, context: 0 })),
+      origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
+        ...[0, 1, 2, 3].map(id => ({ id: id + 1, kind: "complete", producers: [id], includesAbsence: false }))], boundaries: [] },
+    parameters: [0, 1, 2, 3].map(index => ({ slot: { kind: "parameter", index }, reads: complete, writes: complete })),
+  });
+  assert.deepEqual(product.bindSummaries(bound, immutable([summary]), onlyLookup(summary.identity, binding)),
+    { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+  const constructorBinding = { ...binding, signature: { ...binding.signature, id: sigId(1), kind: "construct" } };
+  assert.deepEqual(product.bindSummaries(bound, [summary], onlyLookup(summary.identity, constructorBinding)),
+    { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: { ...expected, signature: sigId(1) } }] }, diagnostics: [] });
+});
+
+test("an unused actual receiver has its own formal identity/context and no-flow effect without an authored producer", () => {
+  const { input, summary } = summaryInput();
+  const definition = definitionId("receiver-api");
+  const binding = exportBinding(definition, { signature: declaredSignature(definition, { receiver: tyId(0) }) });
+  const bound = immutable({ sources: input.sources, sourceRoles: [] });
+  const complete = { kind: "complete", paths: [] };
+  const expected = emptySummary(binding, { arena: { projections: [], producers: [{ id: 0, kind: "receiver", path: null }],
+    contexts: [{ id: 0, receiver: 1, arguments: [], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.bindings, context: 0 }],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
+      { id: 1, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
+  parameters: [{ slot: { kind: "receiver" }, reads: complete, writes: complete }] });
+  assert.deepEqual(product.bindSummaries(bound, immutable([summary]), onlyLookup(summary.identity, binding)),
+    { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+});
+
+test("binding canonical write and escape keys include the complete secondary target/value facets", () => {
+  const { input, summary } = summaryInput(1);
+  const definition = definitionId("api");
+  const binding = exportBinding(definition, { signature: declaredSignature(definition, { parameters: [
+    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "byref-readwrite", initializer: null },
+  ] }) });
+  const raw = { ...summary, producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
+      { id: 1, kind: "complete", producers: [], includesAbsence: true }],
+    writes: [{ target: 0, value: 0 }, { target: 0, value: 1 }], retention: [
+      { source: 0, into: { kind: "throw" } }, { source: 0, into: { kind: "return" } },
+      { source: 0, into: { kind: "parameter", index: 0, path: null } },
+    ] };
+  const complete = { kind: "complete", paths: [] };
+  const expected = emptySummary(binding, { arena: { projections: [], producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
+    contexts: [{ id: 0, receiver: null, arguments: [2], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.bindings, context: 0 }],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
+      { id: 1, kind: "complete", producers: [], includesAbsence: true }, { id: 2, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
+  parameters: [{ slot: { kind: "parameter", index: 0 }, reads: complete, writes: complete }],
+  writes: [{ target: 0, value: 0 }, { target: 0, value: 1 }], retention: [
+    { source: 0, into: { kind: "throw" } }, { source: 0, into: { kind: "return" } },
+    { source: 0, into: { kind: "parameter", index: 0, path: null } },
+  ] });
+  const bound = immutable({ sources: input.sources, sourceRoles: [] });
+  assert.deepEqual(product.bindSummaries(bound, immutable([raw]), onlyLookup(summary.identity, binding)),
+    { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+});
+
+test("capture and shared escapes preserve both nullable path forms and the canonical shared definition", () => {
+  const { input, summary } = summaryInput();
+  const definition = definitionId("api");
+  const binding = exportBinding(definition);
+  const shared = exportIdentity(summary.identity.module);
+  const sharedDefinition = definitionId("shared");
+  const raw = { ...summary, projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
+    producers: [{ id: 0, kind: "capture", index: 0, path: null }],
+    captures: [{ index: 0, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } }],
+    retention: [{ source: 0, into: { kind: "shared", identity: shared, path: null } },
+      { source: 0, into: { kind: "capture", index: 0, path: 0 } }],
+  };
+  const expected = emptySummary(binding, { arena: { projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
+    producers: [{ id: 0, kind: "capture", index: 0, path: null }], contexts: [{ id: 0, receiver: null, arguments: [], captures: [{ index: 0, location: 0 }] }],
+    boundProducers: [{ id: 0, producer: 0, bindings: binding.bindings, context: 0 }],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] },
+  captures: [{ index: 0, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } }],
+  retention: [{ source: 0, into: { kind: "shared", definition: sharedDefinition, path: null } },
+    { source: 0, into: { kind: "capture", index: 0, path: 0 } }] });
+  const bound = immutable({ sources: input.sources, sourceRoles: [] });
+  assert.deepEqual(product.bindSummaries(bound, immutable([raw]), identity => {
+    const key = identityKey(identity);
+    assert.equal([identityKey(shared), identityKey(summary.identity)].includes(key), true, "no unlisted export lookup");
+    return key === identityKey(shared) ? { ...binding, definition: sharedDefinition, signature: null } : binding;
+  }),
+  { kind: "ok", value: { ...bound, declaredSummaries: [{ identity: summary.identity, summary: expected }] }, diagnostics: [] });
+});
+
+test("summary publication is canonical across input orders and shared unresolved projections are memoized by full identity", () => {
+  const module = identity();
+  const first = exportIdentity(module, "a", null, "signature");
+  const second = exportIdentity(module, "z", null, "signature");
+  const field = exportIdentity(module, "m", "field");
+  const sources = catalogue([moduleValue({ exports: [declaration({ id: "a", exportName: "a", signatures: [signature()] }),
+    declaration({ id: "m", exportName: "m", members: [member({ id: "field", kind: "field" })] }),
+    declaration({ id: "z", exportName: "z", signatures: [signature()] })] })]).sources;
+  const bound = immutable({ sources, sourceRoles: [] });
+  const binding = immutable(exportBinding(definitionId("shared-alias")));
+  const firstRaw = authoredSummary(first);
+  const secondRaw = authoredSummary(second);
+  for (const declared of [[firstRaw, secondRaw], [secondRaw, firstRaw]]) {
+    const calls = [];
+    assert.deepEqual(product.bindSummaries(bound, immutable(declared), identity => {
+      calls.push(identityKey(identity));
+      assert.equal([identityKey(first), identityKey(second)].includes(identityKey(identity)), true);
+      return binding;
+    }), { kind: "ok", value: { ...bound, declaredSummaries: [
+      { identity: first, summary: emptySummary(binding) }, { identity: second, summary: emptySummary(binding) },
+    ] }, diagnostics: [] });
+    assert.deepEqual(calls, [identityKey(first), identityKey(second)]);
+  }
+  const projection = { id: 0, parent: null, projection: { kind: "field", identity: field } };
+  const calls = [];
+  assert.deepEqual(product.bindSummaries(bound, immutable([{ ...secondRaw, projections: [projection] }, { ...firstRaw, projections: [projection] }]),
+    identity => {
+      const key = identityKey(identity);
+      calls.push(key);
+      assert.equal([identityKey(first), identityKey(second), identityKey(field)].includes(key), true);
+      return key === identityKey(field) ? null : binding;
+    }), { kind: "refused", diagnostics: [summaryError(first), summaryError(second)] });
+  assert.deepEqual(calls, [identityKey(first), identityKey(field), identityKey(second)]);
+});
+
 test("summary member exactness has precisely the four presence/unresolved controls and no MemberSelection replay", () => {
   const module = identity();
   const memberIdentity = exportIdentity(module, "export", "member", "signature");
@@ -1010,11 +1359,11 @@ test("summary member exactness has precisely the four presence/unresolved contro
   }), { kind: "ok", value: { ...input, declaredSummaries: [
     { identity: memberIdentity, summary: emptySummary(binding) },
   ] }, diagnostics: [] });
-  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(memberIdentity)]), () => ({ ...binding, member: null })),
+  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(memberIdentity)]), onlyLookup(memberIdentity, { ...binding, member: null })),
     { kind: "refused", diagnostics: [summaryError(memberIdentity)] });
-  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(rootIdentity)]), () => binding),
+  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(rootIdentity)]), onlyLookup(rootIdentity, binding)),
     { kind: "refused", diagnostics: [summaryError(rootIdentity)] });
-  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(memberIdentity)]), () => null),
+  assert.deepEqual(product.bindSummaries(input, immutable([authoredSummary(memberIdentity)]), onlyLookup(memberIdentity, null)),
     { kind: "refused", diagnostics: [summaryError(memberIdentity)] });
 });
 
@@ -1026,23 +1375,88 @@ test("summary binding refuses missing endpoints/signatures/duplicate identities 
   assert.deepEqual(product.bindSummaries(staged, immutable([authoredSummary(missing)]), () => {
     throw new Error("A nonexistent factual export must never reach the canonical projection.");
   }), { kind: "refused", diagnostics: [summaryError(missing)] });
-  assert.deepEqual(product.bindSummaries(staged, immutable([summary]), () => ({ ...binding, signature: null })),
+  assert.deepEqual(product.bindSummaries(staged, immutable([summary]), onlyLookup(summary.identity, { ...binding, signature: null })),
     { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   assert.deepEqual(product.bindSummaries(staged, immutable([summary, { ...summary }]), () => {
     throw new Error("Duplicate authored identities must not choose either row or project it.");
   }), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   const role = { identity: summary.identity, role: "pointer", definition: definitionId("wrong-but-existing") };
-  assert.deepEqual(product.bindSummaries(immutable({ ...staged, sourceRoles: [role] }), immutable([summary]), () => binding),
+  assert.deepEqual(product.bindSummaries(immutable({ ...staged, sourceRoles: [role] }), immutable([summary]), onlyLookup(summary.identity, binding)),
     { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   const exactRole = { ...role, definition: binding.definition };
-  assert.deepEqual(product.bindSummaries(immutable({ ...staged, sourceRoles: [exactRole] }), immutable([summary]), () => binding),
+  assert.deepEqual(product.bindSummaries(immutable({ ...staged, sourceRoles: [exactRole] }), immutable([summary]), onlyLookup(summary.identity, binding)),
     { kind: "ok", value: { ...staged, sourceRoles: [exactRole], declaredSummaries: [
       { identity: summary.identity, summary: emptySummary(binding) },
     ] }, diagnostics: [] });
   assert.deepEqual(product.bindSummaries(immutable({ ...staged, sourceRoles: [exactRole, { ...exactRole }] }),
-    immutable([summary]), () => binding), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+    immutable([summary]), onlyLookup(summary.identity, binding)), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   const failure = new Error("canonical reader failed");
   assert.throws(() => product.bindSummaries(staged, [summary], () => { throw failure; }), thrown => thrown === failure);
+});
+
+test("every relational binding failure refuses the complete row without a partial final value", () => {
+  const { input, summary } = summaryInput(1);
+  const staged = immutable({ sources: input.sources, sourceRoles: [] });
+  const definition = definitionId("api");
+  const signature = declaredSignature(definition, { parameters: [
+    { declaration: definitionId("parameter"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+  ] });
+  const binding = exportBinding(definition, { signature });
+  const complete = { kind: "complete", paths: [] };
+  const receiver = { id: 0, kind: "receiver", path: null };
+  const parameter = { id: 0, kind: "parameter", index: 0, path: null };
+  const boundary = { id: 0, kind: "external-input", site: 0, subject: 0, owner: null, detail: "reason" };
+  const missing = exportIdentity(summary.identity.module, "missing");
+  const scenarios = [
+    { projections: new Array(1) }, { producers: new Array(1) }, { origins: new Array(1) }, { boundaries: new Array(1) },
+    { projections: [{ id: 0, parent: null, projection: { kind: "field", identity: missing } }] },
+    { producers: [receiver] }, { producers: [{ ...receiver, path: 0 }], projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
+    { producers: [{ ...parameter, index: 1 }] },
+    { producers: [{ ...parameter, index: 1, path: 0 }], projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
+    { producers: [{ id: 0, kind: "capture", index: 0, path: null }] },
+    { producers: [{ id: 0, kind: "capture", index: 1, path: 0 }], projections: [{ id: 0, parent: null, projection: { kind: "element" } }], captures: [{ index: 0, reads: complete, writes: complete }] },
+    { producers: [{ id: 0, kind: "shared", identity: missing, path: null }] },
+    { origins: [{ id: 0, kind: "complete", producers: [9], includesAbsence: false }] },
+    { boundaries: [boundary] },
+    { producers: [parameter], boundaries: [{ ...boundary, owner: 9 }] },
+    { parameters: [{ slot: { kind: "receiver" }, reads: complete, writes: complete }] },
+    { parameters: [{ slot: { kind: "parameter", index: 1 }, reads: complete, writes: complete }] },
+    { captures: [{ index: 1, reads: complete, writes: complete }] },
+    { writes: [{ target: 9, value: 0 }] },
+    { retention: [{ source: 9, into: { kind: "return" } }] },
+    { producers: [parameter], retention: [{ source: 0, into: { kind: "shared", identity: missing, path: null } }] },
+    { producers: [parameter], retention: [{ source: 0, into: { kind: "parameter", index: 1, path: null } }] },
+    { producers: [parameter], retention: [{ source: 0, into: { kind: "receiver", path: null } }] },
+    { callbacks: [{ parameterIndex: 1, timing: "synchronous", rejection: null, inputs: [] }] },
+    { callbacks: [{ parameterIndex: 0, timing: "synchronous", rejection: null,
+      inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 1 }] }] },
+    { callbacks: [{ parameterIndex: 0, timing: "synchronous", rejection: null, inputs: [{ kind: "receiver-element", parameterIndex: 0 }] }] },
+    { invocationOnlyParameters: [1] },
+    { projections: [{ id: 1, parent: null, projection: { kind: "element" } }] },
+    { producers: [parameter], writes: [{ target: 0, value: 9 }] },
+    { producers: [{ ...parameter, index: -0 }] },
+    { producers: [{ id: 0, kind: "allocation", site: -0, path: null }] },
+    { producers: [parameter], retention: [{ source: 0, into: { kind: "external", boundary: 9 } }] },
+  ];
+  for (const changes of scenarios) {
+    assert.deepEqual(product.bindSummaries(staged, immutable([{ ...summary, ...changes }]), identity => {
+      assert.equal(identityKey(identity), identityKey(summary.identity), "no unresolved secondary lookup");
+      return binding;
+    }), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+  }
+  const memberIdentity = exportIdentity(summary.identity.module, "export", "member");
+  const withMember = immutable({ sources: catalogue([moduleValue({ types: [{ id: 0, kind: "unknown" }], exports: [
+    declaration({ signatures: [signature({ parameters: [{ name: "p", type: 0, passingMode: "by-value", optional: false, rest: false, defaultType: null }] })], members: [member()] }),
+  ] })]).sources, sourceRoles: [] });
+  for (const identity of [memberIdentity, exportIdentity(summary.identity.module)]) {
+    const raw = { ...summary, projections: [{ id: 0, parent: null, projection: { kind: "field", identity } }] };
+    const result = product.bindSummaries(withMember, immutable([raw]), target => {
+      if (identityKey(target) === identityKey(summary.identity)) return binding;
+      assert.equal(identityKey(target), identityKey(identity));
+      return identity.memberId === null ? { ...binding, signature: null } : null;
+    });
+    assert.deepEqual(result, { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+  }
 });
 
 test("binding remaps the complete relational graph into signature-order formals with exact members/bindings and no lost edges", () => {
@@ -1054,7 +1468,7 @@ test("binding remaps the complete relational graph into signature-order formals 
   const parameter = type => ({ name: "p", type, passingMode: "by-value", optional: false, rest: false, defaultType: null });
   const sources = catalogue([moduleValue({ types: [{ id: 0, kind: "unknown" },
     { id: 1, kind: "function", signature: signature({ id: "callback", parameters: [parameter(0), parameter(0)] }) }],
-  exports: [declaration({ id: "a", exportName: "a", signatures: [signature({ parameters: [parameter(1), parameter(1)] })] }),
+  exports: [declaration({ id: "a", exportName: "a", signatures: [signature({ parameters: [parameter(1), { ...parameter(1), rest: true }] })] }),
     declaration({ id: "b", exportName: "b", members: [member({ id: "field", kind: "field" }), member({ id: "method" })] })] })]).sources;
   const definition = definitionId("a");
   const sharedDefinition = definitionId("b");
@@ -1096,6 +1510,7 @@ test("binding remaps the complete relational graph into signature-order formals 
     retention: [{ source: 0, into: { kind: "return" } }, { source: 1, into: { kind: "throw" } },
       { source: 2, into: { kind: "shared", identity: shared, path: 0 } },
       { source: 3, into: { kind: "parameter", index: 1, path: 1 } }, { source: 4, into: { kind: "receiver", path: 2 } },
+      { source: 4, into: { kind: "receiver", path: null } },
       { source: 5, into: { kind: "capture", index: 0, path: null } },
       { source: 6, into: { kind: "callback", site: 5 } }, { source: 7, into: { kind: "suspension", site: 6 } },
       { source: 8, into: { kind: "external", boundary: 1 } }],
@@ -1131,7 +1546,8 @@ test("binding remaps the complete relational graph into signature-order formals 
   captures: [{ index: 0, reads: { kind: "open", paths: [2], boundaries: [1] }, writes: complete }],
   result: 0, thrown: 1, writes: [{ target: 0, value: 0 }, { target: 2, value: 1 }, { target: 4, value: 0 }],
   retention: [{ source: 0, into: { kind: "shared", definition: sharedDefinition, path: 0 } },
-    { source: 1, into: { kind: "receiver", path: 2 } }, { source: 2, into: { kind: "throw" } },
+    { source: 1, into: { kind: "receiver", path: 2 } }, { source: 1, into: { kind: "receiver", path: null } },
+    { source: 2, into: { kind: "throw" } },
     { source: 3, into: { kind: "parameter", index: 1, path: 1 } }, { source: 4, into: { kind: "return" } },
     { source: 5, into: { kind: "capture", index: 0, path: null } },
     { source: 6, into: { kind: "callback", at: at(5) } }, { source: 7, into: { kind: "suspension", at: at(6) } },
@@ -1183,10 +1599,10 @@ test("final libraries independently verify exact existing definitions/signatures
   assert.deepEqual(product.verifyLibraries(immutable({ ...current, declaredSummaries: [current.declaredSummaries[0]] }),
     { ...context, definitionExists: () => false }), [finding("summary-binding-definition-exact", { kind: "export", identity: first })]);
   assert.deepEqual(product.verifyLibraries(immutable({ ...current, declaredSummaries: [current.declaredSummaries[0]] }),
-    { ...context, signatureOfExport: () => ({ ...firstBinding, signature: null }) }),
+    { ...context, signatureOfExport: onlyLookup(first, { ...firstBinding, signature: null }) }),
   [finding("summary-binding-signature-exact", { kind: "export", identity: first })]);
   assert.deepEqual(product.verifyLibraries(immutable({ ...current, declaredSummaries: [current.declaredSummaries[0]] }),
-    { ...context, signatureOfExport: () => null }), [finding("declared-summary-identity-resolves", { kind: "export", identity: first })]);
+    { ...context, signatureOfExport: onlyLookup(first, null) }), [finding("declared-summary-identity-resolves", { kind: "export", identity: first })]);
   assert.deepEqual(product.verifyLibraries(immutable({ ...current, declaredSummaries: [...current.declaredSummaries].reverse() }), context),
     [finding("declared-summaries-order", { kind: "export", identity: first })]);
   assert.deepEqual(product.verifyLibraries(immutable({ ...current, declaredSummaries: [current.declaredSummaries[0], current.declaredSummaries[0]] }), context),
@@ -1211,7 +1627,7 @@ test("final keys preserve every bound/rigid class/method/captured/self arm and d
     { identity: summary.identity, summary: emptySummary(binding) },
   ] });
   const context = { definitionExists: definition => definition === first,
-    definitionOfExport: () => { throw new Error("No roles."); }, signatureOfExport: () => binding };
+    definitionOfExport: () => { throw new Error("No roles."); }, signatureOfExport: onlyLookup(summary.identity, binding) };
   assert.deepEqual(product.verifyLibraries(libraries, context), []);
   for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
     const changed = { ...environment, [family]: [...environment[family]].reverse() };
@@ -1230,8 +1646,9 @@ test("final empty/unresolved libraries never fabricate projections or inspect Me
   const valid = { sources: input.sources, sourceRoles: [], declaredSummaries: [
     { identity: summary.identity, summary: emptySummary(binding) },
   ] };
-  assert.deepEqual(product.verifyLibraries(immutable(valid), { definitionExists: () => true,
-    definitionOfExport: noLookup, signatureOfExport: () => binding }), []);
+  assert.deepEqual(product.verifyLibraries(immutable(valid), { definitionExists: definition => {
+    assert.equal(definition, binding.definition); return true;
+  }, definitionOfExport: noLookup, signatureOfExport: onlyLookup(summary.identity, binding) }), []);
   for (const identity of [exportIdentity(summary.identity.module, "missing", null, "signature"),
     exportIdentity(summary.identity.module)]) {
     assert.deepEqual(product.verifyLibraries(immutable({ ...valid, declaredSummaries: [{ identity, summary: emptySummary(binding) }] }),

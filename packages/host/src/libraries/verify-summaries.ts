@@ -18,10 +18,6 @@ function integral(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 }
 
-function rowResolves(value: number, rows: readonly { readonly id: number }[]): boolean {
-  return ordinal(value, rows.length) && Object.hasOwn(rows, value) && rows[value]?.id === value;
-}
-
 function producerData(producer: LibrarySummaryProducer): readonly KeyData[] {
   switch (producer.kind) {
     case "parameter": case "capture": return [producer.kind, producer.index, producer.path];
@@ -65,24 +61,26 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
   if (entry == null || entry.signature === null) {
     output.push(violation("authored-summary-identity-resolves", site("parameter", null)));
   }
-  const dense = (rows: readonly { readonly id: number }[], table: "projection" | "producer" | "origins" | "boundary"): void => {
-    for (let position = 0; position < rows.length; position += 1) {
-      const row = rows[position];
-      if (!Object.hasOwn(rows, position) || row === undefined || !integral(row.id) || row.id !== position) {
+  const dense = (rows: readonly { readonly id: number }[],
+    table: "projection" | "producer" | "origins" | "boundary"): ReadonlySet<number> => {
+    const identifiers = new Set<number>();
+    for (const [position, row] of rows.entries()) {
+      if (!Object.hasOwn(rows, position) || !integral(row.id) || row.id !== position) {
         output.push(violation("authored-summary-id-dense", site(table, position)));
-      }
+      } else identifiers.add(position);
     }
+    return identifiers;
   };
-  dense(summary.projections, "projection");
-  dense(summary.producers, "producer");
-  dense(summary.origins, "origins");
-  dense(summary.boundaries, "boundary");
-  const reference = (value: number, rows: readonly { readonly id: number }[], owner: LocatedSite,
+  const projections = dense(summary.projections, "projection");
+  const producerRows = dense(summary.producers, "producer");
+  const originRows = dense(summary.origins, "origins");
+  const boundaryRows = dense(summary.boundaries, "boundary");
+  const reference = (value: number, rows: ReadonlySet<number>, owner: LocatedSite,
     table: string): void => {
-    if (!rowResolves(value, rows)) output.push(violation("authored-summary-reference-resolves", owner, table, encodeKey(value)));
+    if (!integral(value) || !rows.has(value)) output.push(violation("authored-summary-reference-resolves", owner, table, encodeKey(value)));
   };
   const path = (value: number | null, owner: LocatedSite): void => {
-    if (value !== null) reference(value, summary.projections, owner, "projection");
+    if (value !== null) reference(value, projections, owner, "projection");
   };
   const parameter = (value: number, owner: LocatedSite): void => {
     if (!integral(value) || entry != null && entry.signature !== null && value >= entry.signature.parameters.length) {
@@ -140,25 +138,25 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
   for (const [position, origins] of summary.origins.entries()) {
     if (origins === undefined) continue;
     const owner = site("origins", position);
-    for (const producer of origins.producers) reference(producer, summary.producers, owner, "producer");
+    for (const producer of origins.producers) reference(producer, producerRows, owner, "producer");
     ordered(origins.producers, owner, "authored-summary-origins-order");
     if (origins.kind === "open") {
-      for (const boundary of origins.boundaries) reference(boundary, summary.boundaries, owner, "boundary");
+      for (const boundary of origins.boundaries) reference(boundary, boundaryRows, owner, "boundary");
       ordered(origins.boundaries, owner, "authored-summary-origins-order");
     }
   }
   for (const [position, boundary] of summary.boundaries.entries()) {
     if (boundary === undefined) continue;
     const owner = site("boundary", position);
-    reference(boundary.subject, summary.producers, owner, "producer");
-    if (boundary.owner !== null) reference(boundary.owner, summary.producers, owner, "producer");
+    reference(boundary.subject, producerRows, owner, "producer");
+    if (boundary.owner !== null) reference(boundary.owner, producerRows, owner, "producer");
     logicalSite(boundary.site, owner);
   }
   const effects = (effect: LibrarySummaryEffectPaths, owner: LocatedSite): void => {
-    for (const projection of effect.paths) reference(projection, summary.projections, owner, "projection");
+    for (const projection of effect.paths) reference(projection, projections, owner, "projection");
     ordered(effect.paths, owner, "authored-summary-effects-order");
     if (effect.kind === "open") {
-      for (const boundary of effect.boundaries) reference(boundary, summary.boundaries, owner, "boundary");
+      for (const boundary of effect.boundaries) reference(boundary, boundaryRows, owner, "boundary");
       ordered(effect.boundaries, owner, "authored-summary-effects-order");
     }
   };
@@ -185,13 +183,13 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     effects(effect.reads, owner);
     effects(effect.writes, owner);
   }
-  reference(summary.result, summary.origins, site("origins", null), "result");
-  reference(summary.thrown, summary.origins, site("origins", null), "thrown");
+  reference(summary.result, originRows, site("origins", null), "result");
+  reference(summary.thrown, originRows, site("origins", null), "thrown");
   let previousWrite: string | null = null;
   for (const [position, write] of summary.writes.entries()) {
     const owner = site("write", position);
-    reference(write.target, summary.producers, owner, "producer");
-    reference(write.value, summary.origins, owner, "origins");
+    reference(write.target, producerRows, owner, "producer");
+    reference(write.value, originRows, owner, "origins");
     const key = encodeKey([write.target, write.value]);
     if (previousWrite !== null && compareText(previousWrite, key) >= 0) {
       output.push(violation("authored-summary-effects-order", owner));
@@ -201,7 +199,7 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
   let previousRetention: string | null = null;
   for (const [position, retention] of summary.retention.entries()) {
     const owner = site("retention", position);
-    reference(retention.source, summary.producers, owner, "producer");
+    reference(retention.source, producerRows, owner, "producer");
     const target = retention.into;
     switch (target.kind) {
       case "shared":
@@ -214,7 +212,7 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
       case "capture": capture(target.index, owner); path(target.path, owner); break;
       case "receiver": path(target.path, owner); break;
       case "callback": case "suspension": logicalSite(target.site, owner); break;
-      case "external": reference(target.boundary, summary.boundaries, owner, "boundary"); break;
+      case "external": reference(target.boundary, boundaryRows, owner, "boundary"); break;
       case "return": case "throw": break;
     }
     const key = encodeKey([retention.source, target.kind === "shared"

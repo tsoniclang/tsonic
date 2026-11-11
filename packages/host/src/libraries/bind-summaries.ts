@@ -182,7 +182,6 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
     if (target === undefined) return null;
     writes.push({ target, value: originsId(write.value) });
   }
-  writes.sort((left, right) => left.target - right.target || left.value - right.value);
   const targetOf = (target: LibrarySummaryEscapeTarget): BoundEscape | null => {
     switch (target.kind) {
       case "return": case "throw": return { value: { kind: target.kind }, key: encodeKey([target.kind]) };
@@ -231,6 +230,7 @@ function translateSummary(raw: LibraryAuthoredSummary, definition: DefId, signat
   for (const parameter of raw.invocationOnlyParameters) if (!ordinal(parameter, signature.parameters.length)) return null;
   const findings: LibraryViolation[] = [];
   if (!validateAuthoredSummary(raw, index, findings, callbacks)) return null;
+  writes.sort((left, right) => left.target - right.target || left.value - right.value);
   return { key: { definition, bindings: { kind: "instantiated", bindings } }, signature: signature.id,
     arena: { producers, projections, boundProducers, origins, boundaries,
       contexts: [{ id: context, receiver, arguments: argumentsOrigins, captures }] },

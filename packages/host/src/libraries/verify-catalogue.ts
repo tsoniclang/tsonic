@@ -223,6 +223,7 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
   const declarations = new Set<string>();
   const names = new Set<string>();
   const scopeRequests: ScopeRequest[] = [];
+  const boundNames = new Map<string, number>();
   for (const declaration of module.exports) {
     const identity: LibraryExportIdentity = {
       module: module.identity, exportId: declaration.id, memberId: null, signatureId: null,
@@ -242,13 +243,17 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
     if (declaration.type !== null) declarationRoots.push(declaration.type);
     for (const heritage of declaration.heritage) declarationRoots.push(heritage.type);
     const outerNames = new Set(declaration.typeParameters.map(parameter => parameter.name));
+    let outerUses = 0;
     const signatures = (values: readonly LibrarySignature[], owner: LocatedSite): void => {
       verifySignatures(values, owner, output);
       for (const signature of values) {
         const roots = signatureSlots(signature);
         checkReferences(roots, owner);
-        scopeRequests.push({ roots, names: [outerNames,
-          new Set(signature.typeParameters.map(parameter => parameter.name))], site: owner });
+        if (roots.length === 0) continue;
+        const localNames = new Set(signature.typeParameters.map(parameter => parameter.name));
+        scopeRequests.push({ roots, names: [outerNames, localNames], site: owner });
+        outerUses += 1;
+        for (const name of localNames) if (!outerNames.has(name)) boundNames.set(name, (boundNames.get(name) ?? 0) + 1);
       }
     };
     signatures(declaration.signatures, exportSite);
@@ -257,16 +262,24 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
       const memberSite: LibrarySite = { kind: "export", identity: { ...identity, memberId: member.id } };
       if (members.has(member.id)) output.push(violation("member-ids-unique", memberSite));
       members.add(member.id);
-      if (member.type !== null) declarationRoots.push(member.type);
+      if (member.type !== null) {
+        checkReferences([member.type], memberSite);
+        scopeRequests.push({ roots: [member.type], names: [outerNames], site: memberSite });
+        outerUses += 1;
+      }
       if (member.name.kind === "number-literal" && !exactRational(member.name.value)) {
         output.push(violation("literal-exact", memberSite));
       }
       signatures(member.signatures, memberSite);
     }
     checkReferences(declarationRoots, exportSite);
-    scopeRequests.push({ roots: declarationRoots, names: [outerNames], site: exportSite });
+    if (declarationRoots.length > 0) {
+      scopeRequests.push({ roots: declarationRoots, names: [outerNames], site: exportSite });
+      outerUses += 1;
+    }
+    for (const name of outerNames) boundNames.set(name, (boundNames.get(name) ?? 0) + outerUses);
   }
-  verifyScopes(types, scopeRequests, output);
+  verifyScopes(types, scopeRequests, boundNames, output);
   let previousRole: LibraryExportIdentity | null = null;
   const roles = new Set<string>();
   for (const role of module.roles) {
@@ -285,7 +298,8 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
 }
 
 function verifyScopes(types: ReadonlyMap<LibraryTypeId, LibraryType>,
-  requests: readonly ScopeRequest[], output: LibraryViolation[]): void {
+  requests: readonly ScopeRequest[], boundNames: ReadonlyMap<string, number>, output: LibraryViolation[]): void {
+  if (requests.length === 0) return;
   const reverse = new Map<LibraryTypeId, { readonly type: LibraryTypeId; readonly binders: ReadonlySet<string> }[]>();
   const seeds = new Map<string, LibraryTypeId[]>();
   const freeNames = new Map<LibraryTypeId, Set<string>>();
@@ -297,7 +311,7 @@ function verifyScopes(types: ReadonlyMap<LibraryTypeId, LibraryType>,
       if (parents === undefined) reverse.set(reference, [parent]);
       else parents.push(parent);
     }
-    if (type.kind === "type-parameter") {
+    if (type.kind === "type-parameter" && boundNames.get(type.name) !== requests.length) {
       const identifiers = seeds.get(type.name);
       if (identifiers === undefined) seeds.set(type.name, [type.id]);
       else identifiers.push(type.id);
