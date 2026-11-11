@@ -85,7 +85,7 @@ for (const path of casePaths) {
 test("query exposes exactly the one agreed public value", () => {
   assert.deepEqual(Object.keys(product), ["createDatabase"]);
   assert.deepEqual(casePaths.map(path => basename(path, ".case.json")),
-    ["content-memo", "empty", "key-kinds", "name-boundaries", "query-names", "query-names-reversed", "tuple-boundaries"]);
+    ["content-memo", "empty", "key-kinds", "name-boundaries", "query-names-reversed", "query-names", "tuple-boundaries"]);
 });
 
 test("an untouched database exposes its exact inputs and empty immutable snapshots without computing", () => {
