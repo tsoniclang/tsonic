@@ -4282,7 +4282,7 @@ for (const [operator, operandKind, token, integer, valid] of [
 });
 
 test("HIR a real lower signature owner invokes both canonical node readers while preserving the complete binding failure", () => {
-  for (const missing of [false, true]) {
+  for (const ownerNode of [0, 99]) for (const missing of [false, true]) {
     const { foreign, definitions, scopes } = genericCandidateFixture(1);
     const definition = definitions[0];
     const value = moduleWith();
@@ -4292,7 +4292,7 @@ test("HIR a real lower signature owner invokes both canonical node readers while
       { declaration: definition, bindings: available(bindings) })] }];
     const actualScopes = new Map([...scopes, [definitionIdentity, emptyScope()]]);
     const context = contextFor(value, { bindingScopeOf: owner => actualScopes.get(owner) ?? null,
-      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ owner: bodySource(0) })] } }, [foreign]);
+      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ owner: bodySource(ids.nodeId(ownerNode)) })] } }, [foreign]);
     assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), missing ? [{
       rule: "binding-vector-complete", site: { kind: "body", body: bodyIdentity },
       detail: [{ kind: "text", value: "classBindings" }, { kind: "text", value: "complete" }, { kind: "text", value: "length" }, { kind: "number", value: 0 }],
