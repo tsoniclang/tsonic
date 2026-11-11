@@ -708,7 +708,7 @@ test("cycles use full content keys and the complete chain, not object identity o
   assert.throws(() => database.run(first, { b: 2, a: 1 }), error => {
     assert.equal(error instanceof Error, true);
     assert.deepEqual(error.cause, {
-      pass: "pipeline", query: { name: "A", encodedKey: key }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
+      owner: "query", query: { name: "A", encodedKey: key }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
     });
     return true;
   });
@@ -883,7 +883,7 @@ test("a query name cannot silently select another definition or reinterpret its 
     assert.throws(() => database.run(other, key), error => {
       assert.equal(error instanceof Error, true);
       assert.deepEqual(error.cause, {
-        pass: "pipeline", query: { name: "same", encodedKey: key === null ? "N" : "S9:different" }, origin: null,
+        owner: "query", query: { name: "same", encodedKey: key === null ? "N" : "S9:different" }, origin: null,
         message: 'Query name "same" is already bound to another definition',
       });
       return true;
@@ -953,7 +953,7 @@ test("an invariant cycle reports the whole root prefix rather than only the repe
   assert.throws(() => database.run(root, null), error => {
     assert.equal(error instanceof Error, true);
     assert.deepEqual(error.cause, {
-      pass: "pipeline", query: { name: "A", encodedKey: "F1:" }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
+      owner: "query", query: { name: "A", encodedKey: "F1:" }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
     });
     return true;
   });
