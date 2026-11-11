@@ -14,15 +14,16 @@ export function verifyProjectSnapshot(snapshot: ProjectSnapshot,
   const add = (rule: SnapshotRule, site: SnapshotSite, ...details: string[]): void => {
     violations.push({ rule, site, detail: details.map(value => ({ kind: "text", value })) });
   };
-  const entry = packages.moduleOwners.get(snapshot.entryPoint);
+  if (snapshot.packages.fingerprint.length === 0) add("snapshot-fingerprint", snapshotSite, "fingerprint");
+  const entry = packages.modulePackages.get(snapshot.entryPoint);
   if (entry === undefined) add("entry-point-resolves", snapshotSite, snapshot.entryPoint);
-  else if (entry.some(module => module.package !== snapshot.packages.rootPackage)) {
+  else if (entry.size !== 1 || !entry.has(snapshot.packages.rootPackage)) {
     add("entry-point-root", snapshotSite, snapshot.entryPoint);
   }
   const roots = snapshotRows(snapshot.roots, snapshotSite, "roots", violations);
   const rootIds = new Set<ModuleId>();
   for (const root of roots) {
-    if (!packages.moduleOwners.has(root)) add("root-module-resolves", { kind: "module", module: root }, root);
+    if (!packages.modulePackages.has(root)) add("root-module-resolves", { kind: "module", module: root }, root);
     if (rootIds.has(root)) add("roots-unique", { kind: "module", module: root }, root);
     rootIds.add(root);
   }

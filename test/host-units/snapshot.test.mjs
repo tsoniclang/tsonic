@@ -6,14 +6,14 @@ import { basename, relative, resolve, sep } from "node:path";
 import { Session } from "node:inspector";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after, before } from "node:test";
-import { hostCatalogue } from "../architecture/host/catalogue.mjs";
-import { checkCoverage } from "../architecture/host/coverage.mjs";
-import { parseSources } from "../architecture/host/import-graph.mjs";
-import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
+const { hostCatalogue } = await import(pathToFileURL(resolve(tooling, "test/architecture/host/catalogue.mjs")).href);
+const { checkCoverage } = await import(pathToFileURL(resolve(tooling, "test/architecture/host/coverage.mjs")).href);
+const { parseSources } = await import(pathToFileURL(resolve(tooling, "test/architecture/host/import-graph.mjs")).href);
+const { compileIsolated, isolationDeps } = await import(pathToFileURL(resolve(tooling, "test/architecture/host/isolation.mjs")).href);
 const sourceDirectory = "packages/host/src/snapshot";
 const emittedDirectory = resolve(repository, "packages/host/dist/snapshot");
 const runtimeNames = ["index", "verify", "verify-packages", "verify-extensions"];
@@ -88,12 +88,10 @@ function sparseIssue(site, field, index = 0) {
 }
 function frozen(value) {
   const work = [value];
-  const visited = new Set();
   for (const current of work) {
-    if (current === null || typeof current !== "object" || visited.has(current)) continue;
-    visited.add(current);
-    work.push(...Object.values(current));
+    if (current === null || typeof current !== "object" || Object.isFrozen(current)) continue;
     Object.freeze(current);
+    for (const field of Object.values(current)) work.push(field);
   }
   return value;
 }
@@ -170,6 +168,16 @@ test("the sole approved public value and all four runtime owners are exact", () 
 test("an unnamed root with separate canonical source root, captured real-path provenance and no extensions is valid", () => {
   verify(snapshot(), []);
 });
+test("snapshot-fingerprint is one nonempty opaque captured identity, never a hash or package-name reconstruction", () => {
+  for (const fingerprint of ["opaque", " ", "\0", "\uD800", "not-a-sha256"]) {
+    const value = snapshot();
+    value.packages.fingerprint = fingerprint;
+    verify(value, []);
+  }
+  const value = snapshot();
+  value.packages.fingerprint = "";
+  verify(value, [issue("snapshot-fingerprint", { kind: "snapshot" }, "fingerprint")]);
+});
 test("named packages, both module roles and both captured file arms preserve explicit identities", () => {
   const value = snapshot();
   const additional = peer(value);
@@ -196,6 +204,13 @@ test("module-id-unique preserves duplicate-record evidence", () => {
   const value = snapshot();
   value.packages.modules.push({ ...value.packages.modules[0] });
   verify(value, [issue("module-id-unique", moduleSite(), moduleId())]);
+});
+test("ambiguous repeated module identities never trigger a scan per export or select an arbitrary owner", () => {
+  const value = snapshot();
+  const additional = peer(value);
+  value.packages.modules.push({ id: moduleId(), package: additional.id, path: "/library/lib.d.ts", role: "declaration" });
+  verify(value, [issue("entry-point-root", { kind: "snapshot" }, moduleId()),
+    issue("export-package-agrees", packageSite(), moduleId()), issue("module-id-unique", moduleSite(), moduleId())]);
 });
 test("module-package-resolves is independent from module ID spelling and package metadata", () => {
   const value = snapshot();
@@ -240,6 +255,21 @@ test("canonical-path accepts platform-independent roots and normalized paths wit
     value.packages.files[0].realPath = realPath;
     verify(value, []);
   }
+});
+test("source and library files are strictly below their roots, including canonical filesystem roots", () => {
+  const root = snapshot();
+  root.packages.packages[0].sourceRoot = "/";
+  verify(root, []);
+  const equal = snapshot();
+  equal.packages.modules[0].path = "/project/src";
+  equal.packages.files[0].path = "/project/src";
+  verify(equal, [issue("module-path-contained", moduleSite(), "/project/src", "/project/src")]);
+  const libraryRoot = snapshot();
+  const row = library(libraryRoot);
+  libraryRoot.packages.packages[0].libraryEntry = "/project";
+  libraryRoot.packages.files[0].path = "/project";
+  row.path = "/project";
+  verify(libraryRoot, [issue("library-data-owner-exact", packageSite(), "/project")]);
 });
 for (const kind of ["dependency", "peer", "development"]) {
   test(`package-dependency-resolves refuses absent required ${kind} identity`, () => {
@@ -720,4 +750,121 @@ test("a 100000-package dependency chain uses bounded worklists rather than input
   value.packages.packages.sort((left, right) => left.id < right.id ? -1 : 1);
   value.packages.components.sort((left, right) => left.representative < right.representative ? -1 : 1);
   verify(value, []);
+});
+
+test("an actual dependency with a missing component membership reports the owned relation without a fallback node", () => {
+  const value = snapshot();
+  const additional = peer(value);
+  value.packages.packages.find(entry => entry.id === packageId()).dependencies = [
+    { name: "library", kind: "dependency", range: "*", resolved: additional.id },
+  ];
+  value.packages.components = value.packages.components.filter(entry => entry.representative !== additional.id);
+  verify(value, [issue("component-membership-exact", packageSite(additional.id), additional.id)]);
+});
+test("ambiguous package/file data never chooses a first or last matching library-owner authority", () => {
+  const packages = snapshot();
+  library(packages);
+  packages.packages.packages.push({ ...packages.packages.packages[0] });
+  verify(packages, [issue("package-id-unique", packageSite(), packageId())]);
+  const files = snapshot();
+  library(files);
+  files.packages.files.splice(1, 0, { kind: "virtual", path: "/project/library.json", owner: packageId(), text: "{}" });
+  verify(files, [issue("file-path-unique", fileSite("/project/library.json"), "/project/library.json")]);
+});
+
+for (const name of ["unnamed-root", "missing-root", "extensions-table-mismatch"]) {
+  test(`authored complete verifier JSON outcome: ${name}`, async () => {
+    const result = await runCase({ modules: ["snapshot"], readText: path => readFileSync(resolve(repository, path), "utf8"),
+      canonical: path => relative(repository, realpathSync(resolve(repository, path))).split(sep).join("/"),
+      list: path => readdirSync(resolve(repository, path)), decode: text => JSON.parse(text),
+      adapters: { verifier: input => {
+        assert.equal(input.format, "json");
+        const value = JSON.parse(input.text);
+        return { kind: "accepted", value: product.verifySnapshot(frozen(value.snapshot), frozen(value.actualExtensionReferences)), diagnostics: [] };
+      } },
+    }, `test/host-cases/snapshot/verifier/${name}.case.json`);
+    assert.equal(result.status, "passed", JSON.stringify(result));
+  });
+}
+
+test("the whole snapshot module earns fresh strict isolation using real ids production and only admitted public declarations", async () => {
+  const data = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
+  const report = await compileIsolated(isolationDeps(tooling, data.areas.map(area => area.directory)),
+    hostCatalogue.find(module => module.name === "snapshot"), {
+      root: repository, sourceFiles: ownedSources,
+      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts"],
+      declarationSources: [...dependencySources, "packages/host/src/diag/contract.ts"],
+      outputDirectory: ".temp/host-f-snapshot/isolation",
+    });
+  writeFileSync(resolve(evidenceDirectory, "isolation.json"), `${JSON.stringify(report, null, 2)}\n`);
+  assert.equal(report.status, "passed", `${JSON.stringify(report.findings)}\n${report.diagnostics.join("\n")}`);
+  assert.deepEqual(report.findings, []);
+  assert.equal(report.diagnostics.length, 2);
+  assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path).split(sep).join("/")).sort(),
+    [...ownedSources, ...dependencySources, "packages/host/src/diag/contract.ts"].sort());
+  assert.deepEqual(report.provenance.map(entry => relative(repository, entry.source).split(sep).join("/")).sort(),
+    ["packages/host/src/diag/contract.ts", "packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts"]);
+  assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
+  for (const entry of ["ids/contract", "ids/index", "diag/contract"]) {
+    assert.equal(report.loadedInventory.some(path => path.endsWith(`/isolated/packages/host/src/${entry}.d.ts`)), true, entry);
+    assert.equal(report.loadedInventory.some(path => path.endsWith(`/isolated/packages/host/src/${entry}.ts`)), false, entry);
+  }
+});
+
+test("fresh real public declarations admit a cast-free consumer and reject exact readonly, port and shape opposites", () => {
+  const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
+  for (const [directory, names] of [["snapshot", ["contract", ...runtimeNames]], ["ids", ["contract", "index", "identity", "key"]], ["diag", ["contract"]]]) {
+    mkdirSync(resolve(stage, directory));
+    for (const name of names) writeFileSync(resolve(stage, directory, `${name}.d.ts`),
+      readFileSync(resolve(repository, "packages/host/dist", directory, `${name}.d.ts`)));
+  }
+  writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
+  const source = 'import { verifySnapshot } from "./snapshot/index.js";\n'
+    + 'import { encodePackageId, encodeModuleId } from "./ids/index.js";\n'
+    + 'import type { ModuleId } from "./ids/contract.js";\n'
+    + 'import type { ProjectSnapshot, VerifySnapshot, ExtensionReferenceEntry, SnapshotRule, SnapshotSite } from "./snapshot/contract.js";\n'
+    + 'import type { Violation } from "./diag/contract.js";\n'
+    + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
+    + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
+    + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
+  writeFileSync(resolve(stage, "consumer.ts"), source);
+  const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
+  const configuration = files => ({ compilerOptions: {
+    target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", lib: ["ES2022"], types: [],
+    strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
+    noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true,
+    skipLibCheck: false, noEmit: true, verbatimModuleSyntax: true,
+  }, files });
+  const run = (name, files) => {
+    writeFileSync(resolve(stage, name), JSON.stringify(configuration(files)));
+    const result = spawnSync(process.execPath, [compiler, "--project", resolve(stage, name), "--listFiles", "--pretty", "false"], {
+      cwd: stage, encoding: "utf8", timeout: 90000, maxBuffer: 1048576,
+    });
+    assert.equal(result.error === undefined, true, "the actual pinned compiler completes without an application error");
+    assert.equal(result.signal, null);
+    const text = `${result.stdout}${result.stderr}`;
+    writeFileSync(resolve(stage, `${name}.log`), text);
+    return { status: result.status, text };
+  };
+  const positive = run("positive.json", ["consumer.ts"]);
+  assert.equal(positive.status, 0, positive.text);
+  assert.deepEqual(positive.text.split(/\r?\n/u).filter(path => path.startsWith(stage))
+    .map(path => relative(stage, path).split(sep).join("/")).sort(),
+  ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
+  const negative = [
+    ["readonly-result.ts", 2339, 'import { verifySnapshot } from "./snapshot/index.js"; import { value } from "./consumer.js"; verifySnapshot(value,[]).push();'],
+    ["missing-reference-view.ts", 2554, 'import { verifySnapshot } from "./snapshot/index.js"; import { value } from "./consumer.js"; verifySnapshot(value);'],
+    ["readonly-snapshot.ts", 2540, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function update(value: ProjectSnapshot): void { value.entryPoint = value.entryPoint; }'],
+    ["missing-library-data.ts", 2741, 'import type { PackageSnapshot } from "./snapshot/contract.js"; export function create(value: PackageSnapshot): PackageSnapshot { const result: PackageSnapshot = {fingerprint:value.fingerprint,rootPackage:value.rootPackage,packages:[],components:[],modules:[],files:[]}; return result; }'],
+    ["wrong-extension-kind.ts", 2322, 'import type { ExtensionReferenceEntry } from "./snapshot/contract.js"; import { root } from "./consumer.js"; export const value: ExtensionReferenceEntry = {kind:"invalid",reference:{package:root,moduleSpecifier:"module",exportId:"entry",version:"1"}};'],
+    ["mutable-return.ts", 2322, 'import { verifySnapshot } from "./snapshot/index.js"; import type { ProjectSnapshot,ExtensionReferenceEntry,SnapshotRule,SnapshotSite } from "./snapshot/contract.js"; import type { Violation } from "./diag/contract.js"; export const verify: (value:ProjectSnapshot,actual:readonly ExtensionReferenceEntry[])=>Violation<SnapshotRule,SnapshotSite>[] = verifySnapshot;'],
+    ["missing-version.ts", 2322, 'import type { ExtensionReferenceEntry } from "./snapshot/contract.js"; import { root } from "./consumer.js"; export const value: ExtensionReferenceEntry = {kind:"compiler-extension",reference:{package:root,moduleSpecifier:"module",exportId:"entry",version:undefined}};'],
+  ];
+  for (const [name, , text] of negative) writeFileSync(resolve(stage, name), text);
+  const refused = run("negative.json", negative.map(([name]) => name));
+  assert.equal(refused.status, 1, refused.text);
+  const diagnostics = [...refused.text.matchAll(/^(.+)\(\d+,\d+\): error TS(\d+):/gmu)]
+    .map(match => [basename(match[1]), Number(match[2])]).sort(([left], [right]) => left < right ? -1 : 1);
+  assert.deepEqual(diagnostics, negative.map(([name, code]) => [name, code]).sort(([left], [right]) => left < right ? -1 : 1), refused.text);
 });

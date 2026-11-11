@@ -25,8 +25,8 @@ function platformSite(declaration: PlatformDeclaration): SnapshotSite {
 }
 
 function prefixContains(prefix: string, specifier: string): boolean {
-  return specifier === prefix || specifier.startsWith(prefix.endsWith("/") || prefix.endsWith(":")
-    ? prefix : `${prefix}/`);
+  return specifier === prefix || specifier.startsWith(prefix)
+    && (prefix.endsWith("/") || prefix.endsWith(":") || specifier.charAt(prefix.length) === "/");
 }
 
 export function verifySnapshotExtensions(snapshot: ProjectSnapshot,

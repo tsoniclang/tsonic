@@ -1,7 +1,7 @@
 import type { Violation } from "../diag/contract.js";
 import type { ModuleId, PackageId } from "../ids/contract.js";
 import type {
-  CapturedFile, PackageComponent, PackageModule, PackageSnapshot, SnapshotPackage, SnapshotRule, SnapshotSite,
+  CapturedFile, PackageComponent, PackageSnapshot, SnapshotPackage, SnapshotRule, SnapshotSite,
 } from "./contract.js";
 
 type SnapshotViolation = Violation<SnapshotRule, SnapshotSite>;
@@ -23,15 +23,15 @@ interface ComponentNode {
   readonly value: PackageComponent;
   readonly references: readonly PackageId[];
   readonly members: PackageNode[];
-  readonly dependencies: Set<ComponentNode>;
-  readonly dependents: Set<ComponentNode>;
+  readonly dependencies: Map<PackageId, ComponentNode>;
+  readonly dependents: Map<PackageId, ComponentNode>;
   pending: number;
 }
 
 export interface PackageVerification {
   readonly violations: readonly SnapshotViolation[];
   readonly packageIds: ReadonlySet<PackageId>;
-  readonly moduleOwners: ReadonlyMap<ModuleId, readonly PackageModule[]>;
+  readonly modulePackages: ReadonlyMap<ModuleId, ReadonlySet<PackageId>>;
   readonly filePaths: ReadonlySet<string>;
 }
 
@@ -46,14 +46,15 @@ export function snapshotRows<Value>(values: readonly Value[], site: SnapshotSite
   return present;
 }
 
-export function canonicalPath(path: string): boolean {
+function canonicalPath(path: string): boolean {
   if (path === "/" || /^[A-Za-z]:\/$/u.test(path)) return true;
   return /^\/{0,2}(?:[^/\\\0]+\/)*[^/\\\0]+$/u.test(path)
     && !/(?:^|\/)\.{1,2}(?:\/|$)/u.test(path);
 }
 
 function contained(root: string, path: string): boolean {
-  return path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
+  return path.length > root.length && path.startsWith(root)
+    && (root.endsWith("/") || path.charAt(root.length) === "/");
 }
 
 function connected(members: readonly PackageNode[], reverse: boolean): boolean {
@@ -101,7 +102,7 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
   const components = snapshotRows(snapshot.components, snapshotSite, "components", violations);
   const libraryData = snapshotRows(snapshot.libraryData, snapshotSite, "libraryData", violations);
   const packageGroups = new Map<PackageId, [PackageRecord, ...PackageRecord[]]>();
-  const moduleGroups = new Map<ModuleId, [PackageModule, ...PackageModule[]]>();
+  const modulePackages = new Map<ModuleId, Set<PackageId>>();
   const filePaths = new Set<string>();
   const filesByPath = new Map<string, [CapturedFile, ...CapturedFile[]]>();
   const packageNodes = new Map<PackageId, PackageNode>();
@@ -123,10 +124,10 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
     add("root-package-resolves", snapshotSite, snapshot.rootPackage);
   }
   for (const entry of modules) {
-    const group = moduleGroups.get(entry.id);
-    if (group === undefined) moduleGroups.set(entry.id, [entry]);
+    const group = modulePackages.get(entry.id);
+    if (group === undefined) modulePackages.set(entry.id, new Set([entry.package]));
     else {
-      group.push(entry);
+      group.add(entry.package);
       add("module-id-unique", { kind: "module", module: entry.id }, entry.id);
     }
   }
@@ -147,34 +148,34 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
   }
   for (const group of packageGroups.values()) {
     for (const record of group) {
-    const entry = record.value;
-    const site: SnapshotSite = { kind: "package", package: entry.id };
-    path(entry.packageRoot, site);
-    path(entry.sourceRoot, site);
-    if (entry.manifestPath !== null) path(entry.manifestPath, site);
-    if (entry.pluginEntry !== null) path(entry.pluginEntry, site);
-    if (entry.libraryEntry !== null) path(entry.libraryEntry, site);
-    const dependencies = snapshotRows(entry.dependencies, site, "dependencies", violations);
-    const exports = snapshotRows(entry.exports, site, "exports", violations);
-    ordered(dependencies, dependency => `${dependency.name}\0${dependency.kind}`, "stable-order", site, "dependencies");
-    ordered(exports, exported => exported.specifier, "exports-order", site, "exports");
-    for (const dependency of dependencies) {
-      if (dependency.resolved === null) {
-        if (dependency.kind !== "optional") add("package-dependency-resolves", site, dependency.name);
-      } else if (!packageGroups.has(dependency.resolved)) {
-        add("package-dependency-resolves", site, dependency.name, dependency.resolved);
-      } else record.references.push(dependency.resolved);
-    }
-    const specifiers = new Set<string>();
-    for (const exported of exports) {
-      if (specifiers.has(exported.specifier)) add("package-export-unique", site, exported.specifier);
-      specifiers.add(exported.specifier);
-      const targets = moduleGroups.get(exported.module);
-      if (targets === undefined) add("export-module-resolves", site, exported.module);
-      else if (targets.some(target => target.package !== entry.id)) {
-        add("export-package-agrees", site, exported.module);
+      const entry = record.value;
+      const site: SnapshotSite = { kind: "package", package: entry.id };
+      path(entry.packageRoot, site);
+      path(entry.sourceRoot, site);
+      if (entry.manifestPath !== null) path(entry.manifestPath, site);
+      if (entry.pluginEntry !== null) path(entry.pluginEntry, site);
+      if (entry.libraryEntry !== null) path(entry.libraryEntry, site);
+      const dependencies = snapshotRows(entry.dependencies, site, "dependencies", violations);
+      const exports = snapshotRows(entry.exports, site, "exports", violations);
+      ordered(dependencies, dependency => `${dependency.name}\0${dependency.kind}`, "stable-order", site, "dependencies");
+      ordered(exports, exported => exported.specifier, "exports-order", site, "exports");
+      for (const dependency of dependencies) {
+        if (dependency.resolved === null) {
+          if (dependency.kind !== "optional") add("package-dependency-resolves", site, dependency.name);
+        } else if (!packageGroups.has(dependency.resolved)) {
+          add("package-dependency-resolves", site, dependency.name, dependency.resolved);
+        } else record.references.push(dependency.resolved);
       }
-    }
+      const specifiers = new Set<string>();
+      for (const exported of exports) {
+        if (specifiers.has(exported.specifier)) add("package-export-unique", site, exported.specifier);
+        specifiers.add(exported.specifier);
+        const targets = modulePackages.get(exported.module);
+        if (targets === undefined) add("export-module-resolves", site, exported.module);
+        else if (targets.size !== 1 || !targets.has(entry.id)) {
+          add("export-package-agrees", site, exported.module);
+        }
+      }
     }
   }
   for (const entry of modules) {
@@ -227,7 +228,7 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
     const references = snapshotRows(component.dependencies, site, "component.dependencies", violations);
     ordered(references, id => id, "stable-order", site, "component.dependencies");
     const members: PackageNode[] = [];
-    const node: ComponentNode = { value: component, references, members, dependencies: new Set(), dependents: new Set(), pending: 0 };
+    const node: ComponentNode = { value: component, references, members, dependencies: new Map(), dependents: new Map(), pending: 0 };
     componentNodes.push(node);
     const matching = componentGroups.get(component.representative);
     if (matching === undefined) componentGroups.set(component.representative, [node]);
@@ -280,7 +281,7 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
       const expected = new Set<PackageId>();
       for (const member of node.members) {
         for (const target of member.outgoing) {
-          if (target.owner !== node) expected.add(target.owner.value.representative);
+          if (target.owner.value.representative !== node.value.representative) expected.add(target.owner.value.representative);
         }
       }
       const expectedOrder = [...expected].sort();
@@ -292,20 +293,20 @@ export function verifyPackageSnapshot(snapshot: PackageSnapshot): PackageVerific
         const targets = componentGroups.get(id);
         if (targets !== undefined) {
           const dependency = targets[0];
-          node.dependencies.add(dependency);
-          dependency.dependents.add(node);
+          node.dependencies.set(dependency.value.representative, dependency);
+          dependency.dependents.set(node.value.representative, node);
         }
       }
     }
     for (const node of componentNodes) node.pending = node.dependencies.size;
     const work = componentNodes.filter(node => node.dependencies.size === 0);
     for (const node of work) {
-      for (const dependent of node.dependents) {
+      for (const dependent of node.dependents.values()) {
         dependent.pending -= 1;
         if (dependent.pending === 0) work.push(dependent);
       }
     }
     if (work.length !== componentNodes.length) add("component-acyclic", snapshotSite, "components");
   }
-  return { violations, packageIds: new Set(packageGroups.keys()), moduleOwners: moduleGroups, filePaths };
+  return { violations, packageIds: new Set(packageGroups.keys()), modulePackages, filePaths };
 }
