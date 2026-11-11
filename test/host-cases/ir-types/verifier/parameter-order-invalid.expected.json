@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "parameter-order",
+      "site": {
+        "kind": "signature",
+        "signature": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "parameters"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

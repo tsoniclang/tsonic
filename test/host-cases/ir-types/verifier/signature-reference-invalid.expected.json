@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "signature-reference",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "reference"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

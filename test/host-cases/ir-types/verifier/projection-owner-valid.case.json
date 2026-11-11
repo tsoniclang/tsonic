@@ -1,0 +1,7 @@
+{
+  "name": "projection-owner-valid",
+  "level": "verifier",
+  "rule": "projection-owner",
+  "input": "test/host-cases/ir-types/verifier/projection-owner-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/projection-owner-valid.expected.json"
+}

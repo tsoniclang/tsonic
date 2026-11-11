@@ -1,0 +1,7 @@
+{
+  "name": "union-order-invalid",
+  "level": "verifier",
+  "rule": "union-order",
+  "input": "test/host-cases/ir-types/verifier/union-order-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/union-order-invalid.expected.json"
+}

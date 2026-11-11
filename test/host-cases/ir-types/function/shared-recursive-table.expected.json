@@ -1,0 +1,22 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "parsed",
+    "value": {
+      "terms": [
+        {
+          "kind": "array",
+          "element": 0,
+          "readonly": true
+        },
+        {
+          "kind": "array",
+          "element": 0,
+          "readonly": false
+        }
+      ],
+      "signatures": []
+    }
+  },
+  "diagnostics": []
+}

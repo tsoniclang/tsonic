@@ -1,0 +1,19 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "extent-exact",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "extent.length"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

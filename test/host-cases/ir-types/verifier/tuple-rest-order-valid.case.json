@@ -1,0 +1,7 @@
+{
+  "name": "tuple-rest-order-valid",
+  "level": "verifier",
+  "rule": "tuple-rest-order",
+  "input": "test/host-cases/ir-types/verifier/tuple-rest-order-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/tuple-rest-order-valid.expected.json"
+}

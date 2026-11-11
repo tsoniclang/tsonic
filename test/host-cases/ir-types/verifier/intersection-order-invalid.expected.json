@@ -1,0 +1,19 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "intersection-order",
+      "site": {
+        "kind": "type",
+        "type": 2
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "members"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

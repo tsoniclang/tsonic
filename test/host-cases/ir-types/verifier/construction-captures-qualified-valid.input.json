@@ -1,0 +1,25 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "construction-reference",
+        "definition": {
+          "occurrence": {
+            "body": "B[D[M[P[case];main.ts];field];function;0]",
+            "node": 0
+          },
+          "captures": [
+            {
+              "body": "B[D[M[P[case];main.ts];field];function;0]",
+              "local": 0
+            }
+          ]
+        },
+        "arguments": []
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

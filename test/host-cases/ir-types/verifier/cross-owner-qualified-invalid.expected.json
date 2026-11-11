@@ -1,0 +1,26 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "cross-owner-qualified",
+      "site": {
+        "kind": "evidence",
+        "position": 0,
+        "source": {
+          "kind": "body",
+          "value": {
+            "body": "B[D[M[P[case];main.ts];field];function;0]",
+            "node": 2
+          }
+        }
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "component"
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}
