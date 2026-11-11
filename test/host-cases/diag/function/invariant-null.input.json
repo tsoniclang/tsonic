@@ -1,7 +1,7 @@
 {
   "operation": "invariant",
   "failure": {
-    "pass": "infer",
+    "owner": "infer",
     "query": null,
     "origin": null,
     "message": "no invented query or origin"

@@ -5,7 +5,7 @@
       "name": "Error",
       "message": "internal invariant\r\n\udfff",
       "cause": {
-        "pass": "pipeline",
+        "owner": "pipeline",
         "query": {
           "name": "body-result",
           "encodedKey": "{\"body\":\"B[exact]\"}"

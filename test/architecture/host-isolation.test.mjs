@@ -72,7 +72,7 @@ test("genuine public declaration production includes its explicit private implem
     const contractText = "export type Substitute = (input: number) => number;";
     const privateText = forwarding
       ? 'import type { Substitute } from "./contract.js"; export const substitute: Substitute = input => input + 1;'
-      : 'export function adjust(input: number): number { return input + 1; }';
+      : 'export interface MutableState { value: number; }\nexport function adjust(input: number): number { return input + 1; }';
     const entryText = forwarding ? 'export { substitute } from "./private.js";'
       : 'import type { Substitute } from "./contract.js"; import { adjust } from "./private.js"; export const substitute: Substitute = input => adjust(input);';
     await fixture([[contract, contractText], [entry, entryText], [helper, privateText],
@@ -80,9 +80,14 @@ test("genuine public declaration production includes its explicit private implem
       [inferEntry, 'import type { Infer } from "./contract.js"; import { substitute } from "../ir-types/index.js"; export const infer: Infer = (deps, input) => substitute(input) + deps.bias;']], async ({ root, deps }) => {
       const report = await compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper] });
       assert.equal(report.status, "passed", label(report));
+      assert.deepEqual(report.findings, []);
       assert.equal(report.loadedInventory.some(file => file.endsWith(`/interface-source/${helper}`)), true);
       assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/private.ts")), false);
       assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/ir-types/private.d.ts`)), forwarding);
+      const expectedDeclarations = [contract, entry, ...(forwarding ? [helper] : [])].map(file => file.replace(/\.ts$/u, ".d.ts")).sort();
+      assert.deepEqual(report.provenance.map(value => relative(root, value.source).replace(/\.ts$/u, ".d.ts")).sort(), expectedDeclarations);
+      assert.deepEqual(report.loadedInventory.filter(file => file.includes("/isolated/") && file.endsWith(".d.ts")).sort(),
+        report.provenance.map(value => value.declaration).sort());
       assert.equal(report.sourceInventory.some(source => source.path === resolve(root, helper) && source.hash === createHash("sha256").update(privateText).digest("hex")), true);
       assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
       await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper, helper] }), /Distinct complete explicit/u);
@@ -95,6 +100,35 @@ test("genuine public declaration production includes its explicit private implem
       await assert.rejects(compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper, orphan] }), /actual implementation closure/u);
     });
   }
+});
+
+test("reachable private declarations retain the complete contract-shape rejection vector", async () => {
+  const helper = path("ir-types", "private.ts");
+  const privateText = 'import type { Substitute } from "./contract.js";\nexport interface MutableState { value: number; }\nexport const substitute: Substitute = input => input + 1;';
+  await fixture([[contract, "export type Substitute = (input: number) => number;"],
+    [entry, 'export { substitute } from "./private.js";'], [helper, privateText],
+    [inferContract, "export interface InferDeps { readonly bias: number; } export type Infer = (deps: InferDeps, input: number) => number;"],
+    [inferEntry, 'import type { Infer } from "./contract.js"; import { substitute } from "../ir-types/index.js"; export const infer: Infer = (deps, input) => substitute(input) + deps.bias;']], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("infer"), { ...inferInput(root), declarationSources: [contract, entry, helper] });
+    assert.equal(report.status, "failed", label(report));
+    assert.deepEqual(report.findings, [{ code: "contract-shape", path: helper.replace(/\.ts$/u, ".d.ts"), line: 2, column: 1 }]);
+    assert.deepEqual(report.provenance, []);
+    assert.deepEqual(report.loadedInventory.filter(file => file.includes("/isolated/")), []);
+    assert.equal(report.loadedInventory.some(file => file.endsWith(`/interface-source/${helper}`)), true);
+  });
+});
+
+test("a bad actual dependency contract retains its complete rejection vector", async () => {
+  await fixture([[contract, "export interface State { value: number; }\nexport type Substitute = (input: number) => number;"],
+    [entry, 'import type { Substitute } from "./contract.js"; export const substitute: Substitute = input => input + 1;'],
+    [inferContract, "export interface InferDeps { readonly bias: number; } export type Infer = (deps: InferDeps, input: number) => number;"],
+    [inferEntry, 'import type { Infer } from "./contract.js"; import { substitute } from "../ir-types/index.js"; export const infer: Infer = (deps, input) => substitute(input) + deps.bias;']], async ({ root, deps }) => {
+    const report = await compileIsolated(deps, module("infer"), inferInput(root));
+    assert.equal(report.status, "failed", label(report));
+    assert.deepEqual(report.findings, [{ code: "contract-shape", path: contract, line: 1, column: 1 }]);
+    assert.deepEqual(report.provenance, []);
+    assert.deepEqual(report.loadedInventory, []);
+  });
 });
 
 for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "ir-facts", "ir-program", "dataflow", "query", "libraries", "snapshot"]) {
