@@ -1,7 +1,7 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, BodyPath, DefId, DefinitionPath, LocalRef, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, BodyPath, DefId, DefinitionPath, LocalRef, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, encodeBodyId, encodeDefId } from "../ids/index.js";
-import type { BindingVector, BindingVerificationInput, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVector, BindingVerificationInput, TypeRule } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { HirBody, HirModule, HirNode, HirRule, HirSite, HirVerificationContext } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
@@ -16,9 +16,8 @@ export type HirBindingRequest = {
 );
 
 interface BindingFailure {
-  readonly rule: TypeRule;
-  readonly site: Extract<TypeSite, { readonly kind: "binding" }>;
-  readonly detail: Violation<TypeRule, never>["detail"];
+  readonly rule: HirRule;
+  readonly detail: Violation<HirRule, HirSite>["detail"];
 }
 
 function bindingRule(rule: TypeRule): HirRule {
@@ -54,17 +53,17 @@ export function verifyBindingVectors(
     for (const violation of verifyTypes({ table: context.types, bindings: inputs, evidence: [],
       nominalOf: context.nominalOf, nodeExists: reference => nodeOf(reference) !== null, localExists: context.localExists })) {
       if (violation.site.kind !== "binding") continue;
-      const failure: BindingFailure = { rule: violation.rule, site: violation.site, detail: violation.detail };
+      const failure: BindingFailure = { rule: bindingRule(violation.rule),
+        detail: [{ kind: "text", value: String(violation.site.family) },
+          { kind: "text", value: violation.site.position === null ? "complete" : String(violation.site.position) },
+          ...violation.detail] };
       const previous = grouped.get(violation.site.vector);
       if (previous === undefined) grouped.set(violation.site.vector, [failure]);
       else previous.push(failure);
     }
     selected.forEach((request, ordinal) => {
       for (const violation of grouped.get(ordinal) ?? []) {
-        request.violations.push({ rule: bindingRule(violation.rule), site: request.site,
-          detail: [{ kind: "text", value: String(violation.site.family) },
-            { kind: "text", value: violation.site.position === null ? "complete" : String(violation.site.position) },
-            ...violation.detail] });
+        request.violations.push({ rule: violation.rule, site: request.site, detail: violation.detail });
       }
     });
   }
@@ -94,16 +93,30 @@ export function hirOwnerOf(input: HirOwnerInput): HirBodyOwner | HirDefinitionOw
 
 export function sourceNodeExists(reference: SourceNodeRef, module: HirModule,
   inventory: HirInventory, context: HirVerificationContext): boolean {
-  return sourceNodeOf(reference, module, inventory, context) !== null;
+  return sourceNodeData(reference, module, inventory, context) !== null;
 }
 
-export function sourceNodeOf(reference: SourceNodeRef, module: HirModule,
-  inventory: HirInventory, context: HirVerificationContext): HirNode | null {
+export interface HirForeignNode {
+  readonly kind: "foreign";
+  readonly module: ModuleId;
+  readonly ordinal: NodeId;
+  readonly node: HirNode;
+}
+
+export type HirSourceNode = { readonly kind: "local"; readonly node: HirNode } | HirForeignNode;
+
+export function sourceNodeData(reference: SourceNodeRef, module: HirModule,
+  inventory: HirInventory, context: HirVerificationContext): HirSourceNode | null {
   if (!validHirIndex(reference.value.node)) return null;
   const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
     { kind: "definition", identity: reference.value.owner });
   if (owner === null) return null;
-  return owner.path.module === module.module ? localSourceNode(reference, module, inventory) : context.nodeOf(reference);
+  if (owner.path.module === module.module) {
+    const entry = qualifiedLocalEntry(reference, inventory);
+    return entry === null ? null : { kind: "local", node: entry.node };
+  }
+  const node = context.nodeOf(reference);
+  return node === null ? null : { kind: "foreign", module: owner.path.module, ordinal: reference.value.node, node };
 }
 
 export function localExists(reference: LocalRef, module: HirModule,
@@ -124,6 +137,10 @@ export function localSourceEntry(reference: SourceNodeRef, module: HirModule, in
   const owner = hirOwnerOf(reference.kind === "body" ? { kind: "body", identity: reference.value.body } :
     { kind: "definition", identity: reference.value.owner });
   if (owner === null || owner.path.module !== module.module || !validHirIndex(reference.value.node)) return null;
+  return qualifiedLocalEntry(reference, inventory);
+}
+
+function qualifiedLocalEntry(reference: SourceNodeRef, inventory: HirInventory): HirNodeEntry | null {
   const entry = inventory.entriesById.get(reference.value.node);
   if (entry === undefined) return null;
   if (reference.kind === "body") {

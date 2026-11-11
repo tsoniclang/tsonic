@@ -2,11 +2,11 @@ import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { decodeBodyId, decodeDefId, decodeModuleId, encodeDefId } from "../ids/index.js";
-import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
+import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirNodeData, hirObligationsData } from "./text-data.js";
-import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeOf, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
+import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeData, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
@@ -172,7 +172,13 @@ const declarationKinds: readonly DeclarationKind[] = Object.freeze([
   "ExportDeclaration", "ImportClause", "ImportSpecifier", "TypeParameter", "JSDocTypeLiteral",
 ]);
 
-function bodyViolations(module: HirModule, inventory: HirInventory, report: HirReport): void {
+interface HirCandidateArena {
+  readonly body: HirBody;
+  readonly lists: readonly HirCandidateList[];
+}
+
+function bodyViolations(module: HirModule, inventory: HirInventory, report: HirReport): readonly HirCandidateArena[] {
+  const arenas: HirCandidateArena[] = [];
   const lexicalRanges = hirLexicalBodyRanges(module, inventory);
   const lexicalBodies = new Map<BodyId, typeof lexicalRanges[number]>();
   for (const range of lexicalRanges) if (!lexicalBodies.has(range.body.body)) lexicalBodies.set(range.body.body, range);
@@ -206,14 +212,19 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
       if (previous === undefined) captured.set(reference.body, new Set([reference.local]));
       else previous.add(reference.local);
     }
-    body.locals.forEach((local, ordinal) => {
+    const parameterLocals: number[] = [];
+    for (const [ordinal, local] of body.locals.entries()) {
+      if (!Object.hasOwn(body.locals, ordinal)) {
+        report("local-dense", site, "local id must equal its declaration position");
+        continue;
+      }
       if (!Object.is(local.id, ordinal)) report("local-dense", site, "local id must equal its declaration position");
+      if (local.role === "parameter") parameterLocals.push(local.id);
       if (local.role === "capture") {
         if (local.capturedFrom === null || !captured.get(local.capturedFrom.body)?.has(local.capturedFrom.local))
           report("capture-owner", site, "capture local must name a declared outer capture");
       } else if (local.capturedFrom !== null) report("capture-owner", site, "noncapture local cannot have capturedFrom");
-    });
-    const parameterLocals = body.locals.filter(local => local.role === "parameter").map(local => local.id);
+    }
     if (parameterLocals.length !== body.params.length || body.params.some((parameter, ordinal) =>
       !Object.is(parameter.local, parameterLocals[ordinal])))
       report("parameter-order", site, "parameters must name every parameter local in declaration order");
@@ -254,7 +265,13 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
           !containsHirNode(parentNode, node)) report("scope-parent", site, "scope parent must be an earlier enclosing scope");
       }
     }
-    body.candidateLists.forEach((list, ordinal) => {
+    const lists: HirCandidateList[] = [];
+    for (const [ordinal, list] of body.candidateLists.entries()) {
+      if (!Object.hasOwn(body.candidateLists, ordinal)) {
+        report("candidate-list-dense", site, "candidate list id must equal its arena position");
+        continue;
+      }
+      lists.push(list);
       if (!Object.is(list.id, ordinal)) report("candidate-list-dense", site, "candidate list id must equal its arena position");
       let previousCandidate = -1;
       for (const candidate of list.candidates) {
@@ -262,8 +279,10 @@ function bodyViolations(module: HirModule, inventory: HirInventory, report: HirR
           report("candidate-original-order", site, "candidate ordinals must retain distinct original order");
         previousCandidate = candidate.ordinal;
       }
-    });
+    }
+    arenas.push({ body, lists });
   }
+  return arenas;
 }
 
 function verificationRoots(module: HirModule, inventory: HirInventory): readonly HirDataRoot[] {
@@ -313,12 +332,12 @@ function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport)
     report("protocol-kind", site, "iteration protocol must retain authored asynchronous mode");
 }
 
-function candidateViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext,
-  requests: HirBindingRequest[], report: HirReport): void {
-  for (const body of module.bodies) {
+function candidateViolations(inventory: HirInventory, context: HirVerificationContext,
+  arenas: readonly HirCandidateArena[], requests: HirBindingRequest[], report: HirReport): void {
+  const memberships = new Map<DefId, Map<DefId, Set<number>>>();
+  for (const { body, lists } of arenas) {
     const site: HirSite = { kind: "body", body: body.body };
-    for (const list of body.candidateLists) for (const candidate of list.candidates) {
-      const scope = context.bindingScopeOf(candidate.declaration);
+    for (const list of lists) for (const candidate of list.candidates) {
       if (candidate.bindings.kind === "available")
         requests.push({ kind: "definition", definition: candidate.declaration, vector: candidate.bindings.value, site });
       if (candidate.appliedSignature.kind === "available") {
@@ -327,15 +346,23 @@ function candidateViolations(module: HirModule, inventory: HirInventory, context
         if (signature !== undefined && signature.declaration !== null && signature.declaration !== candidate.declaration)
           report("candidate-endpoints", site, "applied signature must retain the candidate declaration");
       }
-      const allowed = new Map<DefId, Set<number>>();
-      if (scope !== null) for (const parameter of [...scope.classParameters, ...scope.methodParameters, ...scope.capturedParameters]) {
-        const previous = allowed.get(parameter.owner);
-        if (previous === undefined) allowed.set(parameter.owner, new Set([parameter.index]));
-        else previous.add(parameter.index);
+      if (candidate.contributions.length > 0) {
+        let allowed = memberships.get(candidate.declaration);
+        if (allowed === undefined) {
+          allowed = new Map();
+          const scope = context.bindingScopeOf(candidate.declaration);
+          if (scope !== null) for (const family of [scope.classParameters, scope.methodParameters, scope.capturedParameters])
+            for (const parameter of family) {
+              const previous = allowed.get(parameter.owner);
+              if (previous === undefined) allowed.set(parameter.owner, new Set([parameter.index]));
+              else previous.add(parameter.index);
+            }
+          memberships.set(candidate.declaration, allowed);
+        }
+        for (const contribution of candidate.contributions) if (!validHirIndex(contribution.parameter.index) ||
+          !allowed.get(contribution.parameter.owner)?.has(contribution.parameter.index))
+          report("contribution-parameter", site, "contribution must name an actual candidate type parameter");
       }
-      for (const contribution of candidate.contributions) if (!validHirIndex(contribution.parameter.index) ||
-        !allowed.get(contribution.parameter.owner)?.has(contribution.parameter.index))
-        report("contribution-parameter", site, "contribution must name an actual candidate type parameter");
     }
   }
   for (const entry of inventory.entries) {
@@ -627,18 +654,18 @@ export const verifyHir: VerifyHir = (module, context) => {
   const inventory = createHirInventory(module);
   syntaxViolations(module, inventory, report);
   declarationViolations(module, inventory, report);
-  bodyViolations(module, inventory, report);
+  const arenas = bodyViolations(module, inventory, report);
   const roots = verificationRoots(module, inventory);
   verifyHirReferences(roots, module, inventory, context, report);
   const requests: HirBindingRequest[] = [];
-  candidateViolations(module, inventory, context, requests, report);
+  candidateViolations(inventory, context, arenas, requests, report);
   literalViolations(module, inventory, report, roots);
   obligationViolations(module, inventory, context, report);
   const readers: HirCaptureReaders = {
-    nodeOf: reference => sourceNodeOf(reference, module, inventory, context),
+    nodeOf: reference => sourceNodeData(reference, module, inventory, context),
   };
   verifyHirCaptures(inventory.entries, readers, report, hirSchema, requests);
   verifyHirPlaces(inventory, report);
-  violations.push(...verifyBindingVectors(requests, context, readers.nodeOf));
+  violations.push(...verifyBindingVectors(requests, context, reference => readers.nodeOf(reference)?.node ?? null));
   return Object.freeze(violations);
 };

@@ -524,6 +524,17 @@ test("HIR every genuinely checked syntax arm has a complete text roundtrip in it
       roundtrip(immutableTree(constructorModule(node)), `checked text/${node.kind}/${count}/${nullOptionals}/${reversed}`);
 });
 
+for (const kind of ["WithStatement", "EnumMember", "FunctionDeclaration"])
+  test(`HIR ${kind} retains its actual declared field order and named modifier-list shape`, () => {
+    for (const [count, nullOptionals, reversed] of [[0, true, false], [0, false, false], [1, false, false], [3, false, false], [3, false, true]]) {
+      const node = checkedConstructorInputs(count, nullOptionals, reversed).find(value => value.kind === kind);
+      assert.equal(node !== undefined, true, "the existing complete constructor bank contains the real input arm");
+      const decoded = roundtrip(immutableTree(constructorModule(node)), `declared projection/${kind}/${count}/${nullOptionals}/${reversed}`);
+      if (kind !== "WithStatement" && !nullOptionals)
+        assert.equal(decoded.text.includes("modifiers=ModifierList("), true, "the named list is not projected as a plain NodeList");
+    }
+  });
+
 function typedFixtureText(value) {
   return JSON.stringify(value, (name, field) => typeof field === "bigint" ? { __positiveBigInt: String(field) } : field)
     .replace(/\{"__positiveBigInt":"(-?\d+)"\}/gu, "$1n");
@@ -668,6 +679,14 @@ function contextFor(value, additions = {}, additionalModules = []) {
     nominalOf: definition => { assert.fail(`unexpected nominal lookup: ${definition}`); },
     nodeOf: reference => checkedNodes.get(JSON.stringify(reference)) ?? null,
     localExists: reference => declaredLocals.has(JSON.stringify(reference)), ...additions };
+}
+
+function freshContextFor(value, additionalModules) {
+  const context = contextFor(value, {}, additionalModules);
+  return { ...context, nodeOf: reference => {
+    const node = context.nodeOf(reference);
+    return node === null ? null : immutableTree(structuredClone(node));
+  } };
 }
 
 function assertComplete(actual, expected, label) {
@@ -887,9 +906,9 @@ function replaceModuleOwner(value, definition, body) {
   value.bodies[0].body = body;
 }
 
-function foreignModuleWith(statements) {
+function foreignModuleWith(statements, path = "foreign.ts") {
   const value = moduleWith(statements);
-  value.module = "M[P[%002Fproject];foreign.ts]";
+  value.module = `M[P[%002Fproject];${path}]`;
   const definition = `D[${value.module}]`;
   replaceModuleOwner(value, definition, `B[${definition};module;0]`);
   const pending = [value.tree];
@@ -963,6 +982,125 @@ test("HIR candidate arena ids, applied signatures and independent scope contribu
     violation("contribution-parameter", { kind: "body", body: bodyIdentity }, "contribution must name an actual candidate type parameter"),
   ]);
 });
+
+function genericCandidateFixture(parameterCount, declarationCount = 1) {
+  const foreign = foreignModuleWith([]);
+  const scopes = new Map([[foreign.tree.tsonic.definition, emptyScope()]]);
+  const definitions = [];
+  const declared = [];
+  for (let ordinal = 0; ordinal < declarationCount; ordinal += 1) {
+    const segments = [{ name: `Generic${ordinal}`, ordinal: 0 }];
+    const definition = ids.encodeDefId({ module: foreign.module, segments });
+    definitions.push(definition);
+    const parameters = Array.from({ length: parameterCount }, (_, index) => {
+      const text = `T${String(index).padStart(4, "0")}`;
+      const declaration = ids.encodeDefId({ module: foreign.module, segments: [...segments, { name: text, ordinal: 0 }] });
+      const name = syntax("Identifier", 0, { text, tsonic: { core: absentCore(), role: "declaration-name",
+        declaration: { kind: "definition", definition: declaration } } });
+      return syntax("TypeParameter", 0, { modifiers: null, name, constraint: null, expression: null, defaultType: null,
+        tsonic: { ...declarationFacts(definition), definition: declaration,
+          parameter: { identity: { owner: definition, index }, declaration, constraint: null, default: null } } });
+    });
+    const name = syntax("Identifier", 0, { text: `Generic${ordinal}`, tsonic: { core: absentCore(), role: "declaration-name",
+      declaration: { kind: "definition", definition } } });
+    const node = syntax("ClassDeclaration", 0, { modifiers: null, name, typeParameters: nodeList(parameters), heritageClauses: null,
+      members: nodeList([]), tsonic: { ...declarationFacts(foreign.tree.tsonic.definition), definition,
+        parameters: parameters.map(parameter => parameter.tsonic.parameter), heritage: [], members: [] } });
+    for (const source of [node, name, ...parameters.flatMap(parameter => [parameter, parameter.name])]) source.origin.module = foreign.module;
+    foreign.tree.statements.nodes.push(node);
+    declared.push({ definition, node }, ...parameters.map(parameter => ({ definition: parameter.tsonic.definition, node: parameter })));
+    scopes.set(definition, { classParameters: parameters.map(parameter => parameter.tsonic.parameter.identity),
+      methodParameters: [], capturedParameters: [], selfOwners: [definition] });
+    for (const parameter of parameters) scopes.set(parameter.tsonic.definition, emptyScope());
+  }
+  numberSyntaxFixture(foreign.tree);
+  foreign.items = declared.map(({ definition, node }) => ({ definition, node: node.id }))
+    .sort((left, right) => Number(left.definition > right.definition) - Number(left.definition < right.definition));
+  immutableTree(foreign);
+  for (const scope of scopes.values()) immutableTree(scope);
+  return { foreign, definitions, scopes };
+}
+
+for (const count of [0, 1, 128]) for (const contributions of [false, true])
+  test(`HIR repeated genuine foreign generic candidates do ${contributions ? "one" : "no"} membership inventory for ${count} ordered candidates`, () => {
+    const { foreign, definitions, scopes } = genericCandidateFixture(128);
+    const definition = definitions[0];
+    const value = moduleWith();
+    value.bodies[0].candidateLists = [{ id: 0, candidates: Array.from({ length: count }, (_, ordinal) => candidate(ordinal * 2 + 2, {
+      declaration: definition, contributions: contributions ? [{ parameter: { owner: definition, index: ordinal % 128 }, role: "argument",
+        source: bodySource(0), component: { root: bodySource(0), path: [] }, type: available(0) }] : [],
+    })) }];
+    immutableTree(value);
+    const reads = [];
+    const context = contextFor(value, { bindingScopeOf: owner => { reads.push(owner); return scopes.get(owner) ?? null; } }, [foreign]);
+    assert.deepStrictEqual(product.verifyHir(foreign, contextFor(foreign, { bindingScopeOf: owner => scopes.get(owner) ?? null })), [],
+      "the declaration and all 128 real type parameters themselves have a complete valid HIR model");
+    const expectedReads = count === 0 ? [] : contributions ? [definition, definition] : [definition];
+    assert.deepStrictEqual(product.verifyHir(value, context), []);
+    assert.deepStrictEqual(reads, expectedReads, "one foreign existence read, then membership only once when contributions exist");
+    reads.length = 0;
+    assert.deepStrictEqual(product.verifyHir(value, context), []);
+    assert.deepStrictEqual(reads, expectedReads, "a second public invocation does not share a hidden membership cache");
+  });
+
+for (const invalid of [false, true])
+  test(`HIR membership is kept per distinct genuine declaration with ${invalid ? "one complete foreign-owner opposite" : "complete interleaved candidates"}`, () => {
+    const { foreign, definitions, scopes } = genericCandidateFixture(4, 2);
+    const value = moduleWith();
+    value.bodies[0].candidateLists = [{ id: 0, candidates: Array.from({ length: 4 }, (_, ordinal) => {
+      const declaration = definitions[ordinal % 2];
+      const owner = invalid && ordinal === 3 ? definitions[0] : declaration;
+      return candidate(ordinal * 3, { declaration, contributions: [{ parameter: { owner, index: ordinal }, role: "result",
+        source: bodySource(0), component: { root: bodySource(0), path: [] }, type: unavailable() }] });
+    }) }];
+    const reads = [];
+    const context = contextFor(value, { bindingScopeOf: owner => { reads.push(owner); return scopes.get(owner) ?? null; } }, [foreign]);
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), invalid ? [
+      violation("contribution-parameter", { kind: "body", body: bodyIdentity }, "contribution must name an actual candidate type parameter"),
+    ] : []);
+    assert.deepStrictEqual(reads, [definitions[0], definitions[1], definitions[0], definitions[1]],
+      "canonical existence and the two independent declaration memberships retain first-use order");
+  });
+
+test("HIR a repeated null declaration scope is not manufactured empty or silently admitted for contributions", () => {
+  const { definitions } = genericCandidateFixture(4);
+  const definition = definitions[0];
+  const value = moduleWith();
+  value.bodies[0].candidateLists = [{ id: 0, candidates: [2, 8, 11].map(ordinal => candidate(ordinal, { declaration: definition,
+    contributions: [{ parameter: { owner: definition, index: 0 }, role: "receiver", source: bodySource(0),
+      component: { root: bodySource(0), path: [] }, type: available(0) }] })) }];
+  const reads = [];
+  const context = contextFor(value, { bindingScopeOf: owner => { reads.push(owner); return null; } });
+  assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), [
+    ...Array.from({ length: 6 }, () => violation("definition-reference", { kind: "body", body: bodyIdentity },
+      "definition must exist in the canonical declaration inventory")),
+    ...Array.from({ length: 3 }, () => violation("contribution-parameter", { kind: "body", body: bodyIdentity },
+      "contribution must name an actual candidate type parameter")),
+  ]);
+  assert.deepStrictEqual(reads, [definition, definition], "the null result is retained once in each distinct owning relation, not re-invented per candidate");
+});
+
+for (const arena of ["locals", "candidateLists"]) for (const later of ["absent", "valid", "wrong-index", "invalid-row"])
+  test(`HIR own ${arena} sparse slots retain the original numeric index and later present ${later} row`, () => {
+    const value = moduleWith();
+    const context = contextFor(value);
+    const site = { kind: "body", body: bodyIdentity };
+    const rule = arena === "locals" ? "local-dense" : "candidate-list-dense";
+    const detail = arena === "locals" ? "local id must equal its declaration position" : "candidate list id must equal its arena position";
+    const expected = [violation(rule, site, detail)];
+    const rows = new Array(later === "absent" ? 1 : 2);
+    if (later !== "absent") {
+      const id = later === "wrong-index" ? 0 : 1;
+      rows[1] = arena === "locals" ? { id, declaration: bodySource(0), name: "later", role: later === "invalid-row" ? "capture" : "binding",
+        checkerSlot: available(0), capturedFrom: null, mutable: false } :
+        { id, candidates: later === "invalid-row" ? [candidate(8), candidate(2)] : [] };
+      if (later === "wrong-index") expected.push(violation(rule, site, detail));
+      if (later === "invalid-row") expected.push(violation(arena === "locals" ? "capture-owner" : "candidate-original-order", site,
+        arena === "locals" ? "capture local must name a declared outer capture" : "candidate ordinals must retain distinct original order"));
+    }
+    value.bodies[0][arena] = rows;
+    assert.deepStrictEqual(product.verifyHir(immutableTree(value), context), expected);
+  });
 
 function expressionModule(expression) {
   return moduleWith([syntax("ExpressionStatement", 0, { expression })]);
@@ -1259,7 +1397,7 @@ test("HIR fresh actual declarations retain generic phases, all six ports and exa
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const positive = `import { childrenOfSyntax, indexSyntaxTree, parseHir, printHir, verifyHir, walkSyntaxTree } from "./ir-hir/index.js";
-import type { HirModule, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
+import type { HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import type { ComponentSelector, TypeComponent } from "./ir-types/contract.js";
@@ -1270,6 +1408,9 @@ return { childResult, indexResult, walkResult }; }
 export function checked(module: HirModule, context: HirVerificationContext) {
 const parse: ParseHir = parseHir; const print: PrintHir = printHir; const verify: VerifyHir = verifyHir;
 return { text: print(module), decoded: parse(print(module)), violations: verify(module, context) }; }
+export function sparseArenas(module:HirModule,context:HirVerificationContext) {
+return verifyHir({...module,bodies:module.bodies.map(body=>({...body,
+locals:new Array<HirLocal>(1),candidateLists:new Array<HirCandidateList>(1)}))},context); }
 export function cyclicComponent(root:SourceNodeRef):TypeComponent {
 const path:ComponentSelector[]=[]; const component:TypeComponent={root,path};
 path.push({kind:"sum-arm",index:0,family:{origin:"authored",component,parameters:[],roles:[]}});
@@ -1483,6 +1624,42 @@ test("HIR a real foreign descriptor edge may close a cycle through the local des
     violation("memory-layout-acyclic", nodeSite(2), "captured layout graph must be acyclic"),
   ]);
 });
+
+for (const kind of ["body", "item"]) for (const cycle of [false, true])
+  test(`HIR fresh-equal foreign ${kind} snapshots retain ${cycle ? "cyclic" : "acyclic"} declared arena identity`, () => {
+    const { value, foreign, expressions, references, field } = foreignMemoryFixture(kind);
+    if (cycle) field.fieldLayout = available(referenceIn(foreign, expressions[0], kind === "body" ? "item" : "body"));
+    immutableTree(foreign);
+    const decoded = roundtrip(immutableTree(value), `fresh foreign graph/${kind}/${cycle}`);
+    const context = freshContextFor(decoded.value, [foreign]);
+    const first = context.nodeOf(references[0]);
+    const second = context.nodeOf(references[0]);
+    assert.equal(first !== null && second !== null && first !== second, true, "this pure reader deliberately supplies distinct equal immutable snapshots");
+    assertComplete(first, second, "the two allocations preserve the entire actual foreign node value");
+    assert.deepStrictEqual(product.verifyHir(decoded.value, context), cycle ? [
+      violation("memory-layout-acyclic", { kind: "node", node: references[0] }, "captured layout graph must be acyclic"),
+    ] : []);
+  });
+
+for (const kind of ["body", "item"])
+  test(`HIR fresh foreign ${kind} graph keys keep different declared modules separate even at equal node ordinals`, () => {
+    const { value, foreign, layout, expressions } = foreignMemoryFixture(kind);
+    const leaf = callExpression();
+    const field = callExpression();
+    const other = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: leaf }),
+      syntax("ExpressionStatement", 0, { expression: field })], "other.ts");
+    const leafReference = referenceIn(other, leaf, kind);
+    const fieldReference = referenceIn(other, field, kind === "body" ? "item" : "body");
+    leaf.tsonic.memory = available(layoutCapture("value", leafReference));
+    const capture = layoutCapture("field", fieldReference);
+    capture.selector = referenceIn(other, field.expression, kind);
+    capture.fieldLayout = available(leafReference);
+    field.tsonic.memory = available(capture);
+    layout.fields = available([fieldReference]);
+    assert.equal(expressions[0].id === leaf.id, true, "a bare numeric-node key would invent a cycle between these two different arenas");
+    const decoded = roundtrip(immutableTree(value), `distinct foreign arenas/${kind}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, freshContextFor(decoded.value, [immutableTree(foreign), immutableTree(other)])), []);
+  });
 
 test("HIR shared inline descriptor records retain value semantics and complete lexical binding reads after parsing", () => {
   const first = callExpression();
@@ -3469,6 +3646,55 @@ test("HIR attribute selection compares actual qualified node identity across bod
     ] : []);
   }
 });
+
+for (const givenKind of ["body", "item"]) for (const selectedKind of ["body", "item"])
+  for (const selection of ["same", "different-node", "different-arena", "missing-given", "missing-selected"])
+    test(`HIR fresh foreign selected members preserve ${givenKind}/${selectedKind} identity for ${selection}`, () => {
+      const invocation = callExpression();
+      const sibling = callExpression();
+      const foreign = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: invocation }),
+        syntax("ExpressionStatement", 0, { expression: sibling })]);
+      const otherInvocation = callExpression();
+      const other = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: otherInvocation })], "other.ts");
+      let given = referenceIn(foreign, invocation.expression, givenKind);
+      let selected = selection === "different-node" ? referenceIn(foreign, sibling.expression, selectedKind) :
+        selection === "different-arena" ? referenceIn(other, otherInvocation.expression, selectedKind) :
+          referenceIn(foreign, invocation.expression, selectedKind);
+      if (selection === "missing-given") given = { kind: given.kind, value: { ...given.value, node: 99 } };
+      if (selection === "missing-selected") selected = { kind: selected.kind, value: { ...selected.value, node: 99 } };
+      assert.equal(invocation.expression.id === otherInvocation.expression.id, true, "the different-arena opposite deliberately retains the same numeric ordinal");
+      const { module: value, call } = coreCarrier();
+      call.tsonic.core.attribute = available({ occurrence: referenceIn(foreign, invocation, givenKind), applicationTarget: bodySource(6),
+        selectedMember: { declarations: [given], selectedDeclaration: selected }, applicationMemberKind: "method",
+        applicationPlacement: "declaration", applicationParameterName: null, applicationTargetSpecifier: null, kind: "builder-state" });
+      const decoded = roundtrip(immutableTree(value), `fresh selected member/${givenKind}/${selectedKind}/${selection}`);
+      const expected = [];
+      if (selection === "missing-given" || selection === "missing-selected") {
+        const missingKind = selection === "missing-given" ? givenKind : selectedKind;
+        expected.push(violation("cross-owner-qualified", nodeSite(2), `qualified ${missingKind} node must exist in its named owner`),
+          violation("core-capture-reference", nodeSite(2), "Core capture reference must retain an existing qualified source node"));
+      }
+      if (selection !== "same") expected.push(violation("core-capture-reference", nodeSite(2),
+        "attribute selected declaration must belong to its declaration group"));
+      assert.deepStrictEqual(product.verifyHir(decoded.value, freshContextFor(decoded.value, [immutableTree(foreign), immutableTree(other)])), expected);
+    });
+
+for (const foreignFirst of [false, true])
+  test(`HIR mixed local and fresh foreign selected members keep actual distinct arenas in ${foreignFirst ? "foreign-first" : "local-first"} order`, () => {
+    const invocation = callExpression();
+    const foreign = foreignModuleWith([syntax("ExpressionStatement", 0, { expression: invocation })]);
+    const remote = referenceIn(foreign, invocation.expression);
+    const local = bodySource(3);
+    const { module: value, call } = coreCarrier();
+    call.tsonic.core.attribute = available({ occurrence: bodySource(2), applicationTarget: bodySource(6),
+      selectedMember: { declarations: [foreignFirst ? remote : local], selectedDeclaration: foreignFirst ? local : remote },
+      applicationMemberKind: "method", applicationPlacement: "declaration", applicationParameterName: null,
+      applicationTargetSpecifier: null, kind: "builder-state" });
+    const decoded = roundtrip(immutableTree(value), `local/foreign membership/${foreignFirst}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, freshContextFor(decoded.value, [immutableTree(foreign)])), [
+      violation("core-capture-reference", nodeSite(2), "attribute selected declaration must belong to its declaration group"),
+    ]);
+  });
 
 test("HIR origins retain every supplied lowering pass and expansion derivation in authored order", () => {
   const passes = ["front", "decls", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata", "liveness", "initialization",

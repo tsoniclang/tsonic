@@ -12,7 +12,7 @@ interface CallableFields {
 }
 
 interface PropertyFields {
-  readonly modifiers: NodeList<Hir.HirNode> | null;
+  readonly modifiers: Hir.ModifierList<Hir.CheckedPhase> | null;
   readonly name: Hir.HirNode;
   readonly postfixToken: Hir.HirNode | null;
 }
@@ -34,17 +34,18 @@ export function hirSyntaxData(node: Hir.HirNode, metadata: (node: Hir.HirNode) =
 function syntaxFields(node: Hir.HirNode, metadata: (node: Hir.HirNode) => HirDataWork): readonly HirDataField[] {
   const read = (value: Hir.HirNode): HirDataWork => hirSyntaxData(value, metadata);
   const one = (name: string, value: Hir.HirNode | null): HirDataField => hirFieldData(name, hirNullableData(value, read));
-  const list = (name: string, value: NodeList<Hir.HirNode> | null): HirDataField => hirFieldData(name,
-    hirNullableData(value, rows => hirRecordData("NodeList", rows, () => [
+  const list = (name: string, value: NodeList<Hir.HirNode> | null, label: "NodeList" | "ModifierList" = "NodeList"): HirDataField => hirFieldData(name,
+    hirNullableData(value, rows => hirRecordData(label, rows, () => [
       hirFieldData("loc", hirRangeData(rows.loc)), hirFieldData("nodes", hirArrayData(rows.nodes, read)),
     ])));
+  const modifiers = (value: Hir.ModifierList<Hir.CheckedPhase> | null): HirDataField => list("modifiers", value, "ModifierList");
   const scalar = (name: string, value: HirScalar): HirDataField => hirFieldData(name, hirScalarData(value));
   const call = (value: CallableFields): readonly HirDataField[] => [
     list("typeParameters", value.typeParameters), list("parameters", value.parameters),
     one("type", value.type), one("fullSignature", value.fullSignature),
   ];
   const property = (value: PropertyFields): readonly HirDataField[] => [
-    list("modifiers", value.modifiers), one("name", value.name), one("postfixToken", value.postfixToken),
+    modifiers(value.modifiers), one("name", value.name), one("postfixToken", value.postfixToken),
   ];
   const tag = (value: TagFields): readonly HirDataField[] => [one("tagName", value.tagName), list("comment", value.comment)];
   switch (node.kind) {
@@ -56,8 +57,9 @@ function syntaxFields(node: Hir.HirNode, metadata: (node: Hir.HirNode) => HirDat
     case "VoidExpression": case "AwaitExpression": case "PartiallyEmittedExpression": case "JsxSpreadAttribute":
       return [one("expression", node.expression)];
     case "IfStatement": return [one("expression", node.expression), one("thenStatement", node.thenStatement), one("elseStatement", node.elseStatement)];
-    case "DoStatement": case "WhileStatement": case "WithStatement":
+    case "DoStatement": case "WhileStatement":
       return [one("statement", node.statement), one("expression", node.expression)];
+    case "WithStatement": return [one("expression", node.expression), one("statement", node.statement)];
     case "ForStatement": return [one("statement", node.statement), one("initializer", node.initializer), one("condition", node.condition), one("incrementor", node.incrementor)];
     case "ForInStatement": case "ForOfStatement": return [one("awaitModifier", node.awaitModifier), one("initializer", node.initializer), one("expression", node.expression), one("statement", node.statement)];
     case "BreakStatement": case "ContinueStatement": return [one("label", node.label)];
@@ -69,43 +71,43 @@ function syntaxFields(node: Hir.HirNode, metadata: (node: Hir.HirNode) => HirDat
     case "LabeledStatement": return [one("label", node.label), one("statement", node.statement)];
     case "Block": return [list("statements", node.statements), scalar("multiLine", node.multiLine)];
     case "ModuleBlock": return [list("statements", node.statements)];
-    case "VariableStatement": return [list("modifiers", node.modifiers), one("declarationList", node.declarationList)];
+    case "VariableStatement": return [modifiers(node.modifiers), one("declarationList", node.declarationList)];
     case "VariableDeclaration": return [one("name", node.name), one("exclamationToken", node.exclamationToken), one("type", node.type), one("initializer", node.initializer)];
     case "VariableDeclarationList": return [list("declarations", node.declarations)];
     case "ObjectBindingPattern": case "ArrayBindingPattern": return [list("elements", node.elements)];
-    case "Parameter": return [list("modifiers", node.modifiers), one("dotDotDotToken", node.dotDotDotToken), one("name", node.name), one("questionToken", node.questionToken), one("type", node.type), one("initializer", node.initializer)];
+    case "Parameter": return [modifiers(node.modifiers), one("dotDotDotToken", node.dotDotDotToken), one("name", node.name), one("questionToken", node.questionToken), one("type", node.type), one("initializer", node.initializer)];
     case "BindingElement": return [one("dotDotDotToken", node.dotDotDotToken), one("propertyName", node.propertyName), one("name", node.name), one("initializer", node.initializer)];
-    case "MissingDeclaration": return [list("modifiers", node.modifiers)];
-    case "FunctionDeclaration": case "FunctionExpression": return [list("modifiers", node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body), one("name", node.name)];
-    case "ClassDeclaration": case "ClassExpression": return [list("modifiers", node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), list("heritageClauses", node.heritageClauses), list("members", node.members)];
+    case "MissingDeclaration": return [modifiers(node.modifiers)];
+    case "FunctionDeclaration": case "FunctionExpression": return [modifiers(node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body), one("name", node.name)];
+    case "ClassDeclaration": case "ClassExpression": return [modifiers(node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), list("heritageClauses", node.heritageClauses), list("members", node.members)];
     case "HeritageClause": return [scalar("token", node.token), list("types", node.types)];
-    case "InterfaceDeclaration": return [list("modifiers", node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), list("heritageClauses", node.heritageClauses), list("members", node.members)];
-    case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return [list("modifiers", node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), one("type", node.type)];
-    case "EnumMember": return [one("name", node.name), one("initializer", node.initializer)];
-    case "EnumDeclaration": return [list("modifiers", node.modifiers), one("name", node.name), list("members", node.members)];
-    case "ImportDeclaration": case "JSImportDeclaration": return [list("modifiers", node.modifiers), one("importClause", node.importClause), one("moduleSpecifier", node.moduleSpecifier), one("attributes", node.attributes)];
+    case "InterfaceDeclaration": return [modifiers(node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), list("heritageClauses", node.heritageClauses), list("members", node.members)];
+    case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return [modifiers(node.modifiers), one("name", node.name), list("typeParameters", node.typeParameters), one("type", node.type)];
+    case "EnumMember": return [...property(node), one("initializer", node.initializer)];
+    case "EnumDeclaration": return [modifiers(node.modifiers), one("name", node.name), list("members", node.members)];
+    case "ImportDeclaration": case "JSImportDeclaration": return [modifiers(node.modifiers), one("importClause", node.importClause), one("moduleSpecifier", node.moduleSpecifier), one("attributes", node.attributes)];
     case "NamespaceImport": return [one("name", node.name)];
     case "NamedImports": case "NamedExports": return [list("elements", node.elements)];
-    case "ExportAssignment": return [list("modifiers", node.modifiers), scalar("isExportEquals", node.isExportEquals), one("type", node.type), one("expression", node.expression)];
-    case "NamespaceExportDeclaration": return [list("modifiers", node.modifiers), one("name", node.name)];
+    case "ExportAssignment": return [modifiers(node.modifiers), scalar("isExportEquals", node.isExportEquals), one("type", node.type), one("expression", node.expression)];
+    case "NamespaceExportDeclaration": return [modifiers(node.modifiers), one("name", node.name)];
     case "NamespaceExport": return [one("name", node.name)];
     case "ExportSpecifier": case "ImportSpecifier": return [scalar("isTypeOnly", node.isTypeOnly), one("propertyName", node.propertyName), one("name", node.name)];
     case "CallSignature": case "ConstructSignature": case "JSDocSignature": return call(node);
-    case "Constructor": return [list("modifiers", node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body)];
+    case "Constructor": return [modifiers(node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body)];
     case "GetAccessor": case "SetAccessor": case "MethodDeclaration": return [...property(node), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body)];
-    case "IndexSignature": case "FunctionType": case "ConstructorType": return [list("modifiers", node.modifiers), ...call(node)];
+    case "IndexSignature": case "FunctionType": case "ConstructorType": return [modifiers(node.modifiers), ...call(node)];
     case "MethodSignature": return [...property(node), ...call(node)];
     case "PropertySignature": case "PropertyDeclaration": return [...property(node), one("type", node.type), one("initializer", node.initializer)];
-    case "ClassStaticBlockDeclaration": return [list("modifiers", node.modifiers), one("body", node.body)];
+    case "ClassStaticBlockDeclaration": return [modifiers(node.modifiers), one("body", node.body)];
     case "StringLiteral": case "NumericLiteral": case "BigIntLiteral": case "RegularExpressionLiteral":
       return [scalar("text", node.text), hirFieldData("tokenFlags", hirArrayData(node.tokenFlags, hirScalarData))];
     case "NoSubstitutionTemplateLiteral": case "TemplateHead": case "TemplateMiddle": case "TemplateTail":
       return [scalar("text", node.text), hirFieldData("tokenFlags", hirArrayData(node.tokenFlags, hirScalarData)), scalar("rawText", node.rawText), hirFieldData("templateFlags", hirArrayData(node.templateFlags, hirScalarData))];
-    case "BinaryExpression": return [list("modifiers", node.modifiers), one("left", node.left), one("type", node.type), one("operatorToken", node.operatorToken), one("right", node.right)];
+    case "BinaryExpression": return [modifiers(node.modifiers), one("left", node.left), one("type", node.type), one("operatorToken", node.operatorToken), one("right", node.right)];
     case "PrefixUnaryExpression": return [scalar("operator", node.operator), one("operand", node.operand)];
     case "PostfixUnaryExpression": return [one("operand", node.operand), scalar("operator", node.operator)];
     case "YieldExpression": return [one("asteriskToken", node.asteriskToken), one("expression", node.expression)];
-    case "ArrowFunction": return [list("modifiers", node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body), one("equalsGreaterThanToken", node.equalsGreaterThanToken)];
+    case "ArrowFunction": return [modifiers(node.modifiers), ...call(node), one("asteriskToken", node.asteriskToken), one("body", node.body), one("equalsGreaterThanToken", node.equalsGreaterThanToken)];
     case "AsExpression": case "SatisfiesExpression": return [one("expression", node.expression), one("type", node.type)];
     case "ConditionalExpression": return [one("condition", node.condition), one("questionToken", node.questionToken), one("whenTrue", node.whenTrue), one("colonToken", node.colonToken), one("whenFalse", node.whenFalse)];
     case "PropertyAccessExpression": return [one("expression", node.expression), one("questionDotToken", node.questionDotToken), one("name", node.name)];
@@ -169,14 +171,14 @@ function syntaxFields(node: Hir.HirNode, metadata: (node: Hir.HirNode) => HirDat
       hirFieldData("commentDirectives", hirArrayData(node.commentDirectives, commentDirectiveData)),
       hirFieldData("pragmas", hirArrayData(node.pragmas, pragmaData)),
       hirFieldData("checkJsDirective", hirNullableData(node.checkJsDirective, checkJsData))];
-    case "ModuleDeclaration": return [list("modifiers", node.modifiers), one("asteriskToken", node.asteriskToken), one("body", node.body), scalar("keyword", node.keyword), one("name", node.name)];
-    case "ImportEqualsDeclaration": return [list("modifiers", node.modifiers), scalar("isTypeOnly", node.isTypeOnly), one("name", node.name), one("moduleReference", node.moduleReference)];
-    case "ExportDeclaration": return [list("modifiers", node.modifiers), scalar("isTypeOnly", node.isTypeOnly), one("exportClause", node.exportClause), one("moduleSpecifier", node.moduleSpecifier), one("attributes", node.attributes)];
+    case "ModuleDeclaration": return [modifiers(node.modifiers), one("asteriskToken", node.asteriskToken), one("body", node.body), scalar("keyword", node.keyword), one("name", node.name)];
+    case "ImportEqualsDeclaration": return [modifiers(node.modifiers), scalar("isTypeOnly", node.isTypeOnly), one("name", node.name), one("moduleReference", node.moduleReference)];
+    case "ExportDeclaration": return [modifiers(node.modifiers), scalar("isTypeOnly", node.isTypeOnly), one("exportClause", node.exportClause), one("moduleSpecifier", node.moduleSpecifier), one("attributes", node.attributes)];
     case "ImportType": return [list("typeArguments", node.typeArguments), scalar("isTypeOf", node.isTypeOf), one("argument", node.argument), one("attributes", node.attributes), one("qualifier", node.qualifier)];
     case "ImportClause": return [scalar("phaseModifier", node.phaseModifier), one("name", node.name), one("namedBindings", node.namedBindings)];
     case "JSDocText": return [hirFieldData("text", hirArrayData(node.text, hirScalarData))];
     case "JSDocLink": case "JSDocLinkPlain": case "JSDocLinkCode": return [hirFieldData("text", hirArrayData(node.text, hirScalarData)), one("name", node.name)];
-    case "TypeParameter": return [list("modifiers", node.modifiers), one("name", node.name), one("constraint", node.constraint), one("expression", node.expression), one("defaultType", node.defaultType)];
+    case "TypeParameter": return [modifiers(node.modifiers), one("name", node.name), one("constraint", node.constraint), one("expression", node.expression), one("defaultType", node.defaultType)];
     case "SyntheticReferenceExpression": return [one("expression", node.expression), one("thisArg", node.thisArg)];
     case "JSDocTypeLiteral": return [hirFieldData("jsDocPropertyTags", hirNullableData(node.jsDocPropertyTags, values => hirArrayData(values, read))), scalar("isArrayType", node.isArrayType)];
     case "JSDocParameterTag": case "JSDocPropertyTag": return [...tag(node), one("name", node.name), scalar("isBracketed", node.isBracketed), one("typeExpression", node.typeExpression), scalar("isNameFirst", node.isNameFirst)];

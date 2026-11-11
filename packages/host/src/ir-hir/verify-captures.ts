@@ -1,6 +1,6 @@
-import type { SourceNodeRef } from "../ids/contract.js";
+import type { ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
-import type { HirBindingRequest } from "./verify-bindings.js";
+import type { HirBindingRequest, HirForeignNode, HirSourceNode } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
 import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
@@ -308,7 +308,7 @@ export function createHirSchema(): HirSchema {
 }
 
 export interface HirCaptureReaders {
-  readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
+  readonly nodeOf: (reference: SourceNodeRef) => HirSourceNode | null;
 }
 
 interface PlaceEntry {
@@ -428,7 +428,9 @@ interface MemoryVisit {
 function sameNode(left: SourceNodeRef, right: SourceNodeRef, readers: HirCaptureReaders): boolean {
   const first = readers.nodeOf(left);
   const second = readers.nodeOf(right);
-  return first !== null && second !== null && first === second;
+  if (first === null || second === null) return false;
+  if (first.kind === "local") return second.kind === "local" && first.node === second.node;
+  return second.kind === "foreign" && first.module === second.module && first.ordinal === second.ordinal;
 }
 
 function memoryAt(node: HirNode): MemoryCapture | null {
@@ -450,9 +452,19 @@ function memoryEdges(capture: MemoryCapture): readonly SourceNodeRef[] {
 
 function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCaptureReaders, report: HirReport): void {
   const pendingEntries = [...entries];
-  const readNodes = new Set<HirNode>();
-  const vertices = new Map<HirNode, MemoryVertex>();
-  const vertexOf = (node: HirNode, site: HirSite): MemoryVertex => {
+  const readNodes = new Set<HirNode | HirForeignNode>();
+  const foreign = new Map<ModuleId, Map<NodeId, HirForeignNode>>();
+  const vertices = new Map<HirNode | HirForeignNode, MemoryVertex>();
+  const identityOf = (source: HirSourceNode): HirNode | HirForeignNode => {
+    if (source.kind === "local") return source.node;
+    let arena = foreign.get(source.module);
+    if (arena === undefined) { arena = new Map(); foreign.set(source.module, arena); }
+    let identity = arena.get(source.ordinal);
+    if (identity === undefined) { identity = source; arena.set(source.ordinal, identity); }
+    return identity;
+  };
+  const vertexOf = (source: HirSourceNode, site: HirSite): MemoryVertex => {
+    const node = identityOf(source);
     let vertex = vertices.get(node);
     if (vertex === undefined) {
       vertex = { site, targets: new Set(), kind: null };
@@ -469,16 +481,19 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
     if (vertex.kind === null) vertex.kind = entry.value.kind;
     for (const reference of memoryEdges(entry.value)) {
       const node = readers.nodeOf(reference);
-      const captured = node === null ? null : memoryAt(node);
+      const captured = node === null ? null : memoryAt(node.node);
       const occurrence = captured === null ? null : readers.nodeOf(captured.occurrence);
       if (captured === null || occurrence === null || (entry.value.kind === "value" ? captured.kind !== "field" :
         captured.kind !== "value" && captured.kind !== "array"))
         report("memory-capture-reference", entry.site, "layout edge must name the required captured descriptor kind");
       if (occurrence !== null && captured !== null)
         vertex.targets.add(vertexOf(occurrence, { kind: "node", node: captured.occurrence }));
-      if (node !== null && captured !== null && !readNodes.has(node)) {
-        readNodes.add(node);
-        pendingEntries.push({ value: captured, site: { kind: "node", node: captured.occurrence } });
+      if (node !== null && captured !== null) {
+        const identity = identityOf(node);
+        if (!readNodes.has(identity)) {
+          readNodes.add(identity);
+          pendingEntries.push({ value: captured, site: { kind: "node", node: captured.occurrence } });
+        }
       }
     }
   }
@@ -505,7 +520,7 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
 
 function verifyObservation(observation: HirObservationCapture, node: HirNode, site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
   const occurrence: SourceNodeRef = { kind: "body", value: observation.occurrence };
-  if (readers.nodeOf(occurrence) !== node)
+  if (readers.nodeOf(occurrence)?.node !== node)
     report("observation-capture-owner", site, "observation must retain its exact owning occurrence");
   if (observation.operation === "field-offset") {
     if (observation.selector === null || observation.field.kind === "available" && observation.field.value === null)
@@ -514,13 +529,13 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, si
     report("observation-capture-owner", site, "non-field observation cannot carry a field selection");
   if (observation.layout.kind === "available") {
     const layout = readers.nodeOf(observation.layout.value);
-    const captured = layout === null ? null : memoryAt(layout);
+    const captured = layout === null ? null : memoryAt(layout.node);
     if (captured === null || captured.kind !== "value" && captured.kind !== "array")
       report("memory-capture-reference", site, "observation layout must name a value or array descriptor");
   }
   if (observation.field.kind === "available" && observation.field.value !== null) {
     const field = readers.nodeOf(observation.field.value);
-    const captured = field === null ? null : memoryAt(field);
+    const captured = field === null ? null : memoryAt(field.node);
     if (captured === null || captured.kind !== "field")
       report("memory-capture-reference", site, "observation field must name a field descriptor");
   }
@@ -571,7 +586,7 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
       if (markers.defaultValue !== null) references.push(markers.defaultValue.typeNode);
       for (const reference of references) {
         const target = readers.nodeOf(reference);
-        if (target !== null && hirRecordChoices("TypeNode", target.kind, hirSchema).length === 0)
+        if (target !== null && hirRecordChoices("TypeNode", target.node.kind, hirSchema).length === 0)
           report("core-capture-kind", site, "marker type reference must point to a type syntax node");
       }
     }
@@ -581,7 +596,7 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
     if (coreCapture.attribute.kind === "available" && coreCapture.attribute.value !== null) {
       const attribute = coreCapture.attribute.value;
       const occurrence = readers.nodeOf(attribute.occurrence);
-      if (occurrence !== null && occurrence.kind !== "CallExpression")
+      if (occurrence !== null && occurrence.node.kind !== "CallExpression")
         report("core-capture-kind", site, "attribute capture occurrence must name its invocation");
       const selected = attribute.selectedMember;
       if (selected !== null) {
