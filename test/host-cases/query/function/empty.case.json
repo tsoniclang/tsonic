@@ -1,0 +1,1 @@
+{"name":"empty","level":"function","rule":"An untouched database has no computations, diagnostics or statistics","input":"test/host-cases/query/function/empty.input.json","expected":"test/host-cases/query/function/empty.expected.json"}

@@ -36,6 +36,7 @@ export interface DeclarationRequest {
 export interface SignatureRequest {
   readonly definition: DefId;
   readonly endpoint: "advertised" | "api-signature" | "api-body";
+  // Position among endpoints of this role, in declaration endpoint-vector order.
   readonly ordinal: number;
   readonly bindings: ArtifactBindings;
 }

@@ -256,7 +256,8 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   const expectedInventory = [...modules.map(module => module.contract),
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
-    ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`)].sort();
+    ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
+    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
@@ -280,7 +281,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 and A8 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -293,6 +294,10 @@ test("A7 genuine emitted contracts accept current forms and reject every superse
         "export function read(problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[]) { return problem.terminator(term, states); }", 2554],
       ["old-program-context", [["ir-program", "ProgramVerificationContext"]],
         "export function read(context: ProgramVerificationContext) { const { limits, ...legacy } = context; void limits; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["old-program-signature-context", [["ir-program", "ProgramVerificationContext"]],
+        "export function read(context: ProgramVerificationContext) { const { signatureIdOf, ...legacy } = context; void signatureIdOf; const current: ProgramVerificationContext = legacy; return current; }", 2741],
+      ["seed-without-table", [["ir-types", "SeedTypeInterner"]],
+        "export function read(seed: SeedTypeInterner) { return seed(); }", 2554],
       ["old-binding-element", [["ir-tir", "TypedBinding, TypedBindingElement"]],
         "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
       ["old-library-projection", [["libraries", "LibraryVerificationContext, LibraryExportBinding"], ["ids", "LibraryExportIdentity"]],
@@ -308,10 +313,11 @@ test("A7 genuine emitted contracts accept current forms and reject every superse
     ];
     const positive = imports([
       ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
-      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema"],
+      ["dataflow", "BackwardProblem, BlockState"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord"],
+      ["ir-types", "SeedTypeInterner, TypeTable"],
       ["ir-tir", "TypedBinding, TypedBindingElement"], ["libraries", "LibraryVerificationContext, LibraryExportBinding"],
       ["ids", "LibraryExportIdentity"],
-    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection };\n}\n';
+    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
     write("positive.mts", positive);
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {

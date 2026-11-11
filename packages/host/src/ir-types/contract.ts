@@ -336,6 +336,7 @@ export type TypeTransform<Value> =
       readonly maximum: number };
 
 export type CreateTypeInterner = () => TypeInterner;
+export type SeedTypeInterner = (table: TypeTable) => TypeInterner;
 export type InternType = (interner: TypeInterner, term: TypeTerm) => TyId;
 export type InternSignature = (interner: TypeInterner, signature: SignatureInput) => SigId;
 export type ReadType = (interner: TypeInterner, type: TyId) => TypeTerm;
