@@ -72,8 +72,9 @@ interface PendingFrame { readonly frame: RecordFrame | ArrayFrame; readonly next
 interface WireReference { readonly shape: HirShape; readonly offset: number }
 interface WireNode {
   readonly value: MutableRecord;
-  readonly edges: Set<WireNode>;
+  readonly edges: WireEdge[];
 }
+interface WireEdge { readonly target: WireNode; readonly ordinal: number; readonly offset: number }
 type WireBinding =
   | { readonly kind: "pending"; readonly node: WireNode; readonly references: [WireReference, ...WireReference[]] }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
@@ -256,8 +257,18 @@ function readField(reader: TextReader, frame: RecordFrame): boolean {
   let deviation: number | null = null;
   let length = 0;
   let candidates: readonly string[] | null = required;
+  const previousKey = required === null && frame.ordinal > 0 ? frame.name : null;
+  let orderDecided = false;
+  let descending = false;
   const onCharacter: DecodedCharacter = (value, offset) => {
     if (length === 0) first = offset;
+    if (previousKey !== null && !orderDecided) {
+      const previous = previousKey.charAt(length);
+      if (previous !== value) {
+        descending = previous !== "" && value < previous;
+        orderDecided = true;
+      }
+    }
     if (candidates !== null && deviation === null) {
       candidates = candidates.filter(candidate => candidate.charAt(length) === value);
       if (candidates.length === 0) deviation = offset;
@@ -267,11 +278,16 @@ function readField(reader: TextReader, frame: RecordFrame): boolean {
   const name = quotedName ? quoted(reader, null, onCharacter) : word(reader, onCharacter);
   if (name === null) {
     if (deviation !== null && deviation < reader.failure.offset) fail(reader, expected, deviation);
+    if (descending && first < reader.failure.offset) fail(reader, ["increasing dictionary key"], first);
     return false;
   }
   const end = reader.cursor - (quotedName ? 1 : 0);
   if (frame.names.has(name)) {
     fail(reader, ["unique record field"], required === null ? first : deviation === null ? end : deviation);
+    return false;
+  }
+  if (previousKey !== null && name < previousKey) {
+    fail(reader, ["increasing dictionary key"], first);
     return false;
   }
   const selected: FieldSelection[] = [];
@@ -328,14 +344,53 @@ function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
   frame.phase = "delimiter";
 }
 
+type WireVisit = { readonly node: WireNode; readonly leaving: boolean; readonly next: WireVisit | null };
+
+function closesWireCycle(nodes: Iterable<WireNode>, prefix: number): boolean {
+  const colors = new Map<WireNode, "active" | "complete">();
+  for (const root of nodes) {
+    if (colors.has(root)) continue;
+    let pending: WireVisit | null = { node: root, leaving: false, next: null };
+    while (pending !== null) {
+      const frame = pending;
+      pending = frame.next;
+      if (frame.leaving) { colors.set(frame.node, "complete"); continue; }
+      const previous = colors.get(frame.node);
+      if (previous === "active") return true;
+      if (previous === "complete") continue;
+      colors.set(frame.node, "active");
+      pending = frame.node.edges.reduceRight<WireVisit | null>((next, edge) => edge.ordinal < prefix ?
+        { node: edge.target, leaving: false, next } : next,
+      { node: frame.node, leaving: true, next: pending });
+    }
+  }
+  return false;
+}
+
+function firstWireCycle(nodes: readonly WireNode[], edges: readonly WireEdge[]): WireEdge | null {
+  let result: WireEdge | null = null;
+  if (closesWireCycle(nodes, edges.length)) {
+    let low = 0;
+    let high = edges.length;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (closesWireCycle(nodes, middle)) high = middle;
+      else low = middle;
+    }
+    for (const edge of edges) if (edge.ordinal === high - 1) result = edge;
+  }
+  return result;
+}
+
 function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema): output is HirOutput & { value: HirModule } {
   const arena = new Map<number, WireBinding>();
   const roots = new Set<WireNode>();
   const declared: { readonly node: WireNode; readonly offset: number }[] = [];
+  const edges: WireEdge[] = [];
   let pending: PendingFrame | null = null;
   let header = false;
   let needSeparator = false;
-  const wireNode = (): WireNode => ({ value: {}, edges: new Set() });
+  const wireNode = (): WireNode => ({ value: {}, edges: [] });
   const put = (value: unknown): void => {
     if (pending === null) { output.value = value; header = true; needSeparator = true; }
     else attach(pending.frame, value);
@@ -364,7 +419,11 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     }
     arena.set(value, binding);
     if (owner === null) roots.add(binding.node);
-    else owner.edges.add(binding.node);
+    else {
+      const edge: WireEdge = { target: binding.node, ordinal: edges.length, offset };
+      owner.edges.push(edge);
+      edges.push(edge);
+    }
     return binding.node.value;
   };
   while (!reader.failed) {
@@ -372,17 +431,25 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const frame = pending?.frame;
     if (frame === undefined && reader.cursor === reader.text.length) {
       if (!header) { fail(reader, ["record"]); return false; }
-      for (const binding of arena.values()) if (binding.kind === "pending") {
-        const reference = binding.references[0];
-        fail(reader, expectedValue(reference.shape), reference.offset);
+      let unresolved: WireReference | null = null;
+      const nodes: WireNode[] = [];
+      for (const binding of arena.values()) {
+        nodes.push(binding.node);
+        if (binding.kind === "pending" && (unresolved === null || binding.references[0].offset < unresolved.offset))
+          unresolved = binding.references[0];
+      }
+      const cycle = firstWireCycle(nodes, edges);
+      if (unresolved !== null && (cycle === null || unresolved.offset < cycle.offset)) {
+        fail(reader, ["declared syntax node"], unresolved.offset);
         return false;
       }
+      if (cycle !== null) { fail(reader, ["acyclic syntax reference"], cycle.offset); return false; }
       const reachable = new Set<WireNode>();
       const work = [...roots];
       for (const node of work) {
         if (reachable.has(node)) continue;
         reachable.add(node);
-        for (const edge of node.edges) work.push(edge);
+        for (const edge of node.edges) work.push(edge.target);
       }
       for (const binding of declared) if (!reachable.has(binding.node)) {
         fail(reader, ["referenced syntax declaration"], binding.offset);

@@ -1,12 +1,18 @@
-import type { CheckedPhase, HirModule, HirNode, IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from "./contract.js";
+import type { HirNode, IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
-import { childrenOfSyntax } from "./children.js";
+import { syntaxChildEdges } from "./children.js";
 
-interface PendingNode<PhaseType extends Phase> {
-  readonly node: SyntaxNode<PhaseType>;
-  readonly next: PendingNode<PhaseType> | null;
+type PendingNode<PhaseType extends Phase> = (
+  | { readonly kind: "enter"; readonly node: SyntaxNode<PhaseType>; readonly path: HirDataPath }
+  | { readonly kind: "leave"; readonly node: SyntaxNode<PhaseType> }
+) & { readonly next: PendingNode<PhaseType> | null };
+
+export function hirChildPath(parent: HirDataPath, fields: readonly (string | number)[]): HirDataPath {
+  let path = parent;
+  for (const field of fields) path = { parent: path, field };
+  return path;
 }
 
 export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
@@ -15,16 +21,22 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
 ): readonly SyntaxNode<PhaseType>[] => {
   const stopped = new Set(stopBefore);
   const seen = new Set<SyntaxNode<PhaseType>>();
+  const active = new Set<SyntaxNode<PhaseType>>();
   const result: SyntaxNode<PhaseType>[] = [];
-  let pending: PendingNode<PhaseType> | null = { node: root, next: null };
+  let pending: PendingNode<PhaseType> | null = { kind: "enter", node: root, path: { parent: null, field: "root" }, next: null };
   while (pending !== null) {
-    const current = pending.node;
+    const frame = pending;
     pending = pending.next;
+    const current = frame.node;
+    if (frame.kind === "leave") { active.delete(current); continue; }
+    if (active.has(current)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);
     if (stopped.has(current.id) || seen.has(current)) continue;
     seen.add(current);
+    active.add(current);
     result.push(current);
-    pending = childrenOfSyntax(current).reduceRight<PendingNode<PhaseType> | null>(
-      (next, node) => ({ node, next }), pending,
+    pending = syntaxChildEdges(current).reduceRight<PendingNode<PhaseType> | null>(
+      (next, child) => ({ kind: "enter", node: child.node, path: hirChildPath(frame.path, child.fields), next }),
+      { kind: "leave", node: current, next: pending },
     );
   }
   return Object.freeze(result);
@@ -32,22 +44,6 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
 
-export function hirSyntaxArena(module: HirModule): readonly HirNode[] {
-  const seen = new Set<HirNode>();
-  const nodes: HirNode[] = [];
-  let pending = [module.tree, ...module.bodies.map(body => body.root)].reduceRight<PendingNode<CheckedPhase> | null>(
-    (next, node) => ({ node, next }), null);
-  while (pending !== null) {
-    const node = pending.node;
-    pending = pending.next;
-    if (seen.has(node)) continue;
-    seen.add(node);
-    nodes.push(node);
-    pending = childrenOfSyntax(node).reduceRight<PendingNode<CheckedPhase> | null>(
-      (next, child) => ({ node: child, next }), pending);
-  }
-  return Object.freeze(nodes);
-}
 export interface HirDataPath {
   readonly parent: HirDataPath | null;
   readonly field: string | number;

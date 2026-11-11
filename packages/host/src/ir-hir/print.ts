@@ -1,9 +1,9 @@
 import type { TextIdentity, TextRecord, TextValue } from "./parse.js";
 import type { HirNode, PrintHir } from "./contract.js";
 import type { HirDataPath, HirDataWork, HirRecordWork } from "./walk.js";
-import { hirDataPathText } from "./walk.js";
+import { hirChildPath, hirDataPathText } from "./walk.js";
 import { hirModuleData, hirNodeData } from "./text-data.js";
-import { childrenOfSyntax } from "./children.js";
+import { syntaxChildEdges } from "./children.js";
 
 interface TextTask {
   readonly kind: "text";
@@ -135,12 +135,12 @@ interface SyntaxBinding {
   readonly ordinal: number;
 }
 
-interface PendingSyntax {
-  readonly node: HirNode;
-  readonly next: PendingSyntax | null;
-}
+type PendingSyntax = (
+  | { readonly kind: "enter"; readonly node: HirNode; readonly path: HirDataPath }
+  | { readonly kind: "leave"; readonly node: HirNode }
+) & { readonly next: PendingSyntax | null };
 
-function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode) => TextIdentity, binding: number | null): TextRecord {
+function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode, path: HirDataPath) => TextIdentity, binding: number | null): TextRecord {
   const view = work.read();
   const fields: { name: string; offset: number; value: TextValue }[] = [];
   const root: TextRecord = { kind: "record", binding, bindingOffset: 0, offset: 0, end: 0, label: view.label, fields };
@@ -159,7 +159,7 @@ function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode) => TextIdent
       case "identity": task.put({ kind: "identity", offset: 0, prefix: data.prefix, value: data.value }); break;
       case "array":
       case "record": {
-        if (data.kind === "record" && data.syntax !== null) { task.put(bind(data.syntax)); break; }
+        if (data.kind === "record" && data.syntax !== null) { task.put(bind(data.syntax, task.path)); break; }
         if (onPath.has(data.owner)) throw new TypeError(`Inline value cycle at ${hirDataPathText(task.path)}`);
         onPath.add(data.owner);
         pending = { task: { kind: "leave", owner: data.owner }, next: pending };
@@ -187,19 +187,25 @@ function encodeHirRecord(work: HirRecordWork, bind: (node: HirNode) => TextIdent
 export const printHir: PrintHir = module => {
   const bindings = new Map<HirNode, TextIdentity>();
   const arena: SyntaxBinding[] = [];
-  const bind = (node: HirNode): TextIdentity => {
+  const bind = (node: HirNode, path: HirDataPath): TextIdentity => {
     const previous = bindings.get(node);
     if (previous !== undefined) return previous;
     const root: TextIdentity = { kind: "identity", offset: 0, prefix: "n", value: arena.length };
-    let pending: PendingSyntax | null = { node, next: null };
+    const active = new Set<HirNode>();
+    let pending: PendingSyntax | null = { kind: "enter", node, path, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
+      if (frame.kind === "leave") { active.delete(frame.node); continue; }
+      if (active.has(frame.node)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);
       if (bindings.has(frame.node)) continue;
       const ordinal = arena.length;
       bindings.set(frame.node, { kind: "identity", offset: 0, prefix: "n", value: ordinal });
+      active.add(frame.node);
       arena.push({ node: frame.node, ordinal });
-      pending = childrenOfSyntax(frame.node).reduceRight<PendingSyntax | null>((next, child) => ({ node: child, next }), pending);
+      pending = syntaxChildEdges(frame.node).reduceRight<PendingSyntax | null>((next, child) => ({
+        kind: "enter", node: child.node, path: hirChildPath(frame.path, child.fields), next,
+      }), { kind: "leave", node: frame.node, next: pending });
     }
     return root;
   };

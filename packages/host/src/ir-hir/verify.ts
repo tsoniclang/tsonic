@@ -10,10 +10,12 @@ import { hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExis
 import type { HirBindingRequest } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
-import { childrenOfSyntax } from "./children.js";
+import { syntaxChildEdges } from "./children.js";
+import { hirChildPath, hirDataPathText } from "./walk.js";
+import type { HirDataPath } from "./walk.js";
 
 type NodeFrame = (
-  | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null }
+  | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath }
   | { readonly kind: "leave"; readonly entry: HirNodeEntry }
 ) & { readonly next: NodeFrame | null };
 
@@ -39,15 +41,17 @@ export function createHirInventory(module: HirModule): HirInventory {
   const roots = new Map<HirNode, HirBody>();
   const bodyParents = new Map<HirBody, HirBody | null>();
   const repeated: HirNodeEntry[] = [];
+  const active = new Set<HirNode>();
   for (const body of module.bodies) {
     if (!bodies.has(body.body)) bodies.set(body.body, body);
     if (!roots.has(body.root)) roots.set(body.root, body);
   }
-  let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, next: null };
+  let pending: NodeFrame | null = { kind: "enter", node: module.tree, parent: null, path: { parent: null, field: "tree" }, next: null };
   while (pending !== null) {
     const frame = pending;
     pending = pending.next;
     if (frame.kind === "leave") {
+      active.delete(frame.entry.node);
       frame.entry.end = nodes.length;
       ends.set(frame.entry.node, nodes.length);
       const parent = frame.entry.parent;
@@ -58,6 +62,7 @@ export function createHirInventory(module: HirModule): HirInventory {
       }
       continue;
     }
+    if (active.has(frame.node)) throw new TypeError(`Syntax child cycle at ${hirDataPathText(frame.path)}`);
     const previous = entriesByNode.get(frame.node);
     if (previous !== undefined) { repeated.push(previous); recordReceiver(frame.parent, previous); continue; }
     const declaredBody = roots.get(frame.node);
@@ -71,6 +76,7 @@ export function createHirInventory(module: HirModule): HirInventory {
       required: [Number(writeFitOf(frame.node) !== null), Number(operationOf(frame.node) !== null),
         Number(frame.node.kind === "ElementAccessExpression")] };
     entriesByNode.set(frame.node, entry);
+    active.add(frame.node);
     entries.push(entry);
     recordReceiver(frame.parent, entry);
     starts.set(frame.node, nodes.length);
@@ -83,8 +89,8 @@ export function createHirInventory(module: HirModule): HirInventory {
     }
     if (body !== null) owners.set(frame.node, body);
     const following: NodeFrame = { kind: "leave", entry, next: pending };
-    pending = childrenOfSyntax(frame.node).reduceRight<NodeFrame | null>((next, node) => ({
-      kind: "enter", node, parent: entry, next,
+    pending = syntaxChildEdges(frame.node).reduceRight<NodeFrame | null>((next, child) => ({
+      kind: "enter", node: child.node, parent: entry, path: hirChildPath(frame.path, child.fields), next,
     }), following);
   }
   return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, receivers: Object.freeze(receivers),
@@ -603,14 +609,16 @@ function literalMatches(value: LiteralValue | LiteralTypeValue): boolean {
     const parsed = numericToken(value.token);
     return parsed !== null && tokenMatchesRational(parsed, value.value);
   }
-  if (value.kind === "bigint" && "token" in value) {
-    if (!/^[+-]?(?:[0-9](?:_?[0-9])*|0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO][0-7](?:_?[0-7])*|0[bB][01](?:_?[01])*)n$/u.test(value.token)) return false;
-    const unsigned = value.token.replace(/_/gu, "").slice(0, -1);
-    const negative = unsigned.startsWith("-");
-    const digits = negative || unsigned.startsWith("+") ? unsigned.slice(1) : unsigned;
-    return (negative ? -BigInt(digits) : BigInt(digits)) === value.value;
-  }
+  if (value.kind === "bigint" && "token" in value) return bigintTokenMatches(value.token, value.value);
   return true;
+}
+
+function bigintTokenMatches(text: string, value: bigint): boolean {
+  if (!/^[+-]?(?:[0-9](?:_?[0-9])*|0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|0[oO][0-7](?:_?[0-7])*|0[bB][01](?:_?[01])*)n$/u.test(text)) return false;
+  const unsigned = text.replace(/_/gu, "").slice(0, -1);
+  const negative = unsigned.startsWith("-");
+  const digits = negative || unsigned.startsWith("+") ? unsigned.slice(1) : unsigned;
+  return (negative ? -BigInt(digits) : BigInt(digits)) === value;
 }
 
 function literalViolations(module: HirModule, inventory: HirInventory, report: HirReport,
@@ -621,9 +629,18 @@ function literalViolations(module: HirModule, inventory: HirInventory, report: H
     if (metadata === null || !("literal" in metadata)) continue;
     const literal = metadata.literal;
     const site: HirSite = { kind: "node", node: entry.source };
-    if (!literalMatches(literal)) report("literal-exact", site, "literal must preserve its normalized exact authored value");
+    const exact = literalMatches(literal);
+    if (!exact) report("literal-exact", site, "literal must preserve its normalized exact authored value");
+    let numericMismatch = false;
+    if (exact && node.kind === "NumericLiteral" && literal.kind === "number") {
+      const token = numericToken(node.text);
+      numericMismatch = token === null || !tokenMatchesRational(token, literal.value);
+    }
+    if (exact && node.kind === "BigIntLiteral" && literal.kind === "bigint")
+      numericMismatch = !bigintTokenMatches(node.text, literal.value);
     if (node.kind === "NumericLiteral" && literal.kind !== "number" ||
       node.kind === "BigIntLiteral" && literal.kind !== "bigint" ||
+      numericMismatch ||
       (node.kind === "StringLiteral" || node.kind === "NoSubstitutionTemplateLiteral") &&
         (literal.kind !== "string" || literal.value !== node.text) ||
       node.kind === "TrueKeyword" && (literal.kind !== "boolean" || !literal.value) ||

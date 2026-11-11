@@ -150,7 +150,8 @@ test("HIR iterative traversal visits each supplied object once without copying s
   const cyclic = syntax("SyntaxList", 0, { children: [] });
   cyclic.children.push(cyclic);
   immutableTree(cyclic);
-  assertNodes(walkSyntaxTree(cyclic, []), [cyclic], "invalid cyclic input cannot overflow the host stack");
+  assert.throws(() => walkSyntaxTree(cyclic, []), { name: "TypeError", message: "Syntax child cycle at root.children[0]" });
+  assert.throws(() => indexSyntaxTree(cyclic), { name: "TypeError", message: "Syntax child cycle at root.children[0]" });
 });
 
 test("HIR pure walkers handle a genuine 100000-level declared syntax chain iteratively", () => {
@@ -830,6 +831,92 @@ for (const [text, expected] of [
   ["HirModule(", { kind: "invalid-text", offset: 10, line: 1, column: 11, expected: ["identifier"], found: null }],
 ]) test(`HIR malformed text returns its complete independent UTF16 error: ${JSON.stringify(text)}`, () => {
   assert.deepStrictEqual(product.parseHir(text), expected);
+});
+
+test("HIR graph judgments wait for clean EOF and never mask actual stream faults", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  for (const later of ['scriptKind="Wrong"', 'scriptKind="TS\\q"']) {
+    const text = original.replace("tree=n:0", "tree=n:999").replace('scriptKind="TS"', later);
+    const escape = later.includes("\\q");
+    assertInvalidText(text, escape ? text.indexOf("\\q") + 1 : text.indexOf(later) + "scriptKind=".length,
+      escape ? ["JSON escape"] : ["declared field value"]);
+  }
+  const short = 'HirModule(module=mod:"M[P[%002Fproject];main.ts]", tree=n:99, bogus=@)';
+  assertInvalidText(short, short.indexOf("bogus"), ["items"]);
+  const wrong = original.replace("tree=n:0", "tree=n:1").replace('scriptKind="TS"', 'scriptKind="Wrong"');
+  assertInvalidText(wrong, wrong.indexOf('"Wrong"'), ["declared field value"]);
+  const causal = original.replace('scriptKind="TS"', 'scriptKind="Wrong"');
+  assertInvalidText(causal, causal.indexOf('"Wrong"'), ["declared field value"]);
+  const dangling = original.replace("tree=n:0", "tree=n:999");
+  assertInvalidText(dangling, dangling.indexOf("tree=n:999") + 5, ["declared syntax node"]);
+});
+
+for (const pair of [false, true]) test(`HIR ${pair ? "two-binding" : "self-binding"} child cycle text reports its closing reference, not an arena-id refusal`, () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const block = (id, target) => `n:${id}=Block(id=n:${id}, origin=Origin(module=mod:"${moduleIdentity}", start=0, length=100, derived=[]), parent=n:0, flags=[], loc=TextRange(pos=0, end=100), statements=NodeList(loc=TextRange(pos=0, end=100), nodes=[n:${target}]), multiLine=false, tsonic=null)`;
+  const text = original.replace("nodes=[]", "nodes=[n:2]") + "\n" + block(2, pair ? 3 : 2) + (pair ? "\n" + block(3, 2) : "");
+  const closing = text.lastIndexOf("nodes=[n:2]") + 7;
+  assertInvalidText(text, closing, ["acyclic syntax reference"]);
+  const mixed = text.replace(/multiLine=false, tsonic=null\)$/u, "multiLine=@, tsonic=null)");
+  assertInvalidText(mixed, mixed.indexOf("multiLine=@") + "multiLine=".length, ["boolean"]);
+});
+
+test("HIR dictionary duplicate priority and an earlier descending decoded character survive later lexical failure", () => {
+  const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+  const entry = key => `${key}=PragmaArgument(pos=0, end=1, name="key", value="value")`;
+  const wrap = entries => original.replace("pragmas=[]", `pragmas=[SingleLineCommentTrivia(pos=0, end=100, hasTrailingNewLine=false, name="keys", args=PragmaArguments(${entries}))]`);
+  const duplicate = wrap([entry("z"), entry("zz"), entry('"z"')].join(", "));
+  assertInvalidText(duplicate, duplicate.indexOf('"z"=PragmaArgument') + 1, ["unique record field"]);
+  const malformed = wrap([entry("z"), entry('"a\\q"')].join(", "));
+  assertInvalidText(malformed, malformed.indexOf('"a\\q"') + 1, ["increasing dictionary key"]);
+});
+
+for (const pair of [["z", "a"], ["2", "10"], ["z", "\\u0061"], ["z", "__proto__"]])
+  test(`HIR dictionary rejects first descending decoded UTF16 key ${pair.join("/")}`, () => {
+    const original = readFileSync(resolve(repository, "test/host-cases/ir-hir/verifier/minimal-module.input.hir"), "utf8").trimEnd();
+    const field = name => `"${name}"=PragmaArgument(pos=0, end=1, name="key", value="value")`;
+    const dictionary = `PragmaArguments(${field(pair[0])}, ${field(pair[1])})`;
+    const text = original.replace("pragmas=[]", `pragmas=[SingleLineCommentTrivia(pos=0, end=100, hasTrailingNewLine=false, name="order", args=${dictionary})]`);
+    const start = text.indexOf(dictionary) + dictionary.indexOf(field(pair[1])) + 1;
+    assertInvalidText(text, start, ["increasing dictionary key"]);
+    const mixed = text.replace('checkJsDirective=null', 'checkJsDirective=@');
+    assertInvalidText(mixed, start, ["increasing dictionary key"]);
+  });
+
+for (const role of ["attribute-value", "type-literal"]) for (const kind of ["NumericLiteral", "BigIntLiteral"])
+  for (const agrees of [false, true]) test(`HIR ${kind}/${role} compares exact represented syntax ${agrees ? "equal spelling-independent" : "different"} value`, () => {
+    const numeric = kind === "NumericLiteral";
+    const literal = numeric ? { kind: "number", value: { numerator: 2n, denominator: 1n, negativeZero: false } } :
+      { kind: "bigint", value: 2n };
+    if (role === "attribute-value") literal.token = numeric ? "2e0" : "0b10n";
+    const node = syntax(kind, 0, { text: numeric ? agrees ? "0x2" : "1" : agrees ? "0x2n" : "1n", tokenFlags: [],
+      tsonic: { core: absentCore(), role, ...(role === "type-literal" ? { type: unavailable() } : {}), literal } });
+    const value = immutableTree(expressionModule(node));
+    assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), agrees ? [] : [
+      violation("literal-exact", nodeSite(2), "literal category and value must match its syntax"),
+    ]);
+  });
+
+for (const [text, token, numerator, denominator, negativeZero, agrees] of [
+  ["-0", "-0.0", 0n, 1n, true, true], ["0", "-0", 0n, 1n, true, false],
+  ["-0", "0", 0n, 1n, false, false], [".5", "5e-1", 1n, 2n, false, true],
+  ["1_0", "1e1", 10n, 1n, false, true], ["not-number", "1", 1n, 1n, false, false],
+]) test(`HIR numeric syntax correlation retains complete ${text}/${token} exact rational and signed-zero outcome`, () => {
+  const node = syntax("NumericLiteral", 0, { text, tokenFlags: [], tsonic: { core: absentCore(), role: "attribute-value",
+    literal: { kind: "number", token, value: { numerator, denominator, negativeZero } } } });
+  const value = immutableTree(expressionModule(node));
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), agrees ? [] : [
+    violation("literal-exact", nodeSite(2), "literal category and value must match its syntax"),
+  ]);
+});
+
+test("HIR invalid bigint syntax is not admitted by internally valid authored bigint metadata", () => {
+  const node = syntax("BigIntLiteral", 0, { text: "1.0n", tokenFlags: [], tsonic: { core: absentCore(), role: "attribute-value",
+    literal: { kind: "bigint", token: "1n", value: 1n } } });
+  const value = immutableTree(expressionModule(node));
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value)), [
+    violation("literal-exact", nodeSite(2), "literal category and value must match its syntax"),
+  ]);
 });
 
 const minimalOpposites = [
@@ -1915,7 +2002,7 @@ test("HIR malformed typed fields retain exact independently selected record and 
     [original.replace('scriptKind="TS", ', ""), "commentDirectives=", ["scriptKind"]],
     [original.replace('scriptKind="TS"', 'scriptKind="Invented"'), '"Invented"', ["declared field value"]],
     [original.replace('scriptKind="TS"', 'scriptKind=0'), 'scriptKind=0', ["declared field value"], "scriptKind=".length],
-    [original.replace("tree=n:0", "tree=n:999"), "tree=n:999", ["SourceFile"], "tree=".length],
+    [original.replace("tree=n:0", "tree=n:999"), "tree=n:999", ["declared syntax node"], "tree=".length],
     [original.replace("nodes=[]", "nodes=[false]"), "nodes=[false]", ["Statement"], "nodes=[".length],
     [original.replace("n:1=EndOfFile", "n:0=EndOfFile"), "n:0=EndOfFile", ["distinct wire binding"]],
     [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "n:3=EndOfFile", ["n:1"]],
@@ -2958,14 +3045,25 @@ test("HIR a genuine finite 100000-level inline component chain prints, parses an
   assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
 });
 
-test("HIR declared syntax wire cycles remain roundtrippable structural violations, never inline caller defects", () => {
+test("HIR declared child-object cycles are exact-path caller defects while scalar references remain data", () => {
   const block = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  const value = moduleWith([block]);
+  const context = contextFor(value);
   block.statements.nodes.push(block);
-  const value = immutableTree(moduleWith([block]));
-  const decoded = roundtrip(value, "declared syntax arena back edge");
-  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), [
-    violation("node-dense-preorder", nodeSite(1), "syntax node occurs more than once"),
-  ]);
+  immutableTree(value);
+  const expected = { name: "TypeError", message: "Syntax child cycle at tree.statements.nodes[0].statements.nodes[0]" };
+  assert.throws(() => product.printHir(value), expected);
+  assert.throws(() => product.verifyHir(value, context), expected);
+  const first = syntax("Block", 0, { statements: nodeList([]), multiLine: false });
+  const second = syntax("Block", 0, { statements: nodeList([first]), multiLine: false });
+  const pair = moduleWith([first]);
+  const pairContext = contextFor(pair);
+  first.statements.nodes.push(second);
+  immutableTree(pair);
+  const paired = { name: "TypeError", message: "Syntax child cycle at tree.statements.nodes[0].statements.nodes[0].statements.nodes[0]" };
+  assert.throws(() => product.printHir(pair), paired);
+  assert.throws(() => product.verifyHir(pair, pairContext), paired);
+  assert.throws(() => walkSyntaxTree(first, []), { name: "TypeError", message: "Syntax child cycle at root.statements.nodes[0].statements.nodes[0]" });
 });
 
 test("HIR numeric member keys preserve exact normalized rationals and their complete normalization opposite", () => {

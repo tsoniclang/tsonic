@@ -203,11 +203,11 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
     if (previous === undefined) children.set(parent, [range]);
     else previous.push(range);
   }
-  const seen = new Set<MutableBodyScopeRange>();
+  const seen = new Set<HirBody>();
   let ordinal = 0;
   const roots = [...(children.get(null) ?? []), ...ranges];
   for (const root of roots) {
-    if (seen.has(root)) continue;
+    if (seen.has(root.body)) continue;
     let pending: BodyScopeVisit | null = { kind: "enter", range: root, next: null };
     while (pending !== null) {
       const frame = pending;
@@ -216,8 +216,8 @@ export function hirLexicalBodyRanges(module: HirModule, inventory: HirInventory)
         frame.range.end = ordinal;
         continue;
       }
-      if (seen.has(frame.range)) continue;
-      seen.add(frame.range);
+      if (seen.has(frame.range.body)) continue;
+      seen.add(frame.range.body);
       const range = frame.range;
       range.start = ordinal;
       range.end = ordinal;

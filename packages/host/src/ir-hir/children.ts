@@ -2,16 +2,22 @@ import type { ChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.j
 
 const emptyChildren: readonly never[] = Object.freeze([]);
 
+export interface SyntaxChild<PhaseType extends Phase> {
+  readonly node: SyntaxNode<PhaseType>;
+  readonly fields: readonly (string | number)[];
+}
+
 function children<PhaseType extends Phase>(
-  ...parts: readonly (SyntaxNode<PhaseType> | NodeList<SyntaxNode<PhaseType>> | null)[]
-): readonly SyntaxNode<PhaseType>[] {
-  const result: SyntaxNode<PhaseType>[] = [];
-  for (const part of parts) {
+  ...parts: readonly (readonly [string, SyntaxNode<PhaseType> | NodeList<SyntaxNode<PhaseType>> | readonly SyntaxNode<PhaseType>[] | null])[]
+): readonly SyntaxChild<PhaseType>[] {
+  const result: SyntaxChild<PhaseType>[] = [];
+  for (const [field, part] of parts) {
     if (part === null) continue;
-    if ("nodes" in part) {
-      for (const node of part.nodes) result.push(node);
+    if ("kind" in part) result.push({ node: part, fields: [field] });
+    else if ("nodes" in part) {
+      for (const [index, node] of part.nodes.entries()) result.push({ node, fields: [field, "nodes", index] });
     } else {
-      result.push(part);
+      for (const [index, node] of part.entries()) result.push({ node, fields: [field, index] });
     }
   }
   return Object.freeze(result);
@@ -19,10 +25,14 @@ function children<PhaseType extends Phase>(
 
 export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
-): readonly SyntaxNode<PhaseType>[] => {
+): readonly SyntaxNode<PhaseType>[] => Object.freeze(syntaxChildEdges(node).map(child => child.node));
+
+export function syntaxChildEdges<PhaseType extends Phase>(
+  node: SyntaxNode<PhaseType>,
+): readonly SyntaxChild<PhaseType>[] {
   switch (node.kind) {
     case "QualifiedName":
-      return children<PhaseType>(node.left, node.right);
+      return children<PhaseType>(["left", node.left], ["right", node.right]);
     case "ComputedPropertyName":
     case "Decorator":
     case "ReturnStatement":
@@ -39,165 +49,165 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "AwaitExpression":
     case "PartiallyEmittedExpression":
     case "JsxSpreadAttribute":
-      return children<PhaseType>(node.expression);
+      return children<PhaseType>(["expression", node.expression]);
     case "IfStatement":
-      return children<PhaseType>(node.expression, node.thenStatement, node.elseStatement);
+      return children<PhaseType>(["expression", node.expression], ["thenStatement", node.thenStatement], ["elseStatement", node.elseStatement]);
     case "DoStatement":
-      return children<PhaseType>(node.statement, node.expression);
+      return children<PhaseType>(["statement", node.statement], ["expression", node.expression]);
     case "WhileStatement":
     case "WithStatement":
-      return children<PhaseType>(node.expression, node.statement);
+      return children<PhaseType>(["expression", node.expression], ["statement", node.statement]);
     case "ForStatement":
-      return children<PhaseType>(node.initializer, node.condition, node.incrementor, node.statement);
+      return children<PhaseType>(["initializer", node.initializer], ["condition", node.condition], ["incrementor", node.incrementor], ["statement", node.statement]);
     case "ForInStatement":
     case "ForOfStatement":
-      return children<PhaseType>(node.awaitModifier, node.initializer, node.expression, node.statement);
+      return children<PhaseType>(["awaitModifier", node.awaitModifier], ["initializer", node.initializer], ["expression", node.expression], ["statement", node.statement]);
     case "BreakStatement":
     case "ContinueStatement":
-      return children<PhaseType>(node.label);
+      return children<PhaseType>(["label", node.label]);
     case "SwitchStatement":
-      return children<PhaseType>(node.expression, node.caseBlock);
+      return children<PhaseType>(["expression", node.expression], ["caseBlock", node.caseBlock]);
     case "CaseBlock":
-      return children<PhaseType>(node.clauses);
+      return children<PhaseType>(["clauses", node.clauses]);
     case "CaseClause":
     case "DefaultClause":
-      return children<PhaseType>(node.expression, node.statements);
+      return children<PhaseType>(["expression", node.expression], ["statements", node.statements]);
     case "TryStatement":
-      return children<PhaseType>(node.tryBlock, node.catchClause, node.finallyBlock);
+      return children<PhaseType>(["tryBlock", node.tryBlock], ["catchClause", node.catchClause], ["finallyBlock", node.finallyBlock]);
     case "CatchClause":
-      return children<PhaseType>(node.variableDeclaration, node.block);
+      return children<PhaseType>(["variableDeclaration", node.variableDeclaration], ["block", node.block]);
     case "LabeledStatement":
-      return children<PhaseType>(node.label, node.statement);
+      return children<PhaseType>(["label", node.label], ["statement", node.statement]);
     case "Block":
     case "ModuleBlock":
-      return children<PhaseType>(node.statements);
+      return children<PhaseType>(["statements", node.statements]);
     case "VariableStatement":
-      return children<PhaseType>(node.modifiers, node.declarationList);
+      return children<PhaseType>(["modifiers", node.modifiers], ["declarationList", node.declarationList]);
     case "VariableDeclaration":
-      return children<PhaseType>(node.name, node.exclamationToken, node.type, node.initializer);
+      return children<PhaseType>(["name", node.name], ["exclamationToken", node.exclamationToken], ["type", node.type], ["initializer", node.initializer]);
     case "VariableDeclarationList":
-      return children<PhaseType>(node.declarations);
+      return children<PhaseType>(["declarations", node.declarations]);
     case "ObjectBindingPattern":
     case "ArrayBindingPattern":
-      return children<PhaseType>(node.elements);
+      return children<PhaseType>(["elements", node.elements]);
     case "Parameter":
-      return children<PhaseType>(node.modifiers, node.dotDotDotToken, node.name,
-        node.questionToken, node.type, node.initializer);
+      return children<PhaseType>(["modifiers", node.modifiers], ["dotDotDotToken", node.dotDotDotToken], ["name", node.name],
+        ["questionToken", node.questionToken], ["type", node.type], ["initializer", node.initializer]);
     case "BindingElement":
-      return children<PhaseType>(node.dotDotDotToken, node.propertyName, node.name, node.initializer);
+      return children<PhaseType>(["dotDotDotToken", node.dotDotDotToken], ["propertyName", node.propertyName], ["name", node.name], ["initializer", node.initializer]);
     case "MissingDeclaration":
-      return children<PhaseType>(node.modifiers);
+      return children<PhaseType>(["modifiers", node.modifiers]);
     case "FunctionDeclaration":
     case "FunctionExpression":
-      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name,
-        node.typeParameters, node.parameters, node.type, node.fullSignature, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name],
+        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
     case "ClassDeclaration":
     case "ClassExpression":
     case "InterfaceDeclaration":
-      return children<PhaseType>(node.modifiers, node.name, node.typeParameters,
-        node.heritageClauses, node.members);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["typeParameters", node.typeParameters],
+        ["heritageClauses", node.heritageClauses], ["members", node.members]);
     case "HeritageClause":
-      return children<PhaseType>(node.types);
+      return children<PhaseType>(["types", node.types]);
     case "TypeAliasDeclaration":
     case "JSTypeAliasDeclaration":
-      return children<PhaseType>(node.modifiers, node.name, node.typeParameters, node.type);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["typeParameters", node.typeParameters], ["type", node.type]);
     case "EnumMember":
-      return children<PhaseType>(node.modifiers, node.name, node.postfixToken, node.initializer);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["initializer", node.initializer]);
     case "EnumDeclaration":
-      return children<PhaseType>(node.modifiers, node.name, node.members);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["members", node.members]);
     case "ImportDeclaration":
     case "JSImportDeclaration":
-      return children<PhaseType>(node.modifiers, node.importClause, node.moduleSpecifier, node.attributes);
+      return children<PhaseType>(["modifiers", node.modifiers], ["importClause", node.importClause], ["moduleSpecifier", node.moduleSpecifier], ["attributes", node.attributes]);
     case "NamespaceImport":
     case "NamespaceExport":
     case "JSDocNameReference":
     case "JSDocLink":
     case "JSDocLinkPlain":
     case "JSDocLinkCode":
-      return children<PhaseType>(node.name);
+      return children<PhaseType>(["name", node.name]);
     case "NamedImports":
     case "NamedExports":
-      return children<PhaseType>(node.elements);
+      return children<PhaseType>(["elements", node.elements]);
     case "ExportAssignment":
-      return children<PhaseType>(node.modifiers, node.type, node.expression);
+      return children<PhaseType>(["modifiers", node.modifiers], ["type", node.type], ["expression", node.expression]);
     case "NamespaceExportDeclaration":
-      return children<PhaseType>(node.modifiers, node.name);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name]);
     case "ExportSpecifier":
     case "ImportSpecifier":
-      return children<PhaseType>(node.propertyName, node.name);
+      return children<PhaseType>(["propertyName", node.propertyName], ["name", node.name]);
     case "CallSignature":
     case "ConstructSignature":
     case "JSDocSignature":
-      return children<PhaseType>(node.typeParameters, node.parameters, node.type, node.fullSignature);
+      return children<PhaseType>(["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
     case "FunctionType":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
+      return children<PhaseType>(["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
     case "Constructor":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters,
-        node.type, node.fullSignature, node.asteriskToken, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters],
+        ["type", node.type], ["fullSignature", node.fullSignature], ["asteriskToken", node.asteriskToken], ["body", node.body]);
     case "GetAccessor":
     case "SetAccessor":
-      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.postfixToken,
-        node.typeParameters, node.parameters, node.type, node.fullSignature, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["postfixToken", node.postfixToken],
+        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
     case "IndexSignature":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
+      return children<PhaseType>(["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
     case "MethodSignature":
-      return children<PhaseType>(node.modifiers, node.name, node.postfixToken,
-        node.typeParameters, node.parameters, node.type, node.fullSignature);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken],
+        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
     case "MethodDeclaration":
-      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.postfixToken,
-        node.typeParameters, node.parameters, node.type, node.fullSignature, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["postfixToken", node.postfixToken],
+        ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature], ["body", node.body]);
     case "PropertySignature":
     case "PropertyDeclaration":
     case "PropertyAssignment":
-      return children<PhaseType>(node.modifiers, node.name, node.postfixToken, node.type, node.initializer);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["type", node.type], ["initializer", node.initializer]);
     case "ClassStaticBlockDeclaration":
-      return children<PhaseType>(node.modifiers, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["body", node.body]);
     case "BinaryExpression":
-      return children<PhaseType>(node.modifiers, node.left, node.type, node.operatorToken, node.right);
+      return children<PhaseType>(["modifiers", node.modifiers], ["left", node.left], ["type", node.type], ["operatorToken", node.operatorToken], ["right", node.right]);
     case "PrefixUnaryExpression":
     case "PostfixUnaryExpression":
-      return children<PhaseType>(node.operand);
+      return children<PhaseType>(["operand", node.operand]);
     case "YieldExpression":
-      return children<PhaseType>(node.asteriskToken, node.expression);
+      return children<PhaseType>(["asteriskToken", node.asteriskToken], ["expression", node.expression]);
     case "ArrowFunction":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters,
-        node.type, node.fullSignature, node.asteriskToken, node.equalsGreaterThanToken, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters],
+        ["type", node.type], ["fullSignature", node.fullSignature], ["asteriskToken", node.asteriskToken], ["equalsGreaterThanToken", node.equalsGreaterThanToken], ["body", node.body]);
     case "AsExpression":
     case "SatisfiesExpression":
-      return children<PhaseType>(node.expression, node.type);
+      return children<PhaseType>(["expression", node.expression], ["type", node.type]);
     case "ConditionalExpression":
-      return children<PhaseType>(node.condition, node.questionToken, node.whenTrue, node.colonToken, node.whenFalse);
+      return children<PhaseType>(["condition", node.condition], ["questionToken", node.questionToken], ["whenTrue", node.whenTrue], ["colonToken", node.colonToken], ["whenFalse", node.whenFalse]);
     case "PropertyAccessExpression":
-      return children<PhaseType>(node.expression, node.questionDotToken, node.name);
+      return children<PhaseType>(["expression", node.expression], ["questionDotToken", node.questionDotToken], ["name", node.name]);
     case "ElementAccessExpression":
-      return children<PhaseType>(node.expression, node.questionDotToken, node.argumentExpression);
+      return children<PhaseType>(["expression", node.expression], ["questionDotToken", node.questionDotToken], ["argumentExpression", node.argumentExpression]);
     case "CallExpression":
-      return children<PhaseType>(node.expression, node.questionDotToken, node.typeArguments, node.arguments);
+      return children<PhaseType>(["expression", node.expression], ["questionDotToken", node.questionDotToken], ["typeArguments", node.typeArguments], ["arguments", node.arguments]);
     case "NewExpression":
-      return children<PhaseType>(node.expression, node.typeArguments, node.arguments);
+      return children<PhaseType>(["expression", node.expression], ["typeArguments", node.typeArguments], ["arguments", node.arguments]);
     case "MetaProperty":
-      return children<PhaseType>(node.name);
+      return children<PhaseType>(["name", node.name]);
     case "TemplateExpression":
     case "TemplateLiteralType":
-      return children<PhaseType>(node.head, node.templateSpans);
+      return children<PhaseType>(["head", node.head], ["templateSpans", node.templateSpans]);
     case "TemplateSpan":
-      return children<PhaseType>(node.expression, node.literal);
+      return children<PhaseType>(["expression", node.expression], ["literal", node.literal]);
     case "TaggedTemplateExpression":
-      return children<PhaseType>(node.tag, node.questionDotToken, node.typeArguments, node.template);
+      return children<PhaseType>(["tag", node.tag], ["questionDotToken", node.questionDotToken], ["typeArguments", node.typeArguments], ["template", node.template]);
     case "ArrayLiteralExpression":
-      return children<PhaseType>(node.elements);
+      return children<PhaseType>(["elements", node.elements]);
     case "ObjectLiteralExpression":
-      return children<PhaseType>(node.properties);
+      return children<PhaseType>(["properties", node.properties]);
     case "ShorthandPropertyAssignment":
-      return children<PhaseType>(node.modifiers, node.name, node.postfixToken, node.type,
-        node.equalsToken, node.objectAssignmentInitializer);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["postfixToken", node.postfixToken], ["type", node.type],
+        ["equalsToken", node.equalsToken], ["objectAssignmentInitializer", node.objectAssignmentInitializer]);
     case "TypeAssertionExpression":
-      return children<PhaseType>(node.type, node.expression);
+      return children<PhaseType>(["type", node.type], ["expression", node.expression]);
     case "UnionType":
     case "IntersectionType":
-      return children<PhaseType>(node.types);
+      return children<PhaseType>(["types", node.types]);
     case "ConditionalType":
-      return children<PhaseType>(node.checkType, node.extendsType, node.trueType, node.falseType);
+      return children<PhaseType>(["checkType", node.checkType], ["extendsType", node.extendsType], ["trueType", node.trueType], ["falseType", node.falseType]);
     case "TypeOperator":
     case "JSDocTypeExpression":
     case "JSDocNonNullableType":
@@ -207,68 +217,68 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "OptionalType":
     case "RestType":
     case "ParenthesizedType":
-      return children<PhaseType>(node.type);
+      return children<PhaseType>(["type", node.type]);
     case "InferType":
-      return children<PhaseType>(node.typeParameter);
+      return children<PhaseType>(["typeParameter", node.typeParameter]);
     case "ArrayType":
-      return children<PhaseType>(node.elementType);
+      return children<PhaseType>(["elementType", node.elementType]);
     case "IndexedAccessType":
-      return children<PhaseType>(node.objectType, node.indexType);
+      return children<PhaseType>(["objectType", node.objectType], ["indexType", node.indexType]);
     case "TypeReference":
-      return children<PhaseType>(node.typeName, node.typeArguments);
+      return children<PhaseType>(["typeName", node.typeName], ["typeArguments", node.typeArguments]);
     case "ExpressionWithTypeArguments":
-      return children<PhaseType>(node.expression, node.typeArguments);
+      return children<PhaseType>(["expression", node.expression], ["typeArguments", node.typeArguments]);
     case "LiteralType":
-      return children<PhaseType>(node.literal);
+      return children<PhaseType>(["literal", node.literal]);
     case "TypePredicate":
-      return children<PhaseType>(node.assertsModifier, node.parameterName, node.type);
+      return children<PhaseType>(["assertsModifier", node.assertsModifier], ["parameterName", node.parameterName], ["type", node.type]);
     case "ImportAttribute":
-      return children<PhaseType>(node.name, node.value);
+      return children<PhaseType>(["name", node.name], ["value", node.value]);
     case "ImportAttributes":
-      return children<PhaseType>(node.attributes);
+      return children<PhaseType>(["attributes", node.attributes]);
     case "TypeQuery":
-      return children<PhaseType>(node.exprName, node.typeArguments);
+      return children<PhaseType>(["exprName", node.exprName], ["typeArguments", node.typeArguments]);
     case "MappedType":
-      return children<PhaseType>(node.readonlyToken, node.typeParameter, node.nameType,
-        node.questionToken, node.type, node.members);
+      return children<PhaseType>(["readonlyToken", node.readonlyToken], ["typeParameter", node.typeParameter], ["nameType", node.nameType],
+        ["questionToken", node.questionToken], ["type", node.type], ["members", node.members]);
     case "TypeLiteral":
-      return children<PhaseType>(node.members);
+      return children<PhaseType>(["members", node.members]);
     case "TupleType":
-      return children<PhaseType>(node.elements);
+      return children<PhaseType>(["elements", node.elements]);
     case "NamedTupleMember":
-      return children<PhaseType>(node.dotDotDotToken, node.name, node.questionToken, node.type);
+      return children<PhaseType>(["dotDotDotToken", node.dotDotDotToken], ["name", node.name], ["questionToken", node.questionToken], ["type", node.type]);
     case "ConstructorType":
-      return children<PhaseType>(node.modifiers, node.typeParameters, node.parameters, node.type, node.fullSignature);
+      return children<PhaseType>(["modifiers", node.modifiers], ["typeParameters", node.typeParameters], ["parameters", node.parameters], ["type", node.type], ["fullSignature", node.fullSignature]);
     case "TemplateLiteralTypeSpan":
-      return children<PhaseType>(node.type, node.literal);
+      return children<PhaseType>(["type", node.type], ["literal", node.literal]);
     case "JsxElement":
-      return children<PhaseType>(node.openingElement, node.children, node.closingElement);
+      return children<PhaseType>(["openingElement", node.openingElement], ["children", node.children], ["closingElement", node.closingElement]);
     case "JsxAttributes":
-      return children<PhaseType>(node.properties);
+      return children<PhaseType>(["properties", node.properties]);
     case "JsxNamespacedName":
-      return children<PhaseType>(node.namespace, node.name);
+      return children<PhaseType>(["namespace", node.namespace], ["name", node.name]);
     case "JsxOpeningElement":
     case "JsxSelfClosingElement":
-      return children<PhaseType>(node.tagName, node.typeArguments, node.attributes);
+      return children<PhaseType>(["tagName", node.tagName], ["typeArguments", node.typeArguments], ["attributes", node.attributes]);
     case "JsxFragment":
-      return children<PhaseType>(node.openingFragment, node.children, node.closingFragment);
+      return children<PhaseType>(["openingFragment", node.openingFragment], ["children", node.children], ["closingFragment", node.closingFragment]);
     case "JsxAttribute":
-      return children<PhaseType>(node.name, node.initializer);
+      return children<PhaseType>(["name", node.name], ["initializer", node.initializer]);
     case "JsxClosingElement":
-      return children<PhaseType>(node.tagName);
+      return children<PhaseType>(["tagName", node.tagName]);
     case "JsxExpression":
-      return children<PhaseType>(node.dotDotDotToken, node.expression);
+      return children<PhaseType>(["dotDotDotToken", node.dotDotDotToken], ["expression", node.expression]);
     case "SyntaxList":
-      return Object.freeze([...node.children]);
+      return children<PhaseType>(["children", node.children]);
     case "JSDoc":
-      return children<PhaseType>(node.comment, node.tags);
+      return children<PhaseType>(["comment", node.comment], ["tags", node.tags]);
     case "JSDocTypeTag":
     case "JSDocReturnTag":
     case "JSDocSatisfiesTag":
     case "JSDocThrowsTag":
     case "JSDocThisTag":
     case "JSDocOverloadTag":
-      return children<PhaseType>(node.tagName, node.typeExpression, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["typeExpression", node.typeExpression], ["comment", node.comment]);
     case "JSDocUnknownTag":
     case "JSDocPublicTag":
     case "JSDocPrivateTag":
@@ -276,41 +286,41 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "JSDocReadonlyTag":
     case "JSDocOverrideTag":
     case "JSDocDeprecatedTag":
-      return children<PhaseType>(node.tagName, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["comment", node.comment]);
     case "JSDocSeeTag":
-      return children<PhaseType>(node.tagName, node.nameExpression, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["nameExpression", node.nameExpression], ["comment", node.comment]);
     case "JSDocTemplateTag":
-      return children<PhaseType>(node.tagName, node.constraint, node.typeParameters, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["constraint", node.constraint], ["typeParameters", node.typeParameters], ["comment", node.comment]);
     case "JSDocImplementsTag":
     case "JSDocAugmentsTag":
-      return children<PhaseType>(node.tagName, node.className, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["className", node.className], ["comment", node.comment]);
     case "JSDocImportTag":
-      return children<PhaseType>(node.tagName, node.importClause, node.moduleSpecifier,
-        node.attributes, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["importClause", node.importClause], ["moduleSpecifier", node.moduleSpecifier],
+        ["attributes", node.attributes], ["comment", node.comment]);
     case "JSDocCallbackTag":
     case "JSDocTypedefTag":
-      return children<PhaseType>(node.tagName, node.typeExpression, node.name, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["typeExpression", node.typeExpression], ["name", node.name], ["comment", node.comment]);
     case "SourceFile":
-      return children<PhaseType>(node.statements, node.endOfFileToken);
+      return children<PhaseType>(["statements", node.statements], ["endOfFileToken", node.endOfFileToken]);
     case "ModuleDeclaration":
-      return children<PhaseType>(node.modifiers, node.asteriskToken, node.name, node.body);
+      return children<PhaseType>(["modifiers", node.modifiers], ["asteriskToken", node.asteriskToken], ["name", node.name], ["body", node.body]);
     case "ImportEqualsDeclaration":
-      return children<PhaseType>(node.modifiers, node.name, node.moduleReference);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["moduleReference", node.moduleReference]);
     case "ExportDeclaration":
-      return children<PhaseType>(node.modifiers, node.exportClause, node.moduleSpecifier, node.attributes);
+      return children<PhaseType>(["modifiers", node.modifiers], ["exportClause", node.exportClause], ["moduleSpecifier", node.moduleSpecifier], ["attributes", node.attributes]);
     case "ImportType":
-      return children<PhaseType>(node.argument, node.attributes, node.qualifier, node.typeArguments);
+      return children<PhaseType>(["argument", node.argument], ["attributes", node.attributes], ["qualifier", node.qualifier], ["typeArguments", node.typeArguments]);
     case "ImportClause":
-      return children<PhaseType>(node.name, node.namedBindings);
+      return children<PhaseType>(["name", node.name], ["namedBindings", node.namedBindings]);
     case "TypeParameter":
-      return children<PhaseType>(node.modifiers, node.name, node.constraint, node.expression, node.defaultType);
+      return children<PhaseType>(["modifiers", node.modifiers], ["name", node.name], ["constraint", node.constraint], ["expression", node.expression], ["defaultType", node.defaultType]);
     case "SyntheticReferenceExpression":
-      return children<PhaseType>(node.expression, node.thisArg);
+      return children<PhaseType>(["expression", node.expression], ["thisArg", node.thisArg]);
     case "JSDocTypeLiteral":
-      return Object.freeze([...(node.jsDocPropertyTags ?? [])]);
+      return children<PhaseType>(["jsDocPropertyTags", node.jsDocPropertyTags]);
     case "JSDocParameterTag":
     case "JSDocPropertyTag":
-      return children<PhaseType>(node.tagName, node.name, node.typeExpression, node.comment);
+      return children<PhaseType>(["tagName", node.tagName], ["name", node.name], ["typeExpression", node.typeExpression], ["comment", node.comment]);
     case "AnyKeyword":
     case "BigIntKeyword":
     case "BooleanKeyword":
@@ -491,4 +501,4 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
     case "JSDocText":
       return emptyChildren;
   }
-};
+}

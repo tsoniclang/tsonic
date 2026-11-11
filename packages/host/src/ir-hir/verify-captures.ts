@@ -1,6 +1,6 @@
 import type { ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
-import type { HirBindingRequest, HirForeignNode, HirSourceNode } from "./verify-bindings.js";
+import type { HirBindingRequest, HirSourceNode } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
 import { hirArray, hirChoice, hirDiscriminant, hirIdentity, hirLiteral, hirNullable, hirRecord, hirVariant,
@@ -319,7 +319,7 @@ interface PlaceEntry {
 
 interface PlaceVertex {
   readonly entry: HirNodeEntry;
-  readonly targets: Set<PlaceVertex>;
+  readonly targets: Map<HirNode, PlaceVertex>;
   readonly places: PlaceEntry[];
 }
 
@@ -352,7 +352,7 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
   for (const entry of inventory.entries) {
     const places = byNode.get(entry.node);
     if (places === undefined) continue;
-    const owner: PlaceVertex = { entry, targets: new Set(), places: [] };
+    const owner: PlaceVertex = { entry, targets: new Map(), places: [] };
     known.set(entry.node, owner);
     for (const place of places) {
       const value: PlaceEntry = { owner, place, receiverViolation: false };
@@ -380,28 +380,28 @@ export function verifyHirPlaces(inventory: HirInventory, report: HirReport): voi
     if (targetPlace === undefined || owner === null || targetPlace.entry.body !== owner) {
       report("place-base-acyclic", site, "place base must name an actual place in the same body and end at a root");
     } else {
-      entry.owner.targets.add(targetPlace);
+      entry.owner.targets.set(targetPlace.entry.node, targetPlace);
     }
     if (entry.receiverViolation)
       report("place-access-base-in-receiver", site, "access base place must lie inside its actual receiver subtree");
   }
-  const colors = new Map<PlaceVertex, "active" | "complete">();
+  const colors = new Map<HirNode, "active" | "complete">();
   for (const root of known.values()) {
-    if (colors.has(root)) continue;
+    if (colors.has(root.entry.node)) continue;
     let pending: PlaceVisit | null = { vertex: root, leaving: false, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
-      if (frame.leaving) { colors.set(frame.vertex, "complete"); continue; }
-      const previous = colors.get(frame.vertex);
+      if (frame.leaving) { colors.set(frame.vertex.entry.node, "complete"); continue; }
+      const previous = colors.get(frame.vertex.entry.node);
       if (previous === "complete") continue;
       if (previous === "active") {
         report("place-base-acyclic", { kind: "node", node: frame.vertex.entry.source }, "place base chain must not revisit a place");
         continue;
       }
-      colors.set(frame.vertex, "active");
+      colors.set(frame.vertex.entry.node, "active");
       pending = { vertex: frame.vertex, leaving: true, next: pending };
-      for (const vertex of frame.vertex.targets) pending = { vertex, leaving: false, next: pending };
+      for (const vertex of frame.vertex.targets.values()) pending = { vertex, leaving: false, next: pending };
     }
   }
 }
@@ -414,8 +414,9 @@ interface CaptureEntry {
 }
 
 interface MemoryVertex {
+  readonly ordinal: number;
   readonly site: HirSite;
-  readonly targets: Set<MemoryVertex>;
+  readonly targets: Map<number, MemoryVertex>;
   kind: MemoryCapture["kind"] | null;
 }
 
@@ -452,25 +453,25 @@ function memoryEdges(capture: MemoryCapture): readonly SourceNodeRef[] {
 
 function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCaptureReaders, report: HirReport): void {
   const pendingEntries = [...entries];
-  const readNodes = new Set<HirNode | HirForeignNode>();
-  const foreign = new Map<ModuleId, Map<NodeId, HirForeignNode>>();
-  const vertices = new Map<HirNode | HirForeignNode, MemoryVertex>();
-  const identityOf = (source: HirSourceNode): HirNode | HirForeignNode => {
-    if (source.kind === "local") return source.node;
-    let arena = foreign.get(source.module);
-    if (arena === undefined) { arena = new Map(); foreign.set(source.module, arena); }
-    let identity = arena.get(source.ordinal);
-    if (identity === undefined) { identity = source; arena.set(source.ordinal, identity); }
-    return identity;
-  };
-  const vertexOf = (source: HirSourceNode, site: HirSite): MemoryVertex => {
-    const node = identityOf(source);
-    let vertex = vertices.get(node);
+  const readLocal = new Set<HirNode>();
+  const readForeign = new Map<ModuleId, Set<NodeId>>();
+  const localVertices = new Map<HirNode, MemoryVertex>();
+  const foreignVertices = new Map<ModuleId, Map<NodeId, MemoryVertex>>();
+  const vertices: MemoryVertex[] = [];
+  const vertexFrom = <Key extends HirNode | NodeId>(arena: Map<Key, MemoryVertex>, key: Key, site: HirSite): MemoryVertex => {
+    let vertex = arena.get(key);
     if (vertex === undefined) {
-      vertex = { site, targets: new Set(), kind: null };
-      vertices.set(node, vertex);
+      vertex = { ordinal: vertices.length, site, targets: new Map(), kind: null };
+      vertices.push(vertex);
+      arena.set(key, vertex);
     }
     return vertex;
+  };
+  const vertexOf = (source: HirSourceNode, site: HirSite): MemoryVertex => {
+    if (source.kind === "local") return vertexFrom(localVertices, source.node, site);
+    const arena = foreignVertices.get(source.module) ?? new Map<NodeId, MemoryVertex>();
+    foreignVertices.set(source.module, arena);
+    return vertexFrom(arena, source.ordinal, site);
   };
   for (const entry of pendingEntries) {
     const owner = readers.nodeOf(entry.value.occurrence);
@@ -486,34 +487,44 @@ function verifyMemoryGraph(entries: readonly CaptureEntry[], readers: HirCapture
       if (captured === null || occurrence === null || (entry.value.kind === "value" ? captured.kind !== "field" :
         captured.kind !== "value" && captured.kind !== "array"))
         report("memory-capture-reference", entry.site, "layout edge must name the required captured descriptor kind");
-      if (occurrence !== null && captured !== null)
-        vertex.targets.add(vertexOf(occurrence, { kind: "node", node: captured.occurrence }));
+      if (occurrence !== null && captured !== null) {
+        const target = vertexOf(occurrence, { kind: "node", node: captured.occurrence });
+        vertex.targets.set(target.ordinal, target);
+      }
       if (node !== null && captured !== null) {
-        const identity = identityOf(node);
-        if (!readNodes.has(identity)) {
-          readNodes.add(identity);
+        let first: boolean;
+        if (node.kind === "local") {
+          first = !readLocal.has(node.node);
+          readLocal.add(node.node);
+        } else {
+          const arena = readForeign.get(node.module) ?? new Set<NodeId>();
+          first = !arena.has(node.ordinal);
+          arena.add(node.ordinal);
+          readForeign.set(node.module, arena);
+        }
+        if (first) {
           pendingEntries.push({ value: captured, site: { kind: "node", node: captured.occurrence } });
         }
       }
     }
   }
-  const colors = new Map<MemoryVertex, "active" | "complete">();
-  for (const root of vertices.values()) {
-    if (colors.has(root)) continue;
+  const colors = new Map<number, "active" | "complete">();
+  for (const root of vertices) {
+    if (colors.has(root.ordinal)) continue;
     let pending: MemoryVisit | null = { node: root, leaving: false, next: null };
     while (pending !== null) {
       const frame = pending;
       pending = frame.next;
-      if (frame.leaving) { colors.set(frame.node, "complete"); continue; }
-      const previous = colors.get(frame.node);
+      if (frame.leaving) { colors.set(frame.node.ordinal, "complete"); continue; }
+      const previous = colors.get(frame.node.ordinal);
       if (previous === "complete") continue;
       if (previous === "active") {
         report("memory-layout-acyclic", frame.node.site, "captured layout graph must be acyclic");
         continue;
       }
-      colors.set(frame.node, "active");
+      colors.set(frame.node.ordinal, "active");
       pending = { node: frame.node, leaving: true, next: pending };
-      pending = [...frame.node.targets].reduceRight<MemoryVisit | null>((next, node) => ({ node, leaving: false, next }), pending);
+      pending = [...frame.node.targets.values()].reduceRight<MemoryVisit | null>((next, node) => ({ node, leaving: false, next }), pending);
     }
   }
 }
