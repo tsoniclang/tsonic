@@ -281,7 +281,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   });
 });
 
-test("A7 through A10 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
+test("A7 through A11 genuine emitted contracts accept current forms and reject every superseded receiving form", async () => {
   await fixture([], async ({ root, deps, write }) => {
     const imports = entries => entries.map(([owner, names]) =>
       `import type { ${names} } from ${JSON.stringify(resolve(repository, "packages/host/dist", owner, "contract.js"))};`).join("\n");
@@ -290,6 +290,10 @@ test("A7 through A10 genuine emitted contracts accept current forms and reject e
         "export function read(verify: VerifyMir, body: MirBody, source: TirBody, typeOf: TypeOf, signatureOf: SignatureOf) { return verify(body, source, typeOf, signatureOf); }", 2554],
       ["old-mir-context", [["ir-mir", "MirVerificationContext"]],
         "export function read(context: MirVerificationContext) { const { bodyOwner, ...legacy } = context; void bodyOwner; const current: MirVerificationContext = legacy; return current; }", 2741],
+      ["old-hir-body-path-context", [["ir-hir", "HirVerificationContext"]],
+        "export function read(context: HirVerificationContext) { const { bodyPathOf, ...legacy } = context; void bodyPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
+      ["old-hir-definition-path-context", [["ir-hir", "HirVerificationContext"]],
+        "export function read(context: HirVerificationContext) { const { definitionPathOf, ...legacy } = context; void definitionPathOf; const current: HirVerificationContext = legacy; return current; }", 2741],
       ["old-backward", [["dataflow", "BackwardProblem, BlockState"], ["ir-mir", "MirTerminator"]],
         "export function read(problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[]) { return problem.terminator(term, states); }", 2554],
       ["old-program-context", [["ir-program", "ProgramVerificationContext"]],
@@ -329,13 +333,15 @@ test("A7 through A10 genuine emitted contracts accept current forms and reject e
       ["ids", "LibraryExportIdentity, ModuleId, NodeId"],
     ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: LibraryExportBinding | null = libraries.signatureOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null), limits: program.limits, element, hole, schema, projection, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
     write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, artifact.tir.signature, bindings, limits); }\n');
+    write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
+      '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
       noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
       noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
       verbatimModuleSyntax: true,
-    }, files: ["positive.mts", ...rows.map(([name]) => name + ".mts")] }));
+    }, files: ["positive.mts", "positive-hir-paths.mts", ...rows.map(([name]) => name + ".mts")] }));
     const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
       cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
     });
