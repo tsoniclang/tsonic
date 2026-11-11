@@ -127,14 +127,18 @@ test("construction retains arbitrary actual Inputs rather than encoding, copying
 });
 
 test("one actual query definition receives each database's own Inputs and independent memo", () => {
-  const query = { name: "input", cycle: "invariant", compute: (database, key) => ({
-    kind: "ok", value: `${database.inputs.prefix}:${key}`, diagnostics: [],
-  }) };
+  let received;
+  const query = { name: "input", cycle: "invariant", compute: (database, key) => {
+    received = database;
+    return { kind: "ok", value: `${database.inputs.prefix}:${key}`, diagnostics: [] };
+  } };
   const left = product.createDatabase({ prefix: "left" }, { maxActiveDepth: 1 });
   const right = product.createDatabase({ prefix: "right" }, { maxActiveDepth: 1 });
   for (let request = 0; request < 2; request += 1) {
     assert.deepEqual(left.run(query, "key"), { kind: "completed", value: "left:key", diagnostics: [] });
+    if (request === 0) assert.equal(received, left);
     assert.deepEqual(right.run(query, "key"), { kind: "completed", value: "right:key", diagnostics: [] });
+    assert.equal(received, right);
   }
   assert.deepEqual(left.stats(), [{ name: "input", computed: 1, hits: 1 }]);
   assert.deepEqual(right.stats(), [{ name: "input", computed: 1, hits: 1 }]);
@@ -332,7 +336,8 @@ test("cycles use full content keys and the complete chain, not object identity o
   const key = "O2:S1:aF1:S1:bF2:";
   const chain = [{ query: "A", encodedKey: key }, { query: "B", encodedKey: key }, { query: "A", encodedKey: key }];
   assert.throws(() => database.run(first, { b: 2, a: 1 }), error => {
-    assert.deepEqual({ pass: error.pass, query: error.query, origin: error.origin, message: error.message }, {
+    assert.equal(error instanceof Error, true);
+    assert.deepEqual(error.cause, {
       pass: "pipeline", query: { name: "A", encodedKey: key }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
     });
     return true;
@@ -479,7 +484,7 @@ test("deep content keys use the real iterative encoder without a query-depth or 
   assert.deepEqual(database.diagnostics(), []);
 });
 
-test("the actual ids boundary rejects a cyclic key before any query registration or computation", () => {
+test("the actual ids boundary rejects a cyclic key before any memo entry or computation", () => {
   let calls = 0;
   const query = { name: "invalid-key", cycle: "invariant", compute: () => {
     calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
@@ -506,7 +511,8 @@ test("a query name cannot silently select another definition or reinterpret its 
   assert.deepEqual(database.run(original, null), { kind: "completed", value: 7, diagnostics: [] });
   for (const key of [null, "different"]) {
     assert.throws(() => database.run(other, key), error => {
-      assert.deepEqual({ pass: error.pass, query: error.query, origin: error.origin, message: error.message }, {
+      assert.equal(error instanceof Error, true);
+      assert.deepEqual(error.cause, {
         pass: "pipeline", query: { name: "same", encodedKey: key === null ? "N" : "S9:different" }, origin: null,
         message: 'Query name "same" is already bound to another definition',
       });
@@ -575,13 +581,47 @@ test("an invariant cycle reports the whole root prefix rather than only the repe
     { query: "B", encodedKey: "F2:" }, { query: "A", encodedKey: "F1:" }];
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   assert.throws(() => database.run(root, null), error => {
-    assert.deepEqual({ pass: error.pass, query: error.query, origin: error.origin, message: error.message }, {
+    assert.equal(error instanceof Error, true);
+    assert.deepEqual(error.cause, {
       pass: "pipeline", query: { name: "A", encodedKey: "F1:" }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
     });
     return true;
   });
   assert.deepEqual(database.stats(), [{ name: "A", computed: 1, hits: 0 }, { name: "B", computed: 1, hits: 0 },
     { name: "root", computed: 1, hits: 0 }]);
+  assert.deepEqual(database.diagnostics(), []);
+});
+
+test("statistics use total UTF-16 name ordering, independent of request order or locale", () => {
+  const ordered = ["", "\u0000", "A", "\uD800", "\uD800\uDC00", "\uDBFF\uDFFF", "\uDFFF", "\uE000"];
+  for (const names of [[...ordered].reverse(), [ordered[4], ordered[0], ordered[7], ordered[2],
+    ordered[6], ordered[1], ordered[5], ordered[3]]]) {
+    const database = product.createDatabase(null, { maxActiveDepth: 1 });
+    for (const name of names) {
+      const query = { name, cycle: "invariant", compute: () => ({ kind: "ok", value: name, diagnostics: [] }) };
+      assert.deepEqual(database.run(query, null), { kind: "completed", value: name, diagnostics: [] });
+    }
+    assert.deepEqual(database.stats(), ordered.map(name => ({ name, computed: 1, hits: 0 })));
+    assert.deepEqual(database.diagnostics(), []);
+  }
+});
+
+test("get outside an actual computation is a caller TypeError, even for a completed memo key", () => {
+  let calls = 0;
+  const query = { name: "root", cycle: "invariant", compute: () => {
+    calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
+  } };
+  const database = product.createDatabase(null, { maxActiveDepth: 1 });
+  const { get } = database;
+  const failure = { name: "TypeError", message: "query: get requires an active computation; use run" };
+  assert.throws(() => get(query, null), failure);
+  assert.equal(calls, 0);
+  assert.deepEqual(database.stats(), []);
+  assert.deepEqual(database.diagnostics(), []);
+  assert.deepEqual(database.run(query, null), { kind: "completed", value: 7, diagnostics: [] });
+  assert.throws(() => get(query, null), failure);
+  assert.equal(calls, 1);
+  assert.deepEqual(database.stats(), [{ name: "root", computed: 1, hits: 0 }]);
   assert.deepEqual(database.diagnostics(), []);
 });
 
@@ -611,7 +651,7 @@ test("fresh actual declarations retain construction, snapshots, readonly fields 
   }
   const positive = resolve(stage, "positive.mts");
   writeFileSync(positive, `import { createDatabase } from "./query/index.js";
-import type { ActiveKey, CreateDatabase, Database, QueryLimits, QueryStat } from "./query/contract.js";
+import type { ActiveKey, CreateDatabase, Database, Query, QueryLimits, QueryStat, RunResult } from "./query/contract.js";
 import type { Diagnostic } from "./diag/contract.js";
 const create: CreateDatabase = createDatabase;
 const limits: QueryLimits = { maxActiveDepth: 2 };
@@ -620,16 +660,48 @@ const inputs: { readonly name: string } = database.inputs;
 const statistics: readonly QueryStat[] = database.stats();
 const diagnostics: readonly Diagnostic[] = database.diagnostics();
 const chain: readonly ActiveKey[] = [{ query: "actual", encodedKey: "N" }];
-void inputs; void statistics; void diagnostics; void chain;
+const refusal: Diagnostic = { code: { kind: "checker", number: 1, rendered: "TS1" }, severity: "error",
+  site: { kind: "file", path: "actual.ts" }, source: null, evidence: [], message: "actual refusal",
+  arguments: [], related: [], fix: null };
+const query: Query<{ readonly name: string }, number, number> = {
+  name: "actual",
+  compute: (current, key) => ({ kind: "ok", value: current.inputs.name.length + key, diagnostics: [] }),
+  cycle: { recover: (key, active) => key < 0 ? { kind: "refused", diagnostics: [refusal] }
+    : { kind: "ok", value: key + active.length, diagnostics: [] } },
+};
+const dependent: Query<{ readonly name: string }, null, number> = {
+  name: "dependent", cycle: "invariant",
+  compute: current => ({ kind: "ok", value: current.get(query, 7), diagnostics: [] }),
+};
+function consume(result: RunResult<number>): number {
+  switch (result.kind) {
+    case "completed": return result.value + result.diagnostics.length;
+    case "refused": return result.diagnostics[0].message.length;
+    case "depth-exceeded": return result.chain.length;
+  }
+}
+const value: number = consume(database.run(dependent, null));
+consume({ kind: "completed", value: 7, diagnostics: [] });
+consume({ kind: "refused", diagnostics: [refusal] });
+consume({ kind: "depth-exceeded", chain });
+void inputs; void statistics; void diagnostics; void chain; void value;
 `);
   const cases = [
     ["readonly-inputs", "database.inputs = database.inputs;", 2540, 3, 10],
+    ["readonly-get-port", "database.get = database.get;", 2540, 3, 10],
+    ["readonly-run-port", "database.run = database.run;", 2540, 3, 10],
     ["readonly-stats-port", "database.stats = database.stats;", 2540, 3, 10],
     ["readonly-diagnostics-port", "database.diagnostics = database.diagnostics;", 2540, 3, 10],
     ["readonly-statistics", "database.stats().push();", 2339, 3, 18],
     ["readonly-diagnostics", "database.diagnostics().push();", 2339, 3, 24],
+    ["readonly-depth", "limits.maxActiveDepth = 3;", 2540, 3, 8],
+    ["readonly-statistic-row", "for (const statistic of database.stats()) {\n  statistic.computed = 2;\n}", 2540, 4, 13],
+    ["readonly-active-key", 'const key: Port.ActiveKey = { query: "one", encodedKey: "N" };\nkey.encodedKey = "B1";', 2540, 4, 5],
+    ["readonly-completed-value", 'const result: Port.RunResult<number> = { kind: "completed", value: 7, diagnostics: [] };\nresult.value = 9;', 2540, 4, 8],
     ["missing-depth", 'const wrong: Port.QueryLimits = {}; void wrong;', 2741, 3, 7],
     ["wrong-depth", 'const wrong: Port.QueryLimits = { maxActiveDepth: "2" }; void wrong;', 2322, 3, 35],
+    ["wrong-query-key", 'database.run<null, number>(\n  { name: "typed", cycle: "invariant", compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) },\n  true,\n);', 2345, 5, 3],
+    ["closed-run-outcomes", 'const wrong: Port.RunResult<number> = { kind: "pending" }; void wrong;', 2322, 3, 41],
     ["undeclared-runtime-port", 'import { lookup } from "./query/index.js"; void lookup;', 2305, 3, 10],
     ["private-entry", 'import { snapshotChain } from "./query/memo.js"; void snapshotChain;', 2307, 3, 31],
   ];
@@ -655,7 +727,8 @@ void inputs; void statistics; void diagnostics; void chain;
   const actual = [...output.matchAll(/^(.+)\((\d+),(\d+)\): error TS(\d+):/gmu)].map(match => ({
     file: basename(match[1]), line: Number(match[2]), column: Number(match[3]), code: Number(match[4]),
   }));
-  const order = rows => rows.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0);
+  const order = rows => rows.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1
+    : left.line - right.line || left.column - right.column || left.code - right.code);
   assert.deepEqual(order(actual), order(expected), output.slice(0, 4000));
   assert.equal(result.status, 1, "the pinned compiler rejects the exact negative programs with no emit");
   const loaded = result.stdout.split(/\r?\n/u).filter(path => path.startsWith("/"));

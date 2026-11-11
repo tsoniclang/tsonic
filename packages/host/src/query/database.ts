@@ -84,6 +84,16 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     }
   }
 
+  function get<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): Value {
+    const boundary = active.length === 0 ? undefined : boundaries.at(-1);
+    if (boundary === undefined) throw new TypeError("query: get requires an active computation; use run");
+    const result = execute(query, key);
+    if (result.kind === "ok") return result.value;
+    const error = new Error("query: abandoned computation");
+    boundary.signal = { error, outcome: result };
+    throw error;
+  }
+
   function run<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): RunResult<Value> {
     const boundary: Boundary = { signal: null };
     boundaries.push(boundary);
