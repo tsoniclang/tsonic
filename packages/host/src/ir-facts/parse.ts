@@ -173,12 +173,19 @@ const fieldNameFailure = (state: State, reader: RecordReader, token: SyntaxValue
   }
   const actual = token.kind === "word" ? token.text : token.kind === "string" ? token.value : token.prefix;
   let matched = 0;
-  while (matched < actual.length && matched < name.length && actual.charAt(matched) === name.charAt(matched)) matched += 1;
+  let offset = token.kind === "word" ? token.offset : token.kind === "string" ? token.end - 1 : token.failure.offset;
+  if (token.kind === "word") {
+    while (matched < actual.length && matched < name.length && actual.charAt(matched) === name.charAt(matched)) matched += 1;
+    offset += matched;
+  } else {
+    for (const position of token.positions) {
+      if (matched === name.length || actual.charAt(matched) !== name.charAt(matched)) { offset = position; break; }
+      matched += 1;
+    }
+  }
   if (token.kind === "invalid" && matched === actual.length) {
     return { kind: "invalid", failure: token.failure };
   }
-  const offset = token.kind === "word" ? token.offset + matched : token.kind === "invalid"
-    ? token.positions[matched] : matched < token.positions.length ? token.positions[matched] : token.end - 1;
   return reject(state, offset, token.kind !== "invalid" && reader.names.has(actual)
     ? ["unique record field"] : [name === "" ? "end of record" : name], token.text);
 };
@@ -229,7 +236,7 @@ const scalarBoolean: Decode<boolean> = (state, input) => {
   if (input.kind !== "scalar" || typeof input.value !== "boolean") return fail(state, input, ["boolean"]);
   advance(state, input); return accept(input.value);
 };
-const literal = <Value extends string | number>(state: State, input: SyntaxValue, values: readonly Value[]): Decoded<Value> => {
+const literal = <const Value extends string | number>(state: State, input: SyntaxValue, values: readonly Value[]): Decoded<Value> => {
   if (input.kind === "invalid" && (input.family === "string" && values.some(value => typeof value === "string" && value.startsWith(input.prefix)) ||
     input.family === "number" && values.some(value => typeof value === "number"))) return { kind: "invalid", failure: input.failure };
   if (input.kind === "scalar" || input.kind === "string") for (const value of values) if (value === input.value) {
@@ -328,7 +335,7 @@ const component: Decode<ComponentId> = (state, input) =>
     const decoded = decodeComponentId(value);
     return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(state, input, ["canonical ComponentId"]);
   }));
-const label = <Name extends string>(state: State, input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
+const label = <const Name extends string>(state: State, input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
   if (input.kind === "word") for (const name of names) if (input.text === name) return accept(name);
   return fail(state, input, names);
 };

@@ -205,7 +205,8 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   if (integerNodes.size !== valueNodes.size || [...valueNodes].some(id => !integerNodes.has(id))) {
     report("integer-facts-domain-exact", bodySite, "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.");
   }
-  nodeOrder(facts.refinements.countedLoops, "counted-loops-order");
+  ordered(facts.refinements.countedLoops, "counted-loops-order",
+    (left, right) => compare(left.statement, right.statement), row => at(row.statement));
   const resolvesCounter = (reference: TirNode, declaration: DeclarationTarget): boolean => {
     if (reference.kind !== "Identifier") return false;
     const annotation = reference.tsonic;

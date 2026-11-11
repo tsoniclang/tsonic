@@ -990,30 +990,44 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.refinements.integers = [{ node: 2, range: null, nonnegative: false }];
   }, input => { input.refinements.integers.push({ node: 5, range: null, nonnegative: false }, { node: 7, range: null, nonnegative: false }); },
     [violation("integer-facts-domain-exact", bodySite(), "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.")]);
-  const countedLoop = (input, supplied) => {
+  const countedLoop = (input, supplied, count = 1) => {
     supplied.types.terms.push({ kind: "primitive", primitive: "bool" });
-    const name = (id, parent) => ({ ...header(id, parent), kind: "Identifier", text: "counter", tsonic: { ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local: 0 } } } });
+    const name = (id, parent, local) => ({ ...header(id, parent), kind: "Identifier", text: "counter", tsonic: { ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local } } } });
     const literal = (id, parent, value) => ({ ...header(id, parent), kind: "NumericLiteral", text: String(value), tokenFlags: [],
       tsonic: { ...typedValue(), role: "value", value: { numerator: BigInt(value), denominator: 1n, negativeZero: false } } });
     const operation = (operator, result) => ({ kind: "decided", decision: { operation: { kind: "selected", operation: { kind: "native-operator", operator, carrier: "int64" }, operands: operator === "++" ? [0] : [0, 0], result }, permissionScope: null } });
-    supplied.tir.root.statements.nodes = [{ ...header(1), kind: "ForStatement", tsonic: null,
-      initializer: { ...header(2, 1), kind: "VariableDeclarationList", tsonic: { role: "ordinary" }, declarations: { loc: { pos: 3, end: 6 }, nodes: [
-        { ...header(3, 2), kind: "VariableDeclaration", exclamationToken: null, type: null,
-          name: { ...header(4, 3), kind: "Identifier", text: "counter", tsonic: { role: "declaration-name", declaration: { kind: "local", local: { body, local: 0 } }, storage: 0 } },
-          initializer: literal(5, 3, 0), tsonic: { declaration: { kind: "local", local: { body, local: 0 } }, storage: 0, initializer: null } },
-      ] } }, condition: { ...header(6, 1), kind: "BinaryExpression", modifiers: null, type: null, left: name(7, 6),
-        operatorToken: { ...header(8, 6), kind: "LessThanToken", tsonic: null }, right: literal(9, 6, 10),
+    supplied.tir.root.statements.nodes = Array.from({ length: count }, (_, local) => {
+      const offset = local * 13;
+      return { ...header(offset + 1), kind: "ForStatement", tsonic: null,
+      initializer: { ...header(offset + 2, offset + 1), kind: "VariableDeclarationList", tsonic: { role: "ordinary" }, declarations: { loc: { pos: offset + 3, end: offset + 6 }, nodes: [
+        { ...header(offset + 3, offset + 2), kind: "VariableDeclaration", exclamationToken: null, type: null,
+          name: { ...header(offset + 4, offset + 3), kind: "Identifier", text: "counter", tsonic: { role: "declaration-name", declaration: { kind: "local", local: { body, local } }, storage: 0 } },
+          initializer: literal(offset + 5, offset + 3, 0), tsonic: { declaration: { kind: "local", local: { body, local } }, storage: 0, initializer: null } },
+      ] } }, condition: { ...header(offset + 6, offset + 1), kind: "BinaryExpression", modifiers: null, type: null, left: name(offset + 7, offset + 6, local),
+        operatorToken: { ...header(offset + 8, offset + 6), kind: "LessThanToken", tsonic: null }, right: literal(offset + 9, offset + 6, 10),
         tsonic: { ...typedValue(3), role: "comparison", operation: operation("<", 3) } },
-      incrementor: { ...header(10, 1), kind: "PostfixUnaryExpression", operator: "PlusPlusToken", operand: name(11, 10), tsonic: { ...typedValue(), storage: 0, operation: operation("++", 0) } },
-      statement: { ...header(12, 1), kind: "Block", statements: { loc: { pos: 13, end: 14 }, nodes: [{ ...header(13, 12), kind: "EmptyStatement", tsonic: null }] }, tsonic: null },
-    }];
-    supplied.tir.locals = [{ id: 0, declaration: { kind: "body", value: nodeRef(3) }, name: "counter", role: "binding", capturedFrom: null, mutable: true, storage: 0 }];
-    input.refinements.integers = [5, 6, 7, 9, 10, 11].map(node => ({ node, range: null, nonnegative: false }));
-    input.refinements.countedLoops = [{ statement: 1, counterDeclaration: 3, start: 5, bound: 9, body: 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 }];
+      incrementor: { ...header(offset + 10, offset + 1), kind: "PostfixUnaryExpression", operator: "PlusPlusToken", operand: name(offset + 11, offset + 10, local), tsonic: { ...typedValue(), storage: 0, operation: operation("++", 0) } },
+      statement: { ...header(offset + 12, offset + 1), kind: "Block", statements: { loc: { pos: offset + 13, end: offset + 14 }, nodes: [{ ...header(offset + 13, offset + 12), kind: "EmptyStatement", tsonic: null }] }, tsonic: null },
+    };
+    });
+    supplied.tir.locals = Array.from({ length: count }, (_, id) => ({ id, declaration: { kind: "body", value: nodeRef(id * 13 + 3) }, name: "counter", role: "binding", capturedFrom: null, mutable: true, storage: 0 }));
+    for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" },
+      source: { body, local: local.id }, origin: sourceOrigin(local.declaration.value.node) });
+    supplied.context.localExists = selected => selected.body === body
+      ? supplied.tir.locals.some(local => Object.is(local.id, selected.local)) : selected.body === otherBody && selected.local === 0;
+    input.refinements.integers = Array.from({ length: count }, (_, local) => [5, 6, 7, 9, 10, 11].map(node =>
+      ({ node: local * 13 + node, range: null, nonnegative: false }))).flat();
+    input.refinements.countedLoops = Array.from({ length: count }, (_, local) => ({ statement: local * 13 + 1, counterDeclaration: local * 13 + 3,
+      start: local * 13 + 5, bound: local * 13 + 9, body: local * 13 + 12, direction: "ascending", comparison: "exclusive-upper-bound", step: 1 }));
   };
   const loopMessage = "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment.";
   await factOpposite("counted-loops-order", countedLoop, input => { input.refinements.countedLoops.push(clone(input.refinements.countedLoops[0])); },
     [violation("counted-loops-order", nodeSite(1), orderMessage)]);
+  await factOpposite("counted-loops-order follows actual statement identities in two genuine loops", (input, supplied) => countedLoop(input, supplied, 2),
+    input => { input.refinements.countedLoops.reverse(); }, [violation("counted-loops-order", nodeSite(1), orderMessage)]);
+  await factOpposite("counted-loops-order reports the actual later duplicated statement", (input, supplied) => countedLoop(input, supplied, 2),
+    input => { input.refinements.countedLoops.push(clone(input.refinements.countedLoops[1])); },
+    [violation("counted-loops-order", nodeSite(14), orderMessage)]);
   for (const endpoint of ["statement", "counterDeclaration", "start", "bound", "body"]) await factOpposite(`counted-loop-endpoints-resolve ${endpoint}`, countedLoop,
     input => { input.refinements.countedLoops[0][endpoint] = 99; }, [
       violation("counted-loop-endpoints-resolve", nodeSite(endpoint === "statement" ? 99 : 1), "All five counted-loop endpoints retain actual occurrences in this body."),
