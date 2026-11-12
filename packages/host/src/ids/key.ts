@@ -1,4 +1,4 @@
-import type { KeyData } from "./contract.js";
+import type { KeyData, KeyRecord } from "./contract.js";
 
 interface KeyPath {
   readonly parent: KeyPath | null;
@@ -18,16 +18,8 @@ function keyError(path: KeyPath | null, reason: string): TypeError {
   return new TypeError(`ids: ${reason} at $root${components.reverse().join("")}`);
 }
 
-function dataField(value: object, name: string, path: KeyPath): unknown {
-  const descriptor = Object.getOwnPropertyDescriptor(value, name);
-  if (descriptor === undefined || !("value" in descriptor)) {
-    throw keyError(path, "a key field must be an own data property");
-  }
-  if (descriptor.enumerable !== true) {
-    throw keyError(path, "a key field must be enumerable");
-  }
-  return descriptor.value;
-}
+const isRecord = (value: object): value is KeyRecord => "kind" in value && value.kind === "record"
+  && "fields" in value && Array.isArray(value.fields);
 
 export function encodeCanonicalNumber(value: number): string {
   return `F${Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value)}:`;
@@ -55,36 +47,32 @@ export function encodeCanonicalKey(key: KeyData): string {
       output.push(`S${value.length}:${value}`);
     } else if (typeof value === "object") {
       if (active.has(value)) throw keyError(task.path, "cyclic key data");
-      if (Object.getOwnPropertySymbols(value).length !== 0) {
-        throw keyError(task.path, "key data cannot contain symbol fields");
-      }
       active.add(value);
       tasks.push({ kind: "leave", value });
       if (Array.isArray(value)) {
-        if (Object.getPrototypeOf(value) !== Array.prototype) {
-          throw keyError(task.path, "a key array must be plain data");
-        }
-        if (Object.getOwnPropertyNames(value).length !== value.length + 1) {
-          throw keyError(task.path, "a key array must be dense with no extra fields");
-        }
         output.push(`A${value.length}:`);
         for (let index = value.length - 1; index >= 0; index -= 1) {
           const path: KeyPath = { parent: task.path, component: index };
-          tasks.push({ kind: "value", value: dataField(value, String(index), path), path });
+          tasks.push({ kind: "value", value: value[index], path });
         }
-      } else {
-        const prototype: unknown = Object.getPrototypeOf(value);
-        if (prototype !== Object.prototype && prototype !== null) {
-          throw keyError(task.path, "a key record must be plain data");
+      } else if (isRecord(value)) {
+        const fields: (readonly [string, KeyData])[] = [];
+        const names = new Set<string>();
+        for (const field of value.fields) {
+          if (!Array.isArray(field) || field.length !== 2 || typeof field[0] !== "string")
+            throw keyError(task.path, "a key record requires complete named fields");
+          if (names.has(field[0])) throw keyError(task.path, "a key record requires unique field names");
+          names.add(field[0]);
+          fields.push(field);
         }
-        const names = Object.getOwnPropertyNames(value).sort();
-        output.push(`O${names.length}:`);
-        for (const name of names.reverse()) {
+        fields.sort(([left], [right]) => left < right ? -1 : 1);
+        output.push(`O${fields.length}:`);
+        for (const [name, child] of fields.reverse()) {
           const path: KeyPath = { parent: task.path, component: name };
-          tasks.push({ kind: "value", value: dataField(value, name, path), path });
+          tasks.push({ kind: "value", value: child, path });
           tasks.push({ kind: "value", value: name, path });
         }
-      }
+      } else throw keyError(task.path, "unsupported key data");
     } else {
       throw keyError(task.path, "unsupported key data");
     }

@@ -25,7 +25,8 @@ export function publicDeclarations(source, files, catalogue) {
     if (file === undefined) continue;
     const path = source.ast.getFileName(file).slice("/host-gate/".length);
     const module = sourceOwner(catalogue, path);
-    if (!files.has(path) || module === undefined || !["component", "library"].includes(module.kind) || path !== module.entry) continue;
+    if (!files.has(path) || module === undefined || !["component", "library"].includes(module.kind) ||
+      ![module.entry, module.entry.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
     const queries = source.getSourceFileQueries(file).checker;
     const identity = sourceSymbol(source, file);
     if (identity === undefined) continue;
@@ -111,7 +112,7 @@ export function readImportGraph(source, files) {
       const range = ast.authoredRange(node);
       if (range.kind !== "authored") throw new Error("Import edges require original authored source sites.");
       const before = files.get(path).slice(0, range.start).split("\n");
-      edges.push(Object.freeze({ source: path, specifier, kind,
+      edges.push(({ source: path, specifier, kind,
         target: specifier !== null && specifier.startsWith(".") ? resolveImport(path, specifier, files) : null,
         line: before.length, column: before[before.length - 1].length + 1, start: range.start }));
     };
@@ -132,7 +133,7 @@ export function readImportGraph(source, files) {
     };
     visit(file);
   }
-  return Object.freeze(edges.sort((left, right) => left.source.localeCompare(right.source) || left.start - right.start));
+  return (edges.sort((left, right) => left.source.localeCompare(right.source) || left.start - right.start));
 }
 
 function unwrapExpression(ast, original) {

@@ -313,8 +313,8 @@ const bindingKeys = (bindings: readonly TypeBinding[]): readonly string[] | null
     const binding = bindings[position];
     if (binding === undefined) return null;
     keys.push(binding.kind === "rigid"
-      ? encodeKey({ kind: binding.kind, owner: binding.parameter.owner, index: binding.parameter.index })
-      : encodeKey({ kind: binding.kind, owner: binding.parameter.owner, index: binding.parameter.index, type: binding.type }));
+      ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index]] })
+      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index], ["type", binding.type]] }));
   }
   return keys;
 };
@@ -328,16 +328,16 @@ export const bindingVectorKey = (vector: BindingVector): string | null => {
   for (let position = 0; position < vector.selfBindings.length; position++) {
     const binding = vector.selfBindings[position];
     if (binding === undefined) return null;
-    self.push(binding.kind === "rigid" ? encodeKey({ kind: binding.kind, owner: binding.owner })
-      : encodeKey({ kind: binding.kind, owner: binding.owner, type: binding.type }));
+    self.push(binding.kind === "rigid" ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner]] })
+      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner], ["type", binding.type]] }));
   }
-  return encodeKey({ classBindings: classes, methodBindings: methods, capturedBindings: captured, selfBindings: self });
+  return encodeKey({ kind: "record", fields: [["classBindings", classes], ["methodBindings", methods], ["capturedBindings", captured], ["selfBindings", self]] });
 };
 
 export const instanceKey = (instance: BodyInstance): string | null => {
-  if (instance.bindings.kind === "parametric") return encodeKey({ body: instance.body, kind: instance.bindings.kind });
+  if (instance.bindings.kind === "parametric") return encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind]] });
   const bindings = bindingVectorKey(instance.bindings.bindings);
-  return bindings === null ? null : encodeKey({ body: instance.body, kind: instance.bindings.kind, bindings });
+  return bindings === null ? null : encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind], ["bindings", bindings]] });
 };
 
 export const verifyPublishedInstance = (

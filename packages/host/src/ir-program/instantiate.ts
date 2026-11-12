@@ -189,7 +189,7 @@ function expansionStop<Value>(result: TypeTransform<Value> & { readonly kind: "r
   }
 }
 
-const missingSubstitutionImage = Object.freeze<InvariantFailure>({
+const missingSubstitutionImage: InvariantFailure = ({
   owner: "ir-program", query: null, origin: null,
   message: "Artifact type/signature reference was not inventoried",
 });

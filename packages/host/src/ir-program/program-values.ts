@@ -153,7 +153,7 @@ export function inventorySignature(scan: ProjectionInventory, value: SigId): Ins
 export function inventoryEach<Value>(
   scan: ProjectionInventory, values: readonly Value[], visit: (value: Value) => InstantiationStop | null,
 ): void {
-  const iterator = values[Symbol.iterator]();
+  const iterator = values.values();
   const next = (): InstantiationStop | null => {
     const entry = iterator.next();
     if (entry.done) return null;

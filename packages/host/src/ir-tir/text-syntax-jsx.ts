@@ -42,7 +42,7 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JsxElement", literalReader<(JsxElement<TypedPhase>)["kind"]>("'JsxElement", ["JsxElement"]))
     .field("openingElement", "$JsxOpeningElement", value => syntaxReference("$JsxOpeningElement", value.openingElement), syntaxReads.JsxOpeningElement)
-    .field("children", "L<JsxChild>", value => work_L_JsxChild_(value.children), lazyReader(() => work_L_JsxChild_.reader))
+    .field("children", "L<JsxChild>", value => work_L_JsxChild_.write(value.children), lazyReader(() => work_L_JsxChild_.reader))
     .field("closingElement", "$JsxClosingElement", value => syntaxReference("$JsxClosingElement", value.closingElement), syntaxReads.JsxClosingElement)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_openingElement, field_children, field_closingElement, field_tsonic) => ({
@@ -52,7 +52,7 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
   const work_JsxAttributes: (value: JsxAttributes<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<JsxAttributes<TypedPhase>>("JsxAttributes", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JsxAttributes", literalReader<(JsxAttributes<TypedPhase>)["kind"]>("'JsxAttributes", ["JsxAttributes"]))
-    .field("properties", "L<JsxAttributeLike>", value => work_L_JsxAttributeLike_(value.properties), lazyReader(() => work_L_JsxAttributeLike_.reader))
+    .field("properties", "L<JsxAttributeLike>", value => work_L_JsxAttributeLike_.write(value.properties), lazyReader(() => work_L_JsxAttributeLike_.reader))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_properties, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, properties: field_properties, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind) })));
   const work_JsxNamespacedName: (value: JsxNamespacedName<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<JsxNamespacedName<TypedPhase>>("JsxNamespacedName", null, value => value.kind, value => value, null, fields => fields
@@ -69,7 +69,7 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JsxOpeningElement", literalReader<(JsxOpeningElement<TypedPhase>)["kind"]>("'JsxOpeningElement", ["JsxOpeningElement"]))
     .field("tagName", "$JsxTagNameExpression", value => syntaxReference("$JsxTagNameExpression", value.tagName), syntaxReads.JsxTagNameExpression)
-    .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
+    .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
     .field("attributes", "$JsxAttributes", value => syntaxReference("$JsxAttributes", value.attributes), syntaxReads.JsxAttributes)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_typeArguments, field_attributes, field_tsonic) => ({
@@ -80,7 +80,7 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JsxSelfClosingElement", literalReader<(JsxSelfClosingElement<TypedPhase>)["kind"]>("'JsxSelfClosingElement", ["JsxSelfClosingElement"]))
     .field("tagName", "$JsxTagNameExpression", value => syntaxReference("$JsxTagNameExpression", value.tagName), syntaxReads.JsxTagNameExpression)
-    .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
+    .field("typeArguments", "?L<TypeNode>", value => nullableWork(value.typeArguments, actual => read.work_L_TypeNode_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeNode_.reader)))
     .field("attributes", "$JsxAttributes", value => syntaxReference("$JsxAttributes", value.attributes), syntaxReads.JsxAttributes)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_typeArguments, field_attributes, field_tsonic) => ({
@@ -91,7 +91,7 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JsxFragment", literalReader<(JsxFragment<TypedPhase>)["kind"]>("'JsxFragment", ["JsxFragment"]))
     .field("openingFragment", "$JsxOpeningFragment", value => syntaxReference("$JsxOpeningFragment", value.openingFragment), syntaxReads.JsxOpeningFragment)
-    .field("children", "L<JsxChild>", value => work_L_JsxChild_(value.children), lazyReader(() => work_L_JsxChild_.reader))
+    .field("children", "L<JsxChild>", value => work_L_JsxChild_.write(value.children), lazyReader(() => work_L_JsxChild_.reader))
     .field("closingFragment", "$JsxClosingFragment", value => syntaxReference("$JsxClosingFragment", value.closingFragment), syntaxReads.JsxClosingFragment)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_openingFragment, field_children, field_closingFragment, field_tsonic) => ({
@@ -153,11 +153,11 @@ export const createSyntaxJsxText = (kernel: TirTextKernel, read: SyntaxJsxTextRe
       value: make(kind),
     })));
   const work_L_JsxChild_: TirRecordCodec<NodeList<JsxChild<TypedPhase>>> = defineRecord<NodeList<JsxChild<TypedPhase>>>("L<JsxChild>", "NodeList", null, "NodeList", null, null, fields => fields
-    .field("loc", "TextRange", value => read.work_TextRange(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
     .field("nodes", "[$JsxChild]", value => sequenceWork("[$JsxChild]", value.nodes, actual => syntaxReference("$JsxChild", actual)), sequenceReader("[$JsxChild]", syntaxReads.JsxChild))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   const work_L_JsxAttributeLike_: TirRecordCodec<NodeList<JsxAttributeLike<TypedPhase>>> = defineRecord<NodeList<JsxAttributeLike<TypedPhase>>>("L<JsxAttributeLike>", "NodeList", null, "NodeList", null, null, fields => fields
-    .field("loc", "TextRange", value => read.work_TextRange(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
     .field("nodes", "[$JsxAttributeLike]", value => sequenceWork("[$JsxAttributeLike]", value.nodes, actual => syntaxReference("$JsxAttributeLike", actual)), sequenceReader("[$JsxAttributeLike]", syntaxReads.JsxAttributeLike))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   return { work_JsxElement, work_JsxAttributes, work_JsxNamespacedName, work_JsxOpeningElement, work_JsxSelfClosingElement, work_JsxFragment, work_JsxOpeningFragment, work_JsxClosingFragment, work_JsxAttribute, work_JsxSpreadAttribute, work_JsxClosingElement, work_JsxExpression, work_JsxText, work_L_JsxChild_, work_L_JsxAttributeLike_ };

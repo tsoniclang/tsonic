@@ -67,7 +67,7 @@ export function verifyBindingVectors(
       }
     });
   }
-  return Object.freeze(results.flat());
+  return (results.flat());
 }
 
 export function validHirIndex(value: number): boolean {

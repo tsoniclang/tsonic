@@ -2,12 +2,12 @@ import { posix } from "node:path";
 import { compareCaseValues } from "./compare.mjs";
 import { writeCaseEvidence } from "./evidence.mjs";
 
-const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
-const formats = Object.freeze(["json", "ts", "hir", "tir", "mir", "facts", "program"]);
+const levels = (["function", "pass", "verifier", "pipeline", "corpus"]);
+const formats = (["json", "ts", "hir", "tir", "mir", "facts", "program"]);
 
 /** @type {import("./contracts.d.mts").RunCase} */
 export async function runCase(deps, descriptorPath) {
-  const failed = (code, detail) => Object.freeze({ status: "failed", path: descriptorPath, code, detail });
+  const failed = (code, detail) => ({ status: "failed", path: descriptorPath, code, detail });
   const canonical = path => typeof path === "string" && path.length > 0 && !path.includes("\\") && !path.includes("\0") &&
     !path.startsWith("/") && !path.split("/").some(part => ["", ".", ".."].includes(part));
   if (!canonical(descriptorPath) || !descriptorPath.startsWith("test/host-cases/") || !descriptorPath.endsWith(".case.json"))
@@ -52,14 +52,14 @@ export async function runCase(deps, descriptorPath) {
   let expectedValue;
   try { expectedValue = await deps.decode(expectedText, posix.extname(expected).slice(1)); }
   catch { return failed("expected", "The authored expected result is invalid."); }
-  const result = await adapter(Object.freeze({ module, name, rule, format: posix.extname(input).slice(1), text: inputText }));
+  const result = await adapter(({ module, name, rule, format: posix.extname(input).slice(1), text: inputText }));
   if (!validOutcome(result) || !validOutcome(expectedValue)) return failed("outcome", "A complete accepted or refused outcome and full diagnostics vector are required.");
   if (!compareCaseValues(result, expectedValue)) {
     const evidence = writeCaseEvidence(deps.evidenceDirectory, result, expectedValue);
     return failed("mismatch", "The complete outcome, value or ordered diagnostic vector differs. Actual: " +
       evidence.actual + "\nExpected: " + evidence.expected);
   }
-  return Object.freeze({ status: "passed", path: descriptorPath, outcome: result });
+  return ({ status: "passed", path: descriptorPath, outcome: result });
 }
 
 function validOutcome(value) {

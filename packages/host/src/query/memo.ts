@@ -47,18 +47,18 @@ export function queryMemo<Inputs, Key extends KeyData, Value>(
 export function retainResult<Value>(result: Result<Value>): Result<Value> {
   switch (result.kind) {
     case "ok":
-      return Object.freeze({ kind: "ok", value: result.value, diagnostics: Object.freeze(result.diagnostics.slice()) });
+      return ({ kind: "ok", value: result.value, diagnostics: (result.diagnostics.slice()) });
     case "refused": {
       const diagnostics: [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0]];
       diagnostics.length = result.diagnostics.length;
       result.diagnostics.forEach((diagnostic, index) => { diagnostics[index] = diagnostic; });
-      return Object.freeze({ kind: "refused", diagnostics: Object.freeze(diagnostics) });
+      return ({ kind: "refused", diagnostics: (diagnostics) });
     }
   }
 }
 
 export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): readonly QueryStat[] {
-  return Object.freeze([...memo].map(([name, { counter }]) => Object.freeze({
+  return ([...memo].map(([name, { counter }]) => ({
     name,
     computed: counter.computed,
     hits: counter.hits,
@@ -66,9 +66,9 @@ export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): re
 }
 
 export function snapshotDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
-  return Object.freeze(orderDiagnostics(diagnostics).slice());
+  return (orderDiagnostics(diagnostics).slice());
 }
 
 export function snapshotChain(active: readonly ActiveKey[], attempted: ActiveKey): readonly ActiveKey[] {
-  return Object.freeze([...active, attempted]);
+  return ([...active, attempted]);
 }

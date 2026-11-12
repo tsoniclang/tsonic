@@ -37,7 +37,8 @@ export function checkBoundLibraries(libraries: BoundLibraries,
     if (supplied.has(key) || role === undefined || role.role !== binding.role) {
       output.push(violation("role-binding-exact", { kind: "export", identity: binding.identity }));
     }
-    if (role !== undefined && index.exports.get(key) != null &&
+    const declared = index.exports.get(key);
+    if (role !== undefined && declared !== undefined && declared !== null &&
       context.definitionOfExport(binding.identity) !== binding.definition) {
       output.push(violation("role-binding-exact", { kind: "export", identity: binding.identity }));
     }
@@ -61,7 +62,7 @@ export function checkLibraries(libraries: Libraries, context: LibraryVerificatio
     }
     previous = declared.identity;
     const entry = index.exports.get(exportKey(declared.identity));
-    if (entry == null || entry.signature === null) {
+    if (entry === undefined || entry === null || entry.signature === null) {
       output.push(violation("declared-summary-identity-resolves", { kind: "export", identity: declared.identity }));
       continue;
     }

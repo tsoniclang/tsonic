@@ -6,13 +6,13 @@ import { dominate } from "./dominators.js";
 import type { DataflowStop, GraphNode, Meter } from "./graph.js";
 import { buildGraph, createMeter, takeEntries, takeWork } from "./graph.js";
 
-const missingLoopDominatorParent = Object.freeze<InvariantFailure>({
+const missingLoopDominatorParent: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "loop dominator parent is missing",
 });
-const missingLoopDominatorRow = Object.freeze<InvariantFailure>({
+const missingLoopDominatorRow: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "loop dominator row is missing",
 });
-const missingLoopTargetInterval = Object.freeze<InvariantFailure>({
+const missingLoopTargetInterval: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "loop target interval is missing",
 });
 
@@ -115,8 +115,8 @@ function addMembers<Vertex>(
   return null;
 }
 
-export function loopsOfGraph<Vertex>(
-  input: DirectedGraph<Vertex>,
+export function loopsOfGraph(
+  input: DirectedGraph,
   entry: number,
   limits: DataflowLimits,
 ): DataflowResult<readonly NaturalLoop[]> {

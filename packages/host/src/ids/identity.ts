@@ -19,7 +19,7 @@ interface InvalidIdentity {
 type Read<Value> = { readonly kind: "value"; readonly value: Value } | InvalidIdentity;
 
 function invalid(cursor: Cursor, reason: InvalidIdentity["reason"], offset = cursor.offset): InvalidIdentity {
-  return Object.freeze({ kind: "invalid", text: cursor.text, offset, reason });
+  return ({ kind: "invalid", text: cursor.text, offset, reason });
 }
 
 function value<Value>(input: Value): Read<Value> {
@@ -125,7 +125,7 @@ function modulePart(cursor: Cursor): Read<ModulePath> {
   const path = escaped(cursor, "]");
   if (path.kind === "invalid") return path;
   cursor.offset += 1;
-  return value(Object.freeze({ package: encodePackageId(root.value), path: path.value }));
+  return value(({ package: encodePackageId(root.value), path: path.value }));
 }
 
 function definitionPart(cursor: Cursor): Read<DefinitionPath> {
@@ -137,7 +137,7 @@ function definitionPart(cursor: Cursor): Read<DefinitionPath> {
   const moduleText = cursor.text.slice(moduleStart, cursor.offset);
   if (cursor.text.charAt(cursor.offset) === "]") {
     cursor.offset += 1;
-    return value(Object.freeze({ module: moduleIdentity(moduleText), segments: Object.freeze([]) }));
+    return value(({ module: moduleIdentity(moduleText), segments: ([]) }));
   }
   const separator = take(cursor, ";");
   if (separator !== null) return separator;
@@ -152,12 +152,12 @@ function definitionPart(cursor: Cursor): Read<DefinitionPath> {
       if (parsed.kind === "invalid") return parsed;
       ordinal = parsed.value;
     }
-    segments.push(Object.freeze({ name: name.value, ordinal }));
+    segments.push(({ name: name.value, ordinal }));
     if (cursor.text.charAt(cursor.offset) !== "/") break;
     cursor.offset += 1;
   }
   cursor.offset += 1;
-  return value(Object.freeze({ module: moduleIdentity(moduleText), segments: Object.freeze(segments) }));
+  return value(({ module: moduleIdentity(moduleText), segments: (segments) }));
 }
 
 function bodyRole(role: string): role is BodyRole {
@@ -183,7 +183,7 @@ function bodyPart(cursor: Cursor): Read<BodyPath> {
   const ordinal = readOrdinal(cursor, "]", false);
   if (ordinal.kind === "invalid") return ordinal;
   cursor.offset += 1;
-  return value(Object.freeze({ owner: definitionIdentity(definitionText), role, ordinal: ordinal.value }));
+  return value(({ owner: definitionIdentity(definitionText), role, ordinal: ordinal.value }));
 }
 
 function groupPart(cursor: Cursor): Read<BodyId> {
@@ -218,7 +218,7 @@ function componentPart(cursor: Cursor): Read<readonly [DefId, ...DefId[]]> {
   }
   const closing = take(cursor, "]");
   if (closing !== null) return closing;
-  return value(Object.freeze(members));
+  return value((members));
 }
 
 function decode<Value>(text: string, read: (cursor: Cursor) => Read<Value>): DecodedIdentity<Value> {
@@ -226,7 +226,7 @@ function decode<Value>(text: string, read: (cursor: Cursor) => Read<Value>): Dec
   const parsed = read(cursor);
   if (parsed.kind === "invalid") return parsed;
   if (cursor.offset !== text.length) return invalid(cursor, "syntax");
-  return Object.freeze({ kind: "decoded", value: parsed.value });
+  return ({ kind: "decoded", value: parsed.value });
 }
 
 function validModule(text: string): text is ModuleId { return decode(text, modulePart).kind === "decoded"; }

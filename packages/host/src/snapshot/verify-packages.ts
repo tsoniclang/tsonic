@@ -35,11 +35,11 @@ export interface PackageVerification {
   readonly filePaths: ReadonlySet<string>;
 }
 
-export function snapshotRows<Value>(values: readonly Value[], site: SnapshotSite,
+export function snapshotRows<Value extends {}>(values: readonly Value[], site: SnapshotSite,
   field: string, violations: SnapshotViolation[]): readonly Value[] {
   const present: Value[] = [];
   for (const [index, value] of values.entries()) {
-    if (Object.hasOwn(values, index)) present.push(value);
+    if (value !== undefined && value !== null) present.push(value);
     else violations.push({ rule: "stable-order", site,
       detail: [{ kind: "text", value: field }, { kind: "number", value: index }] });
   }

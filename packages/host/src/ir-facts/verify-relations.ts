@@ -388,7 +388,7 @@ export const verifyFactBindings = (
       }
     }
   }
-  return Object.freeze(violations);
+  return (violations);
 };
 
 export const verifyRelationalArena = (
@@ -398,8 +398,8 @@ export const verifyRelationalArena = (
 ): readonly Violation<FactsRule, FactsSite>[] => {
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const report = (rule: FactsRule, site: FactsSite, text: string): void => {
-    const detail: MessageArgument = Object.freeze({ kind: "text", value: text });
-    violations.push(Object.freeze({ rule, site, detail: Object.freeze([detail]) }));
+    const detail: MessageArgument = ({ kind: "text", value: text });
+    violations.push(({ rule, site, detail: ([detail]) }));
   };
   const checkSite = (at: RelationalSite): void => {
     const site = relationalSite(owner, at);
@@ -576,5 +576,5 @@ export const verifyRelationalArena = (
       report("context-resolves", site, "A boundary retains its actual value context in the same arena.");
     }
   }
-  return Object.freeze(violations);
+  return (violations);
 };

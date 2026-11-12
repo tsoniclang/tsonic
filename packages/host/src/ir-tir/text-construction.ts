@@ -148,7 +148,7 @@ export const literalReader = <Value extends string | number>(type: string, value
     return value === undefined ? null : { value };
   }, values) });
 
-export const nullReader: TirReader<null> = Object.freeze<TirReader<null>>({ literalSets: Object.freeze([]), requests: accept => [{ kind: "scalar", type: "null", read: input => {
+export const nullReader: TirReader<null> = ({ literalSets: ([]), requests: accept => [{ kind: "scalar", type: "null", read: input => {
   if (input !== null) return false;
   accept(constructionValue(null));
   return true;

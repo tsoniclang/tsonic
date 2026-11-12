@@ -1,4 +1,4 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
+import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -20,7 +20,7 @@ interface Boundary {
   stop: Stop | null;
 }
 
-const completionFailure = Object.freeze({ owner: "query", query: null, origin: null,
+const completionFailure: InvariantFailure = ({ owner: "query", query: null, origin: null,
   message: "A completed query must publish its actual result." });
 
 export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits): Database<Inputs> {
@@ -63,7 +63,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
       deliver(cached);
       return;
     }
-    const attempted: ActiveKey = Object.freeze({ query: query.name, encodedKey });
+    const attempted: ActiveKey = ({ query: query.name, encodedKey });
     const keys = activeKeys.get(query.name);
     if (keys !== undefined && keys.has(encodedKey)) {
       const chain = snapshotChain(active, attempted);
@@ -77,7 +77,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
       return;
     }
     if (active.length >= maximumDepth) {
-      boundary.stop = Object.freeze({ kind: "depth-exceeded", chain: snapshotChain(active, attempted) });
+      boundary.stop = ({ kind: "depth-exceeded", chain: snapshotChain(active, attempted) });
       return;
     }
     const entered = keys ?? new Set<string>();
@@ -119,11 +119,11 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     frames.push(frame);
   }
 
-  const context: QueryContext<Inputs> = Object.freeze({
+  const context: QueryContext<Inputs> = ({
     inputs,
     get: <Key extends KeyData, Dependency, Value>(query: Query<Inputs, Key, Dependency>, key: Key,
       resume: (value: Dependency) => QueryComputation<Inputs, Value>): QueryDependency<Inputs, Value> =>
-      Object.freeze({ kind: "dependency", schedule: (scheduler: QueryScheduler<Inputs, Value>) => { scheduler.request(query, key, resume); } }),
+      ({ kind: "dependency", schedule: (scheduler: QueryScheduler<Inputs, Value>) => { scheduler.request(query, key, resume); } }),
     diagnostics: () => snapshotDiagnostics(diagnostics),
     stats: () => snapshotStatistics(memo),
   });
@@ -135,7 +135,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     const result: { value: RunResult<Value> | undefined } = { value: undefined };
     try {
       enter(query, key, (value, diagnostics) => {
-        result.value = Object.freeze({ kind: "completed", value, diagnostics });
+        result.value = ({ kind: "completed", value, diagnostics });
       }, boundary);
       for (let frame = frames.at(-1); frame !== undefined && boundary.stop === null; frame = frames.at(-1)) frame.advance();
       if (boundary.stop !== null) return boundary.stop;
@@ -146,5 +146,5 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     }
   }
 
-  return Object.freeze({ inputs, run, diagnostics: context.diagnostics, stats: context.stats });
+  return ({ inputs, run, diagnostics: context.diagnostics, stats: context.stats });
 }

@@ -63,7 +63,6 @@ test("actual nonempty V8 ranges and original source identity earn per-file 100 w
     assert.equal(report.files[0].functions, 100);
     assert.equal(report.files[0].sourceHash, createHash("sha256").update(branchSource).digest("hex"));
     assert.equal(report.rawV8[0] === raw, true, "original V8 evidence retained by identity");
-    assert.equal(Object.isFrozen(report), true);
   });
 });
 

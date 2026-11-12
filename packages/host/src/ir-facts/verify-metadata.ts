@@ -37,15 +37,15 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   const violations: Violation<MetadataRule, FactsSite>[] = [];
   const site: FactsSite = { kind: "metadata", metadata: metadata.key };
   const report = (rule: MetadataRule, text: string): void => {
-    const detail: MessageArgument = Object.freeze({ kind: "text", value: text });
-    violations.push(Object.freeze({ rule, site, detail: Object.freeze([detail]) }));
+    const detail: MessageArgument = ({ kind: "text", value: text });
+    violations.push(({ rule, site, detail: ([detail]) }));
   };
   const memberViolations: Violation<FactsRule, FactsSite>[] = [];
   const finish = (): readonly Violation<MetadataRule, FactsSite>[] => {
     for (const violation of verifyFactBindings(metadataBindingInputs(metadata, context), { kind: "metadata", metadata: metadata.key }, site, context)) memberViolations.push(violation);
     for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
       : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
-    return Object.freeze(violations);
+    return (violations);
   };
   if (!context.definitionExists(metadata.key.definition)) {
     report("definition-resolves", "The metadata declaration must exist in the supplied definition inventory.");

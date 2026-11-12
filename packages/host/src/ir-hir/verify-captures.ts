@@ -18,44 +18,44 @@ function variants(name: string, field: string, arms: readonly (readonly [string 
 }
 
 export function createHirSchema(): HirSchema {
-  const range: readonly HirField[] = Object.freeze([["pos", "number"], ["end", "number"]]);
+  const range: readonly HirField[] = ([["pos", "number"], ["end", "number"]]);
   const parameterIdentity: HirShape = "TypeParameterIdentity";
   const origin: HirShape = "Origin";
   const sourceReference: HirShape = "SourceNodeRef";
-  const core: readonly HirField[] = Object.freeze([["core", "HirCoreCapture"]]);
-  const checkedValue: readonly HirField[] = Object.freeze([
+  const core: readonly HirField[] = ([["core", "HirCoreCapture"]]);
+  const checkedValue: readonly HirField[] = ([
     ["views", "HirCheckerViews"], ["place", captured(hirNullable("HirStoragePlace"))],
     ["memory", captured(hirNullable(hirChoice("HirMemoryLayoutCapture", "HirMemoryFieldCapture")))],
     ["observation", captured(hirNullable("HirObservationCapture"))],
   ]);
-  const declarationFacts: readonly HirField[] = Object.freeze([
+  const declarationFacts: readonly HirField[] = ([
     ...core, ["parent", hirNullable("DefId")], ["attributes", hirArray("HirAttribute")],
     ["memory", captured(hirNullable(hirChoice("HirMemoryLayoutCapture", "HirMemoryFieldCapture")))],
   ]);
-  const declaration: readonly HirField[] = Object.freeze([...declarationFacts, ["definition", "DefId"]]);
-  const classMetadata: readonly HirField[] = Object.freeze([
+  const declaration: readonly HirField[] = ([...declarationFacts, ["definition", "DefId"]]);
+  const classMetadata: readonly HirField[] = ([
     ...declaration, ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")],
   ]);
-  const pointerArguments: readonly HirField[] = Object.freeze([
+  const pointerArguments: readonly HirField[] = ([
     ["exportName", "string"], ["arguments", hirArray(sourceReference)], ["typeArguments", hirArray(sourceReference)],
     ["selection", hirLiteral("applicable", "conditional-candidates", "untyped", "unvisited")],
     ["pointee", hirLiteral("available", "unvisited", "not-applicable", "missing")],
   ]);
-  const layoutCommon: readonly HirField[] = Object.freeze([
+  const layoutCommon: readonly HirField[] = ([
     ["occurrence", sourceReference], ["bindings", captured("BindingVector")],
   ]);
   const syntaxRange: HirRecordShape = hirRecord("TextRange", range);
-  const commentKinds: readonly string[] = Object.freeze(["SingleLineCommentTrivia", "MultiLineCommentTrivia"]);
-  const commentFields: readonly HirField[] = Object.freeze([...range, ["hasTrailingNewLine", "boolean"]]);
+  const commentKinds: readonly string[] = (["SingleLineCommentTrivia", "MultiLineCommentTrivia"]);
+  const commentFields: readonly HirField[] = ([...range, ["hasTrailingNewLine", "boolean"]]);
 
-  return Object.freeze({
+  return ({
     ...createSyntaxSchema(),
     ModuleId: hirStringIdentity("mod"),
     DefId: hirStringIdentity("def"), BodyId: hirStringIdentity("body"),
     ExpansionId: hirStringIdentity("exp"), NodeId: hirNumericIdentity("n"),
     LocalId: hirNumericIdentity("l"), TyId: hirNumericIdentity("t"),
     SigId: hirNumericIdentity("sig"), CandidateListId: hirNumericIdentity("cand"),
-    HostDiagnosticCode: Object.freeze({ kind: "host-code" }),
+    HostDiagnosticCode: ({ kind: "host-code" }),
     TextRange: syntaxRange,
     Origin: hirRecord("Origin", [["module", "ModuleId"], ["start", "number"], ["length", "number"],
       ["derived", hirArray(hirChoice(hirVariant("lowering", [["pass", hirLiteral("front", "decls", "infer", "elaborate",
@@ -119,7 +119,7 @@ export function createHirSchema(): HirSchema {
     CommentDirective: variants("CommentDirective", "kind", [["Unknown", []], ["ExpectError", []], ["Ignore", []]], [["loc", syntaxRange]]),
     CommentRange: variants("CommentRange", "kind", commentKinds.map(kind => [kind, [["hasTrailingNewLine", "boolean"]]]), range),
     PragmaArgument: hirRecord("PragmaArgument", [...range, ["name", "string"], ["value", "string"]]),
-    PragmaArguments: Object.freeze({ kind: "dictionary", label: "PragmaArguments", element: "PragmaArgument" }),
+    PragmaArguments: ({ kind: "dictionary", label: "PragmaArguments", element: "PragmaArgument" }),
     Pragma: variants("Pragma", "kind", commentKinds.map(kind => [kind, [...commentFields.slice(2), ["name", "string"], ["args", "PragmaArguments"]]]), range),
     CheckJsDirective: hirRecord("CheckJsDirective", [["enabled", "boolean"], ["range", "CommentRange"]]),
     HirCheckerViews: hirRecord("HirCheckerViews", [["read", captured("TyId")], ["declared", captured(hirNullable("TyId"))], ["contextual", captured(hirNullable("TyId"))]]),

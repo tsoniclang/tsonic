@@ -1,6 +1,6 @@
 import { hostDiagnosticCode, requirePresent } from "../diag/index.js";
 import { candidateListId, decodeBodyId, decodeDefId, decodeGroupId, decodeModuleId, encodeBodyId, encodeDefId, encodeGroupId, encodeModuleId, expansionId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import type { HostDiagnosticCode } from "../diag/contract.js";
+import type { HostDiagnosticCode, InvariantFailure } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ExpansionId, GroupId, ItemNodeRef, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, ExactRational, LiteralValue, MemberKey, MemberOrigin, SelfBinding, TypeBinding, TypeParameterIdentity } from "../ir-types/contract.js";
 
@@ -105,8 +105,8 @@ interface RecordBuild<Value> {
   readonly value: () => Value;
 }
 
-const constructionFailure = Object.freeze({ owner: "ir-infer", query: null, origin: null,
-  message: "The validated text construction must publish every declared field." }) satisfies import("../diag/contract.js").InvariantFailure;
+const constructionFailure: InvariantFailure = { owner: "ir-infer", query: null, origin: null,
+  message: "The validated text construction must publish every declared field." };
 
 export function recordSchema<Value extends object>(name: string, label: string,
   configure: (read: FieldReader<Value>) => RecordBuild<Value>,

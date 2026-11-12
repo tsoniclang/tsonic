@@ -1,5 +1,6 @@
 import type { SourceNodeRef, NodeRef, LocalRef, ItemNodeRef, LibraryModuleIdentity, Origin, Derivation } from "../ids/contract.js";
 import type { CheckJsDirective, CommentDirective, CommentRange, NodeHeader, NodeList, Pragma, PragmaArgument, PragmaArguments, SyntaxNode, TextRange } from "../ir-hir/contract.js";
+import { orderPragmaArguments } from "../ir-hir/index.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { Diagnostic, DiagnosticCode, DiagnosticSite, MessageArgument, RelatedDiagnostic, DiagnosticFix, TextEdit } from "../diag/contract.js";
 
@@ -233,26 +234,7 @@ export function textPragmaArgument(value: PragmaArgument): TextWork {
 }
 
 function pragmaFields(value: PragmaArguments): readonly TextField[] {
-  const result: TextField[] = [];
-  const work = [{ entries: Object.entries(value), position: 0, bit: 15 }];
-  let task = work.pop();
-  while (task !== undefined) {
-    const left: [string, PragmaArgument][] = [];
-    const right: [string, PragmaArgument][] = [];
-    for (const entry of task.entries) {
-      const [name, argument] = entry;
-      if (name.length === task.position) {
-        result.push(field(name, textPragmaArgument(argument)));
-      } else if ((name.charCodeAt(task.position) & (1 << task.bit)) === 0) left.push(entry);
-      else right.push(entry);
-    }
-    const position = task.bit === 0 ? task.position + 1 : task.position;
-    const bit = task.bit === 0 ? 15 : task.bit - 1;
-    if (right.length > 0) work.push({ entries: right, position, bit });
-    if (left.length > 0) work.push({ entries: left, position, bit });
-    task = work.pop();
-  }
-  return result;
+  return orderPragmaArguments(value).map(entry => field(entry.name, textPragmaArgument(entry.value)));
 }
 
 export function textPragma(value: Pragma): TextWork {
@@ -342,7 +324,6 @@ export function sequence<Value>(values: readonly Value[], project: (value: Value
   return {
     kind: "array", source: values, length: values.length,
     entry: position => {
-      if (!Object.hasOwn(values, position)) return null;
       const value = values[position];
       if (value === undefined) return null;
       return project(value);

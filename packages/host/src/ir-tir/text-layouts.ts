@@ -1,3 +1,5 @@
+import { orderPragmaArguments } from "../ir-hir/index.js";
+import type { PragmaArgument, PragmaArguments } from "../ir-hir/contract.js";
 import type { TirConstruction, TirConstructionCursor, TirFieldLayout, TirLiteralReader, TirReader, TirRecordConstruction, TirRecordLayout, TirScalarReaders, TirSyntaxFactory, TirSyntaxReader } from "./text-construction.js";
 import { appendConstruction, constructionValue, createScalarReaders, lazyReader, literalReader, mapConstruction, memoSyntaxConstruction, nullableReader, sequenceConstruction, sequenceReader, unionReader } from "./text-construction.js";
 import { createSyntaxReaders } from "./text-syntax-construction.js";
@@ -8,10 +10,6 @@ import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { DefId, LocalId, LocalRef, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 
 export type TirWireNode = TirNode;
-
-export interface TirRecord {
-  readonly [field: string]: unknown;
-}
 
 export type { TirFieldLayout, TirRecordLayout } from "./text-construction.js";
 
@@ -208,7 +206,10 @@ export const sequenceWork = <T>(type: string, value: readonly T[], read: (value:
     return actual === undefined ? null : read(actual);
   } });
 
-export type TirRecordCodec<Value> = ((value: Value) => TirTypedRecordWork) & { readonly reader: TirReader<Value> };
+export interface TirRecordCodec<Value> {
+  readonly write: (value: Value) => TirTypedRecordWork;
+  readonly reader: TirReader<Value>;
+}
 type TirSyntaxHeaderValues = readonly [TirNode["id"], TirNode["origin"], TirNode["parent"], TirNode["flags"], TirNode["loc"]];
 
 interface TirFieldChain<Value, Values extends readonly unknown[]> {
@@ -249,16 +250,16 @@ export interface TirTextKernel extends TirScalarReaders {
     wireLabel: string | ((value: Value) => string), syntax: (value: Value) => TirWireNode,
     association: ((value: Value) => TirRecordAssociation) | null,
     fields: (value: TirSyntaxFields<Value, readonly []>) => (value: Value) => TirTypedRecordWork) => (value: Value) => TirTypedRecordWork;
-  readonly dynamicRecord: <Value>(name: string, type: string, read: (value: Value) => TirTypedWork,
-    reader: TirReader<Value>) => TirRecordCodec<Readonly<Record<string, Value>>>;
+  readonly pragmaArguments: (read: (value: PragmaArgument) => TirTypedWork,
+    reader: TirReader<PragmaArgument>) => TirRecordCodec<PragmaArguments>;
 }
 
 export const unionRecord = <Value>(type: string, read: (value: Value) => TirTypedRecordWork,
   alternatives: () => readonly TirReader<Value>[]): TirRecordCodec<Value> =>
-  Object.assign(read, { reader: unionReader(type, alternatives) });
+  ({ write: read, reader: unionReader(type, alternatives) });
 
 export const lazyRecord = <Value>(read: () => TirRecordCodec<Value>): TirRecordCodec<Value> =>
-  Object.assign((value: Value) => read()(value), { reader: lazyReader(() => read().reader) });
+  ({ write: value => read().write(value), reader: lazyReader(() => read().reader) });
 
 const appendField = <Value, Values extends readonly unknown[], Field>(chain: TirFieldChain<Value, Values>,
   name: string, type: string, read: (value: Value) => TirTypedWork, reader: TirReader<Field>,
@@ -321,7 +322,7 @@ export const createTirTextKernel = (): TirTextKernel => {
         const reader: TirReader<Value> = { literalSets: [], requests: accept => [{ kind: "record", type: name,
           records: selected => layout.labels.has(selected) ? [startRecord({ ...chain, fields: [] },
             value => accept(mapConstruction(value, values => make(...values))))] : [] }] };
-        return Object.assign(project(label, layout, actualWireLabel, actualSyntax, actualAssociation, chain.fields), { reader });
+        return { write: project(label, layout, actualWireLabel, actualSyntax, actualAssociation, chain.fields), reader };
       },
     });
     return fields(build(initial(), wireLabel, syntaxOf, association));
@@ -342,12 +343,12 @@ export const createTirTextKernel = (): TirTextKernel => {
           ]));
           register(flags);
           const idField = appendField(chain, "id", "n", value => referenceWork("n", value.id), scalars.nodeReader);
-          const originField = appendField(idField, "origin", "Origin", value => origin(value.origin), origin.reader);
+          const originField = appendField(idField, "origin", "Origin", value => origin.write(value.origin), origin.reader);
           const parentField = appendField(originField, "parent", "?n", value => nullableWork(value.parent,
             actual => referenceWork("n", actual)), nullableReader(scalars.nodeReader));
           const flagsField = appendField(parentField, "flags", "[SyntaxFlag]", value => sequenceWork("[SyntaxFlag]", value.flags,
             actual => scalarWork("SyntaxFlag", actual)), flags);
-          const header = appendField(flagsField, "loc", "TextRange", value => loc(value.loc), loc.reader);
+          const header = appendField(flagsField, "loc", "TextRange", value => loc.write(value.loc), loc.reader);
           return build(header, actualWireLabel, actualSyntax, actualAssociation, kinds);
         },
         field: (fieldName, type, read, reader) => {
@@ -369,40 +370,32 @@ export const createTirTextKernel = (): TirTextKernel => {
       });
       return fields(build(initial(), wireLabel, syntaxOf, association, []));
     };
-  const dynamicRecord: TirTextKernel["dynamicRecord"] = (name, type, read, reader) => {
+  const pragmaArguments: TirTextKernel["pragmaArguments"] = (read, reader) => {
+    const name = "PragmaArguments";
+    const type = "PragmaArgument";
     register(reader);
     const fields = [{ name: "*", type }];
     const layout: TirRecordLayout = { label: name, fields, wireFields: fields, labels: new Set([name]), hasKind: false };
-    const dynamicReader: TirReader<Readonly<Record<string, Parameters<typeof read>[0]>>> = {
+    const entriesReader: TirReader<readonly { readonly name: string; readonly value: PragmaArgument }[]> = {
       literalSets: [], requests: accept => [{ kind: "record", type: name, records: selected => {
         if (selected !== name) return [];
-        const entries: { readonly name: string; readonly value: TirConstruction<Parameters<typeof read>[0]> }[] = [];
-        const publish = (): void => accept(mapConstruction(sequenceConstruction(entries.map(entry =>
-          mapConstruction(entry.value, value => ({ name: entry.name, value })))), entries => {
-          const output: Record<string, Parameters<typeof read>[0]> = {};
-          for (const entry of entries) Object.defineProperty(output, entry.name,
-            { value: entry.value, writable: true, enumerable: true, configurable: true });
-          return output;
-        }));
+        const entries: { readonly name: string; readonly value: TirConstruction<PragmaArgument> }[] = [];
+        const publish = (): void => accept(sequenceConstruction(entries.map(entry =>
+          mapConstruction(entry.value, value => ({ name: entry.name, value })))));
         const cursor: TirConstructionCursor = { kind: "field", field: { name: "*", type },
           requests: name => reader.requests(value => entries.push({ name, value })),
           close: publish };
         return [{ cursor: () => cursor }];
       } }] };
-    return Object.assign((value: Readonly<Record<string, Parameters<typeof read>[0]>>): TirTypedRecordWork => ({
+    return { write: (value: readonly { readonly name: string; readonly value: PragmaArgument }[]): TirTypedRecordWork => ({
       kind: "record", type: name, layout, label: name, value, syntax: null, association: null,
-      fields: () => Object.entries(value).sort(([left], [right]) => Number(left > right) - Number(left < right))
-        .map(([name, field]) => ({ name, work: read(field) })) }), { reader: dynamicReader });
+      fields: () => orderPragmaArguments(value)
+        .map(field => ({ name: field.name, work: read(field.value) })) }), reader: entriesReader };
   };
-  return { ...scalars, syntax, syntaxReads: createSyntaxReaders(), literals, numericLiterals, defineRecord, defineSyntaxRecord, dynamicRecord };
+  return { ...scalars, syntax, syntaxReads: createSyntaxReaders(), literals, numericLiterals, defineRecord, defineSyntaxRecord, pragmaArguments };
 };
 
 export const finishTirLayouts = (kernel: TirTextKernel, bodyWork: TirRecordCodec<TirBody>,
   nodeWork: (node: TirWireNode) => TirTypedRecordWork): TirLayouts =>
   ({ literals: kernel.literals, numericLiterals: kernel.numericLiterals, syntax: kernel.syntax,
-    bodyWork, bodyReader: bodyWork.reader, nodeWork });
-
-export const isTirRecord = (value: unknown): value is TirRecord =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-export const isTirSequence = (value: unknown): value is readonly unknown[] => Array.isArray(value);
+    bodyWork: bodyWork.write, bodyReader: bodyWork.reader, nodeWork });

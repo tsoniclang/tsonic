@@ -1,7 +1,7 @@
 import type { CheckedSourceProgram } from "../../../packages/tsts/dist/src/index.js";
 
 export type GateCode = "unknown-module" | "forbidden-import" | "source-cycle" | "impure-component" | "module-state" | "class"
-  | "unsafe-type-escape" | "removed-concept" | "contract-shape" | "loaded-source-escape" | "non-error-throw"
+  | "unsafe-type-escape" | "removed-concept" | "contract-shape" | "loaded-source-escape" | "non-error-throw" | "nonportable-runtime"
   | "coverage-empty" | "coverage-line" | "coverage-branch" | "coverage-function";
 
 export interface GateFinding {

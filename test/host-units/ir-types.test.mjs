@@ -16,9 +16,9 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "interner", "canonical", "normalize", "substitute", "print", "parse", "verify"];
+const productNames = ["index", "work", "value", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
-const sourceFiles = [...productNames, "contract"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
+const sourceFiles = [...productNames, "contract", "data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
@@ -169,10 +169,6 @@ test("seed retains empty independent arenas and admits normal subsequent inserti
   const interner = seedTypeInterner(table);
   const separate = seedTypeInterner(table);
   assert.notEqual(interner, separate);
-  assert.equal(Object.isFrozen(interner), true);
-  assert.equal(Object.isFrozen(table), false);
-  assert.equal(Object.isFrozen(table.terms), false);
-  assert.equal(Object.isFrozen(table.signatures), false);
   assert.deepEqual(completePublication(exportTypes(interner, publicationLimits)),
     { table: { terms: [], signatures: [] }, types: [], signatures: [] });
   assert.equal(internType(interner, primitive), 0);
@@ -240,10 +236,6 @@ test("seed copies shared inline values by value without freezing or retaining mu
   table.signatures.reverse();
   assert.deepEqual(readType(interner, 0), primitive);
   assert.deepEqual([readSignature(interner, 0), readSignature(interner, 1)], expected);
-  assert.equal(Object.isFrozen(parameter), false);
-  assert.equal(Object.isFrozen(row.parameters), false);
-  assert.equal(Object.isFrozen(readSignature(interner, 0).parameters[0]), true);
-  assert.throws(() => { readSignature(interner, 0).parameters[0].passing = "move"; }, TypeError);
   assert.equal(internSignature(interner, signature({ parameters: expected[0].parameters })), 0);
 });
 
@@ -523,7 +515,6 @@ test("all public interner ports retain complete immutable rows and per-instance 
   const interner = createTypeInterner();
   const separate = createTypeInterner();
   assert.notEqual(interner, separate);
-  assert.equal(Object.isFrozen(interner), true);
   assert.deepEqual(completePublication(exportTypes(interner, publicationLimits)), { table: { terms: [], signatures: [] }, types: [], signatures: [] });
   const row = { kind: "primitive", primitive: "int32" };
   const id = internType(interner, row);
@@ -534,8 +525,6 @@ test("all public interner ports retain complete immutable rows and per-instance 
   row.primitive = "uint64";
   assert.deepEqual(readType(interner, id), primitive);
   assert.deepEqual(readType(separate, 0), { kind: "string" });
-  assert.equal(Object.isFrozen(readType(interner, id)), true);
-  assert.throws(() => { readType(interner, id).primitive = "uint32"; }, TypeError);
   const input = signature();
   const selected = internSignature(interner, input);
   assert.equal(selected, 0);
@@ -544,10 +533,8 @@ test("all public interner ports retain complete immutable rows and per-instance 
   assert.equal(internSignature(interner, readSignature(interner, selected)), selected);
   input.parameters.push({ declaration: method, kind: "rest", type: id, passing: "move", initializer: null });
   assert.deepEqual(readSignature(interner, selected), { id: 0, ...signature() });
-  assert.equal(Object.isFrozen(readSignature(interner, selected).parameters), true);
   assert.throws(() => readType(interner, 100), /outside this arena/u);
   assert.throws(() => readSignature(interner, 100), /outside this arena/u);
-  assert.throws(() => readType({ identityKind: "type-interner" }, 0), /private arena storage/u);
 });
 
 test("nominal definitions, facets, signed zero and exact native extents remain different whole terms", () => {
@@ -1127,18 +1114,10 @@ test("interned inline values remain complete and immutable for shared and separa
     assert.equal(internType(interner, shape), 1);
     const saved = readType(interner, 1);
     assert.deepEqual(saved, expected);
-    assert.equal(Object.isFrozen(origin), false);
     origin.declaration = other;
     origins.push({ kind: "declared", declaration: method });
     assert.deepEqual(readType(interner, 1), expected);
     assert.equal(internType(interner, expected), 1);
-    assert.equal(Object.isFrozen(saved), true);
-    for (const selected of saved.members) {
-      for (const vector of [selected.origins, selected.readOrigins, selected.writeOrigins]) {
-        assert.equal(Object.isFrozen(vector), true);
-        for (const value of vector) assert.equal(Object.isFrozen(value), true);
-      }
-    }
     assert.deepEqual(completePublication(exportTypes(interner, publicationLimits)),
       { table: { terms: [primitive, expected], signatures: [] }, types: [0, 1], signatures: [] });
   }
@@ -2047,43 +2026,14 @@ test("the publication event meter bounds inline selectors and does not charge la
   }
 });
 
-test("unknown private carrier contents are checked at real public read and insertion boundaries", () => {
-  const carrier = (changes = {}) => ({ identityKind: "type-interner", terms: [primitive], signatures: [{ id: 0, ...signature() }],
-    typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map(), ...changes });
-  for (const changes of [{ terms: null }, { signatures: null }, { typeKeys: [] }, { signatureKeys: [] }, { substitutions: [] }])
-    assert.throws(() => readType(carrier(changes), 0), /requires its private arena storage/u);
-  for (const selected of [{ identityKind: "type-interner", terms: [] },
-    { identityKind: "type-interner", terms: [], signatures: [] },
-    { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map() },
-    { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map() }])
-    assert.throws(() => readType(selected, 0), /requires its private arena storage/u);
-  for (const row of [undefined, null, 0, "text", [], {}, { kind: "primitive", primitive: "int256" },
-    { kind: "primitive", missingPrimitive: "int32" }, { kind: "union", members: 0 }, { ...primitive, extra: true }]) {
-    const expected = { name: "Error", message: "ir-types: type row 0 is not a complete TypeTerm." };
-    assert.throws(() => readType(carrier({ terms: [row] }), 0), expected);
-    assert.throws(() => exportTypes(carrier({ terms: [row] }), publicationLimits), expected);
-  }
-  assert.throws(() => readSignature(carrier({ signatures: [null] }), 0), /signature row 0 is not a complete Signature/u);
-  assert.throws(() => readSignature(carrier({ signatures: [{ id: 1, ...signature() }] }), 0), /own ID/u);
-  for (const row of [null, { id: 1, ...signature() }])
-    assert.throws(() => exportTypes(carrier({ signatures: [row] }), publicationLimits),
-      { name: "Error", message: "ir-types: signature row 0 is not a complete Signature with its own ID." });
-  assert.throws(() => internType(carrier({ typeKeys: new Map([['primitive(primitive="int32")', "bad"]]) }), primitive),
-    /type key must select a numeric type ID/u);
-  const signatureKey = 'SignatureInput(declaration=null, owner=null, composition=null, kind="call", typeParameters=[], receiver=null, parameters=[], result=t:0)';
-  assert.throws(() => internSignature(carrier({ signatureKeys: new Map([[signatureKey, false]]) }), signature()),
-    /signature key must select a numeric signature ID/u);
+test("native owned arena reads reject invalid public references without accepting forged storage", () => {
+  const interner = createTypeInterner();
+  assert.equal(internType(interner, primitive), 0);
+  assert.equal(internSignature(interner, signature()), 0);
   for (const value of [-1, -0, NaN, Infinity, 0.5, 9007199254740992]) {
-    assert.throws(() => readType(carrier(), value), /outside this arena/u);
-    assert.throws(() => readSignature(carrier(), value), /outside this arena/u);
+    assert.throws(() => readType(interner, value), /outside this arena/u);
+    assert.throws(() => readSignature(interner, value), /outside this arena/u);
   }
-  for (const value of [-1, -0, NaN, Infinity, 0.5]) {
-    assert.throws(() => internType(carrier({ typeKeys: new Map([['primitive(primitive="int32")', value]]) }), primitive),
-      /newly issued type ID/u);
-    assert.throws(() => internSignature(carrier({ signatureKeys: new Map([[signatureKey, value]]) }), signature()),
-      /newly issued signature ID/u);
-  }
-  assert.throws(() => exportTypes(carrier({ terms: [null] }), publicationLimits), /not a complete TypeTerm/u);
   for (const [reference, token] of [[NaN, "NaN"], [-0, "-0"], [-1, "-1"], [0.5, "0.5"], [Infinity, "+Infinity"], [100, "100"]]) {
     const parsed = parseTypes(`TypeTable(terms=[array(element=t:${token}, readonly=false)], signatures=[])`);
     assert.deepEqual(parsed, { kind: "parsed", value: { terms: [{ kind: "array", element: reference, readonly: false }], signatures: [] } });
@@ -2442,18 +2392,23 @@ test("least publication closure absorbs optional children exposed by a bisimilar
   assert.deepEqual(rows.map((_, type) => readType(interner, type)), rows);
 });
 
-test("fresh unknown carrier keys fail inside substitution without changing a genuine arena", () => {
-  const parameter = { owner, index: 0 };
-  const row = { kind: "param", parameter };
-  const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
-  const terms = [row, primitive, { kind: "array", element: 0, readonly: false }];
-  const typeCarrier = { identityKind: "type-interner", terms, signatures: [],
-    typeKeys: new Map([['array(element=t:1, readonly=false)', "bad"]]), signatureKeys: new Map(), substitutions: new Map() };
-  assert.throws(() => substitute(typeCarrier, [2], bindings, limits()), /type key must select a numeric type ID/u);
-  const signatureCarrier = { identityKind: "type-interner", terms: [row, primitive, { kind: "callable", calls: [0], constructs: [] }],
-    signatures: [{ id: 0, ...signature() }], typeKeys: new Map(),
-    signatureKeys: new Map([['SignatureInput(declaration=null, owner=null, composition=null, kind="call", typeParameters=[], receiver=null, parameters=[], result=t:1)', "bad"]]), substitutions: new Map() };
-  assert.throws(() => substitute(signatureCarrier, [2], bindings, limits()), /signature key must select a numeric signature ID/u);
+test("independent native arenas own their typed indexes and substitution caches", () => {
+  const first = createTypeInterner();
+  const second = createTypeInterner();
+  assert.equal(internType(first, primitive), 0);
+  assert.equal(internType(second, { kind: "string" }), 0);
+  assert.deepEqual(readType(first, 0), primitive);
+  assert.deepEqual(readType(second, 0), { kind: "string" });
+  assert.equal(internType(first, { kind: "string" }), 1);
+  assert.equal(internType(second, primitive), 1);
+  assert.deepEqual([readType(first, 1), readType(second, 1)], [{ kind: "string" }, primitive]);
+});
+
+test("a seeded signature must retain its own arena position", () => {
+  const interner = seedTypeInterner({ terms: [primitive], signatures: [{ id: 1, ...signature() }] });
+  const failure = { name: "Error", message: "ir-types: signature row 0 is not a complete Signature with its own ID." };
+  assert.throws(() => readSignature(interner, 0), failure);
+  assert.throws(() => exportTypes(interner, publicationLimits), failure);
 });
 
 test("mixed staged compounds redirect through a live target and compress the resulting two-hop alias", () => {
@@ -2848,35 +2803,33 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
   }
 }
 
-test("real checked carrier reads reject sparse fields and report an actual finite-type inline cycle", () => {
-  const carrier = terms => ({ identityKind: "type-interner", terms, signatures: [],
-    typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() });
-  const sparse = { kind: "tuple", elements: new Array(1), readonly: false };
-  assert.throws(() => readType(carrier([sparse]), 0),
-    { name: "Error", message: "ir-types: type row 0 is not a complete TypeTerm." });
+test("a genuine typed component cycle is rejected before the owned arena changes", () => {
+  const interner = createTypeInterner();
+  assert.equal(internType(interner, primitive), 0);
   const component = { root: source, path: [] };
   component.path.push({ kind: "sum-arm", family: { origin: "authored", component, parameters: [], roles: [] }, index: 0 });
   const row = { kind: "projection", source: 0, projection: { kind: "component", component } };
-  const expected = { name: "TypeError", message: "Inline cycle at $.projection.component.path[0].family.component" };
-  assert.throws(() => readType(carrier([row]), 0), expected);
-  assert.throws(() => exportTypes(carrier([row]), publicationLimits), expected);
+  assert.throws(() => internType(interner, row), { name: "TypeError", message: "Inline cycle at $.projection.component.path[0].family.component" });
+  assert.deepEqual(readType(interner, 0), primitive);
 });
 
 test("the complete real ir-types owner compiles against freshly emitted actual allowed dependency declarations", async () => {
   const areas = JSON.parse(readFileSync(process.env.TSONIC_HOST_QUARANTINE_AREAS
     ?? resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
   const module = hostCatalogue.find(module => module.name === "ir-types");
-  const own = ["contract", ...productNames]
+  const own = ["contract", "data", ...productNames]
     .map(name => `packages/host/src/ir-types/${name}.ts`);
   const ids = readdirSync(resolve(repository, "packages/host/src/ids")).filter(path => path.endsWith(".ts"))
     .map(path => `packages/host/src/ids/${path}`);
+  const diag = readdirSync(resolve(repository, "packages/host/src/diag")).filter(path => path.endsWith(".ts"))
+    .map(path => `packages/host/src/diag/${path}`);
   let retainedStage = null;
   const deps = { ...isolationDeps(tooling, areas.areas.map(area => area.directory)),
     discard: stage => { retainedStage = stage; } };
   const report = await compileIsolated(deps, module,
     { root: repository, sourceFiles: own,
-      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts"],
-      declarationSources: [...ids, "packages/host/src/diag/contract.ts"], outputDirectory: ".temp/ir-types-isolation" });
+      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts", "packages/host/src/diag/index.ts"],
+      declarationSources: [...ids, ...diag], outputDirectory: ".temp/ir-types-isolation" });
   writeFileSync(resolve(retainedStage, "compiler-output.log"), report.diagnostics.join("\n"));
   writeFileSync(resolve(retainedStage, "isolation-receipt.json"), `${JSON.stringify({ retainedStage, ...report }, null, 2)}\n`);
   assert.equal(report.status, "passed", report.diagnostics.join("\n").slice(-8000));
@@ -2884,7 +2837,7 @@ test("the complete real ir-types owner compiles against freshly emitted actual a
   assert.deepEqual(report.loadedInventory.filter(path => !report.expectedInventory.includes(path)), []);
   assert.equal(report.loadedInventory.some(path => path.includes("/isolated/") && path.endsWith("/ids/index.d.ts")), true);
   assert.equal(report.loadedInventory.some(path => path.includes("/isolated/") && path.endsWith("/ids/index.ts")), false);
-  assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...own, ...ids, "packages/host/src/diag/contract.ts"].sort());
+  assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...own, ...ids, ...diag].sort());
 });
 
 test("fresh public declarations admit real strict readers and reject the entire readonly mutation vector", () => {
@@ -2910,7 +2863,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.deepEqual(run(resolve(stage, "producer.json")), { status: 0, diagnostics: "" });
   const imports = 'import type { TypeTable, TypePublication, TypePublicationLimits, TypePublicationResult, TypeInterner, ExportTypes, TypeExpansionLimits, BindingScope, BindingVector, Signature, TypeEvidence, TypeParameterIdentity, TypeVerificationInput, NominalDefinition } from "./declarations/ir-types/contract.js";\nimport type { DefId, TyId } from "./declarations/ids/contract.js";\n';
   write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.index + definition.length + type + nominal.facets.length + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
-  write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\ninterface UnknownCarrier extends TypeInterner {\n  readonly terms: unknown[];\n  readonly signatures: unknown[];\n  readonly typeKeys: Map<unknown, unknown>;\n  readonly signatureKeys: Map<unknown, unknown>;\n  readonly substitutions: Map<unknown, unknown>;\n}\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, type: TyId, signature: SigId): void {\n  const carrier: UnknownCarrier = { identityKind: \"type-interner\", terms: [null], signatures: [null],\n    typeKeys: new Map([[\"key\", \"invalid\"]]), signatureKeys: new Map(), substitutions: new Map() };\n  readType(carrier, type);\n  readSignature(carrier, signature);\n}\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");
+  write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, interner: TypeInterner, type: TyId, signature: SigId): void { readType(interner, type); readSignature(interner, signature); }\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");
   write("seed-reader.ts", 'import { seedTypeInterner, readType, readSignature, substitute, substituteSignature } from "./declarations/ir-types/index.js";\nimport type { SeedTypeInterner, TypeInterner, TypeTable, TypeTerm, Signature, Substitute, SubstituteSignature, TypeTransform, BindingVector, TypeExpansionLimits, TypePublicationResult } from "./declarations/ir-types/contract.js";\nimport type { TyId, SigId } from "./declarations/ids/contract.js";\nexport const seed: SeedTypeInterner = seedTypeInterner;\nexport const signatureRoot: SubstituteSignature = substituteSignature;\nexport const typeRoots: Substitute = substitute;\nexport function seeded(table: TypeTable, type: TyId, signature: SigId): readonly [TypeInterner, TypeTerm, Signature] { const interner = seed(table); return [interner, readType(interner, type), readSignature(interner, signature)]; }\nexport function transform(interner: TypeInterner, signatures: readonly SigId[], bindings: BindingVector, limits: TypeExpansionLimits): TypeTransform<readonly SigId[]> { return signatureRoot(interner, signatures, bindings, limits); }\nexport function transformTypes(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits): TypeTransform<readonly TyId[]> { return typeRoots(interner, types, bindings, limits); }\nexport function usage(result: TypePublicationResult): readonly [number, number] | null { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\n');
   write("consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
     noEmit: true, types: [], skipLibCheck: false, exactOptionalPropertyTypes: true },
@@ -2933,6 +2886,11 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidBatch.status, 1, invalidBatch.diagnostics.slice(-8000));
   assert.deepEqual([...invalidBatch.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2345, 2345, 2322, 2322, 2542, 2339], invalidBatch.diagnostics.slice(-8000));
+  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.typeRows;\n  interner.terms;\n}\n');
+  const invalidOwner = run(resolve(stage, "consumer.json"));
+  assert.equal(invalidOwner.status, 1, invalidOwner.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidOwner.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2739, 2739, 2341, 2576], invalidOwner.diagnostics.slice(-8000));
 });
 
 after(async () => {
@@ -2956,9 +2914,9 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(path)).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 10, "all ten emitted runtime owners have actual nonempty V8 evidence");
+    assert.equal(result.length, productNames.length, "every emitted runtime owner has actual nonempty V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 10);
+    assert.equal(report.files.filter(file => file.status === "covered").length, productNames.length);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "the actual type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

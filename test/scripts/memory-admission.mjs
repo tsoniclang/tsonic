@@ -31,10 +31,10 @@ export function planTestMemoryAdmission(machine, reservations, scopes, requested
   const reservedMiB = [...claims.values()].reduce((total, size) => total + size, 0);
   const admitted = reservedMiB + requestedMiB <= capacityMiB &&
     machine.availableMemoryMiB >= requestedMiB + 8_192;
-  return Object.freeze({
+  return ({
     admitted, requestedMiB, reservedMiB, capacityMiB, reserveMiB,
     totalMemoryMiB: machine.totalMemoryMiB, availableMemoryMiB: machine.availableMemoryMiB,
-    activeUnits: Object.freeze([...claims.keys()].sort()),
+    activeUnits: ([...claims.keys()].sort()),
   });
 }
 

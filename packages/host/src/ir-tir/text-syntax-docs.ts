@@ -65,8 +65,8 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
   const work_JSDoc: (value: JSDoc<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<JSDoc<TypedPhase>>("JSDoc", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDoc", literalReader<(JSDoc<TypedPhase>)["kind"]>("'JSDoc", ["JSDoc"]))
-    .field("comment", "L<JSDocComment>", value => work_L_JSDocComment_(value.comment), lazyReader(() => work_L_JSDocComment_.reader))
-    .field("tags", "?L<JSDocTag>", value => nullableWork(value.tags, actual => work_L_JSDocTag_(actual)), nullableReader(lazyReader(() => work_L_JSDocTag_.reader)))
+    .field("comment", "L<JSDocComment>", value => work_L_JSDocComment_.write(value.comment), lazyReader(() => work_L_JSDocComment_.reader))
+    .field("tags", "?L<JSDocTag>", value => nullableWork(value.tags, actual => work_L_JSDocTag_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocTag_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_comment, field_tags, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, comment: field_comment, tags: field_tags, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind) })));
   const work_JSDocTypeExpression: (value: JSDocTypeExpression<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<JSDocTypeExpression<TypedPhase>>("JSDocTypeExpression", null, value => value.kind, value => value, null, fields => fields
@@ -108,7 +108,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocTypeTag", literalReader<(JSDocTypeTag<TypedPhase>)["kind"]>("'JSDocTypeTag", ["JSDocTypeTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "$SyntaxNode", value => syntaxReference("$SyntaxNode", value.typeExpression), syntaxReads.SyntaxNode)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -119,7 +119,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocUnknownTag", literalReader<(JSDocUnknownTag<TypedPhase>)["kind"]>("'JSDocUnknownTag", ["JSDocUnknownTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -129,9 +129,9 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocTemplateTag", literalReader<(JSDocTemplateTag<TypedPhase>)["kind"]>("'JSDocTemplateTag", ["JSDocTemplateTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("constraint", "$SyntaxNode", value => syntaxReference("$SyntaxNode", value.constraint), syntaxReads.SyntaxNode)
-    .field("typeParameters", "L<TypeParameterDeclaration>", value => read.work_L_TypeParameterDeclaration_(value.typeParameters), lazyReader(() => read.work_L_TypeParameterDeclaration_.reader))
+    .field("typeParameters", "L<TypeParameterDeclaration>", value => read.work_L_TypeParameterDeclaration_.write(value.typeParameters), lazyReader(() => read.work_L_TypeParameterDeclaration_.reader))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_constraint, field_typeParameters, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, constraint: field_constraint,
@@ -141,7 +141,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocReturnTag", literalReader<(JSDocReturnTag<TypedPhase>)["kind"]>("'JSDocReturnTag", ["JSDocReturnTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "?$TypeNode", value => nullableWork(value.typeExpression, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -152,7 +152,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocPublicTag", literalReader<(JSDocPublicTag<TypedPhase>)["kind"]>("'JSDocPublicTag", ["JSDocPublicTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -162,7 +162,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocPrivateTag", literalReader<(JSDocPrivateTag<TypedPhase>)["kind"]>("'JSDocPrivateTag", ["JSDocPrivateTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -172,7 +172,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocProtectedTag", literalReader<(JSDocProtectedTag<TypedPhase>)["kind"]>("'JSDocProtectedTag", ["JSDocProtectedTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -182,7 +182,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocReadonlyTag", literalReader<(JSDocReadonlyTag<TypedPhase>)["kind"]>("'JSDocReadonlyTag", ["JSDocReadonlyTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -192,7 +192,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocOverrideTag", literalReader<(JSDocOverrideTag<TypedPhase>)["kind"]>("'JSDocOverrideTag", ["JSDocOverrideTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -202,7 +202,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocDeprecatedTag", literalReader<(JSDocDeprecatedTag<TypedPhase>)["kind"]>("'JSDocDeprecatedTag", ["JSDocDeprecatedTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, tagName: field_tagName, comment: field_comment, tsonic: field_tsonic }), (kind, make) => ({ kind,
@@ -212,7 +212,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocSeeTag", literalReader<(JSDocSeeTag<TypedPhase>)["kind"]>("'JSDocSeeTag", ["JSDocSeeTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("nameExpression", "$TypeNode", value => syntaxReference("$TypeNode", value.nameExpression), syntaxReads.TypeNode)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_nameExpression, field_tsonic) => ({
@@ -223,7 +223,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocImplementsTag", literalReader<(JSDocImplementsTag<TypedPhase>)["kind"]>("'JSDocImplementsTag", ["JSDocImplementsTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("className", "$ExpressionWithTypeArguments", value => syntaxReference("$ExpressionWithTypeArguments", value.className), syntaxReads.ExpressionWithTypeArguments)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_className, field_tsonic) => ({
@@ -234,7 +234,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocAugmentsTag", literalReader<(JSDocAugmentsTag<TypedPhase>)["kind"]>("'JSDocAugmentsTag", ["JSDocAugmentsTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("className", "$ExpressionWithTypeArguments", value => syntaxReference("$ExpressionWithTypeArguments", value.className), syntaxReads.ExpressionWithTypeArguments)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_className, field_tsonic) => ({
@@ -245,7 +245,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocSatisfiesTag", literalReader<(JSDocSatisfiesTag<TypedPhase>)["kind"]>("'JSDocSatisfiesTag", ["JSDocSatisfiesTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "$TypeNode", value => syntaxReference("$TypeNode", value.typeExpression), syntaxReads.TypeNode)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -256,7 +256,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocThrowsTag", literalReader<(JSDocThrowsTag<TypedPhase>)["kind"]>("'JSDocThrowsTag", ["JSDocThrowsTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "?$TypeNode", value => nullableWork(value.typeExpression, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -267,7 +267,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocThisTag", literalReader<(JSDocThisTag<TypedPhase>)["kind"]>("'JSDocThisTag", ["JSDocThisTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "$TypeNode", value => syntaxReference("$TypeNode", value.typeExpression), syntaxReads.TypeNode)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -278,7 +278,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocImportTag", literalReader<(JSDocImportTag<TypedPhase>)["kind"]>("'JSDocImportTag", ["JSDocImportTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("importClause", "?$ImportClause", value => nullableWork(value.importClause, actual => syntaxReference("$ImportClause", actual)), nullableReader(syntaxReads.ImportClause))
     .field("moduleSpecifier", "$Expression", value => syntaxReference("$Expression", value.moduleSpecifier), syntaxReads.Expression)
     .field("attributes", "?$ImportAttributes", value => nullableWork(value.attributes, actual => syntaxReference("$ImportAttributes", actual)), nullableReader(syntaxReads.ImportAttributes))
@@ -292,7 +292,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocCallbackTag", literalReader<(JSDocCallbackTag<TypedPhase>)["kind"]>("'JSDocCallbackTag", ["JSDocCallbackTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "$TypeNode", value => syntaxReference("$TypeNode", value.typeExpression), syntaxReads.TypeNode)
     .field("name", "?$JSDocFullName", value => nullableWork(value.name, actual => syntaxReference("$JSDocFullName", actual)), nullableReader(syntaxReads.JSDocFullName))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
@@ -304,7 +304,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocOverloadTag", literalReader<(JSDocOverloadTag<TypedPhase>)["kind"]>("'JSDocOverloadTag", ["JSDocOverloadTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "$TypeNode", value => syntaxReference("$TypeNode", value.typeExpression), syntaxReads.TypeNode)
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_tagName, field_comment, field_typeExpression, field_tsonic) => ({
@@ -315,7 +315,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocTypedefTag", literalReader<(JSDocTypedefTag<TypedPhase>)["kind"]>("'JSDocTypedefTag", ["JSDocTypedefTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("typeExpression", "?$SyntaxNode", value => nullableWork(value.typeExpression, actual => syntaxReference("$SyntaxNode", actual)), nullableReader(syntaxReads.SyntaxNode))
     .field("name", "?$JSDocFullName", value => nullableWork(value.name, actual => syntaxReference("$JSDocFullName", actual)), nullableReader(syntaxReads.JSDocFullName))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
@@ -326,8 +326,8 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
   const work_JSDocSignature: (value: JSDocSignature<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<JSDocSignature<TypedPhase>>("JSDocSignature", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'JSDocSignature", literalReader<(JSDocSignature<TypedPhase>)["kind"]>("'JSDocSignature", ["JSDocSignature"]))
-    .field("typeParameters", "?L<TypeParameterDeclaration>", value => nullableWork(value.typeParameters, actual => read.work_L_TypeParameterDeclaration_(actual)), nullableReader(lazyReader(() => read.work_L_TypeParameterDeclaration_.reader)))
-    .field("parameters", "L<ParameterDeclaration>", value => read.work_L_ParameterDeclaration_(value.parameters), lazyReader(() => read.work_L_ParameterDeclaration_.reader))
+    .field("typeParameters", "?L<TypeParameterDeclaration>", value => nullableWork(value.typeParameters, actual => read.work_L_TypeParameterDeclaration_.write(actual)), nullableReader(lazyReader(() => read.work_L_TypeParameterDeclaration_.reader)))
+    .field("parameters", "L<ParameterDeclaration>", value => read.work_L_ParameterDeclaration_.write(value.parameters), lazyReader(() => read.work_L_ParameterDeclaration_.reader))
     .field("type", "?$TypeNode", value => nullableWork(value.type, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("fullSignature", "?$TypeNode", value => nullableWork(value.fullSignature, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
     .field("tsonic", "null", value => scalarWork("null", value.tsonic), nullReader)
@@ -382,7 +382,7 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "JSDocParameterKind", literalReader<(JSDocParameterOrPropertyTag<TypedPhase>)["kind"]>("JSDocParameterKind", ["JSDocParameterTag","JSDocPropertyTag"]))
     .field("tagName", "$Identifier", value => syntaxReference("$Identifier", value.tagName), syntaxReads.Identifier)
-    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
+    .field("comment", "?L<JSDocComment>", value => nullableWork(value.comment, actual => work_L_JSDocComment_.write(actual)), nullableReader(lazyReader(() => work_L_JSDocComment_.reader)))
     .field("name", "$EntityName", value => syntaxReference("$EntityName", value.name), syntaxReads.EntityName)
     .field("isBracketed", "boolean", value => scalarWork("boolean", value.isBracketed), booleanReader)
     .field("typeExpression", "?$TypeNode", value => nullableWork(value.typeExpression, actual => syntaxReference("$TypeNode", actual)), nullableReader(syntaxReads.TypeNode))
@@ -393,11 +393,11 @@ export const createSyntaxDocsText = (kernel: TirTextKernel, read: SyntaxDocsText
       typeExpression: field_typeExpression, isNameFirst: field_isNameFirst, tsonic: field_tsonic,
     }), constructJSDocParameterOrPropertyTag));
   const work_L_JSDocComment_: TirRecordCodec<NodeList<JSDocComment<TypedPhase>>> = defineRecord<NodeList<JSDocComment<TypedPhase>>>("L<JSDocComment>", "NodeList", null, "NodeList", null, null, fields => fields
-    .field("loc", "TextRange", value => read.work_TextRange(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
     .field("nodes", "[$JSDocComment]", value => sequenceWork("[$JSDocComment]", value.nodes, actual => syntaxReference("$JSDocComment", actual)), sequenceReader("[$JSDocComment]", syntaxReads.JSDocComment))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   const work_L_JSDocTag_: TirRecordCodec<NodeList<JSDocTag<TypedPhase>>> = defineRecord<NodeList<JSDocTag<TypedPhase>>>("L<JSDocTag>", "NodeList", null, "NodeList", null, null, fields => fields
-    .field("loc", "TextRange", value => read.work_TextRange(value.loc), lazyReader(() => read.work_TextRange.reader))
+    .field("loc", "TextRange", value => read.work_TextRange.write(value.loc), lazyReader(() => read.work_TextRange.reader))
     .field("nodes", "[$JSDocTag]", value => sequenceWork("[$JSDocTag]", value.nodes, actual => syntaxReference("$JSDocTag", actual)), sequenceReader("[$JSDocTag]", syntaxReads.JSDocTag))
     .finish((field_loc, field_nodes) => ({ loc: field_loc, nodes: field_nodes })));
   return { work_JSDoc, work_JSDocTypeExpression, work_JSDocNonNullableType, work_JSDocNullableType, work_JSDocAllType, work_JSDocVariadicType, work_JSDocOptionalType, work_JSDocTypeTag, work_JSDocUnknownTag, work_JSDocTemplateTag, work_JSDocReturnTag, work_JSDocPublicTag, work_JSDocPrivateTag, work_JSDocProtectedTag, work_JSDocReadonlyTag, work_JSDocOverrideTag, work_JSDocDeprecatedTag, work_JSDocSeeTag, work_JSDocImplementsTag, work_JSDocAugmentsTag, work_JSDocSatisfiesTag, work_JSDocThrowsTag, work_JSDocThisTag, work_JSDocImportTag, work_JSDocCallbackTag, work_JSDocOverloadTag, work_JSDocTypedefTag, work_JSDocSignature, work_JSDocNameReference, work_JSDocText, work_JSDocLink, work_JSDocLinkPlain, work_JSDocLinkCode, work_JSDocTypeLiteral, work_JSDocParameterOrPropertyTag, work_L_JSDocComment_, work_L_JSDocTag_ };

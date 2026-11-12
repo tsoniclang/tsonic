@@ -1,4 +1,4 @@
-import type { TextParseResult } from "../diag/contract.js";
+import type { InvariantFailure, TextParseResult } from "../diag/contract.js";
 import type { AtomicContribution, ConstraintSet, InferenceGroup, Solution } from "./contract.js";
 import { requirePresent } from "../diag/index.js";
 import { enumValue } from "./print.js";
@@ -105,11 +105,32 @@ interface Lexical {
   readonly incompleteString: DecodedStringPrefix | null;
 }
 
+function numericEnd(text: string, start: number): number {
+  let end = start;
+  if (text[end] === "+" || text[end] === "-") end++;
+  if (text.startsWith("Infinity", end)) end += 8;
+  else {
+    const first = end;
+    while (text[end] !== undefined && text.charAt(end) >= "0" && text.charAt(end) <= "9") end++;
+    if (end === first) return start;
+    if (text[end] === "." && text.charAt(end + 1) >= "0" && text.charAt(end + 1) <= "9") {
+      end += 2;
+      while (text.charAt(end) >= "0" && text.charAt(end) <= "9") end++;
+    }
+    if (text[end] === "e" || text[end] === "E") {
+      let exponent = end + 1;
+      if (text[exponent] === "+" || text[exponent] === "-") exponent++;
+      const firstDigit = exponent;
+      while (text.charAt(exponent) >= "0" && text.charAt(exponent) <= "9") exponent++;
+      if (exponent > firstDigit) end = exponent;
+    }
+  }
+  return text[end] === "n" ? end + 1 : end;
+}
+
 function tokenize(text: string): Lexical {
   const result: Token[] = [];
   const stop = (failure: InvalidText, incompleteString: DecodedStringPrefix | null = null): Lexical => ({ tokens: result, failure, incompleteString });
-  const number = /[+-]?(?:Infinity|[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?:n)?/y;
-  const identifier = /[A-Za-z_][A-Za-z_0-9-]*/y;
   let offset = 0;
   while (offset < text.length) {
     const character = text.charAt(offset);
@@ -150,14 +171,15 @@ function tokenize(text: string): Lexical {
     } else if ("(),[]=:".includes(character)) {
       result.push({ kind: "punctuation", text: character, value: character, offset, end: offset + 1, newline }); offset += 1;
     } else {
-      number.lastIndex = offset;
-      identifier.lastIndex = offset;
-      const numeric = number.exec(text);
-      const named = numeric === null ? identifier.exec(text) : null;
-      const token = numeric?.[0] ?? named?.[0];
-      if (token === undefined) return stop(invalid(text, offset, ["value", "record"]));
-      offset += token.length;
-      if (numeric !== null) {
+      const end = numericEnd(text, offset);
+      const numeric = end !== offset;
+      if (numeric) offset = end;
+      else {
+        if (!/[A-Za-z_]/u.test(character)) return stop(invalid(text, offset, ["value", "record"]));
+        do { offset++; } while (/[A-Za-z_0-9-]/u.test(text.charAt(offset)));
+      }
+      const token = text.slice(start, offset);
+      if (numeric) {
         if (token.endsWith("n")) {
           const digits = token.slice(0, -1);
           if (!/^-?(?:0|[1-9][0-9]*)$/u.test(digits) || digits === "-0")
@@ -470,8 +492,8 @@ function matches<Value>(roots: readonly Wire[], schema: Schema<Value>, receive: 
   return true;
 }
 
-const constructionFailure = Object.freeze({ owner: "ir-infer", query: null, origin: null,
-  message: "The text reader must construct its validated root and declared fields." }) satisfies import("../diag/contract.js").InvariantFailure;
+const constructionFailure: InvariantFailure = { owner: "ir-infer", query: null, origin: null,
+  message: "The text reader must construct its validated root and declared fields." };
 
 function readValues<Value>(text: string, schema: Schema<Value>, many: boolean): TextParseResult<readonly Value[]> {
   const wire = readWire(text);

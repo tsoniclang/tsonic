@@ -8,6 +8,8 @@ import { inspect, isDeepStrictEqual } from "node:util";
 import { after, before, test } from "node:test";
 import { runCase } from "../host-cases/case.mjs";
 import { compareCaseValues } from "../host-cases/compare.mjs";
+import { syntaxConstructorInputs } from "./fixtures/hir-syntax.mjs";
+import { syntaxFieldMutations } from "./fixtures/syntax-field-mutations.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
@@ -18,7 +20,8 @@ const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const productNames = ["index", "print", "parse", "text-layouts", "text-construction", "text-syntax-construction", "text-model", "text-body", "text-phase-values",
   "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-captures", "text-memory",
   "text-syntax-values", "text-syntax-statements", "text-syntax-types", "text-syntax-jsx", "text-syntax-docs",
-  "verify", "verify-occurrences", "verify-applications", "verify-instances"];
+  "verify", "verify-occurrences", "verify-applications", "verify-instances", "syntax-compare", "syntax-compare-common",
+  "syntax-compare-values", "syntax-compare-statements", "syntax-compare-types", "syntax-compare-jsx", "syntax-compare-docs"];
 const sourceFiles = ["contract", ...productNames].map(name => `packages/host/src/ir-tir/${name}.ts`);
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-tir/${name}.js`));
 const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
@@ -34,6 +37,7 @@ const post = (method, parameters = {}) => new Promise((accept, reject) => {
   profiler.post(method, parameters, (error, result) => error === null ? accept(result) : reject(error));
 });
 let product;
+let sameSyntaxFields;
 
 function writeValueEvidence(path, root) {
   const output = openSync(path, "wx");
@@ -100,6 +104,7 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   product = await import("../../packages/host/dist/ir-tir/index.js");
+  ({ sameSyntaxFields } = await import("../../packages/host/dist/ir-tir/syntax-compare.js"));
 });
 
 const moduleId = "M[P[p];m]";
@@ -1162,12 +1167,92 @@ test("exact four annotated runtime ports, no parallel printer or private metadat
   assertCompleteValue(Object.keys(product).sort(), ["parseTir", "printTir", "verifyTir", "verifyTirModule"]);
 });
 
+test("native syntax comparison checks every declared ordinary field without discovering object properties", () => {
+  const makeSyntax = (kind, id, properties) => ({ ...header(id), kind, ...properties, tsonic: null });
+  const makeRows = (count, absent, reverse) => syntaxConstructorInputs(makeSyntax, nodeList, count, absent, reverse);
+  const canonical = new Map(makeRows(1, false, false).map(row => [row.node.kind, row.node]));
+  const alternateNode = (node, kinds) => {
+    const kind = kinds.find(candidate => candidate !== node.kind);
+    const selected = canonical.get(kind);
+    assert.equal(selected !== undefined, true, `complete independent constructor for ${kind}`);
+    return selected;
+  };
+  const rows = [[0, true, false], [0, false, false], [1, false, false], [3, false, false], [3, false, true]]
+    .flatMap(([count, absent, reverse]) => makeRows(count, absent, reverse));
+  for (const node of canonical.values()) {
+    const fields = syntaxFieldMutations.get(node.kind);
+    if (fields.some(field => field.name.startsWith("tokenFlags."))) rows.push({ node: { ...node, tokenFlags: ["Scientific", "Unterminated"] } });
+    if (fields.some(field => field.name.startsWith("templateFlags."))) rows.push({ node: { ...node, templateFlags: ["Scientific", "Unterminated"] } });
+  }
+  const source = canonical.get("SourceFile");
+  rows.push({ node: { ...canonical.get("ImportClause"), phaseModifier: "TypeKeyword" } });
+  rows.push({ node: { ...source, commentDirectives: [{ kind: "ExpectError", loc: { pos: 1, end: 2 } }],
+    pragmas: [{ kind: "SingleLineCommentTrivia", pos: 3, end: 4, hasTrailingNewLine: false, name: "reference",
+      args: [{ name: "first", value: { pos: 5, end: 6, name: "path", value: "one" } },
+        { name: "second", value: { pos: 7, end: 8, name: "types", value: "two" } }] }],
+    checkJsDirective: { enabled: true, range: { kind: "SingleLineCommentTrivia", pos: 9, end: 10, hasTrailingNewLine: true } } } });
+  const kinds = [...canonical.keys()];
+  assert.equal(kinds.length, syntaxFieldMutations.size, "the actual independent constructor and declared-field families agree completely");
+  const exercised = new Set();
+  for (const { node } of rows) {
+    const fields = syntaxFieldMutations.get(node.kind);
+    assert.equal(fields !== undefined, true, `${node.kind}: complete field relation`);
+    assert.equal(sameSyntaxFields(node, { ...node }), true, `${node.kind}: complete equal ordinary payload`);
+    assert.equal(sameSyntaxFields(node, { ...node, id: 900, parent: 800, loc: { pos: 1, end: 2 },
+      origin: { module: "M[P[other];other]", start: 3, length: 4, derived: [] }, tsonic: null }), true,
+    `${node.kind}: independently verified headers are not ordinary syntax fields`);
+    assert.equal(sameSyntaxFields(node, canonical.get(kinds[(kinds.indexOf(node.kind) + 1) % kinds.length])), false,
+      `${node.kind}: different actual syntax constructor`);
+    for (const field of fields) {
+      if (!field.when(node)) continue;
+      const changed = field.change(node, alternateNode);
+      assert.equal(sameSyntaxFields(node, changed), false, `${node.kind}/${field.name}: genuine declared-field mismatch`);
+      assert.equal(sameSyntaxFields(changed, node), false, `${node.kind}/${field.name}: complete opposite orientation`);
+      exercised.add(`${node.kind}/${field.name}`);
+    }
+  }
+  const required = [...syntaxFieldMutations].flatMap(([kind, fields]) => fields.map(field => `${kind}/${field.name}`)).sort();
+  assertCompleteValue([...exercised].sort(), required, "every contract-derived field mutation has an actual complete fixture");
+  const flagged = { ...source, flags: ["Let", "Const"] };
+  assert.equal(sameSyntaxFields(source, flagged), false);
+  assert.equal(sameSyntaxFields(flagged, { ...flagged, flags: ["Let", "Const"] }), true);
+  assert.equal(sameSyntaxFields(flagged, { ...flagged, flags: ["Const", "Let"] }), false);
+  const sparse = { ...flagged, flags: new Array(2) };
+  assert.equal(sameSyntaxFields(sparse, flagged), false);
+  assert.equal(sameSyntaxFields(flagged, sparse), false);
+});
+
+test("native named-entry comparison rejects missing or duplicate keys on either supplied side", () => {
+  const body = emptyModuleBody();
+  const entries = [
+    { name: "first", value: { pos: 0, end: 1, name: "path", value: "one" } },
+    { name: "second", value: { pos: 2, end: 3, name: "types", value: "two" } },
+  ];
+  const root = args => ({ ...body.root, pragmas: [{ kind: "SingleLineCommentTrivia", pos: 0, end: 4,
+    hasTrailingNewLine: false, name: "reference", args }] });
+  const valid = root(entries);
+  assert.equal(sameSyntaxFields(valid, root([...entries].reverse())), true, "named entries have canonical key identity, not input insertion order");
+  for (const invalid of [[entries[0], entries[0]], new Array(2)]) {
+    assert.equal(sameSyntaxFields(valid, root(invalid)), false);
+    assert.equal(sameSyntaxFields(root(invalid), valid), false);
+  }
+});
+
+test("native number text preserves complete fractional mantissas and both explicit exponent signs", () => {
+  const body = emptyModuleBody();
+  body.root.loc = { pos: 1.125e+21, end: 1.25e-7 };
+  const original = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const expected = original.replace("loc=TextRange(pos=0, end=0), statements=", "loc=TextRange(pos=1.125e+21, end=1.25e-7), statements=");
+  assertBodyRoundTrip(body, expected, "complete declared numeric fields, not a semantic valid-range certificate");
+});
+
 test("actual source metadata preserves directives, dynamic pragma names, comment geometry and derivations", () => {
   const body = emptyModuleBody();
   body.root.origin.derived = [{ kind: "lowering", pass: "elaborate" }, { kind: "expansion", expansion: "expansion" }];
   body.root.commentDirectives = [{ loc: { pos: 1, end: 2 }, kind: "ExpectError" }, { loc: { pos: 3, end: 4 }, kind: "Ignore" }];
   body.root.pragmas = [{ pos: 5, end: 10, kind: "SingleLineCommentTrivia", hasTrailingNewLine: true, name: "reference",
-    args: { types: { pos: 6, end: 8, name: "types", value: "ambient" }, "escaped-name": { pos: 8, end: 10, name: "escaped-name", value: "value" } } }];
+    args: [{ name: "escaped-name", value: { pos: 8, end: 10, name: "escaped-name", value: "value" } },
+      { name: "types", value: { pos: 6, end: 8, name: "types", value: "ambient" } }] }];
   body.root.checkJsDirective = { enabled: false, range: { pos: 11, end: 15, kind: "MultiLineCommentTrivia", hasTrailingNewLine: false } };
   const baseline = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
   const expected = baseline.replace(`n:0=SourceFile(id=n:0, origin=Origin(module=mod:"${moduleId}", start=0, length=0, derived=[])`,
@@ -3154,7 +3239,7 @@ for (const [kind, fields, fieldsWire, phase, phaseWire, marker, expectedType] of
 test("F4 actual dynamic PragmaArguments has its own wrong-label result", () => {
   const body = emptyModuleBody();
   body.root.pragmas = [{ pos: 0, end: 0, kind: "SingleLineCommentTrivia", hasTrailingNewLine: false,
-    name: "reference", args: {} }];
+    name: "reference", args: [] }];
   const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
     .replace("pragmas=[]", 'pragmas=[Pragma(pos=0, end=0, kind="SingleLineCommentTrivia", hasTrailingNewLine=false, name="reference", args=PragmaArguments())]');
   assertBodyRoundTrip(body, expected, "actual empty pragma dictionary");
@@ -3442,30 +3527,23 @@ test("module scalar parent references resolve in the actual source arena without
   assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
 });
 
-test("the module root phase rejects a genuine non-fresh checker payload", () => {
-  const fixture = bodylessModuleScenario();
-  const phase = fixture.module.tree.tsonic;
-  const extended = { ...phase, checker: fixture.input.source.tree.tsonic };
-  fixture.module.tree.tsonic = extended;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [nodeViolation("no-checker-payload", 0,
-    'typed record retains undeclared field "checker"')]);
-  fixture.module.tree.tsonic = phase;
-  assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+test("the closed typed source-file parser rejects an undeclared checker field", () => {
+  const original = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const marker = 'dependence="parametric")))';
+  const position = original.indexOf(marker) + 'dependence="parametric")'.length;
+  assert.equal(position >= marker.length, true);
+  const text = original.slice(0, position) + ", checker=null" + original.slice(position);
+  assertInvalidText(text, position + 2, ["end of record"], "checker");
+  assertBodyRoundTrip(emptyModuleBody(), original, "closed source-file phase keeps every declared field");
 });
 
-test("module phase extras retain the complete UTF16 field vector in both insertion orders", () => {
+test("closed typed source-file fields reject arbitrary UTF16 names in either text order", () => {
+  const original = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const marker = 'dependence="parametric")))';
+  const position = original.indexOf(marker) + 'dependence="parametric")'.length;
   for (const names of [["\ue000", "\u{10000}", "aaa"], ["aaa", "\u{10000}", "\ue000"]]) {
-    const fixture = bodylessModuleScenario();
-    const phase = fixture.module.tree.tsonic;
-    const extra = fixture.input.source.tree.tsonic;
-    fixture.module.tree.tsonic = { ...phase, ...Object.fromEntries(names.map(name => [name, extra])) };
-    assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), [
-      nodeViolation("no-checker-payload", 0, 'typed record retains undeclared field "aaa"'),
-      nodeViolation("no-checker-payload", 0, 'typed record retains undeclared field "\u{10000}"'),
-      nodeViolation("no-checker-payload", 0, 'typed record retains undeclared field "\ue000"'),
-    ]);
-    fixture.module.tree.tsonic = phase;
-    assertCompleteValue(product.verifyTirModule(fixture.input, fixture.module), []);
+    const text = original.slice(0, position) + names.map(name => `, ${JSON.stringify(name)}=null`).join("") + original.slice(position);
+    assertInvalidText(text, position + 3, ["end of record"], names[0]);
   }
 });
 
@@ -4101,27 +4179,20 @@ test("two typed arena objects cannot replace one actually shared authored siblin
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
 });
 
-test("a genuine structural extension cannot retain checked fields inside a typed phase record", () => {
-  const body = emptyModuleBody();
-  const input = emptyVerificationInput(body);
-  const extended = { ...body.root.tsonic.template.lexicalBindings, views: checkerViews(0) };
-  body.root.tsonic.template.lexicalBindings = extended;
-  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("no-checker-payload", 0,
-    'typed record retains undeclared field "views"')]);
+test("closed nested phase records reject checker views at their text boundary", () => {
+  const original = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const position = original.lastIndexOf("selfBindings=[]") + "selfBindings=[]".length;
+  const text = original.slice(0, position) + ", views=null" + original.slice(position);
+  assertInvalidText(text, position + 2, ["end of record"], "views");
+  assertBodyRoundTrip(emptyModuleBody(), original, "closed nested binding record keeps every declared field");
 });
 
-test("multiple genuine extra phase fields have one complete UTF16-key order in both insertion orders", () => {
+test("closed nested phase records reject the first undeclared field without accepting later extras", () => {
+  const original = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const position = original.lastIndexOf("selfBindings=[]") + "selfBindings=[]".length;
   for (const names of [["aaa", "zzz"], ["zzz", "aaa"]]) {
-    const body = emptyModuleBody();
-    const input = emptyVerificationInput(body);
-    const phase = body.root.tsonic;
-    body.root.tsonic = { ...phase, ...Object.fromEntries(names.map(name => [name, "extra"])) };
-    assertCompleteValue(product.verifyTir(input, body), [
-      nodeViolation("no-checker-payload", 0, 'typed record retains undeclared field "aaa"'),
-      nodeViolation("no-checker-payload", 0, 'typed record retains undeclared field "zzz"'),
-    ]);
-    body.root.tsonic = phase;
-    assertCompleteValue(product.verifyTir(input, body), []);
+    const text = original.slice(0, position) + names.map(name => `, ${name}="extra"`).join("") + original.slice(position);
+    assertInvalidText(text, position + 2, ["end of record"], names[0]);
   }
 });
 
@@ -5029,7 +5100,7 @@ for (const kind of ["SingleLineCommentTrivia", "MultiLineCommentTrivia"]) {
     const keys = ["plain", "with-hyphen", "true", "false", "null", "NaN", "contains space", "__proto__"];
     const argument = { pos: 0, end: 0, name: "input", value: "v" };
     body.root.pragmas = [{ pos: 0, end: 0, kind, hasTrailingNewLine: false, name: "sample",
-      args: Object.fromEntries(keys.map(key => [key, argument])) }];
+      args: keys.toSorted().map(name => ({ name, value: argument })) }];
     const argumentWire = 'PragmaArgument(pos=0, end=0, name="input", value="v")';
     const names = ['NaN', '__proto__', '"contains space"', 'false', 'null', 'plain', 'true', '"with-hyphen"'];
     const pragmaWire = `Pragma(pos=0, end=0, kind="${kind}", hasTrailingNewLine=false, name="sample", ` +
@@ -5049,7 +5120,7 @@ for (const reversed of [false, true]) {
     const keys = ["\uE000", "\u{10000}", "b", "aa", "a", ""];
     const argument = { pos: 0, end: 0, name: "input", value: "v" };
     body.root.pragmas = [{ pos: 0, end: 0, kind: "SingleLineCommentTrivia", hasTrailingNewLine: false, name: "sample",
-      args: Object.fromEntries((reversed ? keys.slice().reverse() : keys).map(key => [key, argument])) }];
+      args: (reversed ? keys.slice().reverse() : keys).map(name => ({ name, value: argument })) }];
     const argumentWire = 'PragmaArgument(pos=0, end=0, name="input", value="v")';
     const names = ['""', 'a', 'aa', 'b', '"\u{10000}"', '"\uE000"'];
     const pragma = 'Pragma(pos=0, end=0, kind="SingleLineCommentTrivia", hasTrailingNewLine=false, name="sample", ' +
@@ -5057,6 +5128,7 @@ for (const reversed of [false, true]) {
     const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
       .replace("pragmas=[]", `pragmas=[${pragma}]`);
     assertCompleteValue(product.printTir(body), expected, "entire independently authored UTF-16 dictionary order", sameWire);
+    body.root.pragmas[0].args = keys.toSorted().map(name => ({ name, value: argument }));
     const parsed = product.parseTir(expected);
     assert.equal(parsed.kind, "parsed");
     assertCompleteValue(parsed.value, body, "entire dictionary including the empty key and surrogate pair", compareCaseValues);
@@ -5080,7 +5152,7 @@ for (const [key, decoded, first, previous = "b"] of [['a', 'a', 0], ['"a"', 'a',
         column: lines[lines.length - 1].length + 1, expected: ["UTF-16 ordered dictionary key"], found: decoded });
       const body = emptyModuleBody();
       body.root.pragmas = [{ pos: 0, end: 0, kind: "SingleLineCommentTrivia", hasTrailingNewLine: false, name: "sample",
-        args: Object.fromEntries([[decoded, argument], [previous, argument]]) }];
+        args: [decoded, previous].toSorted().map(name => ({ name, value: argument })) }];
       const names = decoded === "" ? ['""', previous] : ['a', previous];
       const corrected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
         .replace("pragmas=[]", 'pragmas=[Pragma(pos=0, end=0, kind="SingleLineCommentTrivia", hasTrailingNewLine=false, name="sample", ' +
@@ -5480,26 +5552,34 @@ test("C2996 another genuine module qualifies its own body subject and restored i
   assertCompleteValue(product.verifyTir(input, body), []);
 });
 
-for (const shape of ["outer-field", "flags", "sparse-flags", "directive", "inline-fields"]) {
+for (const shape of ["ordinary-field", "flags", "sparse-flags", "directive", "inline-field"]) {
   test(`F4 complete supplied syntax shape ${shape}`, () => {
     const body = emptyModuleBody();
     const input = emptyVerificationInput(body);
-    if (shape === "outer-field") body.root.extra = 1;
+    if (shape === "ordinary-field") body.root.languageVariant = "JSX";
     if (shape === "flags" || shape === "sparse-flags") body.root.flags = ["Ambient"];
     if (shape === "sparse-flags") input.source.tree.flags = Array(1);
     if (shape === "directive") body.root.checkJsDirective = { enabled: true, range: { pos: 0, end: 0,
       kind: "SingleLineCommentTrivia", hasTrailingNewLine: false } };
-    if (shape === "inline-fields") body.root.statements.extra = 1;
+    if (shape === "inline-field") body.root.statements = { ...body.root.statements, loc: { pos: 1, end: 0 } };
     assertCompleteValue(product.verifyTir(input, body), [nodeViolation("kind-children-shape", 0,
       "typed syntax does not retain the authored kind, fields and child presence")]);
-    if (shape === "outer-field") delete body.root.extra;
+    if (shape === "ordinary-field") body.root.languageVariant = "Standard";
     if (shape === "flags" || shape === "sparse-flags") body.root.flags = [];
     if (shape === "sparse-flags") input.source.tree.flags = [];
     if (shape === "directive") body.root.checkJsDirective = null;
-    if (shape === "inline-fields") delete body.root.statements.extra;
+    if (shape === "inline-field") body.root.statements = { ...body.root.statements, loc: { pos: 0, end: 0 } };
     assertCompleteValue(product.verifyTir(input, body), []);
   });
 }
+
+for (const record of ["SourceFile", "NodeList"]) test(`closed ${record} text rejects unknown fields at its actual declared boundary`, () => {
+  const text = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
+  const position = record === "SourceFile" ? text.indexOf("\nn:1=") - 1 : text.indexOf("nodes=[]") + "nodes=[]".length;
+  const invalid = text.slice(0, position) + ", extra=1" + text.slice(position);
+  assertInvalidText(invalid, position + 2, ["end of record"], "extra");
+  assertBodyRoundTrip(emptyModuleBody(), text, `${record}: complete closed record positive`);
+});
 
 test("F4 absent authentic source body retains every complete publication cofinding", () => {
   const body = emptyModuleBody();
@@ -6757,7 +6837,7 @@ test("F4 an otherwise correct actual member table cannot replace its real receiv
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
 });
 
-test("fresh strict whole-owner isolation includes all twenty-four executable TIR modules", async () => {
+test("fresh strict whole-owner isolation includes every current executable TIR module", async () => {
   const module = hostCatalogue.find(item => item.name === "ir-tir");
   const candidates = [...sourceFiles];
   for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer"]) {
@@ -6777,7 +6857,7 @@ test("fresh strict whole-owner isolation includes all twenty-four executable TIR
     interfaceSources, declarationSources: [...closure].sort(), outputDirectory: ".temp/ir-tir-isolation" });
   writeFileSync(resolve(repository, ".temp/ir-tir-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 5000));
-  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, 25);
+  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, 32);
   assert.equal(report.provenance.length > 0, true, "real dependency declarations were freshly produced from their actual source closure");
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
 });
@@ -6803,9 +6883,9 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 24, "all twenty-four actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.equal(result.length, 31, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 24);
+    assert.equal(report.files.filter(file => file.status === "covered").length, 31);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1);
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

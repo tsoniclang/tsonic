@@ -58,14 +58,14 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     "write" | "retention" | "callback", position: number | null): LocatedSite =>
     ({ kind: "authored-summary", identity: summary.identity, table, index: position });
   const entry = index.exports.get(exportKey(summary.identity));
-  if (entry == null || entry.signature === null) {
+  if (entry === undefined || entry === null || entry.signature === null) {
     output.push(violation("authored-summary-identity-resolves", site("parameter", null)));
   }
   const dense = (rows: readonly { readonly id: number }[],
     table: "projection" | "producer" | "origins" | "boundary"): ReadonlySet<number> => {
     const identifiers = new Set<number>();
     for (const [position, row] of rows.entries()) {
-      if (!Object.hasOwn(rows, position) || !integral(row.id) || row.id !== position) {
+      if (row === undefined || !integral(row.id) || row.id !== position) {
         output.push(violation("authored-summary-id-dense", site(table, position)));
       } else identifiers.add(position);
     }
@@ -83,7 +83,7 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     if (value !== null) reference(value, projections, owner, "projection");
   };
   const parameter = (value: number, owner: LocatedSite): void => {
-    if (!integral(value) || entry != null && entry.signature !== null && value >= entry.signature.parameters.length) {
+    if (!integral(value) || entry !== undefined && entry !== null && entry.signature !== null && value >= entry.signature.parameters.length) {
       output.push(violation("authored-summary-parameter-range", owner, encodeKey(value)));
     }
   };
@@ -110,8 +110,10 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     if (projection.parent !== null && (!integral(projection.parent) || projection.parent >= projection.id)) {
       output.push(violation("authored-summary-path-parent-precedes", owner));
     }
+    const declaration = projection.projection.kind === "field" || projection.projection.kind === "method-value"
+      ? index.exports.get(exportKey(projection.projection.identity)) : undefined;
     if ((projection.projection.kind === "field" || projection.projection.kind === "method-value") &&
-      index.exports.get(exportKey(projection.projection.identity)) == null) {
+      (declaration === undefined || declaration === null)) {
       output.push(violation("authored-summary-reference-resolves", owner, "export", exportKey(projection.projection.identity)));
     }
   }
@@ -128,7 +130,8 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
       case "capture": capture(producer.index, owner); break;
       case "allocation": logicalSite(producer.site, owner); break;
       case "shared":
-        if (index.exports.get(exportKey(producer.identity)) == null) {
+        const declaration = index.exports.get(exportKey(producer.identity));
+        if (declaration === undefined || declaration === null) {
           output.push(violation("authored-summary-reference-resolves", owner, "export", exportKey(producer.identity)));
         }
         break;
@@ -204,7 +207,8 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
     switch (target.kind) {
       case "shared":
         path(target.path, owner);
-        if (index.exports.get(exportKey(target.identity)) == null) {
+        const declaration = index.exports.get(exportKey(target.identity));
+        if (declaration === undefined || declaration === null) {
           output.push(violation("authored-summary-reference-resolves", owner, "export", exportKey(target.identity)));
         }
         break;
@@ -234,7 +238,7 @@ export function validateAuthoredSummary(summary: LibraryAuthoredSummary, index: 
       output.push(violation("authored-summary-effects-order", owner));
     }
     previousCallback = callback.parameterIndex;
-    if (entry != null) {
+    if (entry !== undefined && entry !== null) {
       const signatures = callbackSignatures(entry, callback.parameterIndex, callbacks);
       const targetParameter = (value: number): void => {
         if (!integral(value) || signatures.length === 0 || signatures.some(signature => value >= signature.parameters.length)) {

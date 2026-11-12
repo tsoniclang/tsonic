@@ -77,8 +77,8 @@ const reachedMembers = (
 export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
   const violations: Violation<CallGraphRule, FactsSite>[] = [];
   const report = (rule: CallGraphRule, site: FactsSite, text: string): void => {
-    const detail: MessageArgument = Object.freeze({ kind: "text", value: text });
-    violations.push(Object.freeze({ rule, site, detail: Object.freeze([detail]) }));
+    const detail: MessageArgument = ({ kind: "text", value: text });
+    violations.push(({ rule, site, detail: ([detail]) }));
   };
   const definitions = new Set<DefId>();
   let previousDefinition: DefId | undefined;
@@ -229,5 +229,5 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
       report("component-acyclic", componentSite(state.component), "The condensation graph must be acyclic; recursion belongs inside one component.");
     }
   }
-  return Object.freeze(violations);
+  return (violations);
 };

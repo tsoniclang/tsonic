@@ -36,7 +36,8 @@ export function bindCatalogueRoles(catalogue: LibraryCatalogue,
   const ordered = [...groups.values()].sort((left, right) => compareExports(left.entry.identity, right.entry.identity));
   for (const group of ordered) {
     const entry = group.entry;
-    if (group.count !== 1 || !group.local || index.exports.get(exportKey(entry.identity)) == null) {
+    const declared = index.exports.get(exportKey(entry.identity));
+    if (group.count !== 1 || !group.local || declared === undefined || declared === null) {
       diagnostics.push(roleDiagnostic(entry.identity));
     } else {
       sourceRoles.push({ identity: entry.identity, role: entry.role, definition: definitionOfExport(entry.identity) });

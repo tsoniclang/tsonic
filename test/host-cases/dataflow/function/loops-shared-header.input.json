@@ -1,6 +1,6 @@
 {
   "operation": "naturalLoops",
-  "graph": { "vertices": [0, 1, 2, 3, 4], "successors": [[1], [2, 3, 4], [1], [1], []] },
+  "graph": { "successors": [[1], [2, 3, 4], [1], [1], []] },
   "entry": 0,
   "limits": { "maximumWork": 10000, "maximumResultEntries": 10000 }
 }

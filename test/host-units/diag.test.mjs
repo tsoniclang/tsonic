@@ -80,20 +80,20 @@ after(async () => {
 });
 
 function diagnostic(site, rendered, message = rendered) {
-  return Object.freeze({ code: Object.freeze({ kind: "checker", number: 0, rendered }), severity: "error",
-    site, source: null, evidence: Object.freeze([]), message, arguments: Object.freeze([]),
-    related: Object.freeze([]), fix: null });
+  return ({ code: ({ kind: "checker", number: 0, rendered }), severity: "error",
+    site, source: null, evidence: ([]), message, arguments: ([]),
+    related: ([]), fix: null });
 }
 
 function origin(module = "M[P[project];source.ts]", start = 0) {
-  return Object.freeze({ module, start, length: 0, derived: Object.freeze([]) });
+  return ({ module, start, length: 0, derived: ([]) });
 }
 
 function assertOrder(input, expected, label) {
   const beforeOrder = [...input];
   const beforeValues = structuredClone(input);
   const expectedValues = structuredClone(expected);
-  const actual = product.orderDiagnostics(Object.freeze(input));
+  const actual = product.orderDiagnostics((input));
   assert.deepEqual(actual, expectedValues, label);
   assert.deepEqual(input, beforeValues, label + ": complete input values remain unchanged");
   assert.equal(actual === input, false, `${label}: ordering owns a result vector, never mutates the caller`);
@@ -197,9 +197,9 @@ test("file paths and file/none rendered codes retain exact UTF-16 ordering witho
 
 test("each site domain independently preserves host, checker and extension code identities", () => {
   for (const site of [{ kind: "source", origin: origin() }, { kind: "file", path: "exact.ts" }, { kind: "none" }]) {
-    const checker = Object.freeze({ ...diagnostic(site, "A"), code: { kind: "checker", number: 0, rendered: "A" } });
-    const extension = Object.freeze({ ...diagnostic(site, "B"), code: { kind: "extension", number: 91, extensionCode: "EXACT", rendered: "B" } });
-    const host = Object.freeze({ ...diagnostic(site, "C"), code: { kind: "host", name: "HOST_EXACT", rendered: "C" } });
+    const checker = ({ ...diagnostic(site, "A"), code: { kind: "checker", number: 0, rendered: "A" } });
+    const extension = ({ ...diagnostic(site, "B"), code: { kind: "extension", number: 91, extensionCode: "EXACT", rendered: "B" } });
+    const host = ({ ...diagnostic(site, "C"), code: { kind: "host", name: "HOST_EXACT", rendered: "C" } });
     assertOrder([host, checker, extension], [checker, extension, host], `${site.kind}: independent three-code domain`);
     const output = product.orderDiagnostics([host, checker, extension]);
     assert.equal(output[0].code === checker.code && output[1].code === extension.code && output[2].code === host.code,
@@ -208,32 +208,32 @@ test("each site domain independently preserves host, checker and extension code 
 });
 
 test("canonical ties retain full host/checker/extension payloads, repeated entries and nested identities", () => {
-  const site = Object.freeze({ kind: "source", origin: Object.freeze({
+  const site = ({ kind: "source", origin: ({
     module: "M[P[project];\uD800-source.ts]", start: 2, length: 7,
-    derived: Object.freeze([{ kind: "lowering", pass: "front" }, { kind: "expansion", expansion: "expansion-1" }]),
+    derived: ([{ kind: "lowering", pass: "front" }, { kind: "expansion", expansion: "expansion-1" }]),
   }) });
-  const related = Object.freeze([
+  const related = ([
     { site, code: { kind: "host", name: "HOST_EXACT", rendered: "HOST_EXACT" }, message: "related\r\n\uD800" },
     { site: { kind: "file", path: "supplied\\path.ts" }, code: { kind: "checker", number: 0, rendered: "TS0" }, message: "file" },
     { site: { kind: "none" }, code: { kind: "extension", number: 0, extensionCode: "OWNER_0", rendered: "TS0" }, message: "none" },
   ]);
-  const argumentsValue = Object.freeze([
+  const argumentsValue = ([
     { kind: "text", value: "\uD800\r\n\uDFFF" },
     { kind: "integer", value: 900719925474099312345678901234567890n },
     { kind: "number", value: -0 },
     { kind: "origin", value: site.origin },
   ]);
-  const fix = Object.freeze({ description: "keep authored replacement", edits: Object.freeze([
+  const fix = ({ description: "keep authored replacement", edits: ([
     { origin: site.origin, replacement: "\r\n\uD800replacement" },
     { origin: origin(undefined, 0), replacement: "" },
   ]) });
-  const first = Object.freeze({ code: { kind: "host", name: "HOST_0", rendered: "TS0" }, severity: "warning",
-    site, source: "owner\r\n\uD800", evidence: Object.freeze(["repeat", "repeat", "exact\uDFFF"]), message: "first\r\n",
+  const first = ({ code: { kind: "host", name: "HOST_0", rendered: "TS0" }, severity: "warning",
+    site, source: "owner\r\n\uD800", evidence: (["repeat", "repeat", "exact\uDFFF"]), message: "first\r\n",
     arguments: argumentsValue, related, fix });
-  const second = Object.freeze({ ...first, code: { kind: "checker", number: 0, rendered: "TS0" }, severity: "suggestion", message: "second" });
-  const third = Object.freeze({ ...first, code: { kind: "extension", number: 0, extensionCode: "OWNER_0", rendered: "TS0" },
+  const second = ({ ...first, code: { kind: "checker", number: 0, rendered: "TS0" }, severity: "suggestion", message: "second" });
+  const third = ({ ...first, code: { kind: "extension", number: 0, extensionCode: "OWNER_0", rendered: "TS0" },
     severity: "error", source: null, message: "third" });
-  const input = Object.freeze([second, first, third, first]);
+  const input = ([second, first, third, first]);
   const output = product.orderDiagnostics(input);
   const expected = [first, first, second, third];
   assert.equal(output.length, 4);
@@ -261,7 +261,7 @@ test("equal source keys use length after rendered code and complete content in b
 test("every diagnostic content family breaks primary ties without production-order dependence", () => {
   const site = { kind: "source", origin: origin() };
   const base = diagnostic(site, "S", "same");
-  const changed = fields => Object.freeze({ ...base, ...fields });
+  const changed = fields => ({ ...base, ...fields });
   const lowerOrigin = { ...origin(), derived: [{ kind: "lowering", pass: "front" }] };
   const higherOrigin = { ...origin(), derived: [{ kind: "lowering", pass: "infer" }] };
   const related = (relatedSite, code, message) => [{ site: relatedSite, code, message }];
@@ -328,7 +328,7 @@ test("sparse diagnostic vectors retain complete original values and deterministi
   ]) {
     const sparse = new Array(2);
     sparse[1] = row;
-    const vectors = [[], new Array(1), [row], sparse].map(value => Object.freeze(value));
+    const vectors = [[], new Array(1), [row], sparse].map(value => (value));
     const expected = vectors.map(make);
     for (const value of expected) assertOrder([value], [value], label + ": complete singleton");
     assertOrder([...expected].reverse(), expected, label + ": reverse input");
@@ -338,21 +338,20 @@ test("sparse diagnostic vectors retain complete original values and deterministi
 });
 
 test("registry lookup returns only the exact matching supplied definition and has no hidden registry", () => {
-  const first = Object.freeze({ code: "HOST_A", severity: "error", stage: "front", template: "A {0}" });
-  const last = Object.freeze({ code: "HOST_Z", severity: "suggestion", stage: "driver", template: "Z {0}\uD800" });
-  const registry = Object.freeze({ definitions: Object.freeze([first, last]) });
+  const first = ({ code: "HOST_A", severity: "error", stage: "front", template: "A {0}" });
+  const last = ({ code: "HOST_Z", severity: "suggestion", stage: "driver", template: "Z {0}\uD800" });
+  const registry = ({ definitions: ([first, last]) });
   assert.equal(product.lookupDiagnostic(registry, "HOST_A") === first, true);
   assert.equal(product.lookupDiagnostic(registry, "HOST_Z") === last, true);
   for (const absent of ["HOST", "host_a", " HOST_A", "HOST_A ", "HOST_A\0", ""])
     assert.equal(product.lookupDiagnostic(registry, absent), null, `exact absence ${JSON.stringify(absent)}`);
   assert.equal(product.lookupDiagnostic({ definitions: [] }, "HOST_A"), null, "no fallback to an earlier supplied registry");
-  const replacement = Object.freeze({ ...first, template: "different exact caller registry" });
+  const replacement = ({ ...first, template: "different exact caller registry" });
   assert.equal(product.lookupDiagnostic({ definitions: [replacement] }, "HOST_A") === replacement, true);
   const sparse = new Array(5);
   sparse[1] = first;
   sparse[3] = last;
   const expected = structuredClone(sparse);
-  Object.freeze(sparse);
   assert.equal(product.lookupDiagnostic({ definitions: sparse }, "HOST_A") === first, true);
   assert.equal(product.lookupDiagnostic({ definitions: sparse }, "HOST_Z") === last, true);
   assert.equal(product.lookupDiagnostic({ definitions: sparse }, "ABSENT"), null);
@@ -363,9 +362,9 @@ test("registry lookup returns only the exact matching supplied definition and ha
 test("invariants retain every actual owner, nullable query/origin and exact failure cause without reading its stack", () => {
   const owners = hostCatalogue.filter(module => module.name !== "ids").map(module => module.name);
   for (const owner of owners) {
-    for (const query of [null, Object.freeze({ name: "query\uD800", encodedKey: "[exact]\r\n" })]) {
+    for (const query of [null, ({ name: "query\uD800", encodedKey: "[exact]\r\n" })]) {
       for (const selectedOrigin of [null, origin()]) {
-        const failure = Object.freeze({ owner, query, origin: selectedOrigin, message: "invariant\r\n\uDFFF" });
+        const failure = ({ owner, query, origin: selectedOrigin, message: "invariant\r\n\uDFFF" });
         assert.throws(() => product.throwInvariant(failure), thrown => thrown instanceof Error &&
           thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);
         assert.equal(Object.hasOwn(failure, "stack"), false, "the original failure record is not mutated");
@@ -381,12 +380,11 @@ test("invariants retain every actual owner, nullable query/origin and exact fail
 });
 
 test("required presence preserves every present value and exact caller identity without interpreting its contents", () => {
-  const failure = Object.freeze({ owner: "ir-program", query: null, origin: null, message: "present values do not fail" });
-  const record = Object.freeze({ name: "complete\r\n\uD800", nested: Object.freeze({ count: 7n, absent: null }) });
-  const vector = Object.freeze([record, record, null]);
+  const failure = ({ owner: "ir-program", query: null, origin: null, message: "present values do not fail" });
+  const record = ({ name: "complete\r\n\uD800", nested: ({ count: 7n, absent: null }) });
+  const vector = ([record, record, null]);
   const sparse = new Array(3);
   sparse[1] = record;
-  Object.freeze(sparse);
   const values = [null, false, true, 0, -0, NaN, Infinity, -Infinity, 0n, 9007199254740993n, "", "\uD800\r\n", record, vector, sparse];
   for (const [index, value] of values.entries())
     assert.equal(Object.is(product.requirePresent(value, failure), value), true, `present value ${index} is unchanged`);
@@ -396,9 +394,9 @@ test("required presence preserves every present value and exact caller identity 
 });
 
 test("required absence uses the same invariant owner and retains the entire exact supplied failure", () => {
-  for (const query of [null, Object.freeze({ name: "publication", encodedKey: "exact\r\n\uD800" })]) {
-    for (const selectedOrigin of [null, Object.freeze(origin("M[P[project];exact.ts]", 7))]) {
-      const failure = Object.freeze({ owner: "dataflow", query, origin: selectedOrigin, message: "missing row\r\n\uDFFF" });
+  for (const query of [null, ({ name: "publication", encodedKey: "exact\r\n\uD800" })]) {
+    for (const selectedOrigin of [null, (origin("M[P[project];exact.ts]", 7))]) {
+      const failure = ({ owner: "dataflow", query, origin: selectedOrigin, message: "missing row\r\n\uDFFF" });
       const beforeFailure = structuredClone(failure);
       assert.throws(() => product.requirePresent(undefined, failure), thrown => thrown instanceof Error &&
         thrown.name === "Error" && thrown.message === failure.message && thrown.cause === failure);

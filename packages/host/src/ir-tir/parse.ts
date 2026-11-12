@@ -91,9 +91,12 @@ const skipSpace = (state: TirReadState): void => {
 
 const tokenHead = (state: TirReadState): { readonly offset: number; readonly found: string | null } => {
   skipSpace(state);
-  const word = /[A-Za-z_$][A-Za-z0-9_$-]*/uy;
-  word.lastIndex = state.position;
-  return { offset: state.position, found: word.exec(state.text)?.[0] ?? state.text[state.position] ?? null };
+  let end = state.position;
+  if (/[A-Za-z_$]/u.test(state.text.charAt(end))) {
+    do { end++; } while (/[A-Za-z0-9_$-]/u.test(state.text.charAt(end)));
+  }
+  return { offset: state.position, found: end === state.position
+    ? state.text[state.position] ?? null : state.text.slice(state.position, end) };
 };
 
 interface TirFieldNameRead {
@@ -217,11 +220,26 @@ const readToken = (state: TirReadState, field: TirFieldNameRead | null = null): 
     return token;
   }
   if (character === "-" || /[0-9]/u.test(character)) {
-    const expression = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?n?/uy;
-    expression.lastIndex = start;
-    const selected = expression.exec(text)?.[0];
-    if (selected === undefined) return invalid(start, ["number"], character);
-    state.position += selected.length;
+    let end = character === "-" ? start + 1 : start;
+    const first = text.charAt(end);
+    if (first === "0") end++;
+    else if (first >= "1" && first <= "9") {
+      do { end++; } while (text.charAt(end) >= "0" && text.charAt(end) <= "9");
+    } else return invalid(start, ["number"], character);
+    if (text[end] === "." && text.charAt(end + 1) >= "0" && text.charAt(end + 1) <= "9") {
+      end += 2;
+      while (text.charAt(end) >= "0" && text.charAt(end) <= "9") end++;
+    }
+    if (text[end] === "e") {
+      let exponent = end + 1;
+      if (text[exponent] === "+" || text[exponent] === "-") exponent++;
+      const firstDigit = exponent;
+      while (text.charAt(exponent) >= "0" && text.charAt(exponent) <= "9") exponent++;
+      if (exponent > firstDigit) end = exponent;
+    }
+    if (text[end] === "n") end++;
+    const selected = text.slice(start, end);
+    state.position = end;
     if (selected.endsWith("n")) {
       if (!/^-?(?:0|[1-9][0-9]*)n$/u.test(selected) || selected === "-0n") return invalid(start, ["canonical bigint"], selected);
       return { kind: "scalar", text: selected, value: BigInt(selected.slice(0, -1)), offset: start, end: state.position };

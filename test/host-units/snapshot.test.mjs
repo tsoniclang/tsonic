@@ -86,15 +86,15 @@ function issue(rule, site, ...details) { return { rule, site, detail: details.ma
 function sparseIssue(site, field, index = 0) {
   return { rule: "stable-order", site, detail: [{ kind: "text", value: field }, { kind: "number", value: index }] };
 }
-function frozen(value) {
-  const work = [value];
-  for (const current of work) {
-    if (current === null || typeof current !== "object" || Object.isFrozen(current)) continue;
-    Object.freeze(current);
-    for (const field of Object.values(current)) work.push(field);
-  }
-  return value;
-}
+
+
+
+
+
+
+
+
+
 function snapshot() {
   const root = packageId();
   const entry = moduleId();
@@ -109,14 +109,14 @@ function snapshot() {
       libraryData: [],
     },
     entryPoint: entry, roots: [entry],
-    selection: { target: { id: "native", surfaces: [], options: {} }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
+    selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
     contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
       requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [] },
     platform: { layouts: [] },
   };
 }
 function verify(value, expected, actual = []) {
-  assert.deepEqual(product.verifySnapshot(frozen(value), frozen(actual)), expected);
+  assert.deepEqual(product.verifySnapshot((value), (actual)), expected);
 }
 function peer(value, root = "/library") {
   const id = packageId(root);
@@ -702,6 +702,11 @@ test("identical repeated violations retain multiplicity with a complete determin
 });
 
 for (const field of ["packages", "modules", "files", "components", "libraryData"]) {
+  test(`stable-order reports a native absent ${field} slot without losing later present rows`, () => {
+    const value = snapshot();
+    value.packages[field] = [null, ...value.packages[field]];
+    verify(value, [sparseIssue({ kind: "snapshot" }, field)]);
+  });
   test(`stable-order reports a type-correct sparse ${field} slot and still checks all later present rows`, () => {
     const value = snapshot();
     const original = value.packages[field];
@@ -803,7 +808,7 @@ for (const name of ["unnamed-root", "missing-root", "extensions-table-mismatch"]
       adapters: { verifier: input => {
         assert.equal(input.format, "json");
         const value = JSON.parse(input.text);
-        return { kind: "accepted", value: product.verifySnapshot(frozen(value.snapshot), frozen(value.actualExtensionReferences)), diagnostics: [] };
+        return { kind: "accepted", value: product.verifySnapshot((value.snapshot), (value.actualExtensionReferences)), diagnostics: [] };
       } },
     }, `test/host-cases/snapshot/verifier/${name}.case.json`);
     assert.equal(result.status, "passed", JSON.stringify(result));
@@ -848,10 +853,11 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'import type { ProjectSnapshot, VerifySnapshot, ExtensionReferenceEntry, SnapshotRule, SnapshotSite } from "./snapshot/contract.js";\n'
     + 'import type { Violation } from "./diag/contract.js";\n'
     + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
-    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
-  writeFileSync(resolve(stage, "consumer.ts"), source);
+  writeFileSync(resolve(stage, "consumer.ts"), source
+    + 'export const nativeOptions: import("./snapshot/contract.js").TargetOptions = {kind:"record",fields:[["metadata",{kind:"record",fields:[["enabled",true],["values",[null,0,"text"]]]}]]};\n');
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
     target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", lib: ["ES2022"], types: [],
@@ -876,6 +882,9 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     .map(path => relative(stage, path).split(sep).join("/")).sort(),
   ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
   const negative = [
+    ["removed-object-options.ts", 2739, 'import type { TargetOptions } from "./snapshot/contract.js"; export const old: TargetOptions = {};'],
+    ["readonly-option-fields.ts", 2339, 'import type { TargetOptions } from "./snapshot/contract.js"; export function mutate(value: TargetOptions): void { value.fields.push(["enabled",true]); }'],
+    ["json-excludes-bigint.ts", 2322, 'import type { TargetOptions } from "./snapshot/contract.js"; export const wrong: TargetOptions = {kind:"record",fields:[["bits",1n]]};'],
     ["readonly-result.ts", 2339, 'import { verifySnapshot } from "./snapshot/index.js"; import { value } from "./consumer.js"; verifySnapshot(value,[]).push();'],
     ["missing-reference-view.ts", 2554, 'import { verifySnapshot } from "./snapshot/index.js"; import { value } from "./consumer.js"; verifySnapshot(value);'],
     ["readonly-snapshot.ts", 2540, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function update(value: ProjectSnapshot): void { value.entryPoint = value.entryPoint; }'],

@@ -105,7 +105,7 @@ function checkedResourceBudget(selected) {
   for (const field of fields.filter(field => field !== "memoryRequestSource")) positiveInteger(selected[field], field);
   if (selected.cpuBudget !== selected.availableCpus) throw new Error("CPU caps are not supported.");
   if (selected.heapMiB >= selected.memoryMiB) throw new Error("The heap cap must leave room in the outer group for native memory.");
-  return Object.freeze({ ...selected });
+  return ({ ...selected });
 }
 
 function configuredInteger(value, name) {

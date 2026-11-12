@@ -5,15 +5,15 @@ import { hostCatalogue, publicEntry, sourceOwner, testOwner } from "./catalogue.
 import { cyclicSources, parseSources, quarantineReference, readImportGraph, sourceSymbol } from "./import-graph.mjs";
 import { sourceFindings } from "./source-rules.mjs";
 
-const limitOwners = Object.freeze({ NavigationCaptureLimits: "front", LiteralCaptureLimits: "front", InferenceLimits: "infer",
+const limitOwners = ({ NavigationCaptureLimits: "front", LiteralCaptureLimits: "front", InferenceLimits: "infer",
   EvaluatorLimits: "evaluate", DataflowLimits: "dataflow", SummaryLimits: "summaries", MetadataLimits: "metadata",
   TypeExpansionLimits: "ir-types", QueryLimits: "query", InstantiationLimits: "ir-program" });
 
 export function createInspectionDeps(quarantineRoots) {
   if (quarantineRoots.length === 0 || quarantineRoots.some(root => typeof root !== "string" || root.split("/").some(part => ["", ".", ".."].includes(part))))
     throw new Error("The explicit admitted quarantine area roots are required.");
-  return Object.freeze({ catalogue: hostCatalogue, readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
-    parse: parseSources, graph: readImportGraph, quarantineRoots: Object.freeze([...quarantineRoots]) });
+  return ({ catalogue: hostCatalogue, readText: path => readFileSync(path, "utf8"), canonical: realpathSync,
+    parse: parseSources, graph: readImportGraph, quarantineRoots: ([...quarantineRoots]) });
 }
 
 /** @type {import("./contracts.d.mts").InspectHost} */
@@ -26,7 +26,7 @@ export function inspectHost(deps, inputs) {
   const findings = [];
   const add = (code, path, line = 1, column = 1) => {
     if (!findings.some(finding => finding.code === code && finding.path === path && finding.line === line && finding.column === column))
-      findings.push(Object.freeze({ code, path, line, column }));
+      findings.push(({ code, path, line, column }));
   };
   const ownedPath = path => {
     if (typeof path !== "string" || path.length === 0 || isAbsolute(path) || path.includes("\\") || path.includes("\0") ||
@@ -146,5 +146,5 @@ export function inspectHost(deps, inputs) {
     };
     visit(data);
   }
-  return Object.freeze(findings.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.code.localeCompare(right.code)));
+  return (findings.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.code.localeCompare(right.code)));
 }

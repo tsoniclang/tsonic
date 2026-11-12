@@ -2214,9 +2214,13 @@ export interface PragmaArgument extends TextRange {
   readonly value: string;
 }
 
-export interface PragmaArguments {
-  readonly [name: string]: PragmaArgument;
+export interface PragmaArgumentEntry {
+  readonly name: string;
+  readonly value: PragmaArgument;
 }
+
+export type PragmaArguments = readonly PragmaArgumentEntry[];
+export type OrderPragmaArguments = (value: PragmaArguments) => PragmaArguments;
 
 export interface Pragma extends CommentRange {
   readonly name: string;

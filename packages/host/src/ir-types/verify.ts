@@ -300,7 +300,7 @@ export const verifyTypes: VerifyTypes = input => {
   const add: Add = (rule, site, field, value) => {
     const detail: MessageArgument[] = [{ kind: "text", value: field }];
     if (value !== undefined) detail.push({ kind: "number", value });
-    violations.push(Object.freeze({ rule, site: Object.freeze(site), detail: Object.freeze(detail.map(argument => Object.freeze(argument))) }));
+    violations.push(({ rule, site: (site), detail: (detail.map(argument => (argument))) }));
   };
   const { table } = input;
   const typeOf = (value: TyId, site: TypeSite): TyId => {
@@ -392,5 +392,5 @@ export const verifyTypes: VerifyTypes = input => {
   }
   verifyBindings(input.bindings, table.terms.length, add);
   verifyEvidence(input.evidence, table.terms, checks);
-  return Object.freeze(violations);
+  return (violations);
 };

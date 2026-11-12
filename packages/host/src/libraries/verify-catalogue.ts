@@ -206,7 +206,7 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
   const types = new Map<LibraryTypeId, LibraryType>();
   for (let position = 0; position < module.types.length; position += 1) {
     const type = module.types[position];
-    if (type === undefined || !Object.hasOwn(module.types, position)) {
+    if (type === undefined) {
       output.push(violation("type-id-dense", site, String(position)));
     } else {
       if (!Number.isSafeInteger(type.id) || Object.is(type.id, -0) || type.id !== position) {
@@ -303,7 +303,8 @@ function verifyModule(module: LibraryModule, index: CatalogueIndex, output: Libr
     previousRole = role.identity;
     if (roles.has(key)) output.push(violation("role-identities-unique", roleSite));
     roles.add(key);
-    if (moduleKey(role.identity.module) !== moduleKey(module.identity) || index.exports.get(key) == null) {
+    const declaration = index.exports.get(key);
+    if (moduleKey(role.identity.module) !== moduleKey(module.identity) || declaration === undefined || declaration === null) {
       output.push(violation("role-export-resolves", roleSite));
     }
   }
@@ -382,7 +383,8 @@ export function checkLibraryCatalogue(catalogue: LibraryCatalogue): readonly Lib
       verifyModule(module, index, output);
     }
     for (const text of source.declarations) {
-      if (text.module !== null && index.modules.get(moduleKey(text.module)) == null) {
+      const declared = text.module === null ? null : index.modules.get(moduleKey(text.module));
+      if (text.module !== null && (declared === undefined || declared === null)) {
         output.push(violation("text-module-resolves", { kind: "text", fileName: text.fileName }));
       }
     }

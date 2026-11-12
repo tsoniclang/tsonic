@@ -255,7 +255,7 @@ const arrayTail = <Value>(state: State, decode: Decode<Value>, values: Value[]):
   while (true) {
     const separator = peek(state);
     if (separator.kind === "punctuation" && separator.text === "]") {
-      advance(state, separator); return accept(Object.freeze(values));
+      advance(state, separator); return accept((values));
     }
     if (separator.kind !== "punctuation" || separator.text !== ",") return fail(separator, [",", "]"]);
     advance(state, separator);
@@ -268,7 +268,7 @@ const sequence = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>
   if (input.kind !== "punctuation" || input.text !== "[") return fail(input, ["array"]);
   advance(state, input);
   const first = peek(state);
-  if (first.kind === "punctuation" && first.text === "]") { advance(state, first); return accept(Object.freeze([])); }
+  if (first.kind === "punctuation" && first.text === "]") { advance(state, first); return accept(([])); }
   if (first.kind === "end") return fail(first, ["]"]);
   return then(decode(state, first), value => arrayTail(state, decode, [value]));
 };
@@ -279,7 +279,7 @@ const nonempty = <Value>(state: State, input: SyntaxValue, decode: Decode<Value>
   if (first.kind === "punctuation" && first.text === "]") return fail(input, ["nonempty array"]);
   return then(decode(state, first), value => then(arrayTail(state, decode, []), rest => {
     const result: readonly [Value, ...Value[]] = [value, ...rest];
-    return accept(Object.freeze(result));
+    return accept((result));
   }));
 };
 const identityPrefix = (state: State, input: SyntaxValue, prefix: string, payload: "number" | "string"): Decoded<null> => {

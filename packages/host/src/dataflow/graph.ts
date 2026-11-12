@@ -63,9 +63,8 @@ export function takeEntries(meter: Meter, count: number): DataflowStop | null {
   return null;
 }
 
-function graphFromRows<Value>(
+function graphFromRows<Value extends {}>(
   rows: Iterable<readonly [number, Value]>,
-  present: (index: number) => boolean,
   successors: (node: GraphNode<Value>) => Iterable<number>,
   meter: Meter,
 ): DataflowResult<GraphView<Value>> {
@@ -74,7 +73,7 @@ function graphFromRows<Value>(
   for (const [index, value] of rows) {
     const rowStop = takeWork(meter);
     if (rowStop !== null) return rowStop;
-    if (!present(index)) throw new TypeError(`vertex ${index} is missing`);
+    if (value === undefined || value === null) throw new TypeError(`vertex ${index} is missing`);
     const node: GraphNode<Value> = { index, value, successors: [], predecessors: new Map<number, GraphNode<Value>>() };
     nodes.push(node);
     byIndex.set(index, node);
@@ -95,25 +94,21 @@ function graphFromRows<Value>(
   return { kind: "complete", value: graph };
 }
 
-export function buildGraph<Vertex>(input: DirectedGraph<Vertex>, meter: Meter): DataflowResult<GraphView<Vertex>> {
-  if (input.vertices.length !== input.successors.length) {
-    throw new TypeError("successor rows must match the vertex inventory");
-  }
-  return graphFromRows(input.vertices.entries(), index => Object.hasOwn(input.vertices, index),
-    node => requireCallerValue(input.successors[node.index], `successor row ${node.index}`), meter);
+export function buildGraph(input: DirectedGraph, meter: Meter): DataflowResult<GraphView<readonly number[]>> {
+  return graphFromRows(input.successors.entries(), node => node.value, meter);
 }
 
 export function buildMirGraph(body: MirBody, meter: Meter): DataflowResult<GraphView<MirBlock>> {
-  return graphFromRows(body.blocks.entries(), index => Object.hasOwn(body.blocks, index),
+  return graphFromRows(body.blocks.entries(),
     node => terminatorTargets(node.value.terminator), meter);
 }
 
-export function predecessorsOfGraph<Vertex>(
-  input: DirectedGraph<Vertex>,
+export function predecessorsOfGraph(
+  input: DirectedGraph,
   limits: DataflowLimits,
 ): DataflowResult<readonly (readonly number[])[]> {
   const meter = createMeter(limits);
-  const outerStop = takeEntries(meter, input.vertices.length);
+  const outerStop = takeEntries(meter, input.successors.length);
   if (outerStop !== null) return outerStop;
   const graph = buildGraph(input, meter);
   if (graph.kind === "resource-limit") return graph;
@@ -153,12 +148,10 @@ export function terminatorTargets(terminator: MirTerminator): Iterable<BlockId> 
   }
 }
 
-export function mirGraph(body: MirBody): DirectedGraph<BlockId> {
-  const vertices: BlockId[] = [];
+export function mirGraph(body: MirBody): DirectedGraph {
   const successors: (readonly number[])[] = [];
   for (const block of body.blocks) {
-    vertices.push(block.id);
     successors.push([...terminatorTargets(block.terminator)]);
   }
-  return { vertices, successors };
+  return { successors };
 }

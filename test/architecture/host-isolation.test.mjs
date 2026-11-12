@@ -21,7 +21,7 @@ const contract = path("ir-types");
 const entry = path("ir-types", "index.ts");
 const inferContract = path("infer");
 const inferEntry = path("infer", "index.ts");
-const substituteSources = Object.freeze([
+const substituteSources = ([
   [contract, 'export type Term = { readonly kind: "parameter"; readonly index: number } | { readonly kind: "integer"; readonly value: number };\nexport type Substitute = (term: Term, bindings: readonly Term[]) => Term;'],
   [entry, 'import type { Substitute } from "./contract.js";\nexport const substitute: Substitute = (term, bindings) => term.kind === "parameter" ? bindings[term.index] ?? term : term;'],
   [inferContract, 'import type { Term } from "../ir-types/contract.js";\nexport interface InferDeps { readonly bindings: readonly Term[]; }\nexport type Infer = (deps: InferDeps, input: Term) => Term;'],
@@ -62,7 +62,6 @@ test("real infer imports actual contract-typed substitute through fresh strict p
       assert.equal(provenance.sourceHash, hash);
       assert.equal(/^[0-9a-f]{64}$/u.test(provenance.declarationHash), true);
     }
-    assert.equal(Object.isFrozen(report), true);
   });
 });
 
@@ -290,15 +289,18 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
   const expectedInventory = [...modules.map(module => module.contract),
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
-    ...["index.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "normalize.ts",
+    ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts", "normalize.ts",
       "substitute.ts", "print.ts", "parse.ts", "verify.ts"].map(name => `${host}/ir-types/${name}`),
-    ...["index.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
-      "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts"].map(name => `${host}/ir-hir/${name}`),
+    ...["index.ts", "pragmas.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
+      "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
+      "text-readers.ts", "text-read-scalars.ts", ...Array.from({ length: 10 }, (unusedValue, position) => `text-read-${position}.ts`),
+      ...Array.from({ length: 14 }, (unusedValue, position) => `text-read-syntax-${position}.ts`)].map(name => `${host}/ir-hir/${name}`),
     ...["index.ts", "print.ts", "parse.ts", "text-layouts.ts", "text-construction.ts", "text-syntax-construction.ts",
       "text-model.ts", "text-body.ts", "text-phase-values.ts", "text-phase-declarations.ts", "text-type-values.ts",
       "text-rule-decisions.ts", "text-rule-inputs.ts", "text-captures.ts", "text-memory.ts", "text-syntax-values.ts",
       "text-syntax-statements.ts", "text-syntax-types.ts", "text-syntax-jsx.ts", "text-syntax-docs.ts",
-      "verify.ts", "verify-occurrences.ts", "verify-applications.ts", "verify-instances.ts"].map(name => `${host}/ir-tir/${name}`),
+      "verify.ts", "verify-occurrences.ts", "verify-applications.ts", "verify-instances.ts", "syntax-compare.ts",
+      ...["common", "docs", "jsx", "statements", "types", "values"].map(name => `syntax-compare-${name}.ts`)].map(name => `${host}/ir-tir/${name}`),
     ...["index.ts", "parse.ts", "print.ts", "text-capture-values.ts", "text-captures.ts",
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",
       "text-decisions.ts", "text-evidence.ts", "text-invocations.ts", "text-operations.ts", "text-pointers.ts",
@@ -343,7 +345,14 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     assert.equal(report.status, "passed", `${module.name}: ${label(report)}`);
     assert.equal(report.loadedInventory.length > 0, true, "real compiler input inventory is nonempty");
     assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true, "no undeclared compiler source");
-    assert.equal(report.provenance.length, interfaces.length, "every public dependency has genuine fresh declaration provenance");
+    const declarations = new Set(interfaces);
+    for (const source of declarations) for (const edge of graph) if (edge.source === source && edge.target !== null && edge.kind !== "loader")
+      declarations.add(edge.target);
+    assert.equal(report.provenance.length >= interfaces.length, true, "every public dependency has genuine fresh declaration provenance");
+    assert.equal(report.provenance.every(entry => declarations.has(relative(repository, entry.source))), true,
+      "every staged private type is in the actual public declaration-production closure");
+    assert.deepEqual(report.loadedInventory.filter(path => path.includes("/isolated/") && path.endsWith(".d.ts")).sort(),
+      report.provenance.map(entry => entry.declaration).sort(), "all actual staged declaration inputs have exact source provenance");
     assert.equal(report.sourceInventory.length, closure.size, "complete explicit original module source closure");
   });
 });
@@ -377,6 +386,12 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
         "export function read(value: TypePublication) { const result: TypePublicationResult = { kind: 'complete', value }; return result; }", 2322],
       ["tir-module-without-module", [["ir-tir", "VerifyTirModule, TirVerifierInput"]],
         "export function read(verify: VerifyTirModule, input: TirVerifierInput) { return verify(input); }", 2554],
+      ["tir-closed-source-file-phase", [["ir-tir", "TypedSourceFile"]],
+        "export function read(phase: TypedSourceFile) { const invalid: TypedSourceFile = { ...phase, checker: phase }; return invalid; }", 2353],
+      ["tir-closed-nested-phase", [["ir-types", "BindingVector"]],
+        "export function read(bindings: BindingVector) { const invalid: BindingVector = { ...bindings, views: bindings }; return invalid; }", 2353],
+      ["tir-removed-reflective-rule", [["ir-tir", "TirRule"]],
+        "export function read(): TirRule { return 'no-checker-payload'; }", 2322],
       ["old-tir-flat-binding-scopes", [["ir-tir", "TirVerifierInput"]],
         "export function read(input: TirVerifierInput) { const { bindingScopesOf, ...legacy } = input; void bindingScopesOf; const old = { ...legacy, bindingScopes: [] }; const current: TirVerifierInput = old; return current; }", 2741],
       ["tir-site-with-body-node", [["ir-tir", "TirSite"], ["ids", "NodeRef"]],

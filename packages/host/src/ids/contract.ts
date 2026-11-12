@@ -157,7 +157,12 @@ export interface Origin {
 export type KeyData =
   | string | number | bigint | boolean | null
   | readonly KeyData[]
-  | { readonly [field: string]: KeyData };
+  | KeyRecord;
+
+export interface KeyRecord {
+  readonly kind: "record";
+  readonly fields: readonly (readonly [string, KeyData])[];
+}
 
 export type EncodeKey = (key: KeyData) => string;
 

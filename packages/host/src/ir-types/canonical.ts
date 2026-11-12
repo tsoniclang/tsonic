@@ -5,23 +5,8 @@ import type { LimitStop, PublicationWork, PublicationResult } from "./work.js";
 import { chargeWork, workLimit } from "./work.js";
 import { typeIdentifier, signatureIdentifier, required, compareText } from "./value.js";
 import { typeText, signatureText, memberKeyText } from "./print.js";
-import { readTypeData, readSignatureData } from "./parse.js";
-
-export function immutableCopy<Value extends TypeTerm | Signature | TypeTable>(value: Value): Value {
-  const copy: Value = Object.assign({}, value);
-  const work: object[] = [copy];
-  for (const selected of work) {
-    for (const field in selected) {
-      const child: unknown = Reflect.get(selected, field);
-      if (child === null || typeof child !== "object") continue;
-      const target = Object.assign(Array.isArray(child) ? new Array<unknown>(child.length) : {}, child);
-      work.push(target);
-      Object.defineProperty(selected, field, { value: target, enumerable: true, writable: true, configurable: true });
-    }
-    Object.freeze(selected);
-  }
-  return copy;
-}
+import { readTypeData, readSignatureData } from "./publication-read.js";
+import { copyType, copySignature } from "./copy.js";
 
 function compound<Stop extends LimitStop>(kind: "union" | "intersection", initial: readonly TyId[],
   read: (type: TyId) => TypeTerm | Stop, emit: (value: TypeTerm) => TyId | Stop,
@@ -93,7 +78,7 @@ function remapComponent(root: TypeComponent, typeOf: (value: TyId) => TyId, sign
   }
   type Frame = FrameBase & ({ readonly kind: "root" }
     | { readonly kind: "nested"; readonly parent: Frame; readonly family: SumFamily; readonly index: number });
-  let frame: Frame = { kind: "root", value: root, remaining: root.path[Symbol.iterator](), path: [] };
+  let frame: Frame = { kind: "root", value: root, remaining: root.path.values(), path: [] };
   for (;;) {
 
     const selected: IteratorResult<ComponentSelector> = frame.remaining.next();
@@ -103,7 +88,7 @@ function remapComponent(root: TypeComponent, typeOf: (value: TyId) => TyId, sign
         case "parameter": case "receiver": case "result": case "signature-tail":
           frame.path.push({ ...value, signature: signatureOf(value.signature) }); break;
         case "sum-arm":
-          frame = { kind: "nested", value: value.family.component, remaining: value.family.component.path[Symbol.iterator](),
+          frame = { kind: "nested", value: value.family.component, remaining: value.family.component.path.values(),
             path: [], parent: frame, family: value.family, index: value.index }; break;
         case "class-value": case "optional-value": case "array-element": case "intersection-result": case "projection-source":
         case "awaited": case "construction-argument": case "tuple-element": case "union-member": case "argument-place":
@@ -211,14 +196,13 @@ interface WorkLink { readonly value: Refinement; next: WorkLink | null }
 
 export function readGraphValue(data: GraphValue, work: PublicationWork): PublicationResult<GraphValue> {
   if (data.kind === "type") {
-    const selected = readTypeData(data.value, work, "read", "Canonical publication requires a complete TypeTerm.");
+    const selected = readTypeData(data.value, work, "read");
     return selected.kind === "resource-limit" ? selected : { kind: "complete", value: { kind: "type", value: selected.value } };
   }
   const value: SignatureInput = { declaration: data.value.declaration, owner: data.value.owner, composition: data.value.composition,
     kind: data.value.kind, typeParameters: data.value.typeParameters, receiver: data.value.receiver,
     parameters: data.value.parameters, result: data.value.result };
-  const selected = readSignatureData(value, work,
-    "read", "Canonical publication requires a complete SignatureInput.");
+  const selected = readSignatureData(value, work, "read");
   return selected.kind === "resource-limit" ? selected : { kind: "complete", value: { kind: "signature", value: selected.value } };
 }
 
@@ -451,6 +435,6 @@ export function canonicalTypes(input: TypePublication, work: PublicationWork): P
     }
   }
   if (!chargeWork(work, input.types.length + input.signatures.length)) return workLimit(work);
-  return { kind: "complete", value: Object.freeze({ table: immutableCopy({ terms, signatures: rows }),
-    types: Object.freeze(input.types.map(typeOf)), signatures: Object.freeze(input.signatures.map(signatureOf)) }) };
+  return { kind: "complete", value: ({ table: { terms: terms.map(copyType), signatures: rows.map(copySignature) },
+    types: (input.types.map(typeOf)), signatures: (input.signatures.map(signatureOf)) }) };
 }

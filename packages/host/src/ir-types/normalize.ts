@@ -3,7 +3,7 @@ import type { TyId, SigId } from "../ids/contract.js";
 import type { GraphValue, TypePartition } from "./canonical.js";
 import type { PublicationWork, PublicationResult, PublicationStop } from "./work.js";
 import { chargeWork, chargeCreated, workLimit, createdLimit } from "./work.js";
-import { readTypeData, readSignatureData } from "./parse.js";
+import { readTypeData, readSignatureData } from "./publication-read.js";
 import { inspectGraphValue, readGraphValue, normalizeType, orderedSignature, orderedTerm,
   remapSignature, remapTerm } from "./canonical.js";
 import { typeIdentifier, signatureIdentifier, required } from "./value.js";
@@ -398,11 +398,11 @@ export function normalizePublication(input: TypeTable, partition: TypePartition,
     if (!chargeCreated(work, 1 + count)) return createdLimit(work);
     if (!chargeWork(work, count)) return workLimit(work);
     if (selected.value.data.kind === "type") {
-      const admitted = readTypeData(selected.value.data.value, work, "emit", "Canonical publication requires a complete TypeTerm.");
+      const admitted = readTypeData(selected.value.data.value, work, "emit");
       if (admitted.kind === "resource-limit") return admitted;
       terms.push(orderedTerm(remapTerm(admitted.value, typeOf, signatureOf)));
     } else {
-      const admitted = readSignatureData(selected.value.data.value, work, "emit", "Canonical publication requires a complete SignatureInput.");
+      const admitted = readSignatureData(selected.value.data.value, work, "emit");
       if (admitted.kind === "resource-limit") return admitted;
       if (!chargeWork(work, 1)) return workLimit(work);
       rows.push({ id: required(signatures, node.serial), ...orderedSignature(remapSignature(admitted.value, typeOf, signatureOf)) });

@@ -1,9 +1,33 @@
 import assert from "node:assert/strict";
 import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
+import { artifactBindingsKey, bindingTargetKey, bodyInstanceKey, declarationInstanceKey, libraryExportKey,
+  relationalOwnerKey, sourceReferenceKey } from "./fixtures/verification-keys.mjs";
+
+export function encodeContextKey([name, key]) {
+  let data;
+  switch (name) {
+    case "bodyOf": case "tirBody": data = bodyInstanceKey(key); break;
+    case "bindingScopesOf": data = bindingTargetKey(key); break;
+    case "tirBindingScopesOf": data = key.kind === "module" ? [key.kind, key.module]
+      : [key.kind, bodyInstanceKey(key.instance)]; break;
+    case "arenaOf": data = relationalOwnerKey(key); break;
+    case "captureCount": case "metadataOf": data = declarationInstanceKey(key); break;
+    case "callbackSignaturesOf": data = [declarationInstanceKey(key[0]), key[1]]; break;
+    case "signatureIdOf": data = [key[0], key[1], key[2], artifactBindingsKey(key[3])]; break;
+    case "nodeExists": case "nodeOf": data = sourceReferenceKey(key); break;
+    case "localExists": data = [key.body, key.local]; break;
+    case "libraryExportExists": case "declaredSiteCount": data = libraryExportKey(key); break;
+    case "modulePathOf": case "definitionPathOf": case "tirOf": case "bodyOwner":
+    case "bindingScopeOf": case "nominalOf": case "bindingDependentOf": case "definitionExists":
+    case "declarationOf": data = key; break;
+    default: throw new Error(`Unlisted native context fixture reader: ${name}`);
+  }
+  return encodeKey([name, data]);
+}
 
 function exactLookup(supplied) {
   return (name, key) => {
-    const encoded = encodeKey([name, key]);
+    const encoded = encodeContextKey([name, key]);
     assert.equal(supplied.has(encoded), true, `unlisted actual context lookup: ${name}`);
     return supplied.get(encoded);
   };
@@ -38,7 +62,7 @@ function contextFor(input, lookup) {
 }
 
 export function verificationContext(input) {
-  const supplied = new Map(input.context.lookups.map(row => [encodeKey([row.reader, row.key]), row.value]));
+  const supplied = new Map(input.context.lookups.map(row => [encodeContextKey([row.reader, row.key]), row.value]));
   return contextFor(input, exactLookup(supplied));
 }
 
@@ -126,7 +150,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     rows.push(["nodeExists", bodyReference, true], ["nodeExists", itemReference, true],
       ["nodeOf", bodyReference, node], ["nodeOf", itemReference, node]);
   }
-  const supplied = new Map(rows.map(([reader, key, value]) => [encodeKey([reader, key]), value]));
+  const supplied = new Map(rows.map(([reader, key, value]) => [encodeContextKey([reader, key]), value]));
   const lookup = exactLookup(supplied);
   const tirInput = {
     source, module: { module: moduleId, tree, bodies: [tir] }, types,
@@ -136,7 +160,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     bodyOf: instance => lookup("bodyOf", instance), nominalOf: definition => lookup("nominalOf", definition),
     nodeOf: node => lookup("nodeOf", node), localExists: local => lookup("localExists", local), diagnostics: [],
   };
-  supplied.set(encodeKey(["tirOf", moduleId]), tirInput);
+  supplied.set(encodeContextKey(["tirOf", moduleId]), tirInput);
   const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
   const analysisLimits = { maximumBlocksPerBody: 128, maximumPlacesPerBody: 128, maximumProjectionDepth: 128,
@@ -188,7 +212,7 @@ export function dualInstanceFixture() {
     ["tirBindingScopesOf", { kind: "body", instance }, [fixture.scope, fixture.scope, fixture.scope]],
     ["bindingScopesOf", { kind: "body", instance }, [fixture.scope]],
   ];
-  for (const [reader, key, value] of rows) fixture.answers.set(encodeKey([reader, key]), value);
+  for (const [reader, key, value] of rows) fixture.answers.set(encodeContextKey([reader, key]), value);
   return fixture;
 }
 
@@ -225,7 +249,7 @@ export function moduleBoundaryFixture(change) {
       fixture.module = { module, bodies: [], tree: { ...fixture.module.tree, id: 1,
         tsonic: { ...fixture.module.tree.tsonic, module },
         endOfFileToken: { ...fixture.module.tree.endOfFileToken, parent: 1 } } };
-      fixture.answers.set(encodeKey(["tirOf", module]), null);
+      fixture.answers.set(encodeContextKey(["tirOf", module]), null);
       return fixture;
     }
     default: throw new Error("Unlisted authored module boundary change");
@@ -267,11 +291,11 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
   if (fact !== "absent") published.facts.observations.push({ node: fact === "other-node" ? 1 : 0,
     operation, operand: { body: first.bodyId, node: 0 }, layout: { metadata: key, layout: 0 }, field: null,
     result: 2, value: 1n, context: 0, bindings });
-  first.answers.set(encodeKey(["metadataOf", key]), metadata);
-  first.answers.set(encodeKey(["metadataOf", dataKey]), data);
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "metadata", metadata: key }]), [first.scope]);
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "metadata", metadata: dataKey }]), []);
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "body", instance: first.instance }]),
+  first.answers.set(encodeContextKey(["metadataOf", key]), metadata);
+  first.answers.set(encodeContextKey(["metadataOf", dataKey]), data);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "metadata", metadata: key }]), [first.scope]);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "metadata", metadata: dataKey }]), []);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]),
     fact === "absent" ? [] : [first.scope, first.scope]);
   return { first, second, metadata, data };
 }
@@ -303,9 +327,9 @@ export function publishedArtifactFixture(change) {
       origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] };
     first.index.summaries.push({ key, signature, arena, parameters: [], captures: [], result: 0, thrown: 0,
       writes: [], retention: [], callbacks: [], invocationOnlyParameters: [], suspends: false, bindingDependent: false });
-    first.answers.set(encodeKey(["arenaOf", { kind: "summary", ...key }]), arena);
-    first.answers.set(encodeKey(["bindingScopesOf", { kind: "summary", summary: key }]), [module.scope]);
-    first.answers.set(encodeKey(["captureCount", key]), module.module.bodies[0].tir.captures.length);
+    first.answers.set(encodeContextKey(["arenaOf", { kind: "summary", ...key }]), arena);
+    first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "summary", summary: key }]), [module.scope]);
+    first.answers.set(encodeContextKey(["captureCount", key]), module.module.bodies[0].tir.captures.length);
     first.index.constants.push({ initializer: module.instance, value: { kind: "absence", type: 0 } });
   }
   switch (change) {
@@ -356,14 +380,14 @@ export function metadataFieldFixture(operandKey) {
   metadata.fields.push(field);
   const selected = { key: fieldKey, kind: "memory-field", root: 0, layouts: metadata.layouts, fields: metadata.fields };
   first.index.metadata.push(selected);
-  first.answers.set(encodeKey(["metadataOf", fieldKey]), selected);
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "metadata", metadata: metadata.key }]), [first.scope, third.scope]);
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "metadata", metadata: fieldKey }]), [third.scope, third.scope]);
+  first.answers.set(encodeContextKey(["metadataOf", fieldKey]), selected);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "metadata", metadata: metadata.key }]), [first.scope, third.scope]);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "metadata", metadata: fieldKey }]), [third.scope, third.scope]);
   const published = first.module.bodies[0];
   published.facts.observations.push({ node: 0, operation: "field-offset", operand: { body: first.bodyId, node: 0 },
     layout: { metadata: metadata.key, layout: 1 }, field: { metadata: fieldKey, field: 0 },
     result: 2, value: 0n, context: 0, bindings });
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), [first.scope, third.scope, first.scope]);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), [first.scope, third.scope, first.scope]);
   const selectedKey = operandKey === "layout" ? metadata.key : operandKey === "field" ? fieldKey : data.key;
   published.mir.constants[0].value = { kind: "metadata", ...selectedKey };
   return { first, second, third, fieldKey };
@@ -388,7 +412,7 @@ export function metadataBindingFixture(proof, operandKey) {
       fields: [{ expression: reference(1), binding: 1 }] }];
     scopes.push(first.scope, first.scope);
   }
-  first.answers.set(encodeKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), scopes);
+  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), scopes);
   return fixture;
 }
 

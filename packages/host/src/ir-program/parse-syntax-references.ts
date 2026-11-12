@@ -4,7 +4,7 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { SyntaxDependency, SyntaxPort, SyntaxReadPorts } from "./parse-syntax-values.js";
 
-const missingSyntaxNode = Object.freeze<InvariantFailure>({
+const missingSyntaxNode: InvariantFailure = ({
   owner: "ir-program", query: null, origin: null,
   message: "Validated syntax dependency was not materialized in postorder",
 });

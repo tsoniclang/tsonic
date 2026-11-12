@@ -229,6 +229,45 @@ policy.
 - Prove operations statically and emit closed generated code, source-generated
   metadata, or closed runtime carriers. If proof is unavailable, emit a
   deterministic diagnostic.
+- All Tsonic implementation data and algorithms must remain representable as
+  efficient, statically typed native C# and Rust. JavaScript object-model
+  mechanisms are forbidden: runtime freezing/sealing/extensibility flags,
+  property descriptors or dynamic property definition, prototype discovery or
+  mutation, reflective member discovery/invocation, proxies, and weak-reference
+  or finalization behavior used as an implementation dependency. This includes
+  `Object.freeze`, `Object.defineProperty`, and equivalent renamed wrappers;
+  replacing the spelling without replacing the mechanism is not a fix.
+- Fixed-schema records use direct typed fields and constructors. Genuinely
+  variable named data uses an explicitly typed native collection rather than
+  adding properties to arbitrary objects. Select records, vectors and maps by
+  actual access patterns and native ownership/allocation cost; never turn fixed
+  records into generic dictionaries to avoid writing typed construction code.
+  Migrate affected contracts, producers, consumers, fixtures and tests together,
+  keeping one representation and preserving required canonical wire formats.
+- Native IR inputs are fixed-schema records, not arbitrary extensible
+  JavaScript objects. Their constructors and parsers must materialize only the
+  declared fields; text with any undeclared field is rejected, including nested
+  fields. Verification checks declared data and relationships rather than
+  discovering extra JavaScript properties. TypeScript's structural assignment
+  rules alone do not prove exact records: an unchecked JavaScript extension is
+  not an admitted native IR representation, and must never be presented as
+  equivalent to checked native construction.
+- Opaque mutable capabilities own typed storage privately. Expose their instance
+  type and functional operations, not fabricated structural storage records or
+  runtime property probes. A native owner-private class/struct with private
+  construction and fields is valid; it must not expose a public constructor,
+  instance payload, prototype protocol or mutable module singleton. Architecture
+  checks must follow the opaque boundary without hiding actual public data.
+- Closed JSON-like data uses a declared scalar/array/record carrier, not an open
+  JavaScript object index signature. JSON operations on statically closed data
+  require schema-known native implementations; scalar escaping is not permission
+  for arbitrary-object reflection. Source-level portability is not evidence that
+  both native backends have executed or met their performance budget.
+- Native concepts such as arrays, maps, exact integers, floating-point special
+  values and required source-coordinate encodings are not JavaScript object
+  model emulation. Preserve their specified native semantics and costs. Static
+  readonly contracts and compiler-understood ownership replace runtime freezing;
+  do not simulate JavaScript extensibility or unchecked mutation behavior.
 - Do not attempt capabilities genuinely incompatible with this native, statically
   closed architecture. Full dynamic JavaScript `Proxy` interception is not a
   reason to introduce arbitrary member reflection, hidden emulation or an

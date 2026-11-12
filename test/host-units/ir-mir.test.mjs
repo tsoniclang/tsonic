@@ -2570,6 +2570,8 @@ test("MIR genuine sparse caller values and declared inline component cycles fail
   const base = parsedBody();
   const sparse = { ...base, locals: new Array(1) };
   assert.throws(() => product.printMir(sparse), { name: "TypeError", message: "Sparse MIR value at $.locals[0]" });
+  assert.throws(() => product.printMir({ ...base, locals: [null] }),
+    { name: "TypeError", message: "Sparse MIR value at $.locals[0]" });
   const component = { root: { kind: "body", value: { body: base.body, node: identities.nodeId(0) } }, path: [] };
   component.path.push({ kind: "sum-arm", family: { origin: "authored", component, parameters: [], roles: [] }, index: 0 });
   const conversion = { decision: { kind: "selected", operation: { kind: "conversion", from: identities.tyId(0), to: identities.tyId(0),

@@ -45,9 +45,9 @@ before(async () => {
 });
 
 function diagnostic(number, path, message) {
-  return Object.freeze({ code: Object.freeze({ kind: "checker", number, rendered: `TS${number}` }),
-    severity: "error", site: Object.freeze({ kind: "file", path }), source: "query-case", evidence: Object.freeze([]),
-    message, arguments: Object.freeze([]), related: Object.freeze([]), fix: null });
+  return ({ code: ({ kind: "checker", number, rendered: `TS${number}` }),
+    severity: "error", site: ({ kind: "file", path }), source: "query-case", evidence: ([]),
+    message, arguments: ([]), related: ([]), fix: null });
 }
 
 function evaluate(input) {
@@ -90,15 +90,13 @@ test("query exposes exactly the one agreed public value", () => {
 });
 
 test("an untouched database exposes its exact inputs and empty immutable snapshots without computing", () => {
-  const inputs = Object.freeze({ root: "analysis", count: 0 });
+  const inputs = ({ root: "analysis", count: 0 });
   const database = product.createDatabase(inputs, { maxActiveDepth: 0 });
   assert.equal(database.inputs, inputs);
   const statistics = database.stats();
   const diagnostics = database.diagnostics();
   assert.deepEqual(statistics, []);
   assert.deepEqual(diagnostics, []);
-  assert.equal(Object.isFrozen(statistics), true);
-  assert.equal(Object.isFrozen(diagnostics), true);
   assert.deepEqual(database.stats(), []);
   assert.deepEqual(database.diagnostics(), []);
 });
@@ -119,7 +117,7 @@ test("invalid depth maxima are caller defects, not a refusal, rounding or a hidd
 
 test("construction retains arbitrary actual Inputs rather than encoding, copying or defaulting them", () => {
   const callable = () => "input";
-  for (const inputs of [undefined, null, false, 0, -0, 1n, "", callable, Object.freeze({ value: false })]) {
+  for (const inputs of [undefined, null, false, 0, -0, 1n, "", callable, ({ value: false })]) {
     const database = product.createDatabase(inputs, { maxActiveDepth: 1 });
     assert.equal(database.inputs, inputs);
     assert.deepEqual(database.stats(), []);
@@ -140,7 +138,6 @@ test("one actual query definition receives each database's own Inputs and indepe
     if (request === 0) {
       assert.equal(received.inputs, left.inputs);
       assert.equal(received.run, undefined);
-      assert.equal(Object.isFrozen(received), true);
     }
     assert.deepEqual(right.run(query, "key"), { kind: "completed", value: "right:key", diagnostics: [] });
     assert.equal(received.inputs, right.inputs);
@@ -154,7 +151,7 @@ test("one actual query definition receives each database's own Inputs and indepe
 test("completed wrappers memoize undefined, functions, bigint and every scalar without a missing-value fallback", () => {
   const callable = () => 7;
   const values = [undefined, null, false, true, 0, -0, NaN, Infinity, -Infinity, 9007199254740995n,
-    "", Object.freeze({ value: 1 }), Object.freeze([]), callable];
+    "", ({ value: 1 }), ([]), callable];
   const query = { name: "values", cycle: "invariant", compute: (_, key) => ({ kind: "ok", value: values[key], diagnostics: [] }) };
   const database = product.createDatabase(null, { maxActiveDepth: 1 });
   for (const [key, expected] of values.entries()) {
@@ -200,9 +197,6 @@ test("completed ok and refused diagnostic vectors retain exact snapshots without
   assert.deepEqual(before, [first, second]);
   assert.deepEqual(database.diagnostics(), [first, first, second, second]);
   assert.deepEqual(database.stats(), [{ name: "ok", computed: 1, hits: 1 }, { name: "refused", computed: 1, hits: 1 }]);
-  assert.equal(Object.isFrozen(original), true);
-  assert.equal(Object.isFrozen(original.diagnostics), true);
-  assert.equal(Object.isFrozen(before), true);
 });
 
 test("ok sparse vectors retain empty, absent and later present slots across root and dependency memo hits", () => {
@@ -233,14 +227,12 @@ test("ok sparse vectors retain empty, absent and later present slots across root
       assert.deepEqual(cold, expected);
       const retained = route === "root" ? cold : database.run(child, null);
       assert.deepEqual(retained, { kind: "completed", value: 7, diagnostics: vector.expected });
-      assert.equal(Object.isFrozen(retained) && Object.isFrozen(retained.diagnostics), true);
       assert.notEqual(retained.diagnostics, vector.supplied);
       assert.deepEqual(Object.keys(retained.diagnostics), Object.keys(vector.expected));
       vector.expected.forEach((entry, index) => { assert.equal(retained.diagnostics[index], entry); });
       assert.deepEqual(vector.supplied, vector.expected);
       const previous = database.diagnostics();
       assert.deepEqual(previous, vector.aggregate);
-      assert.equal(Object.isFrozen(previous), true);
       vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
       vector.supplied.length = 0;
       vector.supplied.push(replacement);
@@ -279,14 +271,12 @@ test("nonempty refused sparse vectors retain real heads and absent tails through
       const selected = route === "root" ? child : parent;
       const cold = database.run(selected, null);
       assert.deepEqual(cold, { kind: "refused", diagnostics: vector.expected });
-      assert.equal(Object.isFrozen(cold) && Object.isFrozen(cold.diagnostics), true);
       assert.notEqual(cold.diagnostics, vector.supplied);
       assert.deepEqual(Object.keys(cold.diagnostics), Object.keys(vector.expected));
       vector.expected.forEach((entry, index) => { assert.equal(cold.diagnostics[index], entry); });
       assert.deepEqual(vector.supplied, vector.expected);
       const previous = database.diagnostics();
       assert.deepEqual(previous, vector.aggregate);
-      assert.equal(Object.isFrozen(previous), true);
       vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
       vector.supplied.length = 0;
       vector.supplied.push(replacement);
@@ -324,7 +314,6 @@ test("recovery sparse Results publish only actual diagnostics and preserve carri
       recoveryCalls += 1;
       assert.equal(key, null);
       assert.deepEqual(chain, [{ query: "cycle", encodedKey: "N" }, { query: "cycle", encodedKey: "N" }]);
-      assert.equal(Object.isFrozen(chain) && chain.every(Object.isFrozen), true);
       return vector.kind === "ok" ? { kind: "ok", value: 7, diagnostics: vector.supplied }
         : { kind: "refused", diagnostics: vector.supplied };
     } }, compute: database => {
@@ -338,7 +327,6 @@ test("recovery sparse Results publish only actual diagnostics and preserve carri
     const cold = database.run(query, null);
     assert.deepEqual(cold, vector.kind === "ok"
       ? { kind: "completed", value: 8, diagnostics: [] } : { kind: "refused", diagnostics: vector.expected });
-    assert.equal(Object.isFrozen(cold) && Object.isFrozen(cold.diagnostics), true);
     if (vector.kind === "refused") {
       assert.notEqual(cold.diagnostics, vector.supplied);
       assert.deepEqual(Object.keys(cold.diagnostics), Object.keys(vector.expected));
@@ -347,7 +335,6 @@ test("recovery sparse Results publish only actual diagnostics and preserve carri
     assert.deepEqual(vector.supplied, vector.expected);
     const previous = database.diagnostics();
     assert.deepEqual(previous, vector.aggregate);
-    assert.equal(Object.isFrozen(previous), true);
     vector.aggregate.forEach((entry, index) => { assert.equal(previous[index], entry); });
     vector.supplied.length = 0;
     vector.supplied.push(replacement);
@@ -368,7 +355,6 @@ test("recovery sparse Results publish only actual diagnostics and preserve carri
       const retry = database.run(query, null);
       assert.deepEqual(retry, { kind: "refused", diagnostics: [replacement] });
       assert.equal(retry.diagnostics[0], replacement);
-      assert.equal(Object.isFrozen(retry) && Object.isFrozen(retry.diagnostics), true);
       assert.deepEqual(cold, { kind: "refused", diagnostics: vector.expected });
       assert.deepEqual(database.stats(), [{ name: "cycle", computed: 2, hits: 0 }]);
       assert.equal(recoveryCalls, 2);
@@ -458,7 +444,6 @@ test("above-head consumers stay nonfinal while independent before and after sibl
   assert.deepEqual(database.diagnostics(), [beforeDiagnostic, recoveryDiagnostic, recoveryDiagnostic,
     afterDiagnostic, rootDiagnostic, rootDiagnostic]);
   assert.deepEqual(previous, [beforeDiagnostic, recoveryDiagnostic, afterDiagnostic, rootDiagnostic]);
-  assert.equal(Object.isFrozen(previous) && Object.isFrozen(original.diagnostics), true);
   assert.equal(original.diagnostics[0], rootDiagnostic);
 });
 
@@ -484,7 +469,6 @@ test("a sparse refused Result derived from recovery is nonfinal until a real non
   for (const result of [original, repeated]) {
     assert.deepEqual(result, { kind: "refused", diagnostics: [last, , first] });
     assert.deepEqual(Object.keys(result.diagnostics), ["0", "2"]);
-    assert.equal(Object.isFrozen(result) && Object.isFrozen(result.diagnostics), true);
     assert.notEqual(result.diagnostics, supplied);
     assert.equal(result.diagnostics[0], last);
     assert.equal(result.diagnostics[2], first);
@@ -595,7 +579,6 @@ test("A to B to C computes once, records actual hits and publishes each complete
     { name: "C", computed: 1, hits: 1 }]);
   assert.deepEqual(previous, [{ name: "A", computed: 1, hits: 0 }, { name: "B", computed: 1, hits: 1 },
     { name: "C", computed: 1, hits: 1 }]);
-  assert.equal(Object.isFrozen(previous) && previous.every(Object.isFrozen), true);
   assert.deepEqual(database.diagnostics(), [rootDiagnostic, middleDiagnostic, leafDiagnostic]);
 });
 
@@ -649,7 +632,6 @@ test("depth exhaustion two levels down abandons both frames; a later same-databa
   for (let request = 1; request <= 2; request += 1) {
     const result = database.run(root, null);
     assert.deepEqual(result, expected);
-    assert.equal(Object.isFrozen(result) && Object.isFrozen(result.chain) && result.chain.every(Object.isFrozen), true);
     assert.equal(forbidden, 0);
     assert.deepEqual(database.stats(), [{ name: "A", computed: request, hits: 0 }, { name: "B", computed: request, hits: 0 },
       { name: "C", computed: 0, hits: 0 }]);
@@ -697,7 +679,7 @@ test("same-query different canonical keys are not a cycle and cleanup retains ea
 
 test("cycles use full content keys and the complete chain, not object identity or a truncated suffix", () => {
   let cycle = true;
-  const alternate = { a: 1, b: 2 };
+  const alternate = { kind: "record", fields: [["a", 1], ["b", 2]] };
   const first = { name: "A", cycle: "invariant", compute: database => database.get(second, alternate, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const second = { name: "B", cycle: "invariant", compute: context => cycle
     ? context.get(first, alternate, value => ({ kind: "ok", value, diagnostics: [] }))
@@ -705,7 +687,7 @@ test("cycles use full content keys and the complete chain, not object identity o
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   const key = "O2:S1:aF1:S1:bF2:";
   const chain = [{ query: "A", encodedKey: key }, { query: "B", encodedKey: key }, { query: "A", encodedKey: key }];
-  assert.throws(() => database.run(first, { b: 2, a: 1 }), error => {
+  assert.throws(() => database.run(first, { kind: "record", fields: [["b", 2], ["a", 1]] }), error => {
     assert.equal(error instanceof Error, true);
     assert.deepEqual(error.cause, {
       owner: "query", query: { name: "A", encodedKey: key }, origin: null, message: `Query cycle ${JSON.stringify(chain)}`,
@@ -720,7 +702,7 @@ test("cycles use full content keys and the complete chain, not object identity o
 
 test("declared recovery receives the original attempted key and full chain without memoizing a provisional value", () => {
   const recovered = diagnostic(1, "cycle.ts", "declared recovery");
-  const attempted = { a: 1, b: 2 };
+  const attempted = { kind: "record", fields: [["a", 1], ["b", 2]] };
   let recoveryKey;
   let recoveryChain;
   let recoverThis = "not-called";
@@ -730,12 +712,11 @@ test("declared recovery receives the original attempted key and full chain witho
   } }, compute: database => database.get(second, attempted, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const second = { name: "B", cycle: "invariant", compute: database => database.get(first, attempted, value => ({ kind: "ok", value: value + 2, diagnostics: [] })) };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
-  assert.deepEqual(database.run(first, { b: 2, a: 1 }), { kind: "completed", value: 43, diagnostics: [] });
+  assert.deepEqual(database.run(first, { kind: "record", fields: [["b", 2], ["a", 1]] }), { kind: "completed", value: 43, diagnostics: [] });
   assert.equal(recoveryKey, attempted);
   assert.equal(recoverThis, undefined);
   assert.deepEqual(recoveryChain, [{ query: "A", encodedKey: "O2:S1:aF1:S1:bF2:" },
     { query: "B", encodedKey: "O2:S1:aF1:S1:bF2:" }, { query: "A", encodedKey: "O2:S1:aF1:S1:bF2:" }]);
-  assert.equal(Object.isFrozen(recoveryChain) && recoveryChain.every(Object.isFrozen), true);
   assert.deepEqual(database.diagnostics(), [recovered]);
   assert.deepEqual(database.run(first, attempted), { kind: "completed", value: 43, diagnostics: [] });
   assert.deepEqual(database.stats(), [{ name: "A", computed: 2, hits: 0 }, { name: "B", computed: 2, hits: 0 }]);
@@ -894,7 +875,7 @@ test("a query name cannot silently select another definition or reinterpret its 
 
 test("database methods are detachable, compute has no hidden this, and the supplied depth maximum is captured", () => {
   const limits = { maxActiveDepth: 2 };
-  const database = product.createDatabase(Object.freeze({ value: 7 }), limits);
+  const database = product.createDatabase(({ value: 7 }), limits);
   limits.maxActiveDepth = 0;
   const { run, stats, diagnostics } = database;
   let receivedThis = "not-called";
@@ -915,7 +896,6 @@ test("database methods are detachable, compute has no hidden this, and the suppl
   assert.deepEqual(run(parent, null), { kind: "completed", value: 8, diagnostics: [] });
   assert.deepEqual(stats(), [{ name: "child", computed: 1, hits: 0 }, { name: "parent", computed: 1, hits: 1 }]);
   assert.deepEqual(diagnostics(), []);
-  assert.equal(Object.isFrozen(database), true);
 });
 
 test("an explicitly scheduled inner query leaves its parent's frame and sibling memo intact", () => {
@@ -1021,9 +1001,8 @@ test("deep cycle recovery and exact depth exhaustion retain the complete ordered
     const chain = chains[request - 1];
     assert.equal(chain.length, depth + 2);
     assert.equal(chain.every((entry, index) => entry.query === "deep-cycle" &&
-      entry.encodedKey === `F${index === depth + 1 ? 0 : index}:` && Object.isFrozen(entry)), true,
+      entry.encodedKey === `F${index === depth + 1 ? 0 : index}:`), true,
     "every full cycle-chain entry, including the repeated actual first key, matches the independent vector");
-    assert.equal(Object.isFrozen(chain), true);
   }
   const bounded = product.createDatabase(null, { maxActiveDepth: depth });
   for (let request = 1; request <= 2; request += 1) {

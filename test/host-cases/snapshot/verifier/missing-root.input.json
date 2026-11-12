@@ -17,7 +17,7 @@
     },
     "entryPoint": "M[P[%002Fproject];src%002Fmain.ts]",
     "roots": ["M[P[%002Fproject];src%002Fmain.ts]"],
-    "selection": { "target": { "id": "native", "surfaces": [], "options": {} }, "providerId": "native-provider", "capabilityIds": [], "surfaceIds": [] },
+    "selection": { "target": { "id": "native", "surfaces": [], "options": { "kind": "record", "fields": [] } }, "providerId": "native-provider", "capabilityIds": [], "surfaceIds": [] },
     "contributions": {
       "declarationFiles": [], "declarationPolicy": { "bundledLibraries": [], "installedDeclarations": "none" },
       "requiredProviderModules": [], "compilerExtensions": [], "declarationProviders": [],

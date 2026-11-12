@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const guardSourceFiles = Object.freeze([
+export const guardSourceFiles = ([
   "bounded-test-scope.sh", "test-resource-budget.mjs", "memory-admission.mjs",
   "guard-command.mjs", "guard-cgroup.mjs", "guard-report.mjs", "calibrate-utilization.mjs",
 ]);

@@ -609,5 +609,5 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody) {
     report("analysis-limits-respected", bodySite, "Published blocks, places, projection depth, alternatives, relational rows and references respect the actual six producer limits.");
   }
-  return Object.freeze(violations);
+  return (violations);
 };

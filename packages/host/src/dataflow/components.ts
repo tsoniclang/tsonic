@@ -8,12 +8,12 @@ interface Component {
   readonly members: readonly number[];
 }
 
-export function componentsOfGraph<Vertex>(
-  input: DirectedGraph<Vertex>,
+export function componentsOfGraph(
+  input: DirectedGraph,
   limits: DataflowLimits,
 ): DataflowResult<GraphComponents> {
   const meter = createMeter(limits);
-  const entryStop = takeEntries(meter, input.vertices.length);
+  const entryStop = takeEntries(meter, input.successors.length);
   if (entryStop !== null) return entryStop;
   const graph = buildGraph(input, meter);
   if (graph.kind === "resource-limit") return graph;
@@ -31,7 +31,7 @@ export function componentsOfGraph<Vertex>(
     const members: number[] = [];
     let minimum = root.index;
     visited.add(root.index);
-    let node: GraphNode<Vertex> | undefined;
+    let node: GraphNode<readonly number[]> | undefined;
     while ((node = pending.pop()) !== undefined) {
       const memberWork = takeWork(meter);
       if (memberWork !== null) return memberWork;

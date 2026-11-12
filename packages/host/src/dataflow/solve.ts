@@ -9,28 +9,28 @@ import { buildMirGraph, checkMaximum, createMeter, requireCallerValue, takeEntri
 import type { Traversal } from "./ordering.js";
 import { walkGraph } from "./ordering.js";
 
-const missingWorklistParent = Object.freeze<InvariantFailure>({
+const missingWorklistParent: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "worklist parent is missing",
 });
-const missingWorklistTail = Object.freeze<InvariantFailure>({
+const missingWorklistTail: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "worklist tail is missing",
 });
-const missingWorklistLeftChild = Object.freeze<InvariantFailure>({
+const missingWorklistLeftChild: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "worklist left child is missing",
 });
-const missingWorklistRightChild = Object.freeze<InvariantFailure>({
+const missingWorklistRightChild: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "worklist right child is missing",
 });
-const missingWorklistCell = Object.freeze<InvariantFailure>({
+const missingWorklistCell: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "worklist cell is missing",
 });
-const missingForwardTargetEdgeRow = Object.freeze<InvariantFailure>({
+const missingForwardTargetEdgeRow: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "forward target edge row is missing",
 });
-const missingForwardEdgeRow = Object.freeze<InvariantFailure>({
+const missingForwardEdgeRow: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "forward edge row is missing",
 });
-const missingBackwardSuccessorCell = Object.freeze<InvariantFailure>({
+const missingBackwardSuccessorCell: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "backward successor cell is missing",
 });
 

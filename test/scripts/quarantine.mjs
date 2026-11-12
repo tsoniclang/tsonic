@@ -83,15 +83,15 @@ function configurationInputs(files, data, forbidden, add) {
 
 export function verifyQuarantine(deps, root) {
   const findings = new Map();
-  const add = (code, path) => findings.set(`${code}\0${path}`, Object.freeze({ code, path }));
+  const add = (code, path) => findings.set(`${code}\0${path}`, ({ code, path }));
   let data;
   try { data = JSON.parse(deps.bytes(root, dataPath).toString("utf8")); }
-  catch { return Object.freeze([Object.freeze({ code: "old-config-edge", path: dataPath })]); }
+  catch { return ([({ code: "old-config-edge", path: dataPath })]); }
   const archiveDirectory = data?.areas?.[0]?.directory;
   const archiveRoot = typeof archiveDirectory === "string" ? archiveDirectory.split("/")[0] : undefined;
   if (!canonical(archiveRoot) || !Array.isArray(data.areas) || data.currentRoots === null || typeof data.currentRoots !== "object"
     || !canonical(data.currentRoots.hostSource) || !Object.values(data.currentRoots).every(canonical))
-    return Object.freeze([Object.freeze({ code: "old-config-edge", path: dataPath })]);
+    return ([({ code: "old-config-edge", path: dataPath })]);
   const escaped = archiveRoot.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const expression = new RegExp(`(?<![A-Za-z0-9._~-])${escaped}(?![A-Za-z0-9._~-])`, "u");
   const forbidden = text => expression.test(text.replaceAll("\\", "/"));
@@ -111,7 +111,7 @@ export function verifyQuarantine(deps, root) {
     } else if (forbidden(text)) add("old-config-edge", entry.path);
   }
   configurationInputs(files, data, forbidden, add);
-  return Object.freeze([...findings.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return ([...findings.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 }
 
 export function createQuarantineDeps() {
@@ -126,13 +126,13 @@ export function createQuarantineDeps() {
     }
     return resolve(root, path);
   };
-  return Object.freeze({
+  return ({
     entry(root, path) {
       const absolute = safePath(root, path);
       if (absolute === null) return null;
       try {
         const stat = lstatSync(absolute);
-        return Object.freeze({ kind: stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory"
+        return ({ kind: stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory"
           : stat.isFile() ? (stat.mode & 0o111) !== 0 ? "executable" : "regular" : "other" });
       } catch (error) { if (error.code === "ENOENT") return null; throw error; }
     },

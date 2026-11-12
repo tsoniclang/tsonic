@@ -20,12 +20,12 @@ export function isolationDeps(toolingRoot, quarantineRoots) {
     return entry.isDirectory() ? enumerate(path) : [realpathSync(path)];
   });
   const declarations = directory => enumerate(directory).filter(path => /\.d\.(?:ts|mts|cts)$/u.test(path));
-  const platform = Object.freeze({
-    language: Object.freeze(declarations(resolve(root, `node_modules/@typescript/native-preview-${process.platform}-${process.arch}/lib`))),
-    node: Object.freeze([...declarations(resolve(root, "node_modules/@types/node")), ...declarations(resolve(root, "node_modules/undici-types"))]),
-    sdk: Object.freeze(declarations(resolve(root, "packages/tsts/dist"))),
+  const platform = ({
+    language: (declarations(resolve(root, `node_modules/@typescript/native-preview-${process.platform}-${process.arch}/lib`))),
+    node: ([...declarations(resolve(root, "node_modules/@types/node")), ...declarations(resolve(root, "node_modules/undici-types"))]),
+    sdk: (declarations(resolve(root, "packages/tsts/dist"))),
   });
-  return Object.freeze({
+  return ({
     compiler, platform, nodeTypes: resolve(root, "node_modules/@types"), sdkEntry: resolve(root, "packages/tsts/dist/src/index.d.ts"),
     admitted: () => process.env.TSONIC_TEST_ADMISSION !== undefined && process.env.TSONIC_TEST_ADMISSION_OWNER !== undefined,
     canonical: realpathSync, readText: path => readFileSync(path, "utf8"),
@@ -42,7 +42,7 @@ export function isolationDeps(toolingRoot, quarantineRoots) {
       if (result.signal !== null) throw new Error(`Isolated compiler terminated with ${result.signal}.`);
       const output = `${result.stdout}${result.stderr}`;
       const loadedFiles = result.stdout.split(/\r?\n/u).filter(line => isAbsolute(line));
-      return Object.freeze({ status: result.status, diagnostics: output, loadedFiles: Object.freeze(loadedFiles) });
+      return ({ status: result.status, diagnostics: output, loadedFiles: (loadedFiles) });
     },
   });
 }
@@ -95,16 +95,16 @@ export async function compileIsolated(deps, module, inputs) {
   const expectedInventory = new Set();
   const loadedInventory = new Set();
   const provenance = [];
-  const sourceInventory = Object.freeze([...sourceText].map(([path, text]) => Object.freeze({ path: original(path),
+  const sourceInventory = ([...sourceText].map(([path, text]) => ({ path: original(path),
     hash: createHash("sha256").update(text).digest("hex") })));
   const findings = [];
   const sdk = module.name === "front" || inputs.interfaceSources.includes(hostCatalogue.find(candidate => candidate.name === "front").contract);
   const platform = [...deps.platform.language,
     ...(sdk || ["driver", "orchestration", "cli"].includes(module.kind) ? deps.platform.node : []),
     ...(sdk ? deps.platform.sdk : [])];
-  const report = status => Object.freeze({ status, diagnostics: Object.freeze(diagnostics), findings: Object.freeze(findings),
-    expectedInventory: Object.freeze([...expectedInventory].sort()), loadedInventory: Object.freeze([...loadedInventory].sort()),
-    provenance: Object.freeze(provenance), sourceInventory });
+  const report = status => ({ status, diagnostics: (diagnostics), findings: (findings),
+    expectedInventory: ([...expectedInventory].sort()), loadedInventory: ([...loadedInventory].sort()),
+    provenance: (provenance), sourceInventory });
   const compile = (directory, files, outDir) => {
     const config = resolve(directory, "tsconfig.json");
     const node = sdk || ["driver", "orchestration", "cli"].includes(module.kind);
@@ -124,10 +124,10 @@ export async function compileIsolated(deps, module, inputs) {
     for (const path of result.loadedFiles) {
       const canonical = deps.canonical(path);
       loadedInventory.add(canonical);
-      if (!domain.has(canonical)) findings.push(Object.freeze({ code: "loaded-source-escape", path: canonical, line: 1, column: 1 }));
+      if (!domain.has(canonical)) findings.push(({ code: "loaded-source-escape", path: canonical, line: 1, column: 1 }));
     }
     if (result.status === 0 && result.loadedFiles.length === 0)
-      findings.push(Object.freeze({ code: "loaded-source-escape", path: config, line: 1, column: 1 }));
+      findings.push(({ code: "loaded-source-escape", path: config, line: 1, column: 1 }));
     return result.status === 0 && findings.length === 0;
   };
   try {
@@ -137,7 +137,7 @@ export async function compileIsolated(deps, module, inputs) {
     const originalGraph = deps.graph(sourceText);
     for (const edge of originalGraph) if (sources.includes(edge.source) && edge.target !== null &&
       !sources.includes(edge.target) && !inputs.interfaceSources.includes(edge.target))
-      findings.push(Object.freeze({ code: "forbidden-import", path: edge.source, line: edge.line, column: edge.column }));
+      findings.push(({ code: "forbidden-import", path: edge.source, line: edge.line, column: edge.column }));
     if (findings.length > 0) return report("failed");
     const interfaces = resolve(stage, "interface-source");
     const emitted = resolve(stage, "interface-declarations");
@@ -157,7 +157,7 @@ export async function compileIsolated(deps, module, inputs) {
       const actual = deps.enumerate(emitted).map(path => relative(emitted, path).split(sep).join("/")).sort();
       const expected = production.map(path => path.replace(/\.ts$/u, ".d.ts")).sort();
       if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-        findings.push(Object.freeze({ code: "loaded-source-escape", path: emitted, line: 1, column: 1 }));
+        findings.push(({ code: "loaded-source-escape", path: emitted, line: 1, column: 1 }));
         return report("failed");
       }
       const declarations = new Map(actual.map(path => [path, deps.readText(resolve(emitted, path))]));
@@ -172,7 +172,7 @@ export async function compileIsolated(deps, module, inputs) {
       const bytes = deps.readText(resolve(emitted, declaration));
       deps.writeText(resolve(staged, declaration), bytes);
       declarations.push(declaration);
-      provenance.push(Object.freeze({ source: original(path), sourceHash: createHash("sha256").update(sourceText.get(path)).digest("hex"),
+      provenance.push(({ source: original(path), sourceHash: createHash("sha256").update(sourceText.get(path)).digest("hex"),
         declaration: resolve(staged, declaration), declarationHash: createHash("sha256").update(bytes).digest("hex") }));
     }
     for (const path of sources) deps.writeText(resolve(staged, path), sourceText.get(path));

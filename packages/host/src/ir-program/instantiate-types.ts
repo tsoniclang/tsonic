@@ -38,7 +38,7 @@ function fields(scan: SeedScan, count: number): InstantiationStop | null {
 }
 
 function each<Value>(scan: SeedScan, values: readonly Value[], visit: (value: Value) => InstantiationStop | null): void {
-  const iterator = values[Symbol.iterator]();
+  const iterator = values.values();
   const next: SeedTask = () => {
     const item = iterator.next();
     if (item.done) return null;
@@ -364,7 +364,7 @@ function anchorImages<Identity extends number, Value>(
   return { stable, appended };
 }
 
-const missingStableImage = Object.freeze<InvariantFailure>({
+const missingStableImage: InvariantFailure = ({
   owner: "ir-program", query: null, origin: null,
   message: "Published reference has no stable image",
 });

@@ -11,7 +11,7 @@ import { collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourc
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { applicationOf, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
 import { sameBindingScope, verifyBindingSlots, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
-import { isTirRecord, isTirSequence } from "./text-layouts.js";
+import { sameSyntaxFields } from "./syntax-compare.js";
 import { createTirLayouts } from "./text-model.js";
 
 export interface TirSourceInventory {
@@ -21,40 +21,6 @@ export interface TirSourceInventory {
   readonly ownNodes: readonly TirNode[];
   readonly nestedRoots: ReadonlySet<NodeId>;
 }
-
-const sameSyntaxFields = (
-  node: TirNode, original: HirNode, typedObjects: ReadonlyMap<object, TirNode>, sourceObjects: ReadonlyMap<object, HirNode>,
-): boolean => {
-  const pending: { left: unknown; right: unknown }[] = [];
-  const excluded = new Set(["tsonic", "id", "origin", "parent", "loc"]);
-  const fields = new Map<string, unknown>(Object.entries(node).filter(([name]) => !excluded.has(name)));
-  const sourceFields = new Map<string, unknown>(Object.entries(original).filter(([name]) => !excluded.has(name)));
-  if (fields.size !== sourceFields.size || [...fields.keys()].some(name => !sourceFields.has(name))) return false;
-  for (const [name, value] of fields) pending.push({ left: value, right: sourceFields.get(name) });
-  for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-    if (Object.is(pair.left, pair.right)) continue;
-    if (isTirSequence(pair.left)) {
-      if (!isTirSequence(pair.right) || pair.left.length !== pair.right.length) return false;
-      for (let position = 0; position < pair.left.length; position++) {
-        if (!(position in pair.left) || !(position in pair.right)) return false;
-        pending.push({ left: pair.left[position], right: pair.right[position] });
-      }
-    } else if (isTirRecord(pair.left)) {
-      if (!isTirRecord(pair.right)) return false;
-      const typed = typedObjects.get(pair.left);
-      const checked = sourceObjects.get(pair.right);
-      if (typed !== undefined || checked !== undefined) {
-        if (typed === undefined || checked === undefined || typed.kind !== checked.kind) return false;
-        continue;
-      }
-      const leftNames = Object.keys(pair.left);
-      const rightNames = new Set(Object.keys(pair.right));
-      if (leftNames.length !== rightNames.size || leftNames.some(name => !rightNames.has(name))) return false;
-      for (const name of leftNames) pending.push({ left: pair.left[name], right: pair.right[name] });
-    } else return false;
-  }
-  return true;
-};
 
 const validRange = (start: number, length: number): boolean =>
   Number.isSafeInteger(start) && !Object.is(start, -0) && start >= 0 &&
@@ -101,15 +67,11 @@ export const verifySourcePreservation = (
   const { original, nestedRoots } = boundary;
   const sourceNodes = new Map<NodeId, HirNode>();
   const typedNodes = new Map<NodeId, TirNode>();
-  const sourceObjects = new Map<object, HirNode>();
-  const typedObjects = new Map<object, TirNode>();
   for (const node of indexSyntaxTree<CheckedPhase>(source.tree)) {
     sourceNodes.set(node.id, node);
-    sourceObjects.set(node, node);
   }
   for (const node of indexSyntaxTree<TypedPhase>(module.tree)) {
     typedNodes.set(node.id, node);
-    typedObjects.set(node, node);
   }
   const ownNodes: TirNode[] = [];
   const pendingNodes: TirNode[] = [body.root];
@@ -118,7 +80,6 @@ export const verifySourcePreservation = (
     if (ownObjects.has(node)) continue;
     ownObjects.add(node);
     ownNodes.push(node);
-    typedObjects.set(node, node);
     const children = childrenOfSyntax<TypedPhase>(node);
     for (let position = children.length - 1; position >= 0; position--) {
       const child = children[position];
@@ -150,7 +111,7 @@ export const verifySourcePreservation = (
     else typedOfSource.set(checked, node);
     if (!Object.is(node.id, checked.id)) emit("authored-node-ids-preserved", node, "typed node identity differs from the actual authored node at this position");
     if (!sourceNodes.has(node.id)) emit("no-inserted-nodes", node, "typed syntax includes a node not present in the actual source arena");
-    if (node.kind !== checked.kind || !sameSyntaxFields(node, checked, typedObjects, sourceObjects)) {
+    if (!sameSyntaxFields(node, checked)) {
       emit("kind-children-shape", node, "typed syntax does not retain the authored kind, fields and child presence");
     }
     if (!Object.is(node.parent, checked.parent)) emit("parent-reference", node, "typed node parent differs from the real authored parent");
@@ -459,7 +420,6 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
   verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, inventory.sourceNodes, declarationOf, emit);
-  for (const extra of structure.extraFields) emit("no-checker-payload", extra.node, `typed record retains undeclared field ${JSON.stringify(extra.field)}`);
   const instance: BodyInstance = { body: body.body, bindings: body.bindings };
   verifyTypePayload(input, { kind: "body", instance }, structure, declarationOf, emit, appendViolation);
   const candidates = new Map<CandidateListId, readonly HirCandidate[]>();
@@ -595,7 +555,6 @@ export const verifyTypedModule: VerifyTirModule = (input, module) => {
   verifyQualifiedReferences(input, null, structure, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, sourceNodes, declarationOf, emit);
-  for (const extra of structure.extraFields) emit("no-checker-payload", extra.node, `typed record retains undeclared field ${JSON.stringify(extra.field)}`);
   for (const node of structure.nodes) verifyOccurrenceRole(node, sourceNodes.get(node.id), emit);
   verifyTypePayload(input, { kind: "module", module: module.module }, structure, declarationOf, emit, appendViolation);
   return violations;

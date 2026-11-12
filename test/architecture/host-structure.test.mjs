@@ -17,7 +17,7 @@ const host = quarantineData.currentRoots.hostSource;
 const file = (module, name = "unit.ts") => `${host}/${module}/${name}`;
 const data = "export interface Data { readonly value: number; }";
 const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"];
-const expectedImports = Object.freeze([
+const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
   ["ir-infer", first.slice(0, 4)], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag"]],
@@ -36,8 +36,8 @@ const expectedImports = Object.freeze([
   ["cli", ["orchestration", "diag", "snapshot"]], ["create-tsonic", ["orchestration", "diag", "snapshot"]],
 ]);
 
-const effectsCatalogue = Object.freeze(hostCatalogue.map(module => ["driver", "orchestration"].includes(module.kind)
-  ? Object.freeze({ ...module, effects: Object.freeze([Object.freeze({ path: `${module.directory}/effects.ts`, role: module.name === "plugins" ? "plugin-loading" : "effects" })]) }) : module));
+const effectsCatalogue = (hostCatalogue.map(module => ["driver", "orchestration"].includes(module.kind)
+  ? ({ ...module, effects: ([({ path: `${module.directory}/effects.ts`, role: module.name === "plugins" ? "plugin-loading" : "effects" })]) }) : module));
 
 function inspect(entries, extra = {}, authority = hostCatalogue) {
   const parent = resolve(repository, ".temp/host-s1-structure");
@@ -56,7 +56,6 @@ function inspect(entries, extra = {}, authority = hostCatalogue) {
 function expect(entries, expected, authority = hostCatalogue) {
   const actual = inspect(entries, {}, authority);
   assert.equal(JSON.stringify(actual), JSON.stringify(expected), `${entries.map(([path]) => path).join(",")}: exact scalar findings ${JSON.stringify(actual)}`);
-  assert.equal(Object.isFrozen(actual), true);
 }
 
 const at = (code, path, line = 1, column = 1) => ({ code, path, line, column });
@@ -64,8 +63,6 @@ const at = (code, path, line = 1, column = 1) => ({ code, path, line, column });
 test("the complete R6 catalogue and snapshot amendment have exactly one explicit row per owner", () => {
   assert.equal(hostCatalogue.length, 38);
   assert.equal(JSON.stringify(hostCatalogue.map(module => [module.name, module.imports])), JSON.stringify(expectedImports));
-  assert.equal(hostCatalogue.every(module => Object.isFrozen(module) && Object.isFrozen(module.imports)), true);
-  assert.equal(hostCatalogue.every(module => Object.isFrozen(module.effects) && module.effects.every(effect => Object.isFrozen(effect))), true);
   assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
   assert.equal(JSON.stringify(hostCatalogue.filter(module => module.effects.length > 0).map(module => [module.name, module.effects])),
     JSON.stringify(["project", "packages", "plugins", "artifacts", "orchestration"].map(name => [name,
@@ -270,7 +267,7 @@ test("Node effects are catalogue-file permissions and pure modules cannot import
     expect([[effect, 'import { readFile } from "node:fs";']], [], effectsCatalogue);
     expect([[`${module.directory}/unit.ts`, 'import { readFile } from "node:fs";']], [at("forbidden-import", `${module.directory}/unit.ts`)], effectsCatalogue);
   }
-  const unadmittedEffects = Object.freeze(hostCatalogue.map(module => Object.freeze({ ...module, effects: Object.freeze([]) })));
+  const unadmittedEffects = (hostCatalogue.map(module => ({ ...module, effects: ([]) })));
   expect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], [at("forbidden-import", file("plugins", "effects.ts"))], unadmittedEffects);
   assert.throws(() => inspect([[file("plugins", "effects.ts"), 'import { createRequire } from "node:module";']], { catalogue: unadmittedEffects }), /exact agreed/u);
   expect([[file("infer"), 'import type { Input } from "some-package";']], [at("forbidden-import", file("infer"))], effectsCatalogue);
@@ -363,14 +360,66 @@ test("pure stage contracts require their genuine Deps first while state and try 
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
 });
 
-test("only the five explicit owner-qualified opaque brands admit an object intersection", () => {
-  for (const [owner, name, tag] of [["ir-types", "TypeInterner", "type-interner"], ["front", "CheckerExtensions", "checker-extensions"],
+test("original and emitted component ports require the same genuine owner Deps", () => {
+  for (const suffix of ["ts", "d.ts"]) {
+    const contract = file("infer", `contract.${suffix}`);
+    const entry = file("infer", `index.${suffix}`);
+    const implementation = suffix === "ts" ? 'export const run: Run = (deps, input) => input + deps.bias;'
+      : 'export declare const run: Run;';
+    const body = [entry, `import type { Run } from "./contract.js";\n${implementation}`];
+    const deps = 'export interface InferDeps { readonly bias: number; }\n';
+    expect([[contract, deps + 'export type Run = (deps: InferDeps, input: number) => number;'], body], []);
+    expect([[contract, deps + 'export type Run = (input: number, deps: InferDeps) => number;'], body],
+      [at("impure-component", contract, 2)]);
+    const foreign = file("ids", `contract.${suffix}`);
+    expect([[foreign, deps], [contract,
+      'import type { InferDeps } from "../ids/contract.js";\nexport type Run = (deps: InferDeps, input: number) => number;'], body],
+      [at("impure-component", contract, 2)]);
+  }
+});
+
+test("non-owning opaque declarations retain their owner-qualified type-only brands", () => {
+  for (const [owner, name, tag] of [["front", "CheckerExtensions", "checker-extensions"],
     ["front", "CheckedProgram", "checked-program"], ["plugins", "PluginModule", "plugin-module"], ["orchestration", "TargetSession", "target-session"]]) {
     const source = `export type ${name} = object & { readonly identityKind: "${tag}" };`;
     expect([[file(owner, "contract.ts"), source]], []);
     expect([[file("ids", "contract.ts"), source]], [at("contract-shape", file("ids", "contract.ts"))]);
   }
   expect([[file("ids", "contract.ts"), 'export type Mystery = object & { readonly identityKind: "mystery" };']], [at("contract-shape", file("ids", "contract.ts"))]);
+  expect([[file("ir-types", "contract.ts"), 'export type TypeInterner = object & { readonly identityKind: "type-interner" };']], [at("contract-shape", file("ir-types", "contract.ts"))]);
+});
+
+test("a native owned opaque implementation has only private storage and a private constructor", () => {
+  const contract = file("ir-types", "contract.ts");
+  const implementation = file("ir-types", "arena.ts");
+  const declaration = 'import type { Arena } from "./arena.js";\nexport type TypeInterner = Arena;';
+  const body = 'export class Arena { private readonly rows: number[] = []; private constructor() {} static create(): Arena { return new Arena(); } }';
+  expect([[contract, declaration], [implementation, body]], []);
+  const rejected = [at("contract-shape", implementation), at("class", implementation),
+    at("contract-shape", contract), at("contract-shape", contract, 2)]
+    .sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.code.localeCompare(right.code));
+  for (const replacement of [body.replace("private constructor", "public constructor"),
+    body.replace("private readonly rows", "public readonly rows"),
+    body.replace("private readonly rows", "private rows"),
+    body.replace("static create", "create"),
+    body.replace("private constructor() {}", "")]) {
+    expect([[contract, declaration], [implementation, replacement]], rejected);
+  }
+  expect([[implementation, body]], [at("class", implementation)]);
+  const foreign = file("ids", "arena.ts");
+  expect([[contract, declaration.replace("./arena.js", "../ids/arena.js")], [foreign, body]],
+    [at("class", foreign), at("contract-shape", contract), at("forbidden-import", contract), at("contract-shape", contract, 2)]);
+  expect([[contract, declaration], [implementation, body],
+    [file("ir-types", "index.ts"), 'export { Arena } from "./arena.js";']], rejected);
+  const declaredContract = file("ir-types", "contract.d.ts");
+  const declaredImplementation = file("ir-types", "arena.d.ts");
+  const declaredBody = 'export declare class Arena { private readonly rows; private constructor(); static create(): Arena; }';
+  expect([[declaredContract, declaration], [declaredImplementation, declaredBody]], []);
+  expect([[declaredContract, declaration], [declaredImplementation, declaredBody.replace("private constructor", "public constructor")]],
+    [at("class", declaredImplementation)]);
+  expect([[declaredContract, declaration], [declaredImplementation, declaredBody],
+    [file("ir-types", "index.d.ts"), 'export { Arena } from "./arena.js";']],
+    [at("class", declaredImplementation), at("contract-shape", declaredImplementation)]);
 });
 
 test("strict unsafe and removed concepts retain their original opposites without banning authored text", () => {
@@ -454,11 +503,11 @@ test("expected nonlocal unwinding belongs only to query and every new throw carr
   expect([[file("query"), 'export function read(): never { try { throw new Error("private identity"); } catch (error) { throw error; } }']], []);
 });
 
-const immutableTypes = Object.freeze([
+const immutableTypes = ([
   "readonly number[]", "ReadonlyArray<readonly number[]>", "readonly [head: number, ...tail: string[]]",
   "readonly [number, ...Array<string>]", "{ readonly [key: string]: readonly number[] }", "{ get value(): number; }",
 ]);
-const mutableTypes = Object.freeze([
+const mutableTypes = ([
   "number[]", "[number, string?]", "Array<number>", "globalThis.Array<number>", "ReadonlyArray<number[]>", "ReadonlyMap<string, number>", "ReadonlySet<number>",
   "readonly [number[]]", "readonly (number[])[]", "readonly [...number[][]]", "{ value: number }",
   "{ [index: number]: number }", "{ set value(next: number); }", '{ -readonly [Key in "value"]: number }',
@@ -539,7 +588,7 @@ test("A1 r2 admits only literal canonical record phase slots on their declared t
     [at("contract-shape", file("ir-tir", "contract.ts")), at("contract-shape", file("ir-tir", "contract.ts"), 2)]);
 });
 
-const splitPhaseRecords = Object.freeze([
+const splitPhaseRecords = ([
   'export interface Phase { readonly ForInOrOfStatement: object | null; readonly CaseOrDefaultClause: object | null; readonly Token: object | null; }',
   'export interface ForInStatement<P extends Phase> { readonly kind: "ForInStatement"; readonly tsonic: P["ForInOrOfStatement"]; }',
   'export interface ForOfStatement<P extends Phase> { readonly kind: "ForOfStatement"; readonly tsonic: P["ForInOrOfStatement"]; }',
@@ -591,46 +640,80 @@ test("A4 does not borrow a Phase family alias from another contract", () => {
     [at("contract-shape", path, 2), at("contract-shape", path, 3)]);
 });
 
-const compositionCases = Object.freeze([
-  ['const original = Object.freeze(["first", Object.freeze({ kind: "second" })]);', 'Object.freeze(["prefix", ...selected])', true],
-  ['const first = Object.freeze(["first"]); const original = Object.freeze([...first, "second"]);', 'Object.freeze([...selected])', true],
-  ['const original = Object.freeze(["first", "second"]);', 'selected[1]', true],
-  ['const original = Object.freeze(["first", "second"]);', 'selected[0x1]', true],
-  ['const original = Object.freeze([]);', 'Object.freeze([...selected, "last"])', true],
+const compositionCases = ([
+  ['const original: readonly (string | { readonly kind: string })[] = ["first", { kind: "second" }];', '["prefix", ...selected]', true],
+  ['const first: readonly string[] = ["first"]; const original: readonly string[] = [...first, "second"];', '[...selected]', true],
+  ['const original: readonly string[] = ["first", "second"];', 'selected[1]', true],
+  ['const original: readonly string[] = ["first", "second"];', 'selected[0x1]', true],
+  ['const original: readonly string[] = [];', '[...selected, "last"]', true],
   ['const original = "first";', '`head:${selected}:tail`', true],
   ['const original = "first";', 'selected + `:tail`', true],
-  ['const original = ["first"];', 'Object.freeze([...selected])', false],
-  ['let original = Object.freeze(["first"]);', 'Object.freeze([...selected])', false],
-  ['const original = Object.freeze([{}]);', 'Object.freeze([...selected])', false],
-  ['const original = Object.freeze(["first"]);', '[...selected]', false],
-  ['const original = Object.freeze(["first"]);', 'Object.freeze({ ...selected })', false],
-  ['const original = Object.freeze({ value: "first" });', 'Object.freeze([...selected])', false],
-  ['const original = Object.freeze(["first"]);', 'selected[Number("0")]', false],
-  ['const original = Object.freeze(["first"]);', 'selected[0 + 0]', false],
-  ['const original = Object.freeze(["first"]);', 'selected[-1]', false],
-  ['const original = Object.freeze(["first"]);', 'selected[0.5]', false],
-  ['const original = Object.freeze(["first"]);', 'selected[1]', false],
-  ['const original = Object.freeze([]);', 'selected[0]', false],
+  ['const original = ["first"];', '[...selected]', false],
+  ['let original: readonly string[] = ["first"];', '[...selected]', false],
+  ['const original: readonly { value: string }[] = [{ value: "first" }];', '[...selected]', false],
+  ['const original: string[] = ["first"];', '[...selected]', false],
+  ['const original: readonly string[] = ["first"];', '{ ...selected }', false],
+  ['const original: { readonly value: string } = { value: "first" };', '[...selected]', false],
+  ['const original: readonly string[] = ["first"];', 'selected[Number("0")]', false],
+  ['const original: readonly string[] = ["first"];', 'selected[0 + 0]', false],
+  ['const original: readonly string[] = ["first"];', 'selected[-1]', false],
+  ['const original: readonly string[] = ["first"];', 'selected[0.5]', false],
+  ['const original: readonly string[] = ["first"];', 'selected[1]', false],
+  ['const original: readonly string[] = [];', 'selected[0]', false],
   ['declare const original: readonly string[];', 'selected[0]', false],
-  ['const original = cycle; const cycle = original;', 'Object.freeze([...selected])', false],
-  ['const original = Object.freeze({ get value() { return "first"; } });', 'Object.freeze([selected])', false],
+  ['const original = cycle; const cycle = original;', '[...selected]', false],
+  ['const original: { readonly value: string } = { get value() { return "first"; } };', '[selected]', false],
   ['function original() { return "first"; }', '`${selected()}`', false],
-  ['const original = Object.freeze(["first"]);', 'Object.freeze(selected.slice())', false],
-  ['const original = Object.freeze(["first"]);', 'Object.freeze(selected.filter(() => true))', false],
+  ['const original: readonly string[] = ["first"];', 'selected.slice()', false],
+  ['const original: readonly string[] = ["first"];', 'selected.filter(() => true)', false],
 ]);
 
 test("immutable module composition preserves actual local/imported originals and all scalar opposites", () => {
   const producer = file("ids", "original.ts");
   const consumer = file("ids", "consumer.ts");
   for (const [declaration, expression, allowed] of compositionCases) {
-    const local = `\n${declaration}\nconst selected = original;\nexport const result = ${expression};`;
-    const imported = `import { original as selected } from "./original.js";\nexport const result = ${expression};`;
+    const local = `\n${declaration}\nconst selected: readonly (string | { readonly kind: string })[] = original;\nexport const result: readonly (string | { readonly kind: string })[] = ${expression};`;
+    const imported = `import { original as selected } from "./original.js";\nexport const result: readonly (string | { readonly kind: string })[] = ${expression};`;
     for (const entries of [[[consumer, local]], [[producer, `${declaration}\nexport { original };`], [consumer, imported]]]) {
       const result = inspect(entries);
       assert.equal(result.some(finding => finding.path === consumer && finding.code === "module-state"), !allowed, `${declaration} / ${expression}`);
       assert.equal(result.every(finding => finding.code === "module-state"), true, "no AST objects in diagnostics");
     }
   }
+});
+
+test("readonly indexed scalar data is immutable without admitting indexed mutable records", () => {
+  const path = file("ids");
+  for (const type of ["string", "number", "boolean", "bigint", "null", "string | number"]) {
+    expect([[path, `interface Data { readonly value: ${type}; }\nconst values: readonly Data["value"][] = [];`]], []);
+  }
+  expect([[path, 'interface Data { readonly value: { field: number }; }\nconst values: readonly Data["value"][] = [];']],
+    [at("module-state", path, 2)]);
+  expect([[path, 'interface Data { readonly value: string | { field: number }; }\nconst values: readonly Data["value"][] = [];']],
+    [at("module-state", path, 2)]);
+});
+
+test("portable product data rejects JavaScript object metadata and weak runtime mechanisms", () => {
+  const path = file("ids");
+  for (const method of ["freeze", "seal", "preventExtensions", "isFrozen", "isSealed", "isExtensible", "getPrototypeOf",
+    "setPrototypeOf", "defineProperty", "defineProperties", "getOwnPropertyDescriptor", "getOwnPropertyDescriptors",
+    "getOwnPropertyNames", "getOwnPropertySymbols", "create", "assign", "keys", "values", "entries", "hasOwn"]) {
+    expect([[path, `export function read(value: object): unknown { return Object.${method}(value); }`]], [at("nonportable-runtime", path)]);
+  }
+  for (const name of ["Proxy", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry"])
+    expect([[path, `export function read(): unknown { return new ${name}(); }`]], [at("nonportable-runtime", path)]);
+  for (const method of ["get", "set", "ownKeys", "has", "apply", "construct", "deleteProperty", "getPrototypeOf"])
+    expect([[path, `export function read(value: object): unknown { return Reflect.${method}(value, "field"); }`]], [at("nonportable-runtime", path)]);
+  for (const statement of [
+    'Object["defineProperty"](value, "field", {});',
+    'const nativeObject = Object; nativeObject.freeze(value);',
+    'const { freeze: hold } = Object; hold(value);',
+    'const nativeReflect = Reflect; nativeReflect.ownKeys(value);',
+    'const Cache = WeakMap; return new Cache();',
+  ]) expect([[path, `export function read(value: object): unknown { ${statement} }`]], [at("nonportable-runtime", path)]);
+  expect([[path, 'export function read(Object: { readonly freeze: (value: number) => number }): number { return Object.freeze(1); }']], []);
+  expect([[path, 'export function read(value: number): boolean { return Object.is(value, -0); }']], []);
+  expect([[path, 'export function read(): string { return "Object.freeze is rejected"; }']], []);
 });
 
 test("actual compiler-loaded files, inventories and catalogue inputs cannot widen admission", () => {

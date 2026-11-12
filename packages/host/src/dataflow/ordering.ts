@@ -37,7 +37,7 @@ export function walkGraph<Vertex>(
     }
     reached.add(node.index);
     preorder.push({ vertex: node, parent });
-    pending.push({ node, successors: node.successors[Symbol.iterator]() });
+    pending.push({ node, successors: node.successors.values() });
     return null;
   };
   for (const rootIndex of roots) {
@@ -66,13 +66,13 @@ export function walkGraph<Vertex>(
   return { kind: "complete", value: { preorder, postorder, reached } };
 }
 
-export function orderingOfGraph<Vertex>(
-  input: DirectedGraph<Vertex>,
+export function orderingOfGraph(
+  input: DirectedGraph,
   roots: readonly number[],
   limits: DataflowLimits,
 ): DataflowResult<GraphOrdering> {
   const meter = createMeter(limits);
-  const entryStop = takeEntries(meter, input.vertices.length);
+  const entryStop = takeEntries(meter, input.successors.length);
   if (entryStop !== null) return entryStop;
   const graph = buildGraph(input, meter);
   if (graph.kind === "resource-limit") return graph;

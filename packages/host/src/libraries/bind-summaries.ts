@@ -392,7 +392,8 @@ export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly 
     const key = exportKey(identity);
     const previous = cache.get(key);
     if (previous !== undefined) return previous;
-    if (index.exports.get(key) == null) {
+    const entry = index.exports.get(key);
+    if (entry === undefined || entry === null) {
       cache.set(key, null);
       return null;
     }

@@ -1,5 +1,5 @@
 {
   "operation": "stronglyConnectedComponents",
-  "graph": { "vertices": [0, 1, 2, 3, 4, 5, 6], "successors": [[1], [2], [1, 3], [], [4], [6], [5]] },
+  "graph": { "successors": [[1], [2], [1, 3], [], [4], [6], [5]] },
   "limits": { "maximumWork": 10000, "maximumResultEntries": 10000 }
 }

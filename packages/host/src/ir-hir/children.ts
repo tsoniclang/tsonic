@@ -1,6 +1,6 @@
 import type { ChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.js";
 
-const emptyChildren: readonly never[] = Object.freeze([]);
+const emptyChildren: readonly never[] = ([]);
 
 export interface SyntaxChild<PhaseType extends Phase> {
   readonly node: SyntaxNode<PhaseType>;
@@ -25,7 +25,7 @@ function children<PhaseType extends Phase, Value>(
       for (const [index, node] of part.entries()) result.push(project(node, field, index, false));
     }
   }
-  return Object.freeze(result);
+  return (result);
 }
 
 export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(

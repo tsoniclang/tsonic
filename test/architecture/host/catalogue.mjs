@@ -3,22 +3,22 @@ import { readFileSync } from "node:fs";
 const { currentRoots } = JSON.parse(readFileSync(new URL("../quarantine/areas.json", import.meta.url), "utf8"));
 const root = currentRoots.hostSource;
 
-const row = (name, kind, imports, directory = `${root}/${name}`, effects = []) => Object.freeze({
+const row = (name, kind, imports, directory = `${root}/${name}`, effects = []) => ({
   name, kind, directory, contract: `${directory}/contract.ts`,
-  entry: `${directory}/index.ts`, imports: Object.freeze(imports),
-  effects: Object.freeze(effects.map(effect => Object.freeze({ ...effect }))),
-  implementationOwners: Object.freeze(kind === "component" ? [name, "pipeline"] : [name]),
+  entry: `${directory}/index.ts`, imports: (imports),
+  effects: (effects.map(effect => ({ ...effect }))),
+  implementationOwners: (kind === "component" ? [name, "pipeline"] : [name]),
 });
 
-const foundations = Object.freeze(["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"]);
+const foundations = (["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"]);
 const first = count => foundations.slice(0, count);
-const analyses = Object.freeze(["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"]);
-const libraries = Object.freeze([...first(4), "ir-infer", ...foundations.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot"]);
-const components = Object.freeze(["front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
+const analyses = (["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"]);
+const libraries = ([...first(4), "ir-infer", ...foundations.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot"]);
+const components = (["front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
   ...analyses.map(name => `analyses/${name}`), "summaries"]);
-const drivers = Object.freeze(["project", "packages", "plugins", "artifacts"]);
+const drivers = (["project", "packages", "plugins", "artifacts"]);
 
-export const hostCatalogue = Object.freeze([
+export const hostCatalogue = ([
   row("ids", "library", []),
   row("diag", "library", first(1)),
   row("ir-types", "library", first(2)),

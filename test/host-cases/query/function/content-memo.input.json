@@ -1,1 +1,1 @@
-{"queries":[{"name":"memo","value":42}],"requests":[{"query":"memo","key":{"b":2,"a":1}},{"query":"memo","key":{"a":1,"b":2}},{"query":"memo","key":{"a":1,"b":3}},{"query":"memo","key":{"b":2,"a":1}}]}
+{"queries":[{"name":"memo","value":42}],"requests":[{"query":"memo","key":{"kind":"record","fields":[["b",2],["a",1]]}},{"query":"memo","key":{"kind":"record","fields":[["a",1],["b",2]]}},{"query":"memo","key":{"kind":"record","fields":[["a",1],["b",3]]}},{"query":"memo","key":{"kind":"record","fields":[["b",2],["a",1]]}}]}

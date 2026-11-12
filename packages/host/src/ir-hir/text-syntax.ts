@@ -1,5 +1,6 @@
 import type * as Hir from "./contract.js";
 import type { NodeList } from "./contract.js";
+import { orderPragmaArguments } from "./pragmas.js";
 import type { HirDataField, HirDataWork, HirRecordWork, HirScalar } from "./walk.js";
 import { hirArrayData, hirFieldData, hirNodeIdData, hirNullableData, hirOriginData, hirRangeData,
   hirRecordData, hirScalarData } from "./walk.js";
@@ -367,8 +368,8 @@ function commentRangeData(value: Hir.CommentRange): HirDataWork {
 
 function pragmaData(value: Hir.Pragma): HirDataWork {
   return hirRecordData(value.kind, value, () => [...commentRangeFields(value), hirFieldData("name", hirScalarData(value.name)),
-    hirFieldData("args", hirRecordData("PragmaArguments", value.args, () => Object.entries<Hir.PragmaArgument>(value.args)
-      .sort(([left], [right]) => Number(left > right) - Number(left < right)).map(([name, argument]) =>
+    hirFieldData("args", hirRecordData("PragmaArguments", value.args, () => orderPragmaArguments(value.args)
+      .map(({ name, value: argument }) =>
       hirFieldData(name, hirRecordData("PragmaArgument", argument, () => [
         hirFieldData("pos", hirScalarData(argument.pos)), hirFieldData("end", hirScalarData(argument.end)),
         hirFieldData("name", hirScalarData(argument.name)), hirFieldData("value", hirScalarData(argument.value)),

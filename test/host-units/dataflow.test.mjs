@@ -26,6 +26,7 @@ const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir
 const interfaceSources = [...interfaceNames.map(name => `packages/host/src/${name}/contract.ts`),
   "packages/host/src/diag/index.ts"];
 const declarationSources = [...interfaceSources,
+  "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts",
   "packages/host/src/diag/invariant.ts", "packages/host/src/diag/order.ts",
   "packages/host/src/ids/index.ts", "packages/host/src/ids/identity.ts", "packages/host/src/ids/key.ts"];
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"))
@@ -168,14 +169,14 @@ test("graphOfMir covers every terminator and both unwind arms in declared order"
   ];
   const body = parsedBody(terminators, terminators.map(() => []));
   assert.deepEqual(product.graphOfMir(body), {
-    vertices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+
     successors: [[1], [2, 3, 4], [4], [1], [1, 2], [1], [1, 2], [1], [1, 2], [1, 3], [1, 3, 2],
       [1, 3], [1, 3, 2], [], [2], [], []],
   });
 });
 
 test("all graph ports preserve their complete empty results at zero budgets", () => {
-  const graph = { vertices: [], successors: [] };
+  const graph = { successors: [] };
   const zero = { maximumWork: 0, maximumResultEntries: 0 };
   complete(product.predecessors(graph, zero), { kind: "complete", value: [] }, "empty predecessors");
   complete(product.orderGraph(graph, [], zero), { kind: "complete", value: { preorder: [], postorder: [], reachable: [] } },
@@ -185,11 +186,11 @@ test("all graph ports preserve their complete empty results at zero budgets", ()
   complete(product.naturalLoops(graph, 0, zero), { kind: "complete", value: [] }, "C2942 empty loops");
   complete(product.stronglyConnectedComponents(graph, zero),
     { kind: "complete", value: { components: [], componentOf: [] } }, "empty components");
-  complete(product.graphOfMir(parsedBody([], [])), { vertices: [], successors: [] }, "empty typed MIR edge projection");
+  complete(product.graphOfMir(parsedBody([], [])), { successors: [] }, "empty typed MIR edge projection");
 });
 
 test("ordering preserves authored roots and successors rather than sorting the DFS", () => {
-  const graph = { vertices: [0, 1, 2, 3, 4], successors: [[1, 2], [3], [3], [], []] };
+  const graph = { successors: [[1, 2], [3], [3], [], []] };
   complete(product.orderGraph(graph, [0], limits), { kind: "complete", value: {
     preorder: [0, 1, 3, 2], postorder: [3, 1, 2, 0], reachable: [true, true, true, true, false],
   } }, "authored diamond traversal");
@@ -204,59 +205,58 @@ test("ordering preserves authored roots and successors rather than sorting the D
   } }, "no roots does not fabricate reachability");
 });
 
-test("vertex identity is the declared index, never equal labels or wrapper addresses", () => {
-  const same = { name: "same" };
-  const graph = { vertices: [NaN, 0, -0, same, same], successors: [[1], [2], [0], [4], [1]] };
+test("vertex identity is exactly its dense adjacency position", () => {
+  const graph = { successors: [[1], [2], [0], [4], [1]] };
   complete(product.predecessors(graph, limits), { kind: "complete", value: [[2], [0, 4], [1], [], [3]] },
     "numeric index predecessors retain every distinct position");
   complete(product.stronglyConnectedComponents(graph, limits),
     { kind: "complete", value: { components: [[0, 1, 2], [3], [4]], componentOf: [0, 0, 0, 1, 2] } },
-    "NaN, signed zeros and equal object values do not collapse vertices");
+    "distinct adjacency positions never collapse vertices");
   complete(product.dominators(graph, 0, limits), { kind: "complete", value: {
     immediate: [null, 0, 1, null, null], reachable: [true, true, true, false, false],
   } }, "unreachable incoming predecessors cannot change dominance");
   complete(product.naturalLoops(graph, 0, limits),
     { kind: "complete", value: [{ header: 0, backEdges: [2], members: [0, 1, 2] }] },
     "unreachable predecessors never join a natural loop");
-  complete(product.stronglyConnectedComponents({ vertices: [0, 1, 2, 3], successors: [[3], [2], [1], [2]] }, limits),
+  complete(product.stronglyConnectedComponents({ successors: [[3], [2], [1], [2]] }, limits),
     { kind: "complete", value: { components: [[0], [1, 2], [3]], componentOf: [0, 1, 1, 2] } },
     "the second-pass SCC root2 is not its minimum1; result order ignores discovery order");
 });
 
 test("semidominator compression and final idom correction retain complete dominance", () => {
-  const graph = { vertices: [0, 1, 2, 3, 4, 5], successors: [[1, 2], [2, 4], [3], [], [3], [3]] };
+  const graph = { successors: [[1, 2], [2, 4], [3], [], [3], [3]] };
   complete(product.dominators(graph, 0, limits), { kind: "complete", value: {
     immediate: [null, 0, 0, 0, 1, null], reachable: [true, true, true, true, true, false],
   } }, "node3 semi1 is not its immediate dominator0; node5 is unreachable");
-  complete(product.dominators({ vertices: [0, 1, 2], successors: [[], [2], []] }, 1, limits),
+  complete(product.dominators({ successors: [[], [2], []] }, 1, limits),
     { kind: "complete", value: { immediate: [null, null, 1], reachable: [false, true, true] } },
     "a nonzero actual entry has null idom and does not activate node0");
 });
 
 test("nested natural loops and irreducible components keep distinct complete meanings", () => {
-  const graph = { vertices: [0, 1, 2, 3, 4, 5], successors: [[1], [2, 5], [3, 4], [2], [1], []] };
+  const graph = { successors: [[1], [2, 5], [3, 4], [2], [1], []] };
   complete(product.naturalLoops(graph, 0, limits), { kind: "complete", value: [
     { header: 1, backEdges: [4], members: [1, 2, 3, 4] },
     { header: 2, backEdges: [3], members: [2, 3] },
   ] }, "header order is canonical even when header2 is discovered first");
-  const irreducible = { vertices: [0, 1, 2, 3], successors: [[1, 2], [3], [3], [1, 2]] };
+  const irreducible = { successors: [[1, 2], [3], [3], [1, 2]] };
   complete(product.naturalLoops(irreducible, 0, limits), { kind: "complete", value: [] },
     "an irreducible SCC is not fabricated into a natural loop");
   complete(product.stronglyConnectedComponents(irreducible, limits),
     { kind: "complete", value: { components: [[0], [1, 2, 3]], componentOf: [0, 1, 1, 1] } },
     "the same irreducible component still belongs to the SCC partition");
-  complete(product.naturalLoops({ vertices: [0], successors: [[0, 0]] }, 0, limits),
+  complete(product.naturalLoops({ successors: [[0, 0]] }, 0, limits),
     { kind: "complete", value: [{ header: 0, backEdges: [0], members: [0] }] },
     "duplicate self-edges do not duplicate backedges or membership");
-  complete(product.naturalLoops({ vertices: [0, 1, 2, 3, 4], successors: [[1], [2], [3, 4], [1], [1]] }, 0, limits),
+  complete(product.naturalLoops({ successors: [[1], [2], [3, 4], [1], [1]] }, 0, limits),
     { kind: "complete", value: [{ header: 1, backEdges: [3, 4], members: [1, 2, 3, 4] }] },
     "overlapping reverse membership shares one header union without losing a second backedge");
 });
 
 test("every graph work/result-entry limit admits its hand-derived boundary and refuses every smaller allowance", () => {
-  const chain = { vertices: [0, 1, 2], successors: [[1], [2], []] };
-  const correction = { vertices: [0, 1, 2, 3, 4], successors: [[1, 2], [2, 4], [3], [], [3]] };
-  const loop = { vertices: [0, 1, 2, 3, 4], successors: [[1], [2, 3, 4], [1], [1], []] };
+  const chain = { successors: [[1], [2], []] };
+  const correction = { successors: [[1, 2], [2, 4], [3], [], [3]] };
+  const loop = { successors: [[1], [2, 3, 4], [1], [1], []] };
   const cases = [
     { name: "predecessors", work: 8, entries: 5, run: budget => product.predecessors(chain, budget),
       expected: [[], [0], [1]] },
@@ -289,7 +289,7 @@ test("every graph work/result-entry limit admits its hand-derived boundary and r
 });
 
 test("zero-work isolated and repeated-edge families obey the same literal accounting", () => {
-  const isolated = { vertices: ["only"], successors: [[]] };
+  const isolated = { successors: [[]] };
   complete(product.predecessors(isolated, { maximumWork: 2, maximumResultEntries: 1 }),
     { kind: "complete", value: [[]] }, "isolated predecessor row build2/entry1");
   complete(product.orderGraph(isolated, [0], { maximumWork: 4, maximumResultEntries: 3 }),
@@ -300,14 +300,14 @@ test("zero-work isolated and repeated-edge families obey the same literal accoun
     { kind: "complete", value: [] }, "a loop-free result has zero published entries");
   complete(product.stronglyConnectedComponents(isolated, { maximumWork: 6, maximumResultEntries: 3 }),
     { kind: "complete", value: { components: [[0]], componentOf: [0] } }, "isolated SCC6/3");
-  const repeated = { vertices: [0, 1], successors: [[1, 1], [0]] };
+  const repeated = { successors: [[1, 1], [0]] };
   complete(product.stronglyConnectedComponents(repeated, { maximumWork: 20, maximumResultEntries: 5 }),
     { kind: "complete", value: { components: [[0, 1]], componentOf: [0, 0] } },
     "6V+2E+Ep=12+6+2=20, duplicate edges remain charged");
 });
 
 test("standalone graph density/range and actual invalid maxima are caller defects, not refusals", () => {
-  const valid = { vertices: [0], successors: [[]] };
+  const valid = { successors: [[]] };
   const ports = [
     budget => product.predecessors(valid, budget),
     budget => product.orderGraph(valid, [0], budget),
@@ -321,26 +321,26 @@ test("standalone graph density/range and actual invalid maxima are caller defect
         { name: "TypeError", message: `${field} must be a nonnegative safe integer` });
     }
   }
-  assert.throws(() => product.predecessors({ vertices: [0], successors: [] }, limits),
-    { name: "TypeError", message: "successor rows must match the vertex inventory" });
-  assert.throws(() => product.predecessors({ vertices: new Array(1), successors: [[]] }, limits),
+  for (const row of [undefined, null]) {
+    assert.throws(() => product.predecessors({ successors: [row] }, limits),
+      { name: "TypeError", message: "vertex 0 is missing" });
+  }
+  assert.throws(() => product.predecessors({ successors: new Array(1) }, limits),
     { name: "TypeError", message: "vertex 0 is missing" });
-  assert.throws(() => product.predecessors({ vertices: [0], successors: new Array(1) }, limits),
-    { name: "TypeError", message: "successor row 0 is missing" });
   for (const target of [-1, 0.5, NaN, Infinity, 1]) {
-    assert.throws(() => product.predecessors({ vertices: [0], successors: [[target]] }, limits),
+    assert.throws(() => product.predecessors({ successors: [[target]] }, limits),
       { name: "TypeError", message: `edge target ${target} is missing` });
     assert.throws(() => product.orderGraph(valid, [target], limits),
       { name: "TypeError", message: `root ${target} is missing` });
   }
-  assert.throws(() => product.predecessors({ vertices: [0], successors: [new Array(1)] }, limits),
+  assert.throws(() => product.predecessors({ successors: [new Array(1)] }, limits),
     { name: "TypeError", message: "edge target undefined is missing" });
 });
 
 test("a hundred-thousand-vertex chain stays iterative with complete exact graph results", () => {
   const depth = 100_000;
   const vertices = Array.from({ length: depth }, (unusedValue, index) => index);
-  const graph = { vertices, successors: vertices.map(index => index + 1 < depth ? [index + 1] : []) };
+  const graph = { successors: vertices.map(index => index + 1 < depth ? [index + 1] : []) };
   const budget = { maximumWork: 8_000_000, maximumResultEntries: depth * 3 };
   complete(product.predecessors(graph, budget),
     { kind: "complete", value: vertices.map(index => index === 0 ? [] : [index - 1]) }, "complete deep predecessor rows");
@@ -646,7 +646,7 @@ test("a genuine sparse MIR statement row is a caller defect in both directions, 
 test("one header reuses its complete reverse closure across both tail orders and exact hand-derived limits", () => {
   const expected = { kind: "complete", value: [{ header: 0, backEdges: [3, 4], members: [0, 1, 2, 3, 4] }] };
   for (const tails of [[3, 4], [4, 3]]) {
-    const graph = { vertices: [0, 1, 2, 3, 4], successors: [[1], [2], tails, [0], [0]] };
+    const graph = { successors: [[1], [2], tails, [0], [0]] };
     complete(product.naturalLoops(graph, 0, { maximumWork: 102, maximumResultEntries: 8 }), expected,
       "m2/k2: dom57 + tree24 + scan11 + shared closure10 =102; entries1+2+5=8");
     complete(product.naturalLoops(graph, 0, { maximumWork: 103, maximumResultEntries: 9 }), expected,
@@ -663,7 +663,7 @@ test("one header reuses its complete reverse closure across both tail orders and
   const tailCount = 1000;
   const vertices = Array.from({ length: chainLength + tailCount + 1 }, (unusedValue, index) => index);
   const tails = Array.from({ length: tailCount }, (unusedValue, index) => chainLength + index + 1);
-  const graph = { vertices, successors: vertices.map(index => index < chainLength ? [index + 1]
+  const graph = { successors: vertices.map(index => index < chainLength ? [index + 1]
     : index === chainLength ? tails : [0]) };
   complete(product.naturalLoops(graph, 0, { maximumWork: 46_010, maximumResultEntries: 3002 }),
     { kind: "complete", value: [{ header: 0, backEdges: tails, members: vertices }] },
@@ -837,9 +837,10 @@ test("exact seven-port public inventory and complete eight-source owner compile 
   writeFileSync(resolve(repository, ".temp/dataflow-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 4000));
   complete(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...sourceFiles, ...declarationSources].sort(),
-    "eight owner files plus the exact thirteen-source real dependency-production closure");
-  complete(report.provenance.map(entry => relative(repository, entry.source)).sort(), [...interfaceSources].sort(),
-    "only the seven public contracts and actual diag index declaration are staged");
+    "eight owner files plus the exact native dependency-production closure");
+  complete(report.provenance.map(entry => relative(repository, entry.source)).sort(), [...interfaceSources,
+    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts"].sort(),
+    "public contracts retain their actual opaque and data declaration dependencies");
   assert.equal(report.loadedInventory.length > 21, true, "actual language declaration closure is nonempty");
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
 });
@@ -850,7 +851,8 @@ test("actual emitted public declarations preserve generic ports, readonly result
   mkdirSync(parent, { recursive: true });
   const stage = mkdtempSync(resolve(parent, "case-"));
   writeFileSync(resolve(stage, "package.json"), '{"type":"module","private":true}\n');
-  const declarationFiles = [...sourceFiles, ...interfaceSources].map(path => path.replace("/src/", "/dist/")
+  const declarationFiles = [...sourceFiles, ...interfaceSources,
+    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts"].map(path => path.replace("/src/", "/dist/")
     .replace(/\.ts$/u, ".d.ts"));
   const staged = [];
   for (const file of declarationFiles) {
@@ -866,7 +868,7 @@ import type { MirBody } from "./ir-mir/contract.js";
 const ports: readonly [Port.Solve, Port.GraphOfMir, Port.Predecessors, Port.OrderGraph, Port.Dominators,
   Port.NaturalLoops, Port.StronglyConnectedComponents] = [Dataflow.solve, Dataflow.graphOfMir, Dataflow.predecessors,
   Dataflow.orderGraph, Dataflow.dominators, Dataflow.naturalLoops, Dataflow.stronglyConnectedComponents];
-export function consume(body: MirBody, graph: Port.DirectedGraph<string>, budget: Port.DataflowLimits): readonly boolean[] {
+export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.DataflowLimits): readonly boolean[] {
   const lattice: Port.Lattice<number> = { bottom: 0, overflow: -1, stateBound: 1,
     join: (left, right) => left === -1 || right === -1 ? -1 : Math.max(left, right),
     equals: Object.is, isOverflow: state => state === -1 };
@@ -896,7 +898,8 @@ export function consume(body: MirBody, graph: Port.DirectedGraph<string>, budget
   const negatives = [
     { file: "readonly-entry.mts", type: "FlowSolution<number>", body: "  value.entry[0] = 1;", code: 2542, column: 3 },
     { file: "readonly-exit.mts", type: "FlowSolution<number>", body: "  value.exit = [];", code: 2540, column: 9 },
-    { file: "readonly-graph.mts", type: "DirectedGraph<number>", body: "  value.successors.push([]);", code: 2339, column: 20 },
+    { file: "readonly-graph.mts", type: "DirectedGraph", body: "  value.successors.push([]);", code: 2339, column: 20 },
+    { file: "removed-vertex-payload.mts", type: "DirectedGraph", body: "  value.vertices;", code: 2339, column: 9 },
     { file: "closed-result.mts", type: "DataflowResult<number>", body: "  value.partial;", code: 2339, column: 9 },
     { file: "closed-direction.mts", type: "Problem<number>",
       body: "  const wrong: Problem<number> = { ...value, direction: \"sideways\" };\n  void wrong;", code: 2322, column: 46 },
@@ -905,9 +908,13 @@ export function consume(body: MirBody, graph: Port.DirectedGraph<string>, budget
     `import type { ${entry.type.replace(/<.*$/u, "")} } from "./dataflow/contract.js";\nexport function reject(value: ${entry.type}): void {\n${entry.body}\n}\n` });
   programs.push({ file: "edge-brand.mts", text:
     'import type { BlockState } from "./dataflow/contract.js";\nexport const wrong: BlockState<number> = { target: 0, state: 1 };\n' });
+  const removedGeneric = 'export type Removed = DirectedGraph<number>;';
+  programs.push({ file: "removed-generic-graph.mts", text:
+    `import type { DirectedGraph } from "./dataflow/contract.js";\n${removedGeneric}\n` });
   programs.push({ file: "backward-boundary.mts", text:
     'import type { BackwardProblem } from "./dataflow/contract.js";\nimport type { MirTerminator } from "./ir-mir/contract.js";\nexport function reject(problem: BackwardProblem<number>, terminator: MirTerminator): number {\n  return problem.terminator(terminator, [], "seed");\n}\n' });
   const expected = [...negatives.map(entry => ({ file: entry.file, line: 3, column: entry.column, code: entry.code })),
+    { file: "removed-generic-graph.mts", line: 2, column: removedGeneric.indexOf("DirectedGraph") + 1, code: 2315 },
     { file: "edge-brand.mts", line: 2, column: 44, code: 2322 },
     { file: "backward-boundary.mts", line: 4, column: 45, code: 2345 }];
   const files = programs.map(program => { const file = resolve(stage, program.file); writeFileSync(file, program.text); return file; });

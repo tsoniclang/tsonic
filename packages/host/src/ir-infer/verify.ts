@@ -11,8 +11,8 @@ import { candidateKey, compareNumber, compareText, constraintKey, emit, makeInve
 import type { Inventory } from "./verify-contributions.js";
 import { verifySolution, visitBindings } from "./verify-solution.js";
 
-const parts = Object.freeze(["return", "yield", "variable", "field", "parameter-initializer"]);
-const kinds = Object.freeze(["signature", "local", "binder", "literal"]);
+const parts: readonly string[] = ["return", "yield", "variable", "field", "parameter-initializer"];
+const kinds: readonly string[] = ["signature", "local", "binder", "literal"];
 
 export function signaturePartKey(value: InferredSignaturePart): string {
   return encodeKey([value.definition, value.part.kind, value.part.kind === "parameter-initializer" ? value.part.index : null]);

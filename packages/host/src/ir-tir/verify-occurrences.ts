@@ -4,8 +4,8 @@ import type { HirNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedValue } from "./contract.js";
-import type { TirLayouts, TirReference, TirRecord, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
-import { enterTirInline, isTirRecord, tirPathText } from "./text-layouts.js";
+import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
+import { enterTirInline, tirPathText } from "./text-layouts.js";
 
 export type TirOccurrenceEmit = (rule: TirRule, node: TirNode | null, detail: string) => void;
 
@@ -41,7 +41,6 @@ export interface TirStructure {
   readonly records: readonly TirRecordVisit[];
   readonly scalars: readonly TirScalarVisit[];
   readonly nodes: readonly TirNode[];
-  readonly extraFields: readonly { readonly node: TirNode | null; readonly field: string }[];
   readonly selectedMembers: readonly TirSelectedMemberVisit[];
 }
 
@@ -79,7 +78,6 @@ export const inspectTirStructure = (
   const records: TirRecordVisit[] = [];
   const scalars: TirScalarVisit[] = [];
   const nodes: TirNode[] = [];
-  const extraFields: { node: TirNode | null; field: string }[] = [];
   const selectedMembers: TirSelectedMemberVisit[] = [];
   const pending: TirVisitWork[] = !body && stopBefore.has(root.id) ? [] : [{ kind: "value",
     value: body ? layouts.bodyWork(subject) : layouts.nodeWork(subject.tree), node: null, phase: false, path: null,
@@ -144,11 +142,6 @@ export const inspectTirStructure = (
                 source: part.source, destination: part.destination, part: part.part } });
         }
         const fields = value.fields();
-        if (work.phase && value.layout.fields[0]?.name !== "*") {
-          const declared = new Set(fields.map(field => field.name));
-          if (value.layout.hasKind) declared.add("kind");
-          for (const name of Object.keys(value.value).sort()) if (!declared.has(name)) extraFields.push({ node, field: name });
-        }
         for (let position = fields.length - 1, field = fields[position]; field !== undefined; field = fields[--position]) {
           pending.push({ kind: "value", value: field.work, node, phase: work.phase || field.name === "tsonic",
             path: { parent: work.path, field: field.name }, ownerType: value.layout.label, bindingOwner, members });
@@ -157,7 +150,7 @@ export const inspectTirStructure = (
       }
     }
   }
-  return { records, scalars, nodes, extraFields, selectedMembers };
+  return { records, scalars, nodes, selectedMembers };
 };
 
 export const typedValueOf = (node: TirNode): TypedValue | null =>
@@ -334,12 +327,12 @@ export const verifyValueEndpoints = (body: TirBody, node: TirNode, emit: TirOccu
   }
 };
 
-const arithmeticTokens = Object.freeze(["PlusToken", "MinusToken", "AsteriskToken", "AsteriskAsteriskToken", "SlashToken", "PercentToken",
+const arithmeticTokens: readonly string[] = (["PlusToken", "MinusToken", "AsteriskToken", "AsteriskAsteriskToken", "SlashToken", "PercentToken",
   "LessThanLessThanToken", "GreaterThanGreaterThanToken", "GreaterThanGreaterThanGreaterThanToken", "AmpersandToken", "BarToken", "CaretToken"]);
-const comparisonTokens = Object.freeze(["LessThanToken", "LessThanEqualsToken", "GreaterThanToken", "GreaterThanEqualsToken", "EqualsEqualsToken",
+const comparisonTokens: readonly string[] = (["LessThanToken", "LessThanEqualsToken", "GreaterThanToken", "GreaterThanEqualsToken", "EqualsEqualsToken",
   "ExclamationEqualsToken", "EqualsEqualsEqualsToken", "ExclamationEqualsEqualsToken", "InKeyword", "InstanceOfKeyword"]);
-const shortCircuitTokens = Object.freeze(["AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken"]);
-const assignmentTokens = Object.freeze(["EqualsToken", "PlusEqualsToken", "MinusEqualsToken", "AsteriskEqualsToken", "AsteriskAsteriskEqualsToken",
+const shortCircuitTokens: readonly string[] = (["AmpersandAmpersandToken", "BarBarToken", "QuestionQuestionToken"]);
+const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", "MinusEqualsToken", "AsteriskEqualsToken", "AsteriskAsteriskEqualsToken",
   "SlashEqualsToken", "PercentEqualsToken", "LessThanLessThanEqualsToken", "GreaterThanGreaterThanEqualsToken",
   "GreaterThanGreaterThanGreaterThanEqualsToken", "AmpersandEqualsToken", "BarEqualsToken", "CaretEqualsToken",
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
@@ -357,11 +350,10 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
       : role === "assignment" ? assignmentTokens.includes(token) : token === "CommaToken";
     if (!matches) emit("binary-role-operator", node, "binary role does not match its authored operator token");
   }
-  if (original === undefined || !isTirRecord(original.tsonic) || !isTirRecord(node.tsonic)) return;
-  const typedPhase: TirRecord = node.tsonic;
+  if (original === undefined || original.tsonic === null || node.tsonic === null ||
+    !("role" in original.tsonic) || !("role" in node.tsonic)) return;
   const sourceRole = original.tsonic.role;
-  const targetRole = typedPhase.role;
-  if (typeof sourceRole !== "string" || typeof targetRole !== "string") return;
+  const targetRole = node.tsonic.role;
   const receiver = node.kind === "ThisKeyword" || node.kind === "SuperKeyword";
   const matches = sourceRole === targetRole || receiver && sourceRole === "value" &&
     (targetRole === "receiver" || targetRole === "super");
@@ -418,7 +410,7 @@ export const verifyDeferredParameters = (
     for (const binding of family) parameters.add(encodeKey([binding.parameter.owner, binding.parameter.index]));
   }
   for (const binding of context.bindings.selfBindings) owners.add(binding.owner);
-  const support = encodeKey({ parameters: [...parameters].sort(), owners: [...owners].sort() });
+  const support = encodeKey({ kind: "record", fields: [["parameters", [...parameters].sort()], ["owners", [...owners].sort()]] });
   for (const evidence of deferredEvidence(deferred)) {
     if (!Number.isSafeInteger(evidence.type) || Object.is(evidence.type, -0) || evidence.type < 0 || evidence.type >= table.terms.length) continue;
     const query = encodeKey([evidence.type, support]);

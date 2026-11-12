@@ -4,7 +4,7 @@ import type { TextParseResult } from "../diag/contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { NodeId, Origin } from "../ids/contract.js";
-import type { CheckJsDirective, CommentDirective, CommentRange, Pragma, PragmaArgument, PragmaArguments } from "../ir-hir/contract.js";
+import type { CheckJsDirective, CommentDirective, CommentRange, Pragma, PragmaArgument, PragmaArgumentEntry, PragmaArguments } from "../ir-hir/contract.js";
 import type { SyntaxKind } from "../ir-hir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
 import type { DecodedName } from "./parse-values.js";
@@ -188,7 +188,7 @@ export function readSyntaxWire(cursor: Cursor): TextParseResult<SyntaxWire> {
   return { kind: "parsed", value: { position: position.value, offset } };
 }
 
-const missingSyntaxReference = Object.freeze<InvariantFailure>({
+const missingSyntaxReference: InvariantFailure = ({
   owner: "ir-program", query: null, origin: null,
   message: "Validated syntax reference has no matching materialized value",
 });
@@ -296,7 +296,7 @@ export function readPragmaArgument(cursor: Cursor): TextParseResult<PragmaArgume
 export function readPragmaArguments(cursor: Cursor): TextParseResult<PragmaArguments> {
   const opening = openRecord(cursor, "PragmaArguments");
   if (opening.kind === "invalid-text") return opening;
-  const result: { [name: string]: PragmaArgument } = {};
+  const result: PragmaArgumentEntry[] = [];
   let previous: string | null = null;
   while (true) {
     whitespace(cursor);
@@ -333,7 +333,7 @@ export function readPragmaArguments(cursor: Cursor): TextParseResult<PragmaArgum
     if (equals.kind === "invalid-text") return equals;
     const argument = readPragmaArgument(cursor);
     if (argument.kind === "invalid-text") return argument;
-    Object.defineProperty(result, decoded.value, { value: argument.value, enumerable: true, configurable: true, writable: true });
+    result.push({ name: decoded.value, value: argument.value });
     previous = decoded.value;
   }
 }

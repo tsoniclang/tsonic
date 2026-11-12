@@ -39,7 +39,7 @@ export const walkSyntaxTree: WalkSyntaxTree = <PhaseType extends Phase>(
       { kind: "leave", node: current, next: pending },
     );
   }
-  return Object.freeze(result);
+  return (result);
 };
 
 export const indexSyntaxTree: IndexSyntaxTree = root => walkSyntaxTree(root, []);
@@ -94,7 +94,7 @@ export interface HirRecordWork extends HirDataWork {
   readonly read: () => HirRecordView;
 }
 
-const plainReference: HirDataReference = Object.freeze({ kind: "plain" });
+const plainReference: HirDataReference = ({ kind: "plain" });
 
 export function hirScalarData(value: HirScalar): HirDataWork {
   return { reference: plainReference, read: () => ({ kind: "scalar", value }) };

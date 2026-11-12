@@ -208,5 +208,5 @@ export const verifySummary: VerifySummary = (summary, context) => {
   for (const violation of verifyFactBindings(summaryBindingInputs(summary, context), { kind: "summary", summary: summary.key }, site, context)) {
     violations.push({ rule: violation.rule === "bindings-complete" ? "bindings-complete" : "summary-finite", site: violation.site, detail: violation.detail });
   }
-  return Object.freeze(violations);
+  return (violations);
 };

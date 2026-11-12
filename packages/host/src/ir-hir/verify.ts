@@ -113,9 +113,9 @@ export function createHirInventory(module: HirModule): HirInventory {
       kind: "enter", node: child.node, parent: entry, member: true, path: hirChildPath(frame.path, child.fields), next,
     }), following);
   }
-  return { nodes: Object.freeze(nodes), entries: Object.freeze(entries), nodesById, entriesById, receivers: Object.freeze(receivers),
+  return { nodes: (nodes), entries: (entries), nodesById, entriesById, receivers: (receivers),
     starts, ends, parents, owners, itemOwners, bodies, bodyParents,
-    repeated: Object.freeze(repeated) };
+    repeated: (repeated) };
 }
 
 function containsHirNode(outer: HirNodeEntry, inner: HirNodeEntry): boolean {
@@ -184,7 +184,7 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
   }
 }
 
-const declarationKinds: readonly DeclarationKind[] = Object.freeze([
+const declarationKinds: readonly DeclarationKind[] = ([
   "VariableDeclaration", "Parameter", "BindingElement", "MissingDeclaration", "FunctionDeclaration", "ClassDeclaration",
   "ClassExpression", "InterfaceDeclaration", "TypeAliasDeclaration", "JSTypeAliasDeclaration", "EnumMember", "EnumDeclaration",
   "ImportDeclaration", "JSImportDeclaration", "NamespaceImport", "ExportAssignment", "NamespaceExportDeclaration", "NamespaceExport",
@@ -238,7 +238,7 @@ function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirId
     }
     const parameterLocals: number[] = [];
     for (const [ordinal, local] of body.locals.entries()) {
-      if (!Object.hasOwn(body.locals, ordinal)) {
+      if (local === undefined) {
         report("local-dense", site, "local id must equal its declaration position");
         continue;
       }
@@ -291,7 +291,7 @@ function bodyViolations(module: HirModule, inventory: HirInventory, paths: HirId
     }
     const lists: HirCandidateList[] = [];
     for (const [ordinal, list] of body.candidateLists.entries()) {
-      if (!Object.hasOwn(body.candidateLists, ordinal)) {
+      if (list === undefined) {
         report("candidate-list-dense", site, "candidate list id must equal its arena position");
         continue;
       }
@@ -707,5 +707,5 @@ export const verifyHir: VerifyHir = (module, context) => {
   verifyHirCaptures(inventory.entries, readers, report, hirSchema, requests);
   verifyHirPlaces(inventory, report);
   violations.push(...verifyBindingVectors(requests, context, reference => readers.nodeOf(reference)?.node ?? null));
-  return Object.freeze(violations);
+  return (violations);
 };

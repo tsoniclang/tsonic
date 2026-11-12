@@ -54,7 +54,7 @@ function keyValue(input) {
   if (input.kind === "bigint") return BigInt(input.text);
   if (input.kind === "array") return input.items.map(keyValue);
   assert.equal(input.kind, "record", "closed authored key transport");
-  return Object.fromEntries(input.fields.map(([name, value]) => [name, keyValue(value)]));
+  return { kind: "record", fields: input.fields.map(([name, value]) => [name, keyValue(value)]) };
 }
 
 function evaluate(input) {
@@ -221,60 +221,38 @@ test("ordinal framing rejects every noncanonical number spelling with complete o
   }
 });
 
-test("plain key boundaries reject every outside form with its complete actual path", () => {
+test("closed key boundaries reject incomplete data with its complete actual path", () => {
   const arrayCycle = []; arrayCycle.push(arrayCycle);
-  const recordCycle = {}; recordCycle.self = recordCycle;
-  const accessorArray = [0]; let reads = 0;
-  Object.defineProperty(accessorArray, "0", { get() { reads += 1; return 0; } });
-  const accessorRecord = { get field() { reads += 1; return 0; } };
-  const holeAndExtra = Array(1); holeAndExtra.extra = 1;
-  const extraArray = []; extraArray.extra = 1;
-  const hidden = {}; Object.defineProperty(hidden, "a", { value: 1 });
-  const hiddenArray = [1]; Object.defineProperty(hiddenArray, "0", { enumerable: false });
-  const symbolArray = [1]; symbolArray[Symbol("field")] = 0;
-  const foreignArray = Object.setPrototypeOf([], { foreign: true });
-  const nullArray = Object.setPrototypeOf([], null);
-  let writes = 0;
-  const setterRecord = { set field(value) { writes += value; } };
+  const recordCycle = { kind: "record", fields: [] }; recordCycle.fields.push(["self", recordCycle]);
   for (const [input, reason, path] of [
     [arrayCycle, "cyclic key data", "[0]"], [recordCycle, "cyclic key data", '["self"]'],
-    [accessorArray, "a key field must be an own data property", "[0]"],
-    [accessorRecord, "a key field must be an own data property", '["field"]'],
-    [setterRecord, "a key field must be an own data property", '["field"]'],
-    [holeAndExtra, "a key field must be an own data property", "[0]"],
-    [Array(1), "a key array must be dense with no extra fields", ""],
-    [extraArray, "a key array must be dense with no extra fields", ""],
-    [{ [Symbol("field")]: 0 }, "key data cannot contain symbol fields", ""],
-    [symbolArray, "key data cannot contain symbol fields", ""],
-    [foreignArray, "a key array must be plain data", ""],
-    [nullArray, "a key array must be plain data", ""],
-    [new Date(0), "a key record must be plain data", ""],
-    [Object.create({ inherited: 1 }), "a key record must be plain data", ""],
-    [hidden, "a key field must be enumerable", '["a"]'],
-    [hiddenArray, "a key field must be enumerable", "[0]"],
+    [Array(1), "unsupported key data", "[0]"],
+    [{}, "unsupported key data", ""],
+    [{ kind: "record" }, "unsupported key data", ""],
+    [{ kind: "record", fields: [["a"]] }, "a key record requires complete named fields", ""],
+    [{ kind: "record", fields: [[0, 1]] }, "a key record requires complete named fields", ""],
+    [{ kind: "record", fields: Array(1) }, "a key record requires complete named fields", ""],
+    [{ kind: "record", fields: [["a", 1], ["a", 2]] }, "a key record requires unique field names", ""],
     [undefined, "unsupported key data", ""], [Symbol("value"), "unsupported key data", ""],
-    [() => 0, "unsupported key data", ""], [{ field: undefined }, "unsupported key data", '["field"]'],
+    [() => 0, "unsupported key data", ""],
+    [{ kind: "record", fields: [["field", undefined]] }, "unsupported key data", '["field"]'],
   ]) {
     assert.throws(() => product.encodeKey(input), { name: "TypeError", message: `ids: ${reason} at $root${path}` });
-    assert.throws(() => product.encodeKey({ payload: [input] }), {
+    assert.throws(() => product.encodeKey({ kind: "record", fields: [["payload", [input]]] }), {
       name: "TypeError", message: `ids: ${reason} at $root["payload"][0]${path}`,
     });
   }
-  for (const [input, message] of [
-    [{ 'a"b': [undefined] }, 'ids: unsupported key data at $root["a\\"b"][0]'],
-    [{ "a\\b": [undefined] }, 'ids: unsupported key data at $root["a\\\\b"][0]'],
-    [{ "a\nb": [undefined] }, 'ids: unsupported key data at $root["a\\nb"][0]'],
-    [{ "\ud800": [undefined] }, 'ids: unsupported key data at $root["\\ud800"][0]'],
-    [{ "": [undefined] }, 'ids: unsupported key data at $root[""][0]'],
-  ]) assert.throws(() => product.encodeKey(input), { name: "TypeError", message });
-  assert.equal(reads, 0, "a rejected accessor is never invoked");
-  assert.equal(writes, 0, "a rejected setter is never invoked");
-  const plain = Object.create(null); plain.a = 1;
-  assert.equal(product.encodeKey(plain), "O1:S1:aF1:");
-  const shared = { value: [1, 2] };
+  for (const name of ['a"b', "a\\b", "a\nb", "\ud800", ""]) {
+    const input = { kind: "record", fields: [[name, [undefined]]] };
+    const message = `ids: unsupported key data at $root[${JSON.stringify(name)}][0]`;
+    assert.throws(() => product.encodeKey(input), { name: "TypeError", message });
+  }
+  assert.equal(product.encodeKey({ kind: "record", fields: [["a", 1]] }), "O1:S1:aF1:");
+  const shared = { kind: "record", fields: [["value", [1, 2]]] };
   const actual = product.encodeKey([shared, shared]);
   assert.equal(actual, "A2:O1:S5:valueA2:F1:F2:O1:S5:valueA2:F1:F2:");
-  assert.equal(product.encodeKey([{ value: [1, 2] }, { value: [1, 2] }]), actual);
+  assert.equal(product.encodeKey([{ kind: "record", fields: [["value", [1, 2]]] },
+    { kind: "record", fields: [["value", [1, 2]]] }]), actual);
   let deepInvalid;
   for (let depth = 0; depth < 100000; depth += 1) deepInvalid = [deepInvalid];
   const expectedError = `ids: unsupported key data at $root${"[0]".repeat(100000)}`;
@@ -289,7 +267,7 @@ test("canonical keys and durable grouping are independent of record allocation a
   const record = { alpha: [1, false], beta: "é", gamma: null };
   const expected = "O3:S5:alphaA2:F1:B0S4:betaS1:éS5:gammaN";
   for (const names of [["alpha", "beta", "gamma"], ["gamma", "alpha", "beta"], ["beta", "gamma", "alpha"]]) {
-    assert.equal(product.encodeKey(Object.fromEntries(names.map(name => [name, record[name]]))), expected);
+    assert.equal(product.encodeKey({ kind: "record", fields: names.map(name => [name, record[name]]) }), expected);
   }
   const definitions = ["z", "a", "😀"].map(name => definition({ root: "p", module: "m", segments: [{ name, ordinal: 0 }] }));
   const bodies = definitions.map(owner => product.encodeBodyId({ owner, role: "function", ordinal: 0 }));
@@ -357,7 +335,8 @@ const body: Port.BodyId = Ids.encodeBodyId({ owner: definition, role: "function"
 const group: Port.GroupId = Ids.encodeGroupId([body]);
 const component: Port.ComponentId = Ids.encodeComponentId([definition]);
 const decoded: Port.DecodedIdentity<Port.DefinitionPath> = Ids.decodeDefId(definition);
-const key: Port.KeyData = { receiver: null, bindings: [0, 1n, -0, false, "x"], actual: { body, group, component } };
+const key: Port.KeyData = { kind: "record", fields: [["receiver", null], ["bindings", [0, 1n, -0, false, "x"]],
+  ["actual", { kind: "record", fields: [["body", body], ["group", group], ["component", component]] }]] };
 void ports; void decoded; void Ids.encodeKey(key);
 `);
   const brands = ["PackageId", "ModuleId", "DefId", "BodyId", "GroupId", "ComponentId", "ExpansionId", "NodeId",
@@ -377,6 +356,13 @@ void ports; void decoded; void Ids.encodeKey(key);
     writeFileSync(resolve(stage, file), `import type { ${name} } from "./ids/contract.js";\nconst wrong: ${name} = ${index < 7 ? '"id"' : "0"};\nvoid wrong;\n`);
     files.push(resolve(stage, file)); expected.push({ file, line: 2, column: 7, code: 2322 });
   }
+  for (const [file, text, line, column, code] of [
+    ["removed-object-key.mts", 'const wrong: KeyData = { x: 1 };\nvoid wrong;', 2, 26, 2353],
+    ["readonly-key-fields.mts", 'declare const value: KeyRecord;\nvalue.fields.push(["x", 1]);', 3, 14, 2339],
+  ]) {
+    writeFileSync(resolve(stage, file), `import type { ${file === "removed-object-key.mts" ? "KeyData" : "KeyRecord"} } from "./ids/contract.js";\n${text}\n`);
+    files.push(resolve(stage, file)); expected.push({ file, line, column, code });
+  }
   const config = resolve(stage, "tsconfig.json");
   writeFileSync(config, JSON.stringify({ compilerOptions: { strict: true, noUncheckedIndexedAccess: true,
     exactOptionalPropertyTypes: true, noUnusedLocals: true, noUnusedParameters: true, noImplicitReturns: true,
@@ -394,7 +380,7 @@ void ports; void decoded; void Ids.encodeKey(key);
   assert.equal([...output.matchAll(/\berror TS\d+:/gu)].length, actual.length,
     "every compiler error belongs to the complete located diagnostic vector");
   const order = rows => rows.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0);
-  assert.equal(actual.length, 576, "552 cross-brand and 24 raw-primitive opposites, no positive-consumer diagnostic");
+  assert.equal(actual.length, 578, "552 cross-brand, 24 raw-primitive and 2 canonical-key opposites, no positive-consumer diagnostic");
   assert.equal(JSON.stringify(order(actual)) === JSON.stringify(order(expected)), true, output.slice(0, 4000));
   assert.equal(result.status, 1, "the pinned compiler rejects the exact negative programs with no emit");
   const loaded = result.stdout.split(/\r?\n/u).filter(path => path.startsWith("/"));

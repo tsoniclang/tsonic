@@ -6,16 +6,16 @@ import { buildGraph, createMeter, takeEntries, takeWork } from "./graph.js";
 import type { Traversal } from "./ordering.js";
 import { walkGraph } from "./ordering.js";
 
-const missingDfsParentRecord = Object.freeze<InvariantFailure>({
+const missingDfsParentRecord: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "dominator DFS parent record is missing",
 });
-const missingImmediateDominator = Object.freeze<InvariantFailure>({
+const missingImmediateDominator: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "immediate dominator is missing",
 });
-const missingCorrectedImmediateDominator = Object.freeze<InvariantFailure>({
+const missingCorrectedImmediateDominator: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "corrected immediate dominator is missing",
 });
-const missingPublishedImmediateDominator = Object.freeze<InvariantFailure>({
+const missingPublishedImmediateDominator: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "published immediate dominator is missing",
 });
 
@@ -121,13 +121,13 @@ export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter:
   return { kind: "complete", value: { traversal: traversal.value, records } };
 }
 
-export function dominatorsOfGraph<Vertex>(
-  input: DirectedGraph<Vertex>,
+export function dominatorsOfGraph(
+  input: DirectedGraph,
   entry: number,
   limits: DataflowLimits,
 ): DataflowResult<DominatorTree> {
   const meter = createMeter(limits);
-  const resultStop = takeEntries(meter, input.vertices.length * 2);
+  const resultStop = takeEntries(meter, input.successors.length * 2);
   if (resultStop !== null) return resultStop;
   const graph = buildGraph(input, meter);
   if (graph.kind === "resource-limit") return graph;

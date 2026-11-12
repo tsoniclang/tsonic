@@ -1,10 +1,10 @@
 import { sourceOwner } from "./catalogue.mjs";
 import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
-const producerMembers = Object.freeze(["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
-const scopedOwners = Object.freeze(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const opaqueOwners = Object.freeze({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
-const rawCaptureTypes = Object.freeze(["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
-const sdkPayloads = Object.freeze({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
+const producerMembers = (["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
+const scopedOwners = (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
+const opaqueOwners = ({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
+const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
+const sdkPayloads = ({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
   const publicValues = publicDeclarations(source, files, catalogue);
@@ -27,18 +27,47 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       if (statement !== undefined) start = ast.authoredRange(statement).start;
     }
     const before = files.get(path).slice(0, start).split("\n");
-    findings.push(Object.freeze({ code, path, line: before.length, column: before[before.length - 1].length + 1 }));
+    findings.push(({ code, path, line: before.length, column: before[before.length - 1].length + 1 }));
   };
   const sourceFiles = new Map(source.sourceFiles.filter(file => file !== undefined).map(file =>
     [ast.getFileName(file).slice("/host-gate/".length), file]).filter(([path]) => files.has(path)));
+  const opaqueClasses = new Set();
+  const opaqueFiles = new Set();
+  for (const [path, file] of sourceFiles) {
+    const module = owner(path);
+    if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
+    for (const declaration of ast.statements(file)) {
+      if (!ast.is.IsTypeAliasDeclaration(declaration) || opaqueOwners[ast.text(ast.name(declaration))] !== module.name) continue;
+      const annotation = ast.typeNode(declaration);
+      if (annotation === undefined || !ast.is.IsTypeReferenceNode(annotation)) continue;
+      const identity = sourceSymbol(source, ast.as.AsTypeReferenceNode(annotation).TypeName);
+      const queries = source.getSourceFileQueries(file).checker;
+      const candidates = queries.getSymbolDeclarations(identity);
+      if (candidates.length !== 1 || !ast.is.IsClassDeclaration(candidates[0])) continue;
+      const selected = candidates[0];
+      const selectedFile = ast.getFileName(ast.getSourceFile(selected)).slice("/host-gate/".length);
+      const members = ast.members(selected);
+      const constructors = members.filter(member => ast.is.IsConstructorDeclaration(member));
+      if (owner(selectedFile) !== module || [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(selectedFile) || publicValues.has(selected) ||
+        constructors.length !== 1 || !ast.hasModifierKind(constructors[0], "private") ||
+        ast.children(selected).some(child => ast.kindName(child) === "KindHeritageClause") ||
+        !members.some(member => ast.is.IsPropertyDeclaration(member) && !ast.hasModifierKind(member, "static")) ||
+        !members.every(member => ast.is.IsConstructorDeclaration(member) ||
+          ast.is.IsPropertyDeclaration(member) && ast.hasModifierKind(member, "private") &&
+            ast.hasModifierKind(member, "readonly") && !ast.hasModifierKind(member, "static") ||
+          ast.is.IsMethodDeclaration(member) && ast.hasModifierKind(member, "static"))) continue;
+      opaqueClasses.add(selected);
+      opaqueFiles.add(selectedFile);
+    }
+  }
   const closedFiles = new Set([...files.keys()].filter(path => {
     const module = owner(path);
-    return path === module?.contract || path.endsWith(".d.ts");
+    return !opaqueFiles.has(path) && (path === module?.contract || path.endsWith(".d.ts"));
   }));
   for (let previous = -1; previous !== closedFiles.size;) {
     previous = closedFiles.size;
     for (const edge of graph) if (edge.target !== null && closedFiles.has(edge.source) &&
-      owner(edge.source) === owner(edge.target)) closedFiles.add(edge.target);
+      owner(edge.source) === owner(edge.target) && !opaqueFiles.has(edge.target)) closedFiles.add(edge.target);
   }
   const memberName = name => {
     if (name !== undefined && ast.is.IsComputedPropertyName(name)) {
@@ -53,7 +82,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const declaration = ast.parent(intersection);
     if (!ast.is.IsIntersectionTypeNode(intersection) || !ast.is.IsTypeAliasDeclaration(declaration) ||
       ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(file) ||
-      opaqueOwners[ast.text(ast.name(declaration))] !== module.name) return false;
+      opaqueOwners[ast.text(ast.name(declaration))] !== module.name || ast.text(ast.name(declaration)) === "TypeInterner") return false;
     const children = ast.children(intersection).filter(child => child !== undefined);
     const brand = children.find(child => ast.is.IsTypeLiteralNode(child));
     if (children.length !== 2 || brand === undefined || !children.includes(node)) return false;
@@ -87,10 +116,33 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     return source.getSourceFileQueries(file).checker;
   };
   const symbol = node => sourceSymbol(source, node);
+  const runtimeNames = new Set(["Object", "Reflect", "Proxy", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry"]);
+  const objectModelMethods = new Set(["freeze", "seal", "preventExtensions", "isFrozen", "isSealed", "isExtensible",
+    "getPrototypeOf", "setPrototypeOf", "defineProperty", "defineProperties", "getOwnPropertyDescriptor",
+    "getOwnPropertyDescriptors", "getOwnPropertyNames", "getOwnPropertySymbols", "create", "assign", "prototype",
+    "keys", "values", "entries", "hasOwn"]);
+  const runtimeName = (node, active = new Set()) => {
+    if (node === undefined) return undefined;
+    if (ast.is.IsParenthesizedExpression(node)) return runtimeName(ast.as.AsParenthesizedExpression(node).Expression, active);
+    if (!ast.is.IsIdentifier(node)) return undefined;
+    const selected = symbol(node);
+    const declarations = selected === undefined ? [] : checker(node).getSymbolDeclarations(selected);
+    if (runtimeNames.has(ast.text(node)) && (selected === undefined || declarations.every(declaration =>
+      checker(declaration).isDefaultLibraryDeclaration(declaration)))) return ast.text(node);
+    if (selected === undefined || active.has(selected) || declarations.length !== 1) return undefined;
+    const declaration = declarations[0];
+    if (!ast.is.IsVariableDeclaration(declaration) || ast.variableDeclarationKind(declaration) !== "const") return undefined;
+    active.add(selected);
+    const result = runtimeName(ast.as.AsVariableDeclaration(declaration).Initializer, active);
+    active.delete(selected);
+    return result;
+  };
+  const objectModelMember = (namespace, name) => namespace === "Reflect" ||
+    namespace === "Object" && (name === undefined || objectModelMethods.has(name));
   const contractFunctions = new Map();
   for (const [path, file] of sourceFiles) {
     const module = owner(path);
-    if (module === undefined || path !== module.contract) continue;
+    if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) continue;
     const queries = checker(file);
     const identity = symbol(file);
     if (identity === undefined) continue;
@@ -439,6 +491,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   for (let previous = -1; previous !== rawSymbols.size + productionSymbols.size + mutableSymbols.size + libraryFunctionTypes.size;) {
     previous = rawSymbols.size + productionSymbols.size + mutableSymbols.size + libraryFunctionTypes.size;
     for (const [selected, node] of aliases) {
+      if (opaqueClasses.has(node)) continue;
       let raw = false, production = false, mutable = false;
       const visit = current => {
         if (current === undefined) return;
@@ -524,6 +577,28 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const pluginLoading = module.name === "plugins" && module.effects.some(effect => effect.path === file && effect.role === "plugin-loading");
     const visit = current => {
       const kind = ast.kindName(current);
+      if (ast.is.IsPropertyAccessExpression(current)) {
+        const selection = ast.as.AsPropertyAccessExpression(current);
+        if (objectModelMember(runtimeName(selection.Expression), ast.text(ast.name(current)))) add("nonportable-runtime", file, current);
+      }
+      if (ast.is.IsElementAccessExpression(current)) {
+        const selection = ast.as.AsElementAccessExpression(current);
+        const name = ast.is.IsStringLiteral(selection.ArgumentExpression) ? ast.text(selection.ArgumentExpression) : undefined;
+        if (objectModelMember(runtimeName(selection.Expression), name)) add("nonportable-runtime", file, current);
+      }
+      if (ast.is.IsBindingElement(current)) {
+        const pattern = ast.parent(current);
+        const declaration = ast.parent(pattern);
+        if (ast.is.IsObjectBindingPattern(pattern) && ast.is.IsVariableDeclaration(declaration)) {
+          const selection = ast.as.AsBindingElement(current);
+          const name = selection.PropertyName ?? ast.name(current);
+          if (objectModelMember(runtimeName(ast.as.AsVariableDeclaration(declaration).Initializer), memberName(name)))
+            add("nonportable-runtime", file, current);
+        }
+      }
+      if (ast.is.IsNewExpression(current) && ["Proxy", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry"]
+        .includes(runtimeName(ast.as.AsNewExpression(current).Expression)))
+        add("nonportable-runtime", file, current);
       if (!pluginLoading && (ast.is.IsIdentifier(current) && ["require", "process", "globalThis", "eval"].includes(ast.text(current)) ||
         ast.is.IsNewExpression(current) && ast.text(ast.as.AsNewExpression(current).Expression) === "Function")) add("unsafe-type-escape", file, current);
       if (module.name !== "query" && ast.is.IsTryStatement(current)) add("impure-component", file, current);
@@ -557,7 +632,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           if (container !== undefined && depsTypes.has(symbol(ast.name(container)))) add("impure-component", file, current);
         }
       }
-      if (["KindClassDeclaration", "KindClassExpression"].includes(kind)) add("class", file, current);
+      if (["KindClassDeclaration", "KindClassExpression"].includes(kind) && !opaqueClasses.has(current)) add("class", file, current);
       const brand = brandConstructor(current, module, file);
       if (brand !== undefined) {
         const previous = brandAssertions.get(brand);
@@ -622,7 +697,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         const identity = first !== undefined && ast.is.IsTypeReferenceNode(first) ? symbol(ast.as.AsTypeReferenceNode(first).TypeName) : undefined;
         const declarations = checker(current).getSymbolDeclarations(identity);
         if (parameters.length < 2 || declarations.length === 0 || !declarations.every(declaration =>
-          ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${module.contract}` &&
+          [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")]
+            .includes(ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length)) &&
           ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||
             ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration)))))
           add("impure-component", file, current);
@@ -636,14 +712,52 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (node.CheckJsDirective !== undefined && node.CheckJsDirective.Enabled === false)
       add("unsafe-type-escape", file, node.CheckJsDirective.Range.pos);
   }
-  return Object.freeze(findings);
+  return (findings);
 }
 function moduleLifetimeFindings(source, file) {
-  const immutableData = true;
   const ast = source.ast;
   if (ast.isDeclarationFile(file)) return [];
   const findings = [];
   const checker = source.getSourceFileQueries(file).checker;
+  const typeActive = new Set();
+  const readonlyType = original => {
+    if (original === undefined) return false;
+    const kind = ast.kindName(original);
+    if (["KindStringKeyword", "KindNumberKeyword", "KindBigIntKeyword", "KindBooleanKeyword", "KindNullKeyword",
+      "KindUndefinedKeyword", "KindNeverKeyword", "KindLiteralType", "KindFunctionType"].includes(kind)) return true;
+    if (ast.is.IsParenthesizedTypeNode(original)) return readonlyType(ast.as.AsParenthesizedTypeNode(original).Type);
+    if (ast.is.IsUnionTypeNode(original) || ast.is.IsIntersectionTypeNode(original))
+      return ast.children(original).every(child => child === undefined || readonlyType(child));
+    if (ast.is.IsTypeOperatorNode(original)) {
+      if (ast.operatorKindName(original) !== "KindReadonlyKeyword") return false;
+      const element = ast.as.AsTypeOperatorNode(original).Type;
+      return ast.is.IsArrayTypeNode(element) ? readonlyType(ast.as.AsArrayTypeNode(element).ElementType)
+        : ast.is.IsTupleTypeNode(element) && ast.elements(element).every(readonlyType);
+    }
+    if (ast.is.IsTypeLiteralNode(original)) return ast.members(original).every(member =>
+      ast.is.IsPropertySignatureDeclaration(member) && ast.hasModifierKind(member, "readonly") && readonlyType(ast.typeNode(member)));
+    if (ast.is.IsIndexedAccessTypeNode(original)) {
+      const shape = source.getSourceFileQueries(ast.getSourceFile(original)).typeShape;
+      const scalar = type => shape.isStringLike(type) || shape.isNumberLike(type) || shape.isBooleanLike(type) ||
+        shape.isBigIntLike(type) || shape.isSymbolLike(type) || shape.isNullish(type) ||
+        shape.isUnion(type) && shape.getUnionOrIntersectionTypes(type).every(scalar);
+      return scalar(shape.getTypeFromTypeNode(original));
+    }
+    if (!ast.is.IsTypeReferenceNode(original)) return false;
+    const queries = source.getSourceFileQueries(ast.getSourceFile(original)).checker;
+    const symbol = sourceSymbol(source, ast.as.AsTypeReferenceNode(original).TypeName);
+    if (symbol === undefined) return false;
+    if (typeActive.has(symbol)) return true;
+    typeActive.add(symbol);
+    const declarations = queries.getSymbolDeclarations(symbol);
+    const result = declarations.length > 0 && declarations.every(declaration => ast.is.IsTypeAliasDeclaration(declaration)
+      ? readonlyType(ast.typeNode(declaration)) : ast.is.IsTypeParameterDeclaration(declaration)
+        ? readonlyType(ast.as.AsTypeParameterDeclaration(declaration).Constraint)
+        : ast.is.IsInterfaceDeclaration(declaration) && ast.members(declaration).every(member =>
+          ast.is.IsPropertySignatureDeclaration(member) && ast.hasModifierKind(member, "readonly") && readonlyType(ast.typeNode(member))));
+    typeActive.delete(symbol);
+    return result;
+  };
   const active = new Set();
   const classifications = new Map();
   const transparent = node => {
@@ -692,21 +806,17 @@ function moduleLifetimeFindings(source, file) {
       if (symbol !== undefined && checker.getSymbolDeclarations(symbol).some(declaration =>
         ["KindImportSpecifier", "KindImportClause", "KindExportSpecifier", "KindNamespaceImport", "KindNamespaceExport"]
           .includes(ast.kindName(declaration)))) symbol = checker.getAliasedSymbol(symbol);
-      if (symbol === undefined || active.has(symbol)) return immutableData ? undefined : { kind: "value" };
+      if (symbol === undefined || active.has(symbol)) return undefined;
       const declaration = checker.getSymbolValueDeclaration(symbol);
       if (declaration !== undefined && ast.is.IsFunctionDeclaration(declaration)) return { kind: "value" };
       if (declaration === undefined || !ast.is.IsVariableDeclaration(declaration) ||
-        ast.variableDeclarationKind(declaration) !== "const") return immutableData ? undefined : { kind: "value" };
+        ast.variableDeclarationKind(declaration) !== "const") return undefined;
       active.add(symbol);
       const result = classify(ast.as.AsVariableDeclaration(declaration).Initializer);
       active.delete(symbol);
-      return result ?? (immutableData ? undefined : { kind: "value" });
+      return result !== undefined && (result.kind === "value" || result.kind === "string" || readonlyType(ast.typeNode(declaration)))
+        ? result : undefined;
     }
-    if (!immutableData && ast.is.IsArrayLiteralExpression(node))
-      return ast.elements(node).every(element => classify(element) !== undefined) ? { kind: "value" } : undefined;
-    if (!immutableData && ast.is.IsObjectLiteralExpression(node)) return ast.properties(node).every(property =>
-      ast.is.IsPropertyAssignment(property) && classify(ast.as.AsPropertyAssignment(property).Initializer) !== undefined)
-      ? { kind: "value" } : undefined;
     if (ast.is.IsPrefixUnaryExpression(node)) return classify(ast.as.AsPrefixUnaryExpression(node).Operand) === undefined
       ? undefined : { kind: "value" };
     if (ast.is.IsElementAccessExpression(node)) {
@@ -743,18 +853,10 @@ function moduleLifetimeFindings(source, file) {
       return ast.operatorKindName(node) === "KindPlusToken" && classify(operation.Left)?.kind === "string" &&
         classify(operation.Right)?.kind === "string" ? { kind: "string" } : undefined;
     }
-    if (!ast.is.IsCallExpression(node)) return undefined;
-    const selected = ast.as.AsCallExpression(node);
-    if (!ast.is.IsPropertyAccessExpression(selected.Expression)) return undefined;
-    const callee = ast.as.AsPropertyAccessExpression(selected.Expression);
-    if (ast.text(callee.Expression) !== "Object" || ast.text(ast.name(selected.Expression)) !== "freeze") return undefined;
-    const arguments_ = ast.arguments(node);
-    if (arguments_.length !== 1) return undefined;
-    const value = unwrap(arguments_[0]);
-    if (ast.is.IsArrayLiteralExpression(value)) {
+    if (ast.is.IsArrayLiteralExpression(node)) {
       const segments = [];
       let length = 0n;
-      for (const element of ast.elements(value)) {
+      for (const element of ast.elements(node)) {
         if (ast.is.IsSpreadElement(element)) {
           const vector = classify(ast.as.AsSpreadElement(element).Expression);
           if (vector?.kind !== "vector") return undefined;
@@ -769,11 +871,11 @@ function moduleLifetimeFindings(source, file) {
       }
       return { kind: "vector", length, segments };
     }
-    if (!ast.is.IsObjectLiteralExpression(value)) return classify(value);
-    return ast.properties(value).every(property => ast.is.IsPropertyAssignment(property)
+    if (!ast.is.IsObjectLiteralExpression(node)) return undefined;
+    return ast.properties(node).every(property => ast.is.IsPropertyAssignment(property)
       ? classify(ast.as.AsPropertyAssignment(property).Initializer) !== undefined
       : ast.is.IsShorthandPropertyAssignment(property) && classify(ast.name(property)) !== undefined)
-      ? { kind: "value" } : undefined;
+      ? { kind: "record" } : undefined;
   };
   const visit = node => {
     const declaration = ast.is.IsVariableDeclaration(node) ? ast.as.AsVariableDeclaration(node)
@@ -784,9 +886,10 @@ function moduleLifetimeFindings(source, file) {
       }
       const initializer = declaration.Initializer;
       const name = ast.name(node);
-      const mutableBinding = immutableData && (ast.is.IsVariableDeclaration(node)
-        ? ast.variableDeclarationKind(node) !== "const" : !ast.hasModifierKind(node, "readonly"));
-      if (mutableBinding || initializer === undefined || classify(initializer) === undefined) {
+      const mutableBinding = ast.is.IsVariableDeclaration(node)
+        ? ast.variableDeclarationKind(node) !== "const" : !ast.hasModifierKind(node, "readonly");
+      const selected = initializer === undefined ? undefined : classify(initializer);
+      if (mutableBinding || selected === undefined || (selected.kind === "record" || selected.kind === "vector") && !readonlyType(ast.typeNode(node))) {
         findings.push({ start: ast.authoredRange(name ?? node).start });
       }
     }

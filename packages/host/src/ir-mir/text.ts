@@ -67,7 +67,7 @@ export interface Fields<Value> {
   ) => ReadStep<Result>;
 }
 
-export const rootPath: TextPath = Object.freeze({ parent: null, segment: "$" });
+export const rootPath: TextPath = ({ parent: null, segment: "$" });
 
 export function childPath(parent: TextPath, segment: string): TextPath {
   return { parent, segment };
@@ -162,7 +162,7 @@ export function nullable<Value>(wire: () => Wire<Value>): Wire<Value | null> {
   };
 }
 
-export function vector<Value>(wire: () => Wire<Value>): Wire<readonly Value[]> {
+export function vector<Value extends {}>(wire: () => Wire<Value>): Wire<readonly Value[]> {
   return {
     words: [],
     write: (values, path, next) => ({ kind: "enter", value: values, path, next: () => {
@@ -172,7 +172,7 @@ export function vector<Value>(wire: () => Wire<Value>): Wire<readonly Value[]> {
         if (selected.done) return text("]", () => ({ kind: "leave", value: values, path, next }));
         const [index, value] = selected.value;
         const at = childPath(path, `[${index}]`);
-        if (!Object.hasOwn(values, index)) throw new TypeError(`Sparse MIR value at ${showPath(at)}`);
+        if (value === undefined || value === null) throw new TypeError(`Sparse MIR value at ${showPath(at)}`);
         return text(index === 0 ? "" : ", ", () => wire().write(value, at, advance));
       };
       return text("[", advance);

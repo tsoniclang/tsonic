@@ -7,11 +7,14 @@ export type JsonValue =
   | number
   | string
   | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+  | JsonRecord;
 
-export interface TargetOptions {
-  readonly [key: string]: JsonValue;
+export interface JsonRecord {
+  readonly kind: "record";
+  readonly fields: readonly (readonly [string, JsonValue])[];
 }
+
+export type TargetOptions = JsonRecord;
 
 export interface TargetSelection {
   readonly id: string;

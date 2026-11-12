@@ -12,6 +12,7 @@ import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
+import { bindingTargetKey, declarationInstanceKey, relationalOwnerKey } from "./fixtures/verification-keys.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const sourceNames = ["index", "print", "parse", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
@@ -61,7 +62,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const otherBody = ids.encodeBodyId({ owner: definitions.other, role: "function", ordinal: 0 });
   const instance = () => ({ body, bindings: parametric() });
   const owner = () => ({ kind: "body", instance: instance() });
-  const arenaKey = value => ids.encodeKey(value);
+  const ownerKey = value => ids.encodeKey(relationalOwnerKey(value));
+  const targetKey = value => ids.encodeKey(bindingTargetKey(value));
+  const callbackKey = (value, parameter) => ids.encodeKey([declarationInstanceKey(value), parameter]);
   const summaryOwner = selected => ({ kind: "summary", definition: selected.definition, bindings: selected.bindings });
   const nodeSite = node => ({ kind: "node", at: { body, node } });
   const bodySite = () => ({ kind: "body", instance: instance() });
@@ -108,7 +111,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const graph = () => ({ definitions: [definitions.f], edges: [], components: [{ id: ids.encodeComponentId([definitions.f]), definitions: [definitions.f], dependencies: [] }] });
   const libraryIdentity = { module: { providerId: "fixture", providerVersion: "1", packageName: null, moduleSpecifier: "facts", providerModuleId: "main" },
     exportId: "allocation", memberId: null, signatureId: null };
-  const supplyScopes = (supplied, target, scopes) => supplied.scopeInventories.set(arenaKey(target), clone(scopes));
+  const supplyScopes = (supplied, target, scopes) => supplied.scopeInventories.set(targetKey(target), clone(scopes));
   const setup = (canonical = bodyFacts(), factScopes = [emptyScope(), emptyScope()]) => {
     const original = clone(canonical);
     const originalSummary = summary();
@@ -119,15 +122,15 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const callbackSignatures = new Map();
     const scopeRows = { body: factScopes, summary: [emptyScope(), emptyScope()], metadata: [] };
     const scopeInventories = new Map([
-      [arenaKey({ kind: "body", instance: canonical.instance }), clone(scopeRows.body)],
-      [arenaKey({ kind: "summary", summary: originalSummary.key }), clone(scopeRows.summary)],
-      ...["layout", "abi32", "abi64"].map(name => [arenaKey({ kind: "metadata", metadata: { definition: definitions[name], bindings: parametric() } }), []]),
+      [targetKey({ kind: "body", instance: canonical.instance }), clone(scopeRows.body)],
+      [targetKey({ kind: "summary", summary: originalSummary.key }), clone(scopeRows.summary)],
+      ...["layout", "abi32", "abi64"].map(name => [targetKey({ kind: "metadata", metadata: { definition: definitions[name], bindings: parametric() } }), []]),
     ]);
     const originalMir = mir();
     const tables = { terms: [{ kind: "primitive", primitive: "int64" }, { kind: "intrinsic", intrinsic: "void" },
       { kind: "fixed-array", element: 0, extent: { length: 9007199254740993n, runtimeBase: "bigint" } }], signatures: [signature()] };
     const metadataRows = new Map([[definitions.layout, originalMetadata], [definitions.abi32, abi(32)], [definitions.abi64, abi(64)], [definitions.missing, null]]);
-    const canonicalArenas = new Map([[arenaKey(owner()), original.arena], [arenaKey(summaryOwner(originalSummary.key)), originalSummary.arena]]);
+    const canonicalArenas = new Map([[ownerKey(owner()), original.arena], [ownerKey(summaryOwner(originalSummary.key)), originalSummary.arena]]);
     const context = {
       limits: finiteLimits(), types: tables, diagnostics: [],
       tirBody: selected => { const record = bodyRows.get(selected.body); assert.equal(record !== undefined, true, "named actual TIR lookup"); return record; },
@@ -140,17 +143,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         : (assert.equal(Object.values(definitions).includes(selected.value.owner), true, "qualified item owner"), selected.value.node === 0),
       localExists: selected => [body, otherBody].includes(selected.body) && selected.local === 0,
       bindingScopeOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named binding inventory"); return selected === definitions.missing ? null : emptyScope(); },
-      bindingScopesOf: selected => scopeInventories.get(arenaKey(selected)) ?? null,
+      bindingScopesOf: selected => scopeInventories.get(targetKey(selected)) ?? null,
       nominalOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named nominal declaration inventory");
         return [definitions.layout, definitions.field].includes(selected) ? { kind: "declared", facets: ["instance", "value"] } : null; },
       bindingDependentOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "actual named dependence inventory"); return selected === definitions.missing ? null : false; },
       captureCount: selected => { assert.equal(selected.definition, definitions.f, "actual independent capture inventory"); return 0; },
-      callbackSignaturesOf: (selected, index) => { const key = arenaKey([selected, index]);
+      callbackSignaturesOf: (selected, index) => { const key = callbackKey(selected, index);
         assert.equal(callbackSignatures.has(key), true, "named actual callback signature inventory"); return callbackSignatures.get(key); },
       arenaOf: selected => {
         assert.equal(selected.kind === "body" ? [body, otherBody].includes(selected.instance.body)
           : Object.values(definitions).includes(selected.definition), true, "named qualified arena inventory");
-        return canonicalArenas.get(arenaKey(selected)) ?? null; },
+        return canonicalArenas.get(ownerKey(selected)) ?? null; },
       metadataOf: selected => { assert.equal(metadataRows.has(selected.definition), true, "named actual metadata inventory");
         const record = metadataRows.get(selected.definition);
         return record !== null && isDeepStrictEqual(record.key.bindings, selected.bindings) ? record : null; },
@@ -204,7 +207,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   await suite.test("known empty binding inventories remain distinct for every applicable root", () => {
     const facts = emptyFacts(); const supplied = setup(facts, []); const retained = emptySummary();
-    supplied.canonicalArenas.set(arenaKey(summaryOwner(retained.key)), clone(retained.arena));
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(retained.key)), clone(retained.arena));
     supplyScopes(supplied, { kind: "summary", summary: retained.key }, []);
     equal(product.verifyFacts(facts, supplied.mir, supplied.context), [], "complete no-vector body");
     equal(product.verifySummary(retained, supplied.context), [], "complete no-vector summary");
@@ -670,7 +673,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts();
     const supplied = setup(input);
     prepare(input, supplied);
-    supplied.canonicalArenas.set(arenaKey({ kind: "body", instance: input.instance }), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], `${name}: independently valid complete fixture`);
     const invalid = clone(input);
@@ -818,7 +821,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [rule, path, row] of simpleOrders) await factOpposite(rule, (input, supplied) => {
     put(input, path, [row(1), row(2)]);
     if (["observations-order", "raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
-    if (rule === "callbacks-order") supplied.canonicalArenas.set(arenaKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
+    if (rule === "callbacks-order") supplied.canonicalArenas.set(ownerKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
     if (rule === "memory-bindings-order") input.recordBindings = [{ node: 3, result: 0, layoutExpression: nodeRef(3),
       layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] }];
     if (rule === "memory-bindings-order") supplied.scopeRows.body.push(emptyScope());
@@ -1257,7 +1260,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const summarySite = () => ({ kind: "summary", summary: { definition: definitions.f, bindings: parametric() } });
   const summaryOpposite = async (name, prepare, amend, expected) => suite.test(`summary ${name}`, () => {
     const supplied = setup(); const input = summary();
-    prepare(input, supplied); supplied.canonicalArenas.set(arenaKey(summaryOwner(input.key)), clone(input.arena));
+    prepare(input, supplied); supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
     supplyScopes(supplied, { kind: "summary", summary: input.key }, supplied.scopeRows.summary);
     equal(product.verifySummary(input, supplied.context), [], `summary ${name}: complete valid value`);
     const invalid = clone(input); amend(invalid, supplied);
@@ -1272,7 +1275,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.terms.push({ kind: "callable", calls: [1], constructs: [] });
     supplied.types.signatures.push(signature(1, [parameter(definitions.capture)], null, definitions.callee));
     supplied.types.signatures[0].parameters[0].type = 3;
-    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 0), [1]);
     input.callbacks = [{ parameterIndex: 0, timing: "synchronous", rejection: null, inputs: [] }];
   };
   for (const role of ["reads", "writes"]) for (const [name, paths, count] of [
@@ -1380,7 +1383,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const selectedOwner = { kind: "summary", definition: definitions.callee, bindings: parametric() };
     const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
-    supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
+    supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
     input.arena.contexts[0].arguments = [0, 0];
     input.origins.invocations = [{ node: 1, kind: "call", alternatives: [{ resolution, context: 0, arguments: transports, result: 0, thrown: 0,
       summary: { definition: definitions.callee, bindings: parametric() } }], boundaries: [] }];
@@ -1391,7 +1394,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["ascending signed zero", [-0, 1], [true, false], false], ["descending signed zero", [0, -0], [false, true], true],
   ]) await suite.test(`authored argument complete numeric order ${name}`, () => {
     const input = bodyFacts(); const supplied = setup(input); invocationFixture(input, supplied);
-    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "whole actual invocation control");
     const arguments_ = input.origins.invocations[0].alternatives[0].arguments;
@@ -1427,7 +1430,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     if (mode === "head") call.tsonic.application.decision.arguments.unshift({ kind: "provided", parameter: 0, expression: 4 });
     input.refinements.integers = (mode === "value" ? [1, 2, 3] : [1, 2, 3, 4]).map(node => ({ node, range: null, nonnegative: false }));
     const selectedOwner = summaryOwner(alternative.summary);
-    supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: supplied.types.signatures[1].parameters.map((formal, index) =>
+    supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: supplied.types.signatures[1].parameters.map((formal, index) =>
       ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
     input.arena.contexts[0].arguments = mode === "head" ? [0, 0] : [0];
     const transport = (parameterIndex, projection, repeated = false) => ({ authoredIndex: 0,
@@ -1587,7 +1590,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     alternative.summary.bindings = { kind: "instantiated", bindings: clone(environment) };
     const selectedOwner = summaryOwner(alternative.summary);
     for (const transport of alternative.arguments) transport.formal.owner = clone(selectedOwner);
-    supplied.canonicalArenas.set(arenaKey(selectedOwner), { projections: [], producers: [
+    supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: [
       { id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 },
     ], contexts: [], boundProducers: [], origins: [], boundaries: [] });
     supplied.context.bindingScopeOf = definition => definition === definitions.callee ? { ...emptyScope(), methodParameters: [identity] } : emptyScope();
@@ -1787,7 +1790,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await suite.test(`actual ${kind} suspension input ${channel}`, () => {
       const input = bodyFacts(); const supplied = setup(); suspend(kind, input, supplied);
       input.arena.producers[0] = { id: 0, path: null, kind: "suspension-input", at: nodeRef(1), channel };
-      supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+      supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
       equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual supported suspension channel vector");
     });
   }
@@ -1827,7 +1830,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await suite.test("actual callback activation retains its qualified formal entry and caller context", () => {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     input.origins.activations = [{ node: 2, definition: definitions.callee, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
-    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual callback activation vector");
   });
@@ -1902,14 +1905,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       violation("callback-input-resolves", summarySite(), "A callback rejection channel names an actual callback formal."),
     ]);
   await summaryOpposite("cached unresolved callback data remains unresolved at the repeated occurrence", oneCallback,
-    (input, supplied) => { supplied.callbackSignatures.set(arenaKey([input.key, 0]), null); input.callbacks.push(clone(input.callbacks[0])); }, [
+    (input, supplied) => { supplied.callbackSignatures.set(callbackKey(input.key, 0), null); input.callbacks.push(clone(input.callbacks[0])); }, [
       violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter."),
       violation("callbacks-order", summarySite(), "Callback entries retain distinct declaration parameter order."),
       violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter."),
     ]);
   for (const signatures of [null, [], [99], [-0]]) {
     await summaryOpposite(`actual callback signatures ${String(signatures)} are not invented from the parameter type`, oneCallback,
-      (input, supplied) => { supplied.callbackSignatures.set(arenaKey([input.key, 0]), signatures); },
+      (input, supplied) => { supplied.callbackSignatures.set(callbackKey(input.key, 0), signatures); },
       [violation("callback-parameter-resolves", summarySite(), "A callback resolves the actual checked declaration-instantiated callable signatures of its parameter.")]);
   }
   await summaryOpposite("actual callback signature ID must equal its table position", oneCallback,
@@ -1961,12 +1964,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     (input, supplied) => {
       formalCallback(input, supplied);
       supplied.types.signatures.push(signature(2, [parameter(definitions.capture)], null, definitions.other));
-      supplied.callbackSignatures.set(arenaKey([input.key, 0]), order);
+      supplied.callbackSignatures.set(callbackKey(input.key, 0), order);
       input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
     }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); },
     [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
   await summaryOpposite("repeated actual signature references retain the same callable formal domain", (input, supplied) => {
-    formalCallback(input, supplied); supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 1]);
+    formalCallback(input, supplied); supplied.callbackSignatures.set(callbackKey(input.key, 0), [1, 1]);
     input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
   }, (input, supplied) => { supplied.types.signatures[1].parameters = new Array(1); },
   [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
@@ -1984,8 +1987,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.terms.push({ kind: "callable", calls: [1, 2], constructs: [] });
     supplied.types.signatures[0].parameters = [parameter(definitions.parameter, 4), parameter(definitions.capture, 4)];
     input.parameters.push({ slot: { kind: "parameter", index: 1 }, reads: completePaths(), writes: completePaths() });
-    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 2]);
-    supplied.callbackSignatures.set(arenaKey([input.key, 1]), [2, 1]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 0), [1, 2]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 1), [2, 1]);
     input.callbacks = [0, 1].map(parameterIndex => ({ parameterIndex, timing: "synchronous", rejection: 0,
       inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: parameterIndex }] }));
   }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); }, [
@@ -2000,7 +2003,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.terms.push({ kind: "callable", calls: [2], constructs: [] });
     supplied.types.signatures[0].parameters.push(parameter(definitions.capture, 4));
     input.parameters.push({ slot: { kind: "parameter", index: 1 }, reads: completePaths(), writes: completePaths() });
-    supplied.callbackSignatures.set(arenaKey([input.key, 1]), [2]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 1), [2]);
     input.callbacks = [0, 1].map(parameterIndex => ({ parameterIndex, timing: "synchronous", rejection: 0,
       inputs: [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: parameterIndex }] }));
   }, (input, supplied) => { supplied.types.signatures[2].parameters = new Array(1); }, [
@@ -2036,14 +2039,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await summaryOpposite("every actual callback signature owns the channel", (input, supplied) => {
     oneCallback(input, supplied);
     supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
-    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [2, 1]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 0), [2, 1]);
     input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
   }, input => { input.callbacks[0].inputs[0].parameterIndex = 1; },
   [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
   await summaryOpposite("a later wider callback signature cannot replace an earlier smaller formal domain", (input, supplied) => {
     oneCallback(input, supplied);
     supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
-    supplied.callbackSignatures.set(arenaKey([input.key, 0]), [1, 2]);
+    supplied.callbackSignatures.set(callbackKey(input.key, 0), [1, 2]);
     input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
   }, input => { input.callbacks[0].inputs[0].parameterIndex = 1; },
   [violation("callback-input-resolves", summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter.")]);
@@ -2312,7 +2315,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   [violation("bindings-complete", nodeSite(1), bindingMessage), violation("bindings-complete", nodeSite(1), bindingMessage)]);
   for (const kind of ["null", "empty", "missing", "extra", "wrong-root"]) {
     const change = (supplied, target, scopes) => {
-      if (kind === "wrong-root") supplied.scopeInventories.delete(arenaKey(target));
+      if (kind === "wrong-root") supplied.scopeInventories.delete(targetKey(target));
       else supplyScopes(supplied, target, kind === "null" ? null : kind === "empty" ? []
         : kind === "missing" ? scopes.slice(0, -1) : [...scopes, emptyScope()]);
     };
@@ -2886,7 +2889,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.callbacks[0] = { parameterIndex: 0, timing, rejection: 2, inputs: [{ kind: "receiver-element", parameterIndex: 0 }, { kind: "receiver-rejection", parameterIndex: 1 },
       { kind: "argument-element", parameterIndex: 2, sourceParameterIndex: 0 }] };
     input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: nodeRef(1) } } }];
-    supplied.canonicalArenas.set(arenaKey(summaryOwner(input.key)), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
     equal(product.verifySummary(input, supplied.context), [], "full known/open effects and actual callback channel vector");
   });
 
@@ -2936,7 +2939,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["ascending actual boundaries", [0, 1], false, [false, false]], ["descending actual boundaries", [1, 0], true, [false, false]],
   ]) await suite.test(`open call boundary complete numeric key ${name}`, () => {
     const supplied = setup(); const input = graph();
-    const canonical = supplied.canonicalArenas.get(arenaKey(owner()));
+    const canonical = supplied.canonicalArenas.get(ownerKey(owner()));
     canonical.boundaries.push({ ...clone(canonical.boundaries[0]), id: ids.openBoundaryId(1) });
     const actualEdge = boundary => ({ caller: definitions.f, at: nodeRef(1), kind: "callback",
       callee: { kind: "open", boundary: { owner: owner(), boundary: ids.openBoundaryId(boundary) } }, bindings: parametric() });
@@ -3034,7 +3037,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     if (mode === "out-of-range") input.edges[0].callee.boundary.boundary = 99;
     if (mode === "foreign-owner") {
       const selected = { kind: "summary", definition: definitions.other, bindings: parametric() };
-      input.edges[0].callee.boundary.owner = selected; supplied.canonicalArenas.set(arenaKey(selected), arena());
+      input.edges[0].callee.boundary.owner = selected; supplied.canonicalArenas.set(ownerKey(selected), arena());
     }
   }, [violation("cross-owner-qualified", nodeSite(1), "An open call retains its actual caller-owned relational boundary and complete environment.")]);
   const edgeOrder = [violation("edges-order", nodeSite(1), "Call edges must be distinct and ordered by caller, occurrence and callee.")];
@@ -3053,9 +3056,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       callee: { kind: "open", boundary: { owner: selectedOwner, boundary: 0 } } })); return input;
   }, input => { input.edges.reverse(); }, edgeOrder);
   await graphOpposite("same-occurrence open boundary order", supplied => {
-    const actual = clone(supplied.canonicalArenas.get(arenaKey(owner())));
+    const actual = clone(supplied.canonicalArenas.get(ownerKey(owner())));
     actual.boundaries.push({ ...clone(actual.boundaries[0]), id: 1, kind: "opaque-write", detail: "second actual boundary" });
-    supplied.canonicalArenas.set(arenaKey(owner()), actual);
+    supplied.canonicalArenas.set(ownerKey(owner()), actual);
     const input = graph(); input.edges = [0, 1].map(boundary => ({ ...edge("f", "f"),
       callee: { kind: "open", boundary: { owner: owner(), boundary } } })); return input;
   }, input => { input.edges.reverse(); }, edgeOrder);
@@ -3188,13 +3191,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ]);
   for (const mode of ["missing", "wrong-id", "negative-zero"]) {
     await factOpposite(`a foreign formal requires its actual ${mode} producer row`, invocationFixture, (input, supplied) => {
-      const actual = supplied.canonicalArenas.get(arenaKey(summaryOwner(input.origins.invocations[0].alternatives[0].summary)));
+      const actual = supplied.canonicalArenas.get(ownerKey(summaryOwner(input.origins.invocations[0].alternatives[0].summary)));
       if (mode === "missing") delete actual.producers[0]; else actual.producers[0].id = mode === "negative-zero" ? -0 : 2;
     }, [violation("producer-resolves", nodeSite(1), "The actual formal producer resolves in its declared foreign arena.")]);
     for (const selectedOwner of [owner(), summaryOwner(summary().key)]) await graphOpposite(`an open ${selectedOwner.kind} boundary requires its actual ${mode} row`, () => {
       const input = graph(); input.edges = [{ ...edge("f", "f"), callee: { kind: "open", boundary: { owner: clone(selectedOwner), boundary: 0 } } }]; return input;
     }, (input, supplied) => {
-      const actual = supplied.canonicalArenas.get(arenaKey(selectedOwner));
+      const actual = supplied.canonicalArenas.get(ownerKey(selectedOwner));
       if (mode === "missing") actual.boundaries = new Array(1); else actual.boundaries[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("cross-owner-qualified", nodeSite(1), "An open call retains its actual caller-owned relational boundary and complete environment.")]);
   }
@@ -3253,17 +3256,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await factOpposite(`a used context requires its ${mode} canonical row`, input => {
       input.origins.frontiers = [{ node: 1, kind: "origin", subject: 0, context: 0 }];
     }, (input, supplied) => {
-      const actual = supplied.canonicalArenas.get(arenaKey(owner()));
+      const actual = supplied.canonicalArenas.get(ownerKey(owner()));
       if (mode === "missing") actual.contexts = new Array(1); else actual.contexts[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("context-resolves", arenaSite("context", "context", 0), contextIdentityMessage)]);
     await factOpposite(`an actual origin requires its ${mode} canonical bound alternative`, unchanged, (input, supplied) => {
-      const actual = supplied.canonicalArenas.get(arenaKey(owner()));
+      const actual = supplied.canonicalArenas.get(ownerKey(owner()));
       if (mode === "missing") actual.boundProducers = new Array(1); else actual.boundProducers[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 0), boundIdentityMessage)]);
     await summaryOpposite(`a used context requires its ${mode} canonical summary row`, input => {
       input.arena.boundProducers[0].context = 0;
     }, (input, supplied) => {
-      const actual = supplied.canonicalArenas.get(arenaKey(summaryOwner(input.key)));
+      const actual = supplied.canonicalArenas.get(ownerKey(summaryOwner(input.key)));
       if (mode === "missing") actual.contexts = new Array(1); else actual.contexts[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("summary-finite", { kind: "context", owner: summaryOwner(summary().key), context: 0 }, contextIdentityMessage)]);
     await metadataOpposite(`a selected layout requires its ${mode} canonical identity`, unchanged, (input, supplied) => {
@@ -3324,7 +3327,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); const supplied = setup(input); capturedActivation(input, supplied);
     const resolution = input.origins.invocations[0].alternatives[0].resolution;
     resolution.activation = null; resolution.decision.api.body = null; supplied.scopeRows.body.splice(5, 1);
-    supplied.canonicalArenas.set(arenaKey(owner()), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete bodyless actual-capture vector");
   });
@@ -3359,7 +3362,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       supplied.bodyRows.set(bodyId, actual); supplied.bodyOwners.set(bodyId, definitionId);
     }
     supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
-    supplied.canonicalArenas.set(arenaKey(summaryOwner(second.summary)), { projections: [],
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(second.summary)), { projections: [],
       producers: [{ id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 }],
       contexts: [], boundProducers: [], origins: [], boundaries: [] });
     supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
@@ -3669,7 +3672,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const argument = { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false, passing: "by-value", actual: 0,
       formal: { owner: foreign, producer: 0 }, projection: null };
     input.origins.callbacks = [{ node: 1, argument, timing: "synchronous", rejection: null, inputs: [] }];
-    supplied.canonicalArenas.set(arenaKey(foreign), { projections: [], producers: [{ id: 0, path: null, kind: "parameter", index: 0 }],
+    supplied.canonicalArenas.set(ownerKey(foreign), { projections: [], producers: [{ id: 0, path: null, kind: "parameter", index: 0 }],
       contexts: [], boundProducers: [], origins: [], boundaries: [] });
   };
   for (const [name, input, badField] of [
@@ -3682,7 +3685,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, facts => { facts.origins.callbacks[0].inputs[0][badField] = NaN; },
   [violation("argument-transports-total", nodeSite(1), "A callback input retains actual nonnegative formal channel indices.")]);
   await factOpposite("original raw formal owner absence is not an empty foreign arena", callbackFixture,
-    (input, supplied) => { supplied.canonicalArenas.delete(arenaKey(input.origins.callbacks[0].argument.formal.owner)); },
+    (input, supplied) => { supplied.canonicalArenas.delete(ownerKey(input.origins.callbacks[0].argument.formal.owner)); },
     [violation("cross-owner-qualified", nodeSite(1), "A formal producer retains a resolving qualified relational owner.")]);
   await factOpposite("original raw formal parameter declaration resolves independently", callbackFixture,
     input => { input.origins.callbacks[0].argument.parameter = definitions.missing; },
@@ -3697,10 +3700,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.signatures.push(signature(1, [parameter()], null, definitions.other));
     supplied.bodyRows.set(otherBody, actual);
     const previous = input.origins.callbacks[0].argument.formal.owner;
-    supplied.canonicalArenas.set(arenaKey(selected), clone(supplied.canonicalArenas.get(arenaKey(previous))));
+    supplied.canonicalArenas.set(ownerKey(selected), clone(supplied.canonicalArenas.get(ownerKey(previous))));
     input.origins.callbacks[0].argument.formal.owner = selected;
     supplied.scopeRows.body.push(emptyScope());
-  }, (input, supplied) => { supplied.canonicalArenas.delete(arenaKey(input.origins.callbacks[0].argument.formal.owner)); },
+  }, (input, supplied) => { supplied.canonicalArenas.delete(ownerKey(input.origins.callbacks[0].argument.formal.owner)); },
   [violation("cross-owner-qualified", nodeSite(1), "A formal producer retains a resolving qualified relational owner.")]);
   await factOpposite("original raw activation execution declaration must exist", input => {
     input.origins.activations = [{ node: 1, definition: definitions.callee, context: 0, caller: null, entry: null }];
@@ -3750,7 +3753,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     alternative.arguments[1].parameter = definitions.capture; alternative.arguments[1].parameterIndex = 1; alternative.arguments[1].formal.producer = 1;
     supplied.tir.root.tsonic.application.decision.arguments = [0, 1].map(parameter => ({ kind: "provided", parameter, expression: 4 }));
     input.arena.contexts[0].arguments = [0, 0];
-    supplied.canonicalArenas.set(arenaKey(alternative.arguments[0].formal.owner), { projections: [],
+    supplied.canonicalArenas.set(ownerKey(alternative.arguments[0].formal.owner), { projections: [],
       producers: [0, 1].map(index => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.parameters[1].component = 99; },
   [violation("argument-transports-total", nodeSite(1), "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.")]);
@@ -3795,7 +3798,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const supplied = setup(input, [scope]);
     supplied.tir.bindings = clone(input.instance.bindings); supplied.mir.bindings = clone(input.instance.bindings);
     supplied.context.bindingScopeOf = selected => selected === definitions.f ? clone(scope) : emptyScope();
-    supplied.canonicalArenas.set(arenaKey({ kind: "body", instance: input.instance }), clone(input.arena));
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, [scope]);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete canonical instantiated self binding vector");
     supplyScopes(supplied, { kind: "body", instance: input.instance }, [{ ...emptyScope(), selfOwners: [definitions.other, definitions.f] }]);
@@ -3944,7 +3947,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const summaryExpected = emptySummaryText.replace("projections=[]", `projections=${authored}`);
     equal(product.printSummary(retained), summaryExpected, "complete independently authored 100000-link summary text");
     equal(product.parseSummary(summaryExpected), { kind: "parsed", value: retained }, "complete 100000-link summary decode");
-    supplied.canonicalArenas.set(arenaKey(summaryOwner(retained.key)), clone(retained.arena));
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(retained.key)), clone(retained.arena));
     supplyScopes(supplied, { kind: "summary", summary: retained.key }, []);
     equal(product.verifySummary(retained, supplied.context), [], "complete 100000-link summary verifier");
   });

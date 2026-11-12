@@ -649,7 +649,7 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
   | "conversion-source" | "conversion-destination" | "conversion-deferred" | "refinement-destination"
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"
-  | "authored-node-ids-preserved" | "no-inserted-nodes" | "no-checker-payload" | "node-in-body-range"
+  | "authored-node-ids-preserved" | "no-inserted-nodes" | "node-in-body-range"
   | "nested-template-identity" | "nested-instance-key" | "nested-boundary"
   | "template-shared-once" | "stable-order";
 

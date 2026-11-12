@@ -12,8 +12,8 @@ export function checkCoverage(deps, productFiles, rawV8) {
     let text;
     try { text = deps.readText(canonical); } catch { text = null; }
     if (canonicalFiles[index] === null || text === null || text.trim().length === 0) {
-      findings.push(Object.freeze({ code: "coverage-empty", path: canonical, line: 1, column: 1 }));
-      reports.push(Object.freeze({ path: canonical, sourceHash: "", status: "missing", lines: 0, branches: 0, functions: 0 }));
+      findings.push(({ code: "coverage-empty", path: canonical, line: 1, column: 1 }));
+      reports.push(({ path: canonical, sourceHash: "", status: "missing", lines: 0, branches: 0, functions: 0 }));
       continue;
     }
     const hash = createHash("sha256").update(text).digest("hex");
@@ -28,14 +28,14 @@ export function checkCoverage(deps, productFiles, rawV8) {
       return !ast.is.IsFunctionDeclaration(node) || ast.body(node) !== undefined;
     });
     if (!executable) {
-      reports.push(Object.freeze({ path: canonical, sourceHash: hash, status: "not-applicable", lines: null, branches: null, functions: null }));
+      reports.push(({ path: canonical, sourceHash: hash, status: "not-applicable", lines: null, branches: null, functions: null }));
       continue;
     }
     const add = (code, offset = 0) => {
       const before = text.slice(0, offset).split("\n");
       const finding = { code, path: canonical, line: before.length, column: before[before.length - 1].length + 1 };
       if (!findings.some(previous => previous.code === code && previous.path === canonical && previous.line === finding.line && previous.column === finding.column))
-        findings.push(Object.freeze(finding));
+        findings.push((finding));
     };
     const functions = [];
     const statements = [];
@@ -61,7 +61,7 @@ export function checkCoverage(deps, productFiles, rawV8) {
       const projection = deps.project(script.url, identity.text);
       if (projection === null || deps.canonical(projection.path) !== canonical) return [];
       if (projection.text !== text || createHash("sha256").update(projection.text).digest("hex") !== hash) return [];
-      return [Object.freeze({ script, projection })];
+      return [({ script, projection })];
     }));
     const valid = projected.length > 0 && projected.every(({ script, projection }) => script.functions.length > 0 &&
       script.functions.every(fn => fn.ranges.length > 0 && (fn.isBlockCoverage || fn.ranges[0].count === 0) && fn.ranges.every(range =>
@@ -73,7 +73,7 @@ export function checkCoverage(deps, productFiles, rawV8) {
       actual.ranges[0].startOffset >= fn.start && actual.ranges[0].startOffset <= fn.body;
     if (!valid || functions.some(fn => !runtime.some(actual => matches(fn, actual)))) {
       add("coverage-empty");
-      reports.push(Object.freeze({ path: canonical, sourceHash: hash, status: "missing", lines: 0, branches: 0, functions: 0 }));
+      reports.push(({ path: canonical, sourceHash: hash, status: "missing", lines: 0, branches: 0, functions: 0 }));
       continue;
     }
     const executedAt = offset => projected.some(({ script }) => {
@@ -114,12 +114,12 @@ export function checkCoverage(deps, productFiles, rawV8) {
     let missingFunctions = 0;
     for (const fn of roots.values()) if (!fn.covered) { missingFunctions += 1; add("coverage-function", fn.start); }
     const own = findings.filter(finding => finding.path === canonical);
-    reports.push(Object.freeze({ path: canonical, sourceHash: hash, status: own.length === 0 ? "covered" : "uncovered",
+    reports.push(({ path: canonical, sourceHash: hash, status: own.length === 0 ? "covered" : "uncovered",
       lines: lines.size === 0 ? 100 : 100 * (lines.size - missingLines.size) / lines.size,
       branches: branches.size === 0 ? 100 : 100 * (branches.size - missingBranches) / branches.size,
       functions: roots.size === 0 ? 100 : 100 * (roots.size - missingFunctions) / roots.size }));
   }
-  if (productFiles.length === 0) findings.push(Object.freeze({ code: "coverage-empty", path: "", line: 1, column: 1 }));
-  return Object.freeze({ status: findings.length === 0 ? "passed" : "failed", files: Object.freeze(reports),
-    findings: Object.freeze(findings), rawV8 });
+  if (productFiles.length === 0) findings.push(({ code: "coverage-empty", path: "", line: 1, column: 1 }));
+  return ({ status: findings.length === 0 ? "passed" : "failed", files: (reports),
+    findings: (findings), rawV8 });
 }

@@ -20,10 +20,10 @@ test("harness preserves complete host-number outcomes including nonfinite values
 });
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
-const diagnostic = Object.freeze({ code: "FIXTURE_REFUSED", message: "The fixture input is refused.", site: { path: "input", start: 2, length: 1 }, evidence: ["fixture"], related: [] });
-const accepted = Object.freeze({ kind: "accepted", value: { state: { scale: 3 }, output: 12 }, diagnostics: [] });
-const refused = Object.freeze({ kind: "refused", diagnostics: [diagnostic] });
+const levels = (["function", "pass", "verifier", "pipeline", "corpus"]);
+const diagnostic = ({ code: "FIXTURE_REFUSED", message: "The fixture input is refused.", site: { path: "input", start: 2, length: 1 }, evidence: ["fixture"], related: [] });
+const accepted = ({ kind: "accepted", value: { state: { scale: 3 }, output: 12 }, diagnostics: [] });
+const refused = ({ kind: "refused", diagnostics: [diagnostic] });
 
 async function fixture(level, action, changes = {}) {
   const parent = resolve(repository, ".temp/host-s1-cases");
@@ -65,7 +65,6 @@ for (const level of levels) {
       assert.equal(result.status, "passed");
       assert.equal(compareCaseValues(result.outcome, accepted), true);
       assert.equal(calls.join(","), level);
-      assert.equal(Object.isFrozen(result), true);
       write(descriptor.input, { state: { scale: 3 }, input: 4, refuse: true });
       write(descriptor.expected, refused);
       const negative = await runCase(deps, descriptorPath);
@@ -94,7 +93,7 @@ test("all closed formats retain their exact adjacent input and expected names", 
   }
 });
 
-const descriptorOpposites = Object.freeze([
+const descriptorOpposites = ([
   [{ name: "" }, "descriptor"], [{ level: "rule" }, "descriptor"], [{ level: "schema" }, "descriptor"],
   [{ rule: "" }, "descriptor"], [{ rule: null }, "descriptor"],
   [{ extra: true }, "descriptor"], [{ expected: undefined }, "descriptor"],

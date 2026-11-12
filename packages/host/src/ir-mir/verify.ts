@@ -175,14 +175,15 @@ export function verifyTypeReferences(
 }
 
 function bindingValue(value: TypeBinding): KeyData {
-  const parameter = { owner: value.parameter.owner, index: value.parameter.index };
+  const parameter: KeyData = { kind: "record", fields: [["owner", value.parameter.owner], ["index", value.parameter.index]] };
   return value.kind === "bound"
-    ? { kind: value.kind, parameter, type: value.type }
-    : { kind: value.kind, parameter };
+    ? { kind: "record", fields: [["kind", value.kind], ["parameter", parameter], ["type", value.type]] }
+    : { kind: "record", fields: [["kind", value.kind], ["parameter", parameter]] };
 }
 
 function selfValue(value: SelfBinding): KeyData {
-  return value.kind === "bound" ? { kind: value.kind, owner: value.owner, type: value.type } : { kind: value.kind, owner: value.owner };
+  return value.kind === "bound" ? { kind: "record", fields: [["kind", value.kind], ["owner", value.owner], ["type", value.type]] }
+    : { kind: "record", fields: [["kind", value.kind], ["owner", value.owner]] };
 }
 
 function vectorValue(vector: BindingVector): KeyData | null {
@@ -203,13 +204,14 @@ function vectorValue(vector: BindingVector): KeyData | null {
     if (binding === undefined) return null;
     selfBindings.push(selfValue(binding));
   }
-  return { classBindings, methodBindings, capturedBindings, selfBindings };
+  return { kind: "record", fields: [["classBindings", classBindings], ["methodBindings", methodBindings],
+    ["capturedBindings", capturedBindings], ["selfBindings", selfBindings]] };
 }
 
 function artifactValue(bindings: ArtifactBindings): KeyData | null {
-  if (bindings.kind === "parametric") return { kind: "parametric" };
+  if (bindings.kind === "parametric") return { kind: "record", fields: [["kind", "parametric"]] };
   const value = vectorValue(bindings.bindings);
-  return value === null ? null : { kind: "instantiated", bindings: value };
+  return value === null ? null : { kind: "record", fields: [["kind", "instantiated"], ["bindings", value]] };
 }
 
 export function artifactKey(bindings: ArtifactBindings): string | null {
@@ -219,27 +221,29 @@ export function artifactKey(bindings: ArtifactBindings): string | null {
 
 function literalKey(value: LiteralValue): KeyData {
   switch (value.kind) {
-    case "number": return { kind: value.kind, token: value.token,
-      value: { numerator: value.value.numerator, denominator: value.value.denominator, negativeZero: value.value.negativeZero } };
-    case "bigint": return { kind: value.kind, token: value.token, value: value.value };
-    case "string": case "boolean": return { kind: value.kind, value: value.value };
-    case "absence": return { kind: value.kind };
-    case "unique-symbol": return { kind: value.kind, declaration: value.declaration };
+    case "number": return { kind: "record", fields: [["kind", value.kind], ["token", value.token],
+      ["value", { kind: "record", fields: [["numerator", value.value.numerator], ["denominator", value.value.denominator],
+        ["negativeZero", value.value.negativeZero]] }]] };
+    case "bigint": return { kind: "record", fields: [["kind", value.kind], ["token", value.token], ["value", value.value]] };
+    case "string": case "boolean": return { kind: "record", fields: [["kind", value.kind], ["value", value.value]] };
+    case "absence": return { kind: "record", fields: [["kind", value.kind]] };
+    case "unique-symbol": return { kind: "record", fields: [["kind", value.kind], ["declaration", value.declaration]] };
   }
 }
 
 function constantValueKey(value: MirConstantValue): KeyData | null {
   switch (value.kind) {
-    case "literal": return { kind: value.kind, value: literalKey(value.value) };
+    case "literal": return { kind: "record", fields: [["kind", value.kind], ["value", literalKey(value.value)]] };
     case "definition": case "metadata": {
       const bindings = artifactValue(value.bindings);
-      return bindings === null ? null : { kind: value.kind, definition: value.definition, bindings };
+      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind], ["definition", value.definition], ["bindings", bindings]] };
     }
-    case "observation": return { kind: value.kind, at: { body: value.at.body, node: value.at.node } };
+    case "observation": return { kind: "record", fields: [["kind", value.kind], ["at", { kind: "record", fields: [["body", value.at.body], ["node", value.at.node]] }]] };
     case "constant": {
       const selected = value.reference.initializer;
       const bindings = artifactValue(selected.bindings);
-      return bindings === null ? null : { kind: value.kind, reference: { initializer: { body: selected.body, bindings } } };
+      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind], ["reference", { kind: "record",
+        fields: [["initializer", { kind: "record", fields: [["body", selected.body], ["bindings", bindings]] }]] }]] };
     }
   }
 }

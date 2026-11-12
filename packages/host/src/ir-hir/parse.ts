@@ -1,10 +1,11 @@
-import type { TextParseResult } from "../diag/contract.js";
+import type { InvariantFailure, TextParseResult } from "../diag/contract.js";
 import type { HirModule, ParseHir } from "./contract.js";
-import type { BodyId, CandidateListId, DefId, ExpansionId, LocalId, ModuleId, NodeId, SigId, TyId } from "../ids/contract.js";
 import { candidateListId, decodeBodyId, decodeDefId, decodeModuleId,
   encodeBodyId, encodeDefId, encodeModuleId, expansionId,
   localId, nodeId, sigId, tyId } from "../ids/index.js";
-import { hostDiagnosticCode } from "../diag/index.js";
+import { requirePresent } from "../diag/index.js";
+import type { HirConstruction, HirConstructionStep, HirIdentityInput, HirRecordConstruction, HirSequenceConstruction, HirSyntaxConstruction, HirValueRequest } from "./text-construction.js";
+import { createHirTextReaders, hirModuleReader, hirSyntaxReaders } from "./text-readers.js";
 import type { HirDictionaryShape, HirField, HirIdentityShape, HirNumericIdentityShape, HirRecordShape, HirSchema, HirShape, HirShapeLeaf, HirStringIdentityShape } from "./verify-syntax.js";
 import { hirChoice, hirRecordChoices, hirShapeLeaves } from "./verify-syntax.js";
 import { createHirSchema } from "./verify-captures.js";
@@ -35,7 +36,6 @@ export type TextValue = TextScalar | TextIdentity | TextRecord | TextArray;
 
 type InvalidText = TextParseResult<never> & { readonly kind: "invalid-text" };
 type Scalar = string | number | bigint | boolean | null;
-interface MutableRecord { [field: string]: unknown }
 interface StringDomain { readonly values: readonly string[]; readonly expected: readonly string[]; readonly offset: number }
 interface TextReader {
   readonly text: string;
@@ -57,10 +57,10 @@ type FieldSelection =
   | { readonly kind: "dictionary"; readonly choice: DictionaryChoice };
 interface RecordFrame {
   readonly kind: "record";
-  readonly value: MutableRecord;
+  readonly builders: readonly HirRecordConstruction[];
   readonly names: Set<string>;
   readonly owner: WireNode | null;
-  readonly put: (value: unknown) => void;
+  readonly put: () => void;
   choices: readonly FrameChoice[];
   selected: readonly FieldSelection[];
   ordinal: number;
@@ -70,16 +70,21 @@ interface RecordFrame {
 }
 interface ArrayFrame {
   readonly kind: "array";
-  readonly value: unknown[];
+  readonly builders: readonly HirSequenceConstruction[];
   readonly element: HirShape;
   readonly owner: WireNode | null;
-  readonly put: (value: unknown) => void;
+  readonly put: () => void;
   phase: "first-value" | "value" | "delimiter";
 }
 interface PendingFrame { readonly frame: RecordFrame | ArrayFrame; readonly next: PendingFrame | null }
-interface WireReference { readonly shape: HirShape; readonly offset: number; readonly node: WireNode }
+interface WireReference {
+  readonly shape: HirShape;
+  readonly offset: number;
+  readonly node: WireNode;
+  readonly resolve: readonly ((value: HirSyntaxConstruction) => boolean)[];
+}
 interface WireNode {
-  readonly value: MutableRecord;
+  construction: HirSyntaxConstruction | undefined;
   readonly edges: WireEdge[];
   label: string | null;
 }
@@ -87,8 +92,11 @@ interface WireEdge { readonly target: WireNode; readonly ordinal: number; readon
 type WireBinding =
   | { readonly kind: "pending"; readonly node: WireNode }
   | { readonly kind: "declared"; readonly node: WireNode; readonly label: string; readonly offset: number };
-interface HirOutput { value: unknown }
+interface HirOutput { value: HirConstruction<HirModule> | undefined }
 type DecodedCharacter = (value: string, offset: number) => void;
+
+const constructionFailure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "Complete validated HIR text must publish its typed module and syntax constructions." };
 
 function fail(reader: TextReader, expected: readonly string[], offset = reader.cursor): null {
   let line = 1;
@@ -189,7 +197,7 @@ function quoted(reader: TextReader, domain: StringDomain | null, onCharacter: De
   return fail(reader, ["closing quote"]);
 }
 
-const specialNumbers: readonly string[] = Object.freeze(["NaN", "+Infinity", "-Infinity"]);
+const specialNumbers: readonly string[] = (["NaN", "+Infinity", "-Infinity"]);
 
 function numeric(reader: TextReader, offset: number): TextScalar | null {
   for (const token of specialNumbers) {
@@ -343,10 +351,8 @@ function missingField(frame: RecordFrame): string | null {
   return expected;
 }
 
-function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
-  if (frame.kind === "array") frame.value.push(value);
-  else {
-    Object.defineProperty(frame.value, frame.name, { value, configurable: true, enumerable: true, writable: true });
+function attach(frame: RecordFrame | ArrayFrame, value: Scalar | undefined): void {
+  if (frame.kind === "record") {
     frame.choices = frame.selected.filter(selection => {
       if (selection.kind === "dictionary") return true;
       const field: HirField = selection.field;
@@ -360,31 +366,61 @@ function attach(frame: RecordFrame | ArrayFrame, value: unknown): void {
 
 type WireVisit = { readonly node: WireNode; readonly leaving: boolean; readonly next: WireVisit | null };
 
-function ownedNumericIdentity(shape: HirNumericIdentityShape, value: number): NodeId | LocalId | TyId | SigId | CandidateListId {
+function ownedNumericIdentity(shape: HirNumericIdentityShape, value: number): HirIdentityInput {
   switch (shape.prefix) {
-    case "n": return nodeId(value);
-    case "l": return localId(value);
-    case "t": return tyId(value);
-    case "sig": return sigId(value);
-    case "cand": return candidateListId(value);
+    case "n": return { kind: "n", value: nodeId(value) };
+    case "l": return { kind: "l", value: localId(value) };
+    case "t": return { kind: "t", value: tyId(value) };
+    case "sig": return { kind: "sig", value: sigId(value) };
+    case "cand": return { kind: "cand", value: candidateListId(value) };
   }
 }
 
-function ownedStringIdentity(shape: HirStringIdentityShape, value: string): ModuleId | DefId | BodyId | ExpansionId | null {
+function ownedStringIdentity(shape: HirStringIdentityShape, value: string): HirIdentityInput | null {
   switch (shape.prefix) {
     case "mod": {
       const decoded = decodeModuleId(value);
-      return decoded.kind === "decoded" ? encodeModuleId(decoded.value) : null;
+      return decoded.kind === "decoded" ? { kind: "mod", value: encodeModuleId(decoded.value) } : null;
     }
     case "def": {
       const decoded = decodeDefId(value);
-      return decoded.kind === "decoded" ? encodeDefId(decoded.value) : null;
+      return decoded.kind === "decoded" ? { kind: "def", value: encodeDefId(decoded.value) } : null;
     }
     case "body": {
       const decoded = decodeBodyId(value);
-      return decoded.kind === "decoded" ? encodeBodyId(decoded.value) : null;
+      return decoded.kind === "decoded" ? { kind: "body", value: encodeBodyId(decoded.value) } : null;
     }
-    case "exp": return expansionId(value);
+    case "exp": return { kind: "exp", value: expansionId(value) };
+  }
+}
+
+function acceptIdentity(requests: readonly HirValueRequest[], input: HirIdentityInput): void {
+  for (const request of requests) switch (input.kind) {
+    case "mod": if (request.kind === "mod") request.read(input.value); break;
+    case "def": if (request.kind === "def") request.read(input.value); break;
+    case "body": if (request.kind === "body") request.read(input.value); break;
+    case "exp": if (request.kind === "exp") request.read(input.value); break;
+    case "n": if (request.kind === "n") request.read(input.value); break;
+    case "l": if (request.kind === "l") request.read(input.value); break;
+    case "t": if (request.kind === "t") request.read(input.value); break;
+    case "sig": if (request.kind === "sig") request.read(input.value); break;
+    case "cand": if (request.kind === "cand") request.read(input.value); break;
+  }
+}
+
+function selectedRequests<Kind extends HirValueRequest["kind"]>(requests: readonly HirValueRequest[], kind: Kind):
+readonly (HirValueRequest & { readonly kind: Kind })[] {
+  return requests.filter((request): request is HirValueRequest & { readonly kind: Kind } => request.kind === kind);
+}
+
+function acceptScalar(requests: readonly HirValueRequest[], value: Scalar): void {
+  for (const request of selectedRequests(requests, "scalar")) request.read(value);
+  switch (typeof value) {
+    case "string": for (const request of selectedRequests(requests, "string")) request.read(value); break;
+    case "number": for (const request of selectedRequests(requests, "number")) request.read(value); break;
+    case "bigint": for (const request of selectedRequests(requests, "bigint")) request.read(value); break;
+    case "boolean": for (const request of selectedRequests(requests, "boolean")) request.read(value); break;
+    case "object": for (const request of selectedRequests(requests, "null")) request.read(); break;
   }
 }
 
@@ -425,34 +461,37 @@ function firstWireCycle(arena: ReadonlyMap<number, WireBinding>, edges: readonly
   return result;
 }
 
-function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema): output is HirOutput & { value: HirModule } {
+function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema): boolean {
+  const readers = createHirTextReaders();
+  const syntaxReaders = hirSyntaxReaders(readers);
+  const rootRequests = hirModuleReader(readers).requests(value => { output.value = value; });
   const arena = new Map<number, WireBinding>();
   const roots = new Set<WireNode>();
   const declared: { readonly node: WireNode; readonly offset: number }[] = [];
   const edges: WireEdge[] = [];
   const references: WireReference[] = [];
-  const wireNode = (): WireNode => ({ value: {}, edges: [], label: null });
-  const put = (value: unknown): void => {
-    output.value = value;
+  const wireNode = (): WireNode => ({ construction: undefined, edges: [], label: null });
+  const put = (): void => {
     reader.header = true;
     reader.needSeparator = true;
   };
-  const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null): MutableRecord | null => {
+  const syntaxReference = (shape: HirShape, value: number, offset: number, owner: WireNode | null,
+    requests: readonly HirValueRequest[]): void => {
     if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) {
       fail(reader, expectedValue(shape), offset);
-      return null;
+      return;
     }
     const previous = arena.get(value);
     const binding: WireBinding = previous ?? { kind: "pending", node: wireNode() };
     arena.set(value, binding);
-    references.push({ shape, offset, node: binding.node });
+    references.push({ shape, offset, node: binding.node,
+      resolve: requests.flatMap(request => request.kind === "syntax" ? [request.reference()] : []) });
     if (owner === null) roots.add(binding.node);
     else {
       const edge: WireEdge = { target: binding.node, ordinal: edges.length, offset };
       owner.edges.push(edge);
       edges.push(edge);
     }
-    return binding.node.value;
   };
   while (!reader.failed) {
     const newline = whitespace(reader);
@@ -465,7 +504,7 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
           invalidTarget = { reference, expected: ["declared syntax node"] };
           break;
         }
-        if (!hirRecordChoices(reference.shape, reference.node.label, schema).some(choice => choice.kind === "record" && choice.syntax)) {
+        if (!reference.resolve.every(resolve => resolve(requirePresent(reference.node.construction, constructionFailure)))) {
           invalidTarget = { reference, expected: expectedValue(reference.shape) };
           break;
         }
@@ -501,8 +540,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         }
         reader.cursor += 1;
         reader.pending = reader.pending.next;
-        Object.freeze(frame.value);
-        frame.put(frame.value);
+        if (frame.kind === "record") {
+          for (const builder of frame.builders) if (builder.complete(frame.ordinal)) builder.publish();
+        } else for (const builder of frame.builders) builder.publish();
+        frame.put();
       } else if (character === ",") {
         reader.cursor += 1;
         frame.phase = frame.kind === "record" ? "field" : "value";
@@ -552,8 +593,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
     const offset = reader.cursor;
     const token = reader.text.charAt(reader.cursor);
     const owner: WireNode | null = frame === undefined ? null : frame.owner;
-    const accept: (value: unknown) => void = declaration !== null ? (): void => { reader.needSeparator = true; } :
-      frame === undefined ? put : (value: unknown): void => { attach(frame, value); };
+    const accept = declaration !== null ? (): void => { reader.needSeparator = true; } :
+      frame === undefined ? put : (): void => { attach(frame, undefined); };
+    const requests: readonly HirValueRequest[] = frame === undefined ? rootRequests : frame.kind === "array" ?
+      frame.builders.flatMap(builder => builder.requests()) : frame.builders.flatMap(builder => builder.requests(frame.ordinal, frame.name));
     if (token === "[") {
       if (frame === undefined) { fail(reader, ["record"], offset); return false; }
       let element: HirShape | null = null;
@@ -563,7 +606,8 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       }
       if (element === null) { fail(reader, ["declared array"], offset); return false; }
       reader.cursor += 1;
-      reader.pending = { frame: { kind: "array", value: [], element, owner, put: accept, phase: "first-value" }, next: reader.pending };
+      reader.pending = { frame: { kind: "array", builders: requests.flatMap(request => request.kind === "sequence" ? [request.sequence()] : []),
+        element, owner, put: accept, phase: "first-value" }, next: reader.pending };
       continue;
     }
     const scalar = (value: Scalar): void => {
@@ -572,8 +616,8 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         fail(reader, expectedValue(shape), offset);
         return;
       }
-      accept(typeof value === "string" && leaves.some(leaf => typeof leaf !== "string" && leaf.kind === "host-code") ?
-        hostDiagnosticCode(value) : value);
+      acceptScalar(requests, value);
+      if (frame !== undefined) attach(frame, value);
     };
     if (token === "\"") {
       if (!leaves.some(leaf => scalarKindMatches(leaf, "string"))) {
@@ -617,21 +661,20 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         fail(reader, ["node wire reference"], offset);
         return false;
       }
-      let value: MutableRecord;
+      let builders: readonly HirRecordConstruction[];
       let recordOwner: WireNode | null = owner;
-      if (declaration === null) value = {};
+      if (declaration === null) builders = requests.flatMap(request => request.kind === "record" ? request.records(label) : []);
       else {
         const previous = arena.get(declaration.position);
         const node = previous === undefined ? wireNode() : previous.node;
         node.label = label;
-        value = node.value;
+        builders = [requirePresent(syntaxReaders.get(label), constructionFailure)(value => { node.construction = value; })];
         recordOwner = node;
         arena.set(declaration.position, { kind: "declared", node, label, offset: declaration.offset });
         declared.push({ node, offset: declaration.offset });
       }
-      if (choices.some(choice => choice.kind === "record" && choice.fields.some(([name]) => name === "kind"))) value.kind = label;
       reader.cursor += 1;
-      reader.pending = { frame: { kind: "record", value, names: new Set(), owner: recordOwner, put: accept,
+      reader.pending = { frame: { kind: "record", builders, names: new Set(), owner: recordOwner, put: accept,
         choices: frameChoices(choices), selected: [], ordinal: 0, phase: "first-field", name: "", shape: "null" }, next: reader.pending };
       continue;
     }
@@ -656,7 +699,8 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       if (content === null) return false;
       const issued = ownedStringIdentity(ownerShape, content);
       if (issued === null) { fail(reader, expectedValue(shape), offset); return false; }
-      accept(issued);
+      acceptIdentity(requests, issued);
+      accept();
     } else {
       if (ownerShape !== null && ownerShape.value !== "number") {
         fail(reader, ["string identity"], payloadOffset);
@@ -669,9 +713,10 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
       const content = numeric(reader, payloadOffset);
       if (content === null) return false;
       if (typeof content.value !== "number") { fail(reader, ["number identity"], payloadOffset); return false; }
-      const issued = ownerShape === null ? syntaxReference(shape, content.value, offset, owner) : ownedNumericIdentity(ownerShape, content.value);
+      if (ownerShape === null) syntaxReference(shape, content.value, offset, owner, requests);
+      else acceptIdentity(requests, ownedNumericIdentity(ownerShape, content.value));
       if (reader.failed) return false;
-      accept(issued);
+      accept();
     }
   }
   return false;
@@ -681,7 +726,11 @@ export const parseHir: ParseHir = text => {
   const reader: TextReader = { text, cursor: 0, failed: false, pending: null, header: false, needSeparator: false,
     failure: { kind: "invalid-text", offset: 0, line: 1, column: 1, expected: ["record"],
       found: text.length === 0 ? null : text.slice(0, 1) } };
-  const output: HirOutput = { value: null };
-  if (readHirModule(reader, output, createHirSchema())) return { kind: "parsed", value: output.value };
+  const output: HirOutput = { value: undefined };
+  if (readHirModule(reader, output, createHirSchema())) {
+    let step: HirConstructionStep = requirePresent(output.value, constructionFailure).run(value => ({ kind: "complete", value }));
+    while (step.kind === "next") step = step.next();
+    return { kind: "parsed", value: step.value };
+  }
   return reader.failure;
 };

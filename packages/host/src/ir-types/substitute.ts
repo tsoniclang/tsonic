@@ -2,9 +2,10 @@ import { encodeKey } from "../ids/index.js";
 import type { TyId, SigId, DefId } from "../ids/contract.js";
 import type { Substitute, SubstituteSignature, TypeInterner, TypeTerm, Signature, SignatureInput, TypeBinding, BindingVector,
   SelfBinding, TypeParameterIdentity, TypeExpansionLimits } from "./contract.js";
-import type { InternerStorage } from "./interner.js";
-import { internerStorage, storedType, storedSignature } from "./interner.js";
-import { remapTerm, remapSignature, immutableCopy, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
+import { storedType, storedSignature } from "./interner.js";
+import { TypeArena } from "./arena.js";
+import { remapTerm, remapSignature, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
+import { copyType, copySignature } from "./copy.js";
 import { typeIdentifier, signatureIdentifier, required } from "./value.js";
 import type { ExpansionResult, ExpansionStop } from "./work.js";
 import { typeText, signatureText } from "./print.js";
@@ -41,7 +42,7 @@ interface SignatureStage extends StageBase { readonly kind: "signature"; value: 
 type Stage = TypeStage | SignatureStage;
 
 interface SubstitutionEnvironment {
-  readonly storage: InternerStorage;
+  readonly storage: TypeInterner;
   readonly key: string;
   readonly memo: Map<string, number>;
   readonly parameters: ReadonlyMap<string, TypeBinding>;
@@ -87,7 +88,7 @@ function edge(plan: Plan, kind: "type" | "signature", identity: number): Plan {
 
 function prepareSubstitution(interner: TypeInterner, bindings: BindingVector, limits: TypeExpansionLimits): SubstitutionEnvironment {
   admittedLimits(limits);
-  const storage = internerStorage(interner);
+  const storage = interner;
   const key = encodeKey([bindingKey(bindings), limits.maximumDepth, limits.maximumVisits,
     limits.maximumUnionMembers, limits.maximumIntersectionMembers]);
   const parameters = new Map<string, TypeBinding>();
@@ -99,7 +100,7 @@ function prepareSubstitution(interner: TypeInterner, bindings: BindingVector, li
     }
   const self = new Map(bindings.selfBindings.map(binding => [binding.owner, binding]));
   if (self.size !== bindings.selfBindings.length) throw new Error("ir-types: a binding vector contains each lexical self owner once.");
-  return { storage, key, parameters, self, limits, memo: storage.substitutions.get(key) ?? new Map<string, number>() };
+  return { storage, key, parameters, self, limits, memo: TypeArena.substitutions(storage).get(key) ?? new Map<string, number>() };
 }
 
 function transform(environment: SubstitutionEnvironment, kind: "type" | "signature", original: number): ExpansionResult<number> {
@@ -254,8 +255,8 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
   for (const plan of work) if (plan.retained !== null && plan.retained !== plan.identity
     || plan.redirect !== null && target(plan).identity !== plan.identity) { plan.changed = true; changed.push(plan); }
   for (const plan of changed) for (const parent of plan.parents) if (!parent.changed) { parent.changed = true; changed.push(parent); }
-  const typeBase = storage.terms.length;
-  const signatureBase = storage.signatures.length;
+  const typeBase = TypeArena.terms(storage).length;
+  const signatureBase = TypeArena.signatures(storage).length;
   let nextType = typeBase;
   let nextSignature = signatureBase;
   for (const plan of work) if (plan.changed && plan.redirect === null && plan.retained === null)
@@ -359,9 +360,8 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
     if (stage.kind === "type") {
       const emit = (value: TypeTerm): TyId => {
         const key = typeText(value);
-        const existing = storage.typeKeys.get(key);
+        const existing = TypeArena.typeKeys(storage).get(key);
         if (existing !== undefined) {
-          if (typeof existing !== "number") throw new Error("ir-types: a type key must select a numeric type ID.");
           return typeIdentifier(existing);
         }
         const previous = keys.get(key);
@@ -378,10 +378,9 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
     } else {
       const mapped = stage.value;
       const key = signatureText(mapped);
-      const existing = storage.signatureKeys.get(key);
+      const existing = TypeArena.signatureKeys(storage).get(key);
       let selected = stage.id;
       if (existing !== undefined) {
-        if (typeof existing !== "number") throw new Error("ir-types: a signature key must select a numeric signature ID.");
         selected = signatureIdentifier(existing);
       } else {
         const previous = signatureKeys.get(key);
@@ -408,22 +407,22 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
   };
   const finalTypes: TypeTerm[] = [];
   const finalSignatures: Signature[] = [];
-  for (const [id, stage] of types) if (!typeAliases.has(id)) finalTypes.push(immutableCopy(remapTerm(stage.value, compactType, compactSignature)));
-  for (const [id, stage] of signatures) if (!signatureAliases.has(id)) finalSignatures.push(immutableCopy({
+  for (const [id, stage] of types) if (!typeAliases.has(id)) finalTypes.push(copyType(remapTerm(stage.value, compactType, compactSignature)));
+  for (const [id, stage] of signatures) if (!signatureAliases.has(id)) finalSignatures.push(copySignature({
     id: compactSignature(signatureIdentifier(id)), ...orderedSignature(remapSignature(stage.value, compactType, compactSignature)) }));
   for (const value of finalTypes) {
-    const id = typeIdentifier(storage.terms.length);
-    storage.terms.push(value); storage.typeKeys.set(typeText(value), id);
+    const id = typeIdentifier(TypeArena.terms(storage).length);
+    TypeArena.terms(storage).push(value); TypeArena.typeKeys(storage).set(typeText(value), id);
   }
   for (const value of finalSignatures) {
-    storage.signatures.push(value); storage.signatureKeys.set(signatureText(remapSignature(value, type => type, signature => signature)), value.id);
+    TypeArena.signatures(storage).push(value); TypeArena.signatureKeys(storage).set(signatureText(remapSignature(value, type => type, signature => signature)), value.id);
   }
   const value = kind === "type" ? compactType(typeIdentifier(target(root).output))
     : compactSignature(signatureIdentifier(target(root).output));
   for (const plan of work) if (plan.memoKey !== null)
     memo.set(plan.memoKey, compactSignature(signatureIdentifier(target(plan).output)));
   memo.set(cacheKey, value);
-  storage.substitutions.set(environment.key, memo);
+  TypeArena.substitutions(storage).set(environment.key, memo);
   return { kind: "complete", value };
 }
 

@@ -1,19 +1,4 @@
-import type { TyId, SigId } from "../ids/contract.js";
-import { tyId, sigId } from "../ids/index.js";
-
-function numericIdentity(value: number): boolean {
-  return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
-}
-
-export function typeIdentifier(value: number): TyId {
-  if (numericIdentity(value)) return tyId(value);
-  throw new Error("A newly issued type ID must be a nonnegative safe integer.");
-}
-
-export function signatureIdentifier(value: number): SigId {
-  if (numericIdentity(value)) return sigId(value);
-  throw new Error("A newly issued signature ID must be a nonnegative safe integer.");
-}
+export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
 export function required<Key, Value>(values: ReadonlyMap<Key, Value>, key: Key): Value {
   const value = values.get(key);

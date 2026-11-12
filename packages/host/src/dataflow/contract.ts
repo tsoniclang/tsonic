@@ -48,8 +48,7 @@ export interface FlowSolution<State> {
   readonly reachable: readonly boolean[];
 }
 
-export interface DirectedGraph<Vertex> {
-  readonly vertices: readonly Vertex[];
+export interface DirectedGraph {
   readonly successors: readonly (readonly number[])[];
 }
 
@@ -81,27 +80,27 @@ export type Solve = <State>(
   limits: DataflowLimits,
 ) => DataflowResult<FlowSolution<State>>;
 
-export type GraphOfMir = (body: MirBody) => DirectedGraph<BlockId>;
-export type Predecessors = <Vertex>(
-  graph: DirectedGraph<Vertex>,
+export type GraphOfMir = (body: MirBody) => DirectedGraph;
+export type Predecessors = (
+  graph: DirectedGraph,
   limits: DataflowLimits,
 ) => DataflowResult<readonly (readonly number[])[]>;
-export type OrderGraph = <Vertex>(
-  graph: DirectedGraph<Vertex>,
+export type OrderGraph = (
+  graph: DirectedGraph,
   roots: readonly number[],
   limits: DataflowLimits,
 ) => DataflowResult<GraphOrdering>;
-export type Dominators = <Vertex>(
-  graph: DirectedGraph<Vertex>,
+export type Dominators = (
+  graph: DirectedGraph,
   entry: number,
   limits: DataflowLimits,
 ) => DataflowResult<DominatorTree>;
-export type NaturalLoops = <Vertex>(
-  graph: DirectedGraph<Vertex>,
+export type NaturalLoops = (
+  graph: DirectedGraph,
   entry: number,
   limits: DataflowLimits,
 ) => DataflowResult<readonly NaturalLoop[]>;
-export type StronglyConnectedComponents = <Vertex>(
-  graph: DirectedGraph<Vertex>,
+export type StronglyConnectedComponents = (
+  graph: DirectedGraph,
   limits: DataflowLimits,
 ) => DataflowResult<GraphComponents>;
