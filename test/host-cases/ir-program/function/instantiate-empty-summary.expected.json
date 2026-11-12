@@ -1,0 +1,17 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "missing-binding-artifact",
+    "artifact": {
+      "kind": "summary",
+      "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]"
+    },
+    "bindings": {
+      "classBindings": [],
+      "methodBindings": [],
+      "capturedBindings": [],
+      "selfBindings": []
+    }
+  },
+  "diagnostics": []
+}

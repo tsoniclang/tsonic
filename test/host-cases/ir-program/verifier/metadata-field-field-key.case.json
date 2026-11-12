@@ -1,0 +1,1 @@
+{"name":"metadata-field-field-key","level":"verifier","rule":"C2966 field-offset also admits its exact field metadata key","input":"test/host-cases/ir-program/verifier/metadata-field-field-key.input.json","expected":"test/host-cases/ir-program/verifier/metadata-field-field-key.expected.json"}

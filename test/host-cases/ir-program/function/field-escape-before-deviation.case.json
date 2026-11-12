@@ -1,0 +1,7 @@
+{
+  "name": "field-escape-before-deviation",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-escape-before-deviation.input.json",
+  "expected": "test/host-cases/ir-program/function/field-escape-before-deviation.expected.json"
+}

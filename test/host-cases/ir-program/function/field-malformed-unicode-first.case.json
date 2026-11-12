@@ -1,0 +1,7 @@
+{
+  "name": "field-malformed-unicode-first",
+  "level": "function",
+  "rule": "text-first-position-unicode",
+  "input": "test/host-cases/ir-program/function/field-malformed-unicode-first.input.json",
+  "expected": "test/host-cases/ir-program/function/field-malformed-unicode-first.expected.json"
+}

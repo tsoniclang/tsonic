@@ -1,0 +1,5 @@
+{
+  "name": "negative-zero-node-parse", "level": "function", "rule": "total-number-wire",
+  "input": "test/host-cases/ir-infer/function/negative-zero-node-parse.input.json",
+  "expected": "test/host-cases/ir-infer/function/negative-zero-node-parse.expected.json"
+}

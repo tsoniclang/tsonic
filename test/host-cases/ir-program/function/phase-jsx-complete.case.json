@@ -1,0 +1,1 @@
+{"name":"phase-jsx-complete","level":"function","rule":"Complete typed JSX datatype forest, exact full wire/parsed value and nonidentity projection; not a native JSX semantic capability claim","input":"test/host-cases/ir-program/function/phase-jsx-complete.input.json","expected":"test/host-cases/ir-program/function/phase-jsx-complete.expected.json"}

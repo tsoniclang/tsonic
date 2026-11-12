@@ -1,0 +1,7 @@
+{
+  "name": "dependency-unresolved",
+  "level": "verifier",
+  "rule": "dependency-unresolved",
+  "input": "test/host-cases/ir-program/verifier/dependency-unresolved.input.json",
+  "expected": "test/host-cases/ir-program/verifier/dependency-unresolved.expected.json"
+}

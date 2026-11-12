@@ -1,0 +1,1 @@
+{"name":"binding-vectors-zero","level":"verifier","rule":"Complete owning-rule opposite uses actual canonical fixture data and preserves full genuine child diagnostics","input":"test/host-cases/ir-program/verifier/binding-vectors-zero.input.json","expected":"test/host-cases/ir-program/verifier/binding-vectors-zero.expected.json"}

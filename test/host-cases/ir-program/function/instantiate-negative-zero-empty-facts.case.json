@@ -1,0 +1,1 @@
+{"name":"instantiate-negative-zero-empty-facts","level":"function","rule":"Empty missing artifact admits no rows, bindings or IR records even with all own maxima negative zero","input":"test/host-cases/ir-program/function/instantiate-negative-zero-empty-facts.input.json","expected":"test/host-cases/ir-program/function/instantiate-negative-zero-empty-facts.expected.json"}

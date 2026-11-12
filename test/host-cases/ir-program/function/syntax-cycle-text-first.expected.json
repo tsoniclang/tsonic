@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":1519,"line":5,"column":197,"expected":["acyclic syntax reference"],"found":"n"},"diagnostics":[]}

@@ -1,6 +1,6 @@
 import type {
   BodyId, BodyPath, BodyRole, ComponentId, DecodedIdentity, DefId, DefinitionPath,
-  DefinitionSegment, GroupId, ModuleId, ModulePath, PackageId,
+  DefinitionSegment, EncodePackageId, GroupId, ModuleId, ModulePath, PackageId,
 } from "./contract.js";
 import { encodeCanonicalNumber } from "./key.js";
 
@@ -118,16 +118,14 @@ function packagePart(cursor: Cursor): Read<string> {
 function modulePart(cursor: Cursor): Read<ModulePath> {
   const opening = begin(cursor, "M");
   if (opening !== null) return opening;
-  const packageStart = cursor.offset;
   const root = packagePart(cursor);
   if (root.kind === "invalid") return root;
-  const packageText = cursor.text.slice(packageStart, cursor.offset);
   const separator = take(cursor, ";");
   if (separator !== null) return separator;
   const path = escaped(cursor, "]");
   if (path.kind === "invalid") return path;
   cursor.offset += 1;
-  return value(Object.freeze({ package: packageIdentity(packageText), path: path.value }));
+  return value(Object.freeze({ package: encodePackageId(root.value), path: path.value }));
 }
 
 function definitionPart(cursor: Cursor): Read<DefinitionPath> {
@@ -231,17 +229,11 @@ function decode<Value>(text: string, read: (cursor: Cursor) => Read<Value>): Dec
   return Object.freeze({ kind: "decoded", value: parsed.value });
 }
 
-function validPackage(text: string): text is PackageId { return decode(text, packagePart).kind === "decoded"; }
 function validModule(text: string): text is ModuleId { return decode(text, modulePart).kind === "decoded"; }
 function validDefinition(text: string): text is DefId { return decode(text, definitionPart).kind === "decoded"; }
 function validBody(text: string): text is BodyId { return decode(text, bodyPart).kind === "decoded"; }
 function validGroup(text: string): text is GroupId { return decode(text, groupPart).kind === "decoded"; }
 function validComponent(text: string): text is ComponentId { return decode(text, componentPart).kind === "decoded"; }
-
-export function packageIdentity(text: string): PackageId {
-  if (!validPackage(text)) throw new TypeError("ids: invalid package identity");
-  return text;
-}
 
 export function moduleIdentity(text: string): ModuleId {
   if (!validModule(text)) throw new TypeError("ids: invalid module identity");
@@ -273,9 +265,7 @@ function ordinalText(ordinal: number): string {
     ? String(ordinal) : encodeCanonicalNumber(ordinal);
 }
 
-export function encodePackageIdentity(rootIdentity: string): PackageId {
-  return packageIdentity(`P[${escape(rootIdentity)}]`);
-}
+export const encodePackageId: EncodePackageId = rootIdentity => `P[${escape(rootIdentity)}]` as PackageId;
 
 export function decodePackageIdentity(text: string): DecodedIdentity<string> {
   return decode(text, packagePart);

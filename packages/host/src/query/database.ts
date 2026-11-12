@@ -1,32 +1,27 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import { throwInvariant } from "../diag/index.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { ActiveKey, Database, Query, QueryLimits, RunResult } from "./contract.js";
+import type { ActiveKey, Database, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryScheduler, RunResult } from "./contract.js";
 import type { MemoTable } from "./memo.js";
 import { queryMemo, retainResult, snapshotChain, snapshotDiagnostics, snapshotStatistics } from "./memo.js";
 
-interface Refusal {
-  readonly kind: "refused";
-  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+interface Frame {
+  readonly identity: ActiveKey;
+  readonly keys: Set<string>;
+  readonly advance: () => void;
 }
 
-interface DepthExceeded {
-  readonly kind: "depth-exceeded";
-  readonly chain: readonly ActiveKey[];
-}
-
-type Stop = Refusal | DepthExceeded;
-type Execution<Value> = Result<Value> | DepthExceeded;
-
-interface EngineSignal {
-  readonly error: Error;
-  readonly outcome: Stop;
-}
+type Stop =
+  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] }
+  | { readonly kind: "depth-exceeded"; readonly chain: readonly ActiveKey[] };
 
 interface Boundary {
-  signal: EngineSignal | null;
+  stop: Stop | null;
 }
+
+const completionFailure = Object.freeze({ owner: "query", query: null, origin: null,
+  message: "A completed query must publish its actual result." });
 
 export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits): Database<Inputs> {
   const maximumDepth = limits.maxActiveDepth;
@@ -34,10 +29,11 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     throw new TypeError("query: maxActiveDepth must be a finite nonnegative integer");
   }
   const memo: MemoTable = new Map();
+  const frames: Frame[] = [];
   const active: ActiveKey[] = [];
   const activeKeys = new Map<string, Set<string>>();
-  const boundaries: Boundary[] = [];
   const diagnostics: Diagnostic[] = [];
+  let running = false;
   let recoveryMarker: object | null = null;
 
   function completed<Value>(result: Result<Value>): Result<Value> {
@@ -46,13 +42,26 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     return retained;
   }
 
-  function execute<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): Execution<Value> {
+  function leave(frame: Frame): void {
+    frames.pop();
+    active.pop();
+    frame.keys.delete(frame.identity.encodedKey);
+    if (frame.keys.size === 0) activeKeys.delete(frame.identity.query);
+  }
+
+  function enter<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key,
+    accept: (value: Value, diagnostics: readonly Diagnostic[]) => void, boundary: Boundary): void {
     const encodedKey = encodeKey(key);
     const entry = queryMemo(memo, query, encodedKey);
+    const deliver = (result: Result<Value>): void => {
+      if (result.kind === "refused") boundary.stop = result;
+      else accept(result.value, result.diagnostics);
+    };
     const cached = entry.results.get(encodedKey);
     if (cached !== undefined) {
       entry.counter.hits += 1;
-      return cached;
+      deliver(cached);
+      return;
     }
     const attempted: ActiveKey = Object.freeze({ query: query.name, encodedKey });
     const keys = activeKeys.get(query.name);
@@ -64,66 +73,78 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
       }
       const recover = query.cycle.recover;
       recoveryMarker = {};
-      return completed(recover(key, chain));
+      deliver(completed(recover(key, chain)));
+      return;
     }
     if (active.length >= maximumDepth) {
-      return Object.freeze({ kind: "depth-exceeded", chain: snapshotChain(active, attempted) });
+      boundary.stop = Object.freeze({ kind: "depth-exceeded", chain: snapshotChain(active, attempted) });
+      return;
     }
     const entered = keys ?? new Set<string>();
     activeKeys.set(query.name, entered);
     entered.add(encodedKey);
     active.push(attempted);
-    entry.counter.computed += 1;
     const finality = recoveryMarker;
-    try {
-      const compute = query.compute;
-      const result = completed(compute(database, key));
-      if (finality === recoveryMarker) entry.results.set(encodedKey, result);
-      return result;
-    } finally {
-      active.pop();
-      entered.delete(encodedKey);
-      if (entered.size === 0) activeKeys.delete(query.name);
-    }
+    const compute = query.compute;
+    let next: () => QueryComputation<Inputs, Value> = () => {
+      entry.counter.computed += 1;
+      return compute(context, key);
+    };
+    const frame: Frame = {
+      identity: attempted,
+      keys: entered,
+      advance: () => {
+        const step = next();
+        if (step.kind === "dependency") {
+          let requested = false;
+          let open = true;
+          const schedule = step.schedule;
+          try {
+            schedule({ request: (dependency, dependencyKey, resume) => {
+              if (!open) throw new TypeError("query: dependency scheduling must be synchronous");
+              if (requested) throw new TypeError("query: a dependency step must schedule exactly one request");
+              requested = true;
+              enter(dependency, dependencyKey, value => { next = () => resume(value); }, boundary);
+            } });
+          } finally { open = false; }
+          if (!requested) throw new TypeError("query: a dependency step must schedule exactly one request");
+        } else {
+          const result = completed(step);
+          if (finality === recoveryMarker) entry.results.set(encodedKey, result);
+          leave(frame);
+          deliver(result);
+        }
+      },
+    };
+    frames.push(frame);
   }
 
-  function get<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): Value {
-    const boundary = active.length === 0 ? undefined : boundaries.at(-1);
-    if (boundary === undefined) throw new TypeError("query: get requires an active computation; use run");
-    const result = execute(query, key);
-    if (result.kind === "ok") return result.value;
-    const error = new Error("query: abandoned computation");
-    boundary.signal = { error, outcome: result };
-    throw error;
-  }
-
-  function run<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): RunResult<Value> {
-    const boundary: Boundary = { signal: null };
-    boundaries.push(boundary);
-    try {
-      const result = execute(query, key);
-      switch (result.kind) {
-        case "ok":
-          return Object.freeze({ kind: "completed", value: result.value, diagnostics: result.diagnostics });
-        case "refused":
-        case "depth-exceeded":
-          return result;
-      }
-    } catch (error) {
-      const signal = boundary.signal;
-      if (signal !== null && error === signal.error) return signal.outcome;
-      throw error;
-    } finally {
-      boundaries.pop();
-    }
-  }
-
-  const database: Database<Inputs> = Object.freeze({
+  const context: QueryContext<Inputs> = Object.freeze({
     inputs,
-    get,
-    run,
+    get: <Key extends KeyData, Dependency, Value>(query: Query<Inputs, Key, Dependency>, key: Key,
+      resume: (value: Dependency) => QueryComputation<Inputs, Value>): QueryDependency<Inputs, Value> =>
+      Object.freeze({ kind: "dependency", schedule: (scheduler: QueryScheduler<Inputs, Value>) => { scheduler.request(query, key, resume); } }),
     diagnostics: () => snapshotDiagnostics(diagnostics),
     stats: () => snapshotStatistics(memo),
   });
-  return database;
+
+  function run<Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key): RunResult<Value> {
+    if (running) throw new TypeError("query: run cannot be nested; request dependencies through context.get");
+    running = true;
+    const boundary: Boundary = { stop: null };
+    const result: { value: RunResult<Value> | undefined } = { value: undefined };
+    try {
+      enter(query, key, (value, diagnostics) => {
+        result.value = Object.freeze({ kind: "completed", value, diagnostics });
+      }, boundary);
+      for (let frame = frames.at(-1); frame !== undefined && boundary.stop === null; frame = frames.at(-1)) frame.advance();
+      if (boundary.stop !== null) return boundary.stop;
+      return requirePresent(result.value, completionFailure);
+    } finally {
+      for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) leave(frame);
+      running = false;
+    }
+  }
+
+  return Object.freeze({ inputs, run, diagnostics: context.diagnostics, stats: context.stats });
 }

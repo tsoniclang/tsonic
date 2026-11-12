@@ -1,0 +1,7 @@
+{
+  "name": "empty-parse",
+  "level": "function",
+  "rule": "ir-mir.text-closed-empty-tables",
+  "input": "test/host-cases/ir-mir/function/empty-parse.input.json",
+  "expected": "test/host-cases/ir-mir/function/empty-parse.expected.json"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "dominators-diamond",
+  "level": "function",
+  "rule": "dataflow.immediate-dominators",
+  "input": "test/host-cases/dataflow/function/dominators-diamond.input.json",
+  "expected": "test/host-cases/dataflow/function/dominators-diamond.expected.json"
+}

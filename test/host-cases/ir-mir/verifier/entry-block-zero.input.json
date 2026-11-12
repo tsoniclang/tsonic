@@ -1,0 +1,135 @@
+{
+  "source": {
+    "body": "B[D[M[P[p];m];run];function;0]",
+    "owner": "D[M[P[p];m];run]",
+    "bindings": {
+      "kind": "parametric"
+    },
+    "lexicalBindings": {
+      "classBindings": [],
+      "methodBindings": [],
+      "capturedBindings": [],
+      "selfBindings": []
+    },
+    "dependence": "parametric",
+    "signature": 0,
+    "completion": 0,
+    "yielded": null,
+    "sent": null,
+    "params": [],
+    "locals": [],
+    "root": {
+      "id": 0,
+      "origin": {
+        "module": "M[P[p];m]",
+        "start": 0,
+        "length": 0,
+        "derived": []
+      },
+      "parent": null,
+      "flags": [],
+      "loc": {
+        "pos": 0,
+        "end": 0
+      },
+      "kind": "Block",
+      "statements": {
+        "loc": {
+          "pos": 0,
+          "end": 0
+        },
+        "nodes": [
+          {
+            "id": 1,
+            "origin": {
+              "module": "M[P[p];m]",
+              "start": 0,
+              "length": 0,
+              "derived": []
+            },
+            "parent": 0,
+            "flags": [],
+            "loc": {
+              "pos": 0,
+              "end": 0
+            },
+            "kind": "ReturnStatement",
+            "expression": null,
+            "tsonic": null
+          }
+        ]
+      },
+      "multiLine": false,
+      "tsonic": null
+    },
+    "nestedBodies": [],
+    "captures": [],
+    "scopes": [
+      {
+        "node": 0,
+        "parent": null,
+        "attributes": []
+      }
+    ],
+    "evidence": [],
+    "asynchronous": false,
+    "generator": false
+  },
+  "types": {
+    "terms": [
+      {
+        "kind": "intrinsic",
+        "intrinsic": "void"
+      },
+      {
+        "kind": "primitive",
+        "primitive": "bool"
+      }
+    ],
+    "signatures": [
+      {
+        "id": 0,
+        "declaration": "D[M[P[p];m];run]",
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [],
+        "receiver": null,
+        "parameters": [],
+        "result": 0
+      }
+    ]
+  },
+  "declarations": [
+    [
+      "D[M[P[p];m];run]",
+      {
+        "scope": {
+          "classParameters": [],
+          "methodParameters": [],
+          "capturedParameters": [],
+          "selfOwners": []
+        },
+        "parameterCount": 0,
+        "endpoints": [
+          {
+            "declaration": "D[M[P[p];m];run]",
+            "role": "api-body",
+            "signature": 0,
+            "body": "B[D[M[P[p];m];run];function;0]"
+          }
+        ]
+      }
+    ]
+  ],
+  "bodyOwners": [
+    [
+      "B[D[M[P[p];m];run];function;0]",
+      "D[M[P[p];m];run]"
+    ]
+  ],
+  "bodies": [
+    "MirBody(body=body:\"B[D[M[P[p];m];run];function;0]\", bindings=parametric(), locals=[], constants=[], places=[], blocks=[MirBlock(origin=Origin(module=mod:\"M[P[p];m]\", start=0, length=0, derived=[]), tir=NodeRef(body=body:\"B[D[M[P[p];m];run];function;0]\", node=n:0), id=b:0, statements=[], terminator=return(origin=Origin(module=mod:\"M[P[p];m]\", start=0, length=0, derived=[]), tir=NodeRef(body=body:\"B[D[M[P[p];m];run];function;0]\", node=n:1), value=null))], result=t:0)\n",
+    "MirBody(body=body:\"B[D[M[P[p];m];run];function;0]\", bindings=parametric(), locals=[], constants=[], places=[], blocks=[], result=t:0)\n"
+  ]
+}

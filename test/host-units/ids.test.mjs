@@ -113,6 +113,7 @@ for (const path of casePaths) {
   test(`ids authored function case ${basename(path, ".case.json")}`, async () => {
     const deps = {
       modules: ["ids"],
+      evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
       canonical: path => relative(repository, realpathSync(resolve(repository, path))).split("\\").join("/"),
       readText: path => readFileSync(resolve(repository, path), "utf8"),
       list: path => readdirSync(resolve(repository, path)),
@@ -161,7 +162,6 @@ test("zero definition segments and one empty-name segment are distinct complete 
 
 test("kind-specific private construction validates actual text before acquiring each brand", () => {
   for (const [name, text, message] of [
-    ["packageIdentity", "P[%0061]", "ids: invalid package identity"],
     ["moduleIdentity", "M[P[x];a/b]", "ids: invalid module identity"],
     ["definitionIdentity", "D[M[P[x];m];a#0]", "ids: invalid definition identity"],
     ["bodyIdentity", "B[D[M[P[x];m];a];unknown;0]", "ids: invalid body identity"],
@@ -391,10 +391,12 @@ void ports; void decoded; void Ids.encodeKey(key);
   const actual = [...output.matchAll(/^(.+)\((\d+),(\d+)\): error TS(\d+):/gmu)].map(match => ({
     file: basename(match[1]), line: Number(match[2]), column: Number(match[3]), code: Number(match[4]),
   }));
+  assert.equal([...output.matchAll(/\berror TS\d+:/gu)].length, actual.length,
+    "every compiler error belongs to the complete located diagnostic vector");
   const order = rows => rows.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0);
   assert.equal(actual.length, 576, "552 cross-brand and 24 raw-primitive opposites, no positive-consumer diagnostic");
   assert.equal(JSON.stringify(order(actual)) === JSON.stringify(order(expected)), true, output.slice(0, 4000));
-  assert.notEqual(result.status, 0, "all independently authored negative programs are actually rejected");
+  assert.equal(result.status, 1, "the pinned compiler rejects the exact negative programs with no emit");
   const loaded = result.stdout.split(/\r?\n/u).filter(path => path.startsWith("/"));
   const allowed = new Set([...files, resolve(stage, "ids/contract.d.ts"), resolve(stage, "ids/index.d.ts"), ...deps.platform.language]);
   assert.equal(loaded.length > files.length, true);

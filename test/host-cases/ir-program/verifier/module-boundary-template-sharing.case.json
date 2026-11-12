@@ -1,0 +1,1 @@
+{"name":"module-boundary-template-sharing","level":"verifier","rule":"template-body-shared plus BOTH actual TIR identity collateral diagnostics","input":"test/host-cases/ir-program/verifier/module-boundary-template-sharing.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-template-sharing.expected.json"}

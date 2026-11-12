@@ -407,6 +407,28 @@ test("only a canonical owner public constructor confers each nominal brand with 
     [at("unsafe-type-escape", file("ids"), 1, header.length + 1)]);
 });
 
+test("canonical text encoders confer their own public brand without redecoding their output", () => {
+  const contract = file("ids", "contract.ts");
+  const implementation = file("ids", "identity.ts");
+  const declaration = 'export type PackageId = string & { readonly identityKind: "package" }; export type EncodePackageId = (value: string) => PackageId;';
+  const header = 'import type { PackageId, EncodePackageId } from "./contract.js"; ';
+  const encoder = 'export const encodePackageId: EncodePackageId = value => `P[${value}]` as PackageId;';
+  expect([[contract, declaration], [implementation, header + encoder],
+    [file("ids", "index.ts"), 'export { encodePackageId } from "./identity.js";']], []);
+  expect([[contract, declaration], [implementation, header + encoder],
+    [file("ids", "index.ts"), 'import type { EncodePackageId } from "./contract.js"; import { encodePackageId as implementation } from "./identity.js"; export const encodePackageId: EncodePackageId = implementation;']], []);
+  expect([[contract, declaration], [implementation, header + encoder]],
+    [at("unsafe-type-escape", implementation, 1, header.length + 1)]);
+  const renamed = encoder.replace("const encodePackageId:", "const other:");
+  expect([[contract, declaration], [implementation, header + renamed],
+    [file("ids", "index.ts"), 'export { other } from "./identity.js";']],
+  [at("unsafe-type-escape", implementation, 1, header.length + 1)]);
+  const forged = encoder.replace('`P[${value}]`', '"unvalidated"');
+  expect([[contract, declaration], [implementation, header + forged],
+    [file("ids", "index.ts"), 'export { encodePackageId } from "./identity.js";']],
+  [at("unsafe-type-escape", implementation, 1, header.length + 1)]);
+});
+
 test("expected nonlocal unwinding belongs only to query and every new throw carries an Error", () => {
   for (const module of ["ids", "diag", "ir-types", "infer", "project"]) {
     const path = file(module);

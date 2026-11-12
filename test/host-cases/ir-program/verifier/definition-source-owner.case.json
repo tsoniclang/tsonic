@@ -1,0 +1,1 @@
+{"name":"definition-source-owner","level":"verifier","rule":"Complete owning-rule opposite uses actual canonical fixture data and preserves full genuine child diagnostics","input":"test/host-cases/ir-program/verifier/definition-source-owner.input.json","expected":"test/host-cases/ir-program/verifier/definition-source-owner.expected.json"}

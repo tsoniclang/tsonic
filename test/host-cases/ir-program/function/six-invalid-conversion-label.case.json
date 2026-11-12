@@ -1,0 +1,1 @@
+{"name":"six-invalid-conversion-label","level":"function","rule":"Stream failure retains its complete expected/found/UTF16 location and wins before the graph phase","input":"test/host-cases/ir-program/function/six-invalid-conversion-label.input.json","expected":"test/host-cases/ir-program/function/six-invalid-conversion-label.expected.json"}

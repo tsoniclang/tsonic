@@ -1,0 +1,1 @@
+{"name":"instantiate-expansion-union-above","level":"function","rule":"Exact lower-owned expansion dimension and maximum are forwarded unchanged; own seed/export accounting is separate","input":"test/host-cases/ir-program/function/instantiate-expansion-union-above.input.json","expected":"test/host-cases/ir-program/function/instantiate-expansion-union-above.expected.json"}

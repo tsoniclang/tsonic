@@ -1,0 +1,1 @@
+{"kind":"accepted","value":[{"rule":"package-exports-order","site":{"kind":"package","package":"P[%002Fprogram]"},"detail":[{"kind":"text","value":"z"},{"kind":"text","value":"a"}]}],"diagnostics":[]}

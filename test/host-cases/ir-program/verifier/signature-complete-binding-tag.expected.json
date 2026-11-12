@@ -1,0 +1,27 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "signature-endpoints-exact",
+      "site": {
+        "kind": "signature",
+        "signature": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "D[M[P[%002Fprogram];src%002Fmain.ts]]"
+        },
+        {
+          "kind": "text",
+          "value": "advertised"
+        },
+        {
+          "kind": "number",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

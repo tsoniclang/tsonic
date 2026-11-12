@@ -1,0 +1,1 @@
+{"name":"missing-body-field","level":"function","rule":"missing declared body member is exact invalid-text not verifier repair","input":"test/host-cases/ir-tir/function/missing-body-field.input.tir","expected":"test/host-cases/ir-tir/function/missing-body-field.expected.json"}

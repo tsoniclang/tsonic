@@ -112,6 +112,7 @@ for (const name of descriptors) {
   test(`authored complete JSON outcome: ${name}`, async () => {
     const report = await runCase({
       modules: ["diag"],
+      evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
       readText: path => readFileSync(resolve(repository, path), "utf8"),
       canonical: path => relative(repository, realpathSync(resolve(repository, path))).split(sep).join("/"),
       list: path => readdirSync(resolve(repository, path)),

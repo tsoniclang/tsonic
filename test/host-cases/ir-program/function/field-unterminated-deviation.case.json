@@ -1,0 +1,7 @@
+{
+  "name": "field-unterminated-deviation",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-unterminated-deviation.input.json",
+  "expected": "test/host-cases/ir-program/function/field-unterminated-deviation.expected.json"
+}

@@ -1,7 +1,8 @@
 import { encodeKey } from "../ids/index.js";
-import type { TyId, SigId } from "../ids/contract.js";
+import type { TyId, SigId, DefId } from "../ids/contract.js";
 import type { Substitute, SubstituteSignature, TypeInterner, TypeTerm, Signature, SignatureInput, TypeBinding, BindingVector,
-  TypeParameterIdentity, TypeExpansionLimits } from "./contract.js";
+  SelfBinding, TypeParameterIdentity, TypeExpansionLimits } from "./contract.js";
+import type { InternerStorage } from "./interner.js";
 import { internerStorage, storedType, storedSignature } from "./interner.js";
 import { remapTerm, remapSignature, immutableCopy, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
 import { typeIdentifier, signatureIdentifier, required } from "./value.js";
@@ -39,6 +40,15 @@ interface TypeStage extends StageBase { readonly kind: "type"; value: TypeTerm }
 interface SignatureStage extends StageBase { readonly kind: "signature"; value: SignatureInput }
 type Stage = TypeStage | SignatureStage;
 
+interface SubstitutionEnvironment {
+  readonly storage: InternerStorage;
+  readonly key: string;
+  readonly memo: Map<string, number>;
+  readonly parameters: ReadonlyMap<string, TypeBinding>;
+  readonly self: ReadonlyMap<DefId, SelfBinding>;
+  readonly limits: TypeExpansionLimits;
+}
+
 function stageKey(value: Stage): string {
   return `${value.kind}:${value.id}`;
 }
@@ -75,20 +85,30 @@ function edge(plan: Plan, kind: "type" | "signature", identity: number): Plan {
   return target(required(plan.edges, `${kind}:${identity}`));
 }
 
-function transform(interner: TypeInterner, kind: "type" | "signature", original: number,
-  bindings: BindingVector, limits: TypeExpansionLimits): ExpansionResult<number> {
+function prepareSubstitution(interner: TypeInterner, bindings: BindingVector, limits: TypeExpansionLimits): SubstitutionEnvironment {
   admittedLimits(limits);
-  const stop = (dimension: Dimension, maximum: number): ExpansionStop => ({ kind: "resource-limit", dimension, maximum });
   const storage = internerStorage(interner);
-  const environment = bindingKey(bindings);
-  const memoKey = (kind: "type" | "signature", identity: number): string => encodeKey([kind, identity, environment,
-    limits.maximumDepth, limits.maximumVisits, limits.maximumUnionMembers, limits.maximumIntersectionMembers]);
+  const key = encodeKey([bindingKey(bindings), limits.maximumDepth, limits.maximumVisits,
+    limits.maximumUnionMembers, limits.maximumIntersectionMembers]);
+  const parameters = new Map<string, TypeBinding>();
+  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings])
+    for (const binding of family) {
+      const key = parameterKey(binding.parameter);
+      if (parameters.has(key)) throw new Error("ir-types: a binding vector contains each owner-qualified parameter once.");
+      parameters.set(key, binding);
+    }
+  const self = new Map(bindings.selfBindings.map(binding => [binding.owner, binding]));
+  if (self.size !== bindings.selfBindings.length) throw new Error("ir-types: a binding vector contains each lexical self owner once.");
+  return { storage, key, parameters, self, limits, memo: storage.substitutions.get(key) ?? new Map<string, number>() };
+}
+
+function transform(environment: SubstitutionEnvironment, kind: "type" | "signature", original: number): ExpansionResult<number> {
+  const { storage, parameters, self, limits, memo } = environment;
+  const stop = (dimension: Dimension, maximum: number): ExpansionStop => ({ kind: "resource-limit", dimension, maximum });
+  const memoKey = (kind: "type" | "signature", identity: number): string => encodeKey([kind, identity]);
   const cacheKey = memoKey(kind, original);
-  const retained = storage.substitutions.get(cacheKey);
+  const retained = memo.get(cacheKey);
   if (retained !== undefined) {
-    if (typeof retained !== "number") throw new Error(kind === "type"
-      ? "ir-types: a substitution memo must contain a numeric type ID."
-      : "ir-types: a substitution memo must contain a numeric signature ID.");
     if (kind === "type") storedType(storage, typeIdentifier(retained));
     else storedSignature(storage, signatureIdentifier(retained));
     return { kind: "complete", value: retained };
@@ -139,15 +159,6 @@ function transform(interner: TypeInterner, kind: "type" | "signature", original:
     }
     return result;
   };
-  const parameters = new Map<string, TypeBinding>();
-  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings])
-    for (const binding of family) {
-      const key = parameterKey(binding.parameter);
-      if (parameters.has(key)) throw new Error("ir-types: a binding vector contains each owner-qualified parameter once.");
-      parameters.set(key, binding);
-    }
-  const self = new Map(bindings.selfBindings.map(binding => [binding.owner, binding]));
-  if (self.size !== bindings.selfBindings.length) throw new Error("ir-types: a binding vector contains each lexical self owner once.");
   const nodes = new Map<string, Plan>();
   const work: Plan[] = [];
   const unblocked: Scope = { root: null, height: 0 };
@@ -166,11 +177,10 @@ function transform(interner: TypeInterner, kind: "type" | "signature", original:
     if (depth > limits.maximumDepth) return stop("depth", limits.maximumDepth);
     if (nodes.size >= limits.maximumVisits) return stop("visits", limits.maximumVisits);
     const signatureKey = rootScope ? memoKey("signature", identity) : null;
-    const memo = signatureKey === null ? undefined : storage.substitutions.get(signatureKey);
+    const remembered = signatureKey === null ? undefined : memo.get(signatureKey);
     let retained: number | null = null;
-    if (memo !== undefined) {
-      if (typeof memo !== "number") throw new Error("ir-types: a substitution memo must contain a numeric signature ID.");
-      retained = storedSignature(storage, signatureIdentifier(memo)).id;
+    if (remembered !== undefined) {
+      retained = storedSignature(storage, signatureIdentifier(remembered)).id;
     }
     const common: PlanBase = { key, blocked, depth, children: [], parents: [], edges: new Map(), memoKey: signatureKey,
       retained, redirect: null, changed: false, output: retained ?? identity };
@@ -411,19 +421,28 @@ function transform(interner: TypeInterner, kind: "type" | "signature", original:
   const value = kind === "type" ? compactType(typeIdentifier(target(root).output))
     : compactSignature(signatureIdentifier(target(root).output));
   for (const plan of work) if (plan.memoKey !== null)
-    storage.substitutions.set(plan.memoKey, compactSignature(signatureIdentifier(target(plan).output)));
-  storage.substitutions.set(cacheKey, value);
+    memo.set(plan.memoKey, compactSignature(signatureIdentifier(target(plan).output)));
+  memo.set(cacheKey, value);
+  storage.substitutions.set(environment.key, memo);
   return { kind: "complete", value };
 }
 
-export const substitute: Substitute = (interner, original, bindings, limits) => {
-  const selected = transform(interner, "type", original, bindings, limits);
-  if (selected.kind === "resource-limit") return selected;
-  return { kind: "complete", value: typeIdentifier(selected.value) };
-};
+function transformRoots<Identity extends number>(
+  interner: TypeInterner, kind: "type" | "signature", roots: readonly Identity[],
+  bindings: BindingVector, limits: TypeExpansionLimits, identity: (value: number) => Identity,
+): ExpansionResult<readonly Identity[]> {
+  const environment = prepareSubstitution(interner, bindings, limits);
+  const values: Identity[] = [];
+  for (const root of roots) {
+    const selected = transform(environment, kind, root);
+    if (selected.kind === "resource-limit") return selected;
+    values.push(identity(selected.value));
+  }
+  return { kind: "complete", value: values };
+}
 
-export const substituteSignature: SubstituteSignature = (interner, original, bindings, limits) => {
-  const selected = transform(interner, "signature", original, bindings, limits);
-  if (selected.kind === "resource-limit") return selected;
-  return { kind: "complete", value: signatureIdentifier(selected.value) };
-};
+export const substitute: Substitute = (interner, roots, bindings, limits) =>
+  transformRoots(interner, "type", roots, bindings, limits, typeIdentifier);
+
+export const substituteSignature: SubstituteSignature = (interner, roots, bindings, limits) =>
+  transformRoots(interner, "signature", roots, bindings, limits, signatureIdentifier);

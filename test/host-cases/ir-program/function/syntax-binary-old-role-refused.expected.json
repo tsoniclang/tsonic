@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":1311,"line":4,"column":373,"expected":["\"arithmetic\"","\"comparison\"","\"short-circuit\"","\"assignment\"","\"sequence\""],"found":"\""},"diagnostics":[]}

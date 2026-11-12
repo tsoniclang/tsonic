@@ -1,0 +1,1 @@
+{"name":"metadata-eligibility-data-layout-unseen","level":"function","rule":"C2961 computed layouts require the exact full key; data-layout is returned as stored for any binding","input":"test/host-cases/ir-program/function/metadata-eligibility-data-layout-unseen.input.json","expected":"test/host-cases/ir-program/function/metadata-eligibility-data-layout-unseen.expected.json"}

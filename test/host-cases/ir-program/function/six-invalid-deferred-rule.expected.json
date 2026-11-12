@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":1267,"line":4,"column":328,"expected":["\"embed\"","\"domain-fit\"","\"memory-equivalent\"","\"member\"","\"index\"","\"construct-literal\"","\"candidate\"","\"operator\"","\"literal-fit\"","\"protocol\"","\"refinement\"","\"library\"","\"core\""],"found":"\""},"diagnostics":[]}

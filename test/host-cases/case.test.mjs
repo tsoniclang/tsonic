@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { runCase } from "./case.mjs";
 import { compareCaseValues } from "./compare.mjs";
+import { writeCaseEvidence } from "./evidence.mjs";
 
 test("harness preserves complete host-number outcomes including nonfinite values and signed zero", () => {
   for (const [actual, expected, equal] of [
@@ -44,6 +45,7 @@ async function fixture(level, action, changes = {}) {
     return data.refuse ? refused : { kind: "accepted", value: { state: data.state, output: data.state.scale * data.input }, diagnostics: [] };
   }]));
   const deps = {
+    evidenceDirectory: resolve(parent, "evidence"),
     modules: ["analyses/liveness"], adapters,
     readText: path => readFileSync(resolve(root, path), "utf8"),
     canonical: path => relative(root, realpathSync(resolve(root, path))),
@@ -165,4 +167,81 @@ test("harness compares all diagnostic identity, text, sites, ordering, evidence 
   assert.equal(compareCaseValues(cycle, cycle), false);
   assert.equal(compareCaseValues({ value: undefined }, { value: undefined }), false);
   assert.equal(compareCaseValues(new Map(), {}), false);
+});
+
+test("harness failures preserve complete actual and expected files without changing the authored golden", async () => {
+  const retainedEvidence = [];
+  await fixture("function", async ({ root, descriptor, descriptorPath, deps }) => {
+    const golden = readFileSync(resolve(root, descriptor.expected), "utf8");
+    const actual = { kind: "accepted", value: { number: -0, notNumber: NaN, large: 9223372036854775807n }, diagnostics: [] };
+    const expected = { kind: "accepted", value: { number: 0, notNumber: Infinity, large: -9223372036854775808n }, diagnostics: [] };
+    const supplied = { ...deps, adapters: { function: () => actual }, decode: () => expected };
+    const first = await runCase(supplied, descriptorPath);
+    const second = await runCase(supplied, descriptorPath);
+    assert.equal(first.code, "mismatch");
+    assert.equal(second.code, "mismatch");
+    const files = result => result.detail.slice(result.detail.indexOf("Actual: ") + 8).split("\nExpected: ");
+    const [actualPath, expectedPath] = files(first);
+    retainedEvidence.push(actualPath, expectedPath);
+    const [secondActualPath] = files(second);
+    assert.notEqual(actualPath, secondActualPath);
+    const check = (actualValue, expectedValue, label) => {
+      if (compareCaseValues(actualValue, expectedValue)) return;
+      const evidence = writeCaseEvidence(deps.evidenceDirectory, actualValue, expectedValue);
+      assert.fail(label + " Actual: " + evidence.actual + " Expected: " + evidence.expected);
+    };
+    check(readFileSync(actualPath, "utf8"), '{"kind":"accepted","value":{"number":-0,"notNumber":NaN,"large":9223372036854775807n},"diagnostics":[]}\n', "complete actual evidence");
+    check(readFileSync(expectedPath, "utf8"), '{"kind":"accepted","value":{"number":0,"notNumber":Infinity,"large":-9223372036854775808n},"diagnostics":[]}\n', "complete expected evidence");
+    check(readFileSync(resolve(root, descriptor.expected), "utf8"), golden, "authored expected file unchanged");
+    check(Object.keys(await runCase(deps, descriptorPath)).sort(), ["outcome", "path", "status"], "passing result shape unchanged");
+  });
+  for (const path of retainedEvidence) {
+    assert.equal(readFileSync(path, "utf8").length > 0, true, "evidence survives fixture cleanup: " + path);
+  }
+});
+
+test("failure evidence preserves complete scalar and ordered collection files", async () => {
+  const rows = [
+    ["booleans", true, false, "true\n", "false\n"],
+    ["null and empty record", null, {}, "null\n", "{}\n"],
+    ["empty and singleton arrays", [], [null], "[]\n", "[null]\n"],
+    ["ordered several arrays", [true, false, null], [[true], {}, []], "[true,false,null]\n", "[[true],{},[]]\n"],
+    ["singleton and ordered records", { only: null }, { first: true, second: false }, '{"only":null}\n', '{"first":true,"second":false}\n'],
+    ["empty and escaped strings", "", 'quote"\\\n\t\r\b\f\u0000\ud800', '""\n', String.raw`"quote\"\\\n\t\r\b\f\u0000\ud800"` + "\n"],
+    ["escaped keys and paired UTF16", { ['key"\\\n\udc00']: "pair😀" }, "😀pair", String.raw`{"key\"\\\n\udc00":"pair😀"}` + "\n", '"😀pair"\n'],
+  ];
+  await fixture("function", async ({ deps }) => {
+    for (const [label, actual, expected, actualText, expectedText] of rows) {
+      const evidence = writeCaseEvidence(deps.evidenceDirectory, actual, expected);
+      for (const [path, completeText, side] of [
+        [evidence.actual, actualText, "actual"],
+        [evidence.expected, expectedText, "expected"],
+      ]) {
+        const persisted = readFileSync(path, "utf8");
+        if (persisted !== completeText) {
+          const failure = writeCaseEvidence(deps.evidenceDirectory, persisted, completeText);
+          assert.fail(label + " " + side + " Actual: " + failure.actual + " Expected: " + failure.expected);
+        }
+      }
+    }
+  });
+});
+
+test("failure evidence retains a complete 100000-level value without recursive formatting", async () => {
+  await fixture("function", async ({ deps }) => {
+    let value = -0;
+    for (let depth = 0; depth < 100000; depth += 1) value = [value];
+    const evidence = writeCaseEvidence(deps.evidenceDirectory, value, null);
+    const actual = readFileSync(evidence.actual, "utf8");
+    const expected = "[".repeat(100000) + "-0" + "]".repeat(100000) + "\n";
+    if (actual !== expected) {
+      const failure = writeCaseEvidence(deps.evidenceDirectory, actual, expected);
+      assert.fail("complete deep evidence Actual: " + failure.actual + " Expected: " + failure.expected);
+    }
+    const expectedValue = readFileSync(evidence.expected, "utf8");
+    if (expectedValue !== "null\n") {
+      const failure = writeCaseEvidence(deps.evidenceDirectory, expectedValue, "null\n");
+      assert.fail("complete deep expected evidence Actual: " + failure.actual + " Expected: " + failure.expected);
+    }
+  });
 });

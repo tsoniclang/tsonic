@@ -1,0 +1,7 @@
+{
+  "name": "complete-module-valid",
+  "level": "verifier",
+  "rule": "complete-module-valid",
+  "input": "test/host-cases/ir-program/verifier/complete-module-valid.input.json",
+  "expected": "test/host-cases/ir-program/verifier/complete-module-valid.expected.json"
+}

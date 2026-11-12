@@ -1,0 +1,7 @@
+{
+  "name": "packages-order-reversed",
+  "level": "verifier",
+  "rule": "packages-order-reversed",
+  "input": "test/host-cases/ir-program/verifier/packages-order-reversed.input.json",
+  "expected": "test/host-cases/ir-program/verifier/packages-order-reversed.expected.json"
+}

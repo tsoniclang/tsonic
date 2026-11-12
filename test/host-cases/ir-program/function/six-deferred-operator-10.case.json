@@ -1,0 +1,1 @@
+{"name":"six-deferred-operator-10","level":"function","rule":"Complete admitted public typed codec value; independent publication maps only type/signature holders, never node IDs or literal data","input":"test/host-cases/ir-program/function/six-deferred-operator-10.input.json","expected":"test/host-cases/ir-program/function/six-deferred-operator-10.expected.json"}

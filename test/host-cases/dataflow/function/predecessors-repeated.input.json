@@ -1,0 +1,5 @@
+{
+  "operation": "predecessors",
+  "graph": { "vertices": ["same", "same", "tail", "isolated"], "successors": [[2, 1, 1], [2], [2], []] },
+  "limits": { "maximumWork": 10000, "maximumResultEntries": 10000 }
+}

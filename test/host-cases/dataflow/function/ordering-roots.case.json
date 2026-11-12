@@ -1,0 +1,7 @@
+{
+  "name": "ordering-roots",
+  "level": "function",
+  "rule": "dataflow.authored-dfs-order",
+  "input": "test/host-cases/dataflow/function/ordering-roots.input.json",
+  "expected": "test/host-cases/dataflow/function/ordering-roots.expected.json"
+}

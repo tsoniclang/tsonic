@@ -1,0 +1,17 @@
+{
+  "operation": "verify-signature-fixture",
+  "ordinal": 2,
+  "signature": 0,
+  "bindings": {
+    "kind": "parametric"
+  },
+  "answers": [
+    {
+      "ordinal": 2,
+      "bindings": {
+        "kind": "parametric"
+      },
+      "signature": null
+    }
+  ]
+}

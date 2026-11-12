@@ -1,0 +1,17 @@
+{
+  "kind": "accepted",
+  "value": [
+    [],
+    [
+      {
+        "rule": "entry-block-zero",
+        "site": {
+          "kind": "body",
+          "body": "B[D[M[P[p];m];run];function;0]"
+        },
+        "detail": []
+      }
+    ]
+  ],
+  "diagnostics": []
+}

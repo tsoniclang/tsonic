@@ -1,0 +1,7 @@
+{
+  "name": "callgraph-invalid",
+  "level": "function",
+  "rule": "invalid-text",
+  "input": "test/host-cases/ir-facts/function/callgraph-invalid.input.facts",
+  "expected": "test/host-cases/ir-facts/function/callgraph-invalid.expected.json"
+}

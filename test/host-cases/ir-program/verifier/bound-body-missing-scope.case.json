@@ -1,0 +1,1 @@
+{"name":"bound-body-missing-scope","level":"verifier","rule":"Bound BodyRecord uses the actual complete canonical scope in the same VerifyTypes input; missing scope is not empty scope","input":"test/host-cases/ir-program/verifier/bound-body-missing-scope.input.json","expected":"test/host-cases/ir-program/verifier/bound-body-missing-scope.expected.json"}

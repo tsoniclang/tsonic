@@ -1,0 +1,1 @@
+{"name":"index-item-node-different","level":"verifier","rule":"Standalone ProgramIndex authenticates its numeric schema and concrete source/node/body associations with a complete ordered opposite vector","input":"test/host-cases/ir-program/verifier/index-item-node-different.input.json","expected":"test/host-cases/ir-program/verifier/index-item-node-different.expected.json"}

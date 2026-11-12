@@ -1,0 +1,18 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "parsed",
+    "value": {
+      "body": "B[D[M[P[p];m];run];function;0]",
+      "bindings": {
+        "kind": "parametric"
+      },
+      "locals": [],
+      "constants": [],
+      "places": [],
+      "blocks": [],
+      "result": 0
+    }
+  },
+  "diagnostics": []
+}

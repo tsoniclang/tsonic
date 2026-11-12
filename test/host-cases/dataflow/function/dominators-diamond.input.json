@@ -1,0 +1,6 @@
+{
+  "operation": "dominators",
+  "graph": { "vertices": [0, 1, 2, 3], "successors": [[1, 2], [3], [3], []] },
+  "entry": 0,
+  "limits": { "maximumWork": 10000, "maximumResultEntries": 10000 }
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "invalid-text",
+    "offset": 17,
+    "line": 1,
+    "column": 18,
+    "expected": [
+      "schema"
+    ],
+    "found": "X"
+  },
+  "diagnostics": []
+}

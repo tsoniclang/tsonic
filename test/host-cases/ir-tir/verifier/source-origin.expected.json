@@ -1,0 +1,1 @@
+{"kind":"accepted","value":[{"rule":"origin-range","site":{"kind":"node","module":"M[P[p];m]","node":0},"detail":[{"kind":"text","value":"typed origin or lexical range does not retain the actual source interval"}]}],"diagnostics":[]}

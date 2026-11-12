@@ -1,0 +1,1 @@
+{"name":"metadata-direct-size","level":"verifier","rule":"C2966/C2970 actual direct operation metadata key and consuming node agree with the same-body finalized Fact proof; child results remain intact","input":"test/host-cases/ir-program/verifier/metadata-direct-size.input.json","expected":"test/host-cases/ir-program/verifier/metadata-direct-size.expected.json"}

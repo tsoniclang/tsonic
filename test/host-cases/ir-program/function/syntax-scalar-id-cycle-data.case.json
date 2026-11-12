@@ -1,0 +1,7 @@
+{
+  "name": "syntax-scalar-id-cycle-data",
+  "level": "function",
+  "rule": "syntax-scalar-id-cycle-data",
+  "input": "test/host-cases/ir-program/function/syntax-scalar-id-cycle-data.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-scalar-id-cycle-data.expected.json"
+}

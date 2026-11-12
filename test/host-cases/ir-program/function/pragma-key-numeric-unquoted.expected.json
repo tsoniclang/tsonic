@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":2339,"line":2,"column":2257,"expected":["pragma key"],"found":"0"},"diagnostics":[]}

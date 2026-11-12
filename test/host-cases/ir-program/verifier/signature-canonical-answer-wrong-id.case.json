@@ -1,0 +1,7 @@
+{
+  "name": "signature-canonical-answer-wrong-id",
+  "level": "verifier",
+  "rule": "signature-canonical-answer-wrong-id",
+  "input": "test/host-cases/ir-program/verifier/signature-canonical-answer-wrong-id.input.json",
+  "expected": "test/host-cases/ir-program/verifier/signature-canonical-answer-wrong-id.expected.json"
+}

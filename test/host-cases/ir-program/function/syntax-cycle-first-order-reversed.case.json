@@ -1,0 +1,7 @@
+{
+  "name": "syntax-cycle-first-order-reversed",
+  "level": "function",
+  "rule": "syntax-cycle-first-order-reversed",
+  "input": "test/host-cases/ir-program/function/syntax-cycle-first-order-reversed.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-cycle-first-order-reversed.expected.json"
+}

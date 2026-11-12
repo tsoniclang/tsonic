@@ -1,0 +1,7 @@
+{
+  "name": "body-count-negative",
+  "level": "verifier",
+  "rule": "body-count-negative",
+  "input": "test/host-cases/ir-program/verifier/body-count-negative.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-count-negative.expected.json"
+}

@@ -1,0 +1,1 @@
+{"name":"instantiate-work-whole-above","level":"function","rule":"C2972 fresh whole work minimum174, independently derived85 own+85 lower+4 stable anchors; complete output or exact last-anchor refusal","input":"test/host-cases/ir-program/function/instantiate-work-whole-above.input.json","expected":"test/host-cases/ir-program/function/instantiate-work-whole-above.expected.json"}

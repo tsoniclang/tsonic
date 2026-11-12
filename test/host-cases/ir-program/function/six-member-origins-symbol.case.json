@@ -1,0 +1,1 @@
+{"name":"six-member-origins-symbol","level":"function","rule":"Complete admitted public typed codec value; independent publication maps only type/signature holders, never node IDs or literal data","input":"test/host-cases/ir-program/function/six-member-origins-symbol.input.json","expected":"test/host-cases/ir-program/function/six-member-origins-symbol.expected.json"}

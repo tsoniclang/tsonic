@@ -1,0 +1,7 @@
+{
+  "name": "syntax-field-before-later-reference",
+  "level": "function",
+  "rule": "syntax-field-before-later-reference",
+  "input": "test/host-cases/ir-program/function/syntax-field-before-later-reference.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-field-before-later-reference.expected.json"
+}

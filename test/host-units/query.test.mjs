@@ -71,6 +71,7 @@ for (const path of casePaths) {
   test(`query authored function case ${basename(path, ".case.json")}`, async () => {
     const deps = {
       modules: ["query"],
+      evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
       canonical: path => relative(repository, realpathSync(resolve(repository, path))).split("\\").join("/"),
       readText: path => readFileSync(resolve(repository, path), "utf8"),
       list: path => readdirSync(resolve(repository, path)),
@@ -136,9 +137,13 @@ test("one actual query definition receives each database's own Inputs and indepe
   const right = product.createDatabase({ prefix: "right" }, { maxActiveDepth: 1 });
   for (let request = 0; request < 2; request += 1) {
     assert.deepEqual(left.run(query, "key"), { kind: "completed", value: "left:key", diagnostics: [] });
-    if (request === 0) assert.equal(received, left);
+    if (request === 0) {
+      assert.equal(received.inputs, left.inputs);
+      assert.equal(received.run, undefined);
+      assert.equal(Object.isFrozen(received), true);
+    }
     assert.deepEqual(right.run(query, "key"), { kind: "completed", value: "right:key", diagnostics: [] });
-    assert.equal(received, right);
+    assert.equal(received.inputs, right.inputs);
   }
   assert.deepEqual(left.stats(), [{ name: "input", computed: 1, hits: 1 }]);
   assert.deepEqual(right.stats(), [{ name: "input", computed: 1, hits: 1 }]);
@@ -215,10 +220,10 @@ test("ok sparse vectors retain empty, absent and later present slots across root
       let continuation = 0;
       const child = { name: "child", cycle: "invariant",
         compute: () => ({ kind: "ok", value: 7, diagnostics: vector.supplied }) };
-      const parent = { name: "parent", cycle: "invariant", compute: database => {
-        const value = database.get(child, null); continuation += 1;
+      const parent = { name: "parent", cycle: "invariant", compute: context => context.get(child, null, value => {
+        continuation += 1;
         return { kind: "ok", value: value + 1, diagnostics: [] };
-      } };
+      }) };
       const database = product.createDatabase(null, { maxActiveDepth: 2 });
       const selected = route === "root" ? child : parent;
       const expected = route === "root"
@@ -266,10 +271,10 @@ test("nonempty refused sparse vectors retain real heads and absent tails through
       let continuation = 0;
       const child = { name: "child", cycle: "invariant",
         compute: () => ({ kind: "refused", diagnostics: vector.supplied }) };
-      const parent = { name: "parent", cycle: "invariant", compute: database => {
-        const value = database.get(child, null); continuation += 1;
+      const parent = { name: "parent", cycle: "invariant", compute: context => context.get(child, null, value => {
+        continuation += 1;
         return { kind: "ok", value, diagnostics: [] };
-      } };
+      }) };
       const database = product.createDatabase(null, { maxActiveDepth: 2 });
       const selected = route === "root" ? child : parent;
       const cold = database.run(selected, null);
@@ -324,8 +329,10 @@ test("recovery sparse Results publish only actual diagnostics and preserve carri
         : { kind: "refused", diagnostics: vector.supplied };
     } }, compute: database => {
       if (finish) return { kind: "ok", value: 8, diagnostics: [] };
-      const value = database.get(query, null); continuation += 1;
-      return { kind: "ok", value: value + 1, diagnostics: [] };
+      return database.get(query, null, value => {
+        continuation += 1;
+        return { kind: "ok", value: value + 1, diagnostics: [] };
+      });
     } };
     const database = product.createDatabase(null, { maxActiveDepth: 1 });
     const cold = database.run(query, null);
@@ -387,14 +394,14 @@ test("both entries to the same recoverable pair return two without final memo pu
       { query: "A", encodedKey: "N" }]);
     recovered.push("A");
     return { kind: "ok", value: 0, diagnostics: [] };
-  } }, compute: database => ({ kind: "ok", value: database.get(second, null) + 1, diagnostics: [] }) };
+  } }, compute: database => database.get(second, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const second = { name: "B", cycle: { recover: (key, chain) => {
     assert.equal(key, null);
     assert.deepEqual(chain, [{ query: "B", encodedKey: "N" }, { query: "A", encodedKey: "N" },
       { query: "B", encodedKey: "N" }]);
     recovered.push("B");
     return { kind: "ok", value: 0, diagnostics: [] };
-  } }, compute: database => ({ kind: "ok", value: database.get(first, null) + 1, diagnostics: [] }) };
+  } }, compute: database => database.get(first, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const left = product.createDatabase(null, { maxActiveDepth: 2 });
   const right = product.createDatabase(null, { maxActiveDepth: 2 });
   assert.deepEqual(left.run(first, null), { kind: "completed", value: 2, diagnostics: [] });
@@ -411,8 +418,8 @@ test("both entries to the same recoverable pair return two without final memo pu
 
 test("two mutually dependent keys of one recoverable query also remain nonfinal in either entry order", () => {
   const query = { name: "pair", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [] }) },
-    compute: (database, key) => ({ kind: "ok", value: database.get(query, key === "A" ? "B" : "A") + 1,
-      diagnostics: [] }) };
+    compute: (context, key) => context.get(query, key === "A" ? "B" : "A", value => ({ kind: "ok", value: value + 1,
+      diagnostics: [] })) };
   for (const initial of ["A", "B"]) {
     const database = product.createDatabase(null, { maxActiveDepth: 2 });
     for (const key of [initial, "A", "B"]) {
@@ -433,14 +440,12 @@ test("above-head consumers stay nonfinal while independent before and after sibl
   const after = { name: "after", cycle: "invariant",
     compute: () => ({ kind: "ok", value: 20, diagnostics: [afterDiagnostic] }) };
   const first = { name: "A", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [recoveryDiagnostic] }) },
-    compute: database => ({ kind: "ok", value: database.get(second, null) + 1, diagnostics: [] }) };
+    compute: database => database.get(second, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const second = { name: "B", cycle: "invariant",
-    compute: database => ({ kind: "ok", value: database.get(first, null) + 1, diagnostics: [] }) };
-  const root = { name: "root", cycle: "invariant", compute: database => {
-    const left = database.get(before, null);
-    const middle = database.get(first, null);
-    return { kind: "ok", value: left + middle + database.get(after, null), diagnostics: [rootDiagnostic] };
-  } };
+    compute: database => database.get(first, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const root = { name: "root", cycle: "invariant", compute: context => context.get(before, null,
+    left => context.get(first, null, middle => context.get(after, null,
+      right => ({ kind: "ok", value: left + middle + right, diagnostics: [rootDiagnostic] })))) };
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   const original = database.run(root, null);
   assert.deepEqual(original, { kind: "completed", value: 32, diagnostics: [rootDiagnostic] });
@@ -464,9 +469,12 @@ test("a sparse refused Result derived from recovery is nonfinal until a real non
   const supplied = [last, , first];
   let cyclic = true;
   const cycle = { name: "cycle", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [recovered] }) },
-    compute: database => ({ kind: "ok", value: database.get(cycle, null) + 1, diagnostics: [] }) };
-  const outer = { name: "outer", cycle: "invariant", compute: database => {
-    if (cyclic) assert.equal(database.get(cycle, null), 1);
+    compute: database => database.get(cycle, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const outer = { name: "outer", cycle: "invariant", compute: context => {
+    if (cyclic) return context.get(cycle, null, value => {
+      assert.equal(value, 1);
+      return { kind: "refused", diagnostics: supplied };
+    });
     return { kind: "refused", diagnostics: supplied };
   } };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
@@ -493,27 +501,23 @@ test("a sparse refused Result derived from recovery is nonfinal until a real non
   assert.deepEqual(previous, [first, recovered, last]);
 });
 
-test("nested run carries provisional ok and refused dependence to its caller without final publication", () => {
+test("scheduled dependencies carry provisional ok and refused dependence without final publication", () => {
   const recovered = diagnostic(1, "cycle.ts", "recovered");
   for (const kind of ["ok", "refused"]) {
     const cycle = { name: "cycle", cycle: { recover: () => kind === "ok"
       ? { kind: "ok", value: 0, diagnostics: [recovered] } : { kind: "refused", diagnostics: [recovered] } },
-    compute: database => ({ kind: "ok", value: database.get(cycle, null) + 1, diagnostics: [] }) };
-    const outer = { name: "outer", cycle: "invariant", compute: database => {
-      const nested = database.run(cycle, null);
-      assert.deepEqual(nested, kind === "ok" ? { kind: "completed", value: 1, diagnostics: [] }
-        : { kind: "refused", diagnostics: [recovered] });
-      return kind === "ok" ? { kind: "ok", value: nested.value + 1, diagnostics: [] }
-        : { kind: "refused", diagnostics: nested.diagnostics };
-    } };
+    compute: database => database.get(cycle, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+    const outer = { name: "outer", cycle: "invariant", compute: context => context.get(cycle, null, value => {
+      assert.equal(value, 1);
+      return { kind: "ok", value: value + 1, diagnostics: [] };
+    }) };
     const database = product.createDatabase(null, { maxActiveDepth: 2 });
     for (let request = 0; request < 2; request += 1) {
       assert.deepEqual(database.run(outer, null), kind === "ok" ? { kind: "completed", value: 2, diagnostics: [] }
         : { kind: "refused", diagnostics: [recovered] });
     }
     assert.deepEqual(database.stats(), [{ name: "cycle", computed: 2, hits: 0 }, { name: "outer", computed: 2, hits: 0 }]);
-    assert.deepEqual(database.diagnostics(), kind === "ok" ? [recovered, recovered]
-      : [recovered, recovered, recovered, recovered]);
+    assert.deepEqual(database.diagnostics(), [recovered, recovered]);
   }
 });
 
@@ -527,18 +531,19 @@ test("recovery followed by throw, refusal or depth stop cleans frames without re
     const sibling = { name: "sibling", cycle: "invariant",
       compute: () => ({ kind: "ok", value: 5, diagnostics: [siblingDiagnostic] }) };
     const cycle = { name: "cycle", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [recoveryDiagnostic] }) },
-      compute: database => ({ kind: "ok", value: database.get(cycle, null) + 1, diagnostics: [] }) };
+      compute: database => database.get(cycle, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
     const bottom = { name: "bottom", cycle: "invariant", compute: () => ({ kind: "ok", value: 9, diagnostics: [] }) };
     const extra = { name: "extra", cycle: "invariant",
-      compute: database => ({ kind: "ok", value: database.get(bottom, null), diagnostics: [] }) };
-    const root = { name: "root", cycle: "invariant", compute: database => {
-      const value = database.get(sibling, null);
+      compute: database => database.get(bottom, null, value => ({ kind: "ok", value, diagnostics: [] })) };
+    const root = { name: "root", cycle: "invariant", compute: database => database.get(sibling, null, value => {
       if (!blocked) return { kind: "ok", value: value + 1, diagnostics: [] };
-      assert.equal(database.get(cycle, null), 1);
-      if (mode === "throw") throw original;
-      if (mode === "refused") return { kind: "refused", diagnostics: [refusalDiagnostic] };
-      return { kind: "ok", value: database.get(extra, null), diagnostics: [] };
-    } };
+      return database.get(cycle, null, recovered => {
+        assert.equal(recovered, 1);
+        if (mode === "throw") throw original;
+        if (mode === "refused") return { kind: "refused", diagnostics: [refusalDiagnostic] };
+        return database.get(extra, null, result => ({ kind: "ok", value: result, diagnostics: [] }));
+      });
+    }) };
     const database = product.createDatabase(null, { maxActiveDepth: 2 });
     for (let request = 0; request < 2; request += 1) {
       if (mode === "throw") assert.throws(() => database.run(root, null), error => error === original);
@@ -575,13 +580,10 @@ test("A to B to C computes once, records actual hits and publishes each complete
   const middleDiagnostic = diagnostic(2, "b.ts", "middle");
   const leafDiagnostic = diagnostic(3, "c.ts", "leaf");
   const leaf = { name: "C", cycle: "invariant", compute: () => ({ kind: "ok", value: 2, diagnostics: [leafDiagnostic] }) };
-  const middle = { name: "B", cycle: "invariant", compute: database => ({
-    kind: "ok", value: database.get(leaf, null) + 1, diagnostics: [middleDiagnostic],
-  }) };
-  const root = { name: "A", cycle: "invariant", compute: database => ({
-    kind: "ok", value: database.get(middle, null) + database.get(middle, null) + database.get(leaf, null),
-    diagnostics: [rootDiagnostic],
-  }) };
+  const middle = { name: "B", cycle: "invariant", compute: database => database.get(leaf, null, value => ({ kind: "ok", value: value + 1, diagnostics: [middleDiagnostic] })) };
+  const root = { name: "A", cycle: "invariant", compute: context => context.get(middle, null,
+    left => context.get(middle, null, right => context.get(leaf, null,
+      last => ({ kind: "ok", value: left + right + last, diagnostics: [rootDiagnostic] })))) };
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   assert.deepEqual(database.run(root, null), { kind: "completed", value: 8, diagnostics: [rootDiagnostic] });
   const previous = database.stats();
@@ -603,10 +605,10 @@ test("depth zero, below, at and past follow the actual fresh-frame law before th
     counts.leaf += 1; return { kind: "ok", value: 7, diagnostics: [] };
   } };
   const middle = { name: "middle", cycle: "invariant", compute: database => {
-    counts.middle += 1; return { kind: "ok", value: database.get(leaf, null), diagnostics: [] };
+    counts.middle += 1; return database.get(leaf, null, value => ({ kind: "ok", value, diagnostics: [] }));
   } };
   const root = { name: "root", cycle: "invariant", compute: database => {
-    counts.root += 1; return { kind: "ok", value: database.get(middle, null), diagnostics: [] };
+    counts.root += 1; return database.get(middle, null, value => ({ kind: "ok", value, diagnostics: [] }));
   } };
   const chain = [{ query: "root", encodedKey: "N" }, { query: "middle", encodedKey: "N" }, { query: "leaf", encodedKey: "N" }];
   for (const [maxActiveDepth, expected, expectedCounts, statistics] of [
@@ -632,14 +634,14 @@ test("depth zero, below, at and past follow the actual fresh-frame law before th
 test("depth exhaustion two levels down abandons both frames; a later same-database root recomputes cleanly", () => {
   let forbidden = 0;
   const leaf = { name: "C", cycle: "invariant", compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const middle = { name: "B", cycle: "invariant", compute: database => {
-    const value = database.get(leaf, null); forbidden += 1;
+  const middle = { name: "B", cycle: "invariant", compute: context => context.get(leaf, null, value => {
+    forbidden += 1;
     return { kind: "ok", value: value + 1, diagnostics: [] };
-  } };
-  const root = { name: "A", cycle: "invariant", compute: database => {
-    const value = database.get(middle, null); forbidden += 1;
+  }) };
+  const root = { name: "A", cycle: "invariant", compute: context => context.get(middle, null, value => {
+    forbidden += 1;
     return { kind: "ok", value: value + 1, diagnostics: [] };
-  } };
+  }) };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
   const expected = { kind: "depth-exceeded", chain: [
     { query: "A", encodedKey: "N" }, { query: "B", encodedKey: "N" }, { query: "C", encodedKey: "N" },
@@ -666,10 +668,10 @@ test("a refused dependency abandons its caller, preserves the complete vector an
   const second = diagnostic(2, "b.ts", "refusal two");
   let afterDependency = 0;
   const child = { name: "child", cycle: "invariant", compute: () => ({ kind: "refused", diagnostics: [first, second] }) };
-  const parent = { name: "parent", cycle: "invariant", compute: database => {
-    const value = database.get(child, null); afterDependency += 1;
+  const parent = { name: "parent", cycle: "invariant", compute: context => context.get(child, null, value => {
+    afterDependency += 1;
     return { kind: "ok", value, diagnostics: [] };
-  } };
+  }) };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
   for (let request = 1; request <= 2; request += 1) {
     assert.deepEqual(database.run(parent, null), { kind: "refused", diagnostics: [first, second] });
@@ -683,9 +685,9 @@ test("a refused dependency abandons its caller, preserves the complete vector an
 });
 
 test("same-query different canonical keys are not a cycle and cleanup retains each still-active key", () => {
-  const query = { name: "countdown", cycle: "invariant", compute: (database, key) => ({
-    kind: "ok", value: key === 0 ? 0 : database.get(query, key - 1) + 1, diagnostics: [],
-  }) };
+  const query = { name: "countdown", cycle: "invariant", compute: (context, key) => key === 0
+    ? { kind: "ok", value: 0, diagnostics: [] }
+    : context.get(query, key - 1, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
   const database = product.createDatabase(null, { maxActiveDepth: 4 });
   assert.deepEqual(database.run(query, 3), { kind: "completed", value: 3, diagnostics: [] });
   assert.deepEqual(database.run(query, 2), { kind: "completed", value: 2, diagnostics: [] });
@@ -696,12 +698,10 @@ test("same-query different canonical keys are not a cycle and cleanup retains ea
 test("cycles use full content keys and the complete chain, not object identity or a truncated suffix", () => {
   let cycle = true;
   const alternate = { a: 1, b: 2 };
-  const first = { name: "A", cycle: "invariant", compute: database => ({
-    kind: "ok", value: database.get(second, alternate) + 1, diagnostics: [],
-  }) };
-  const second = { name: "B", cycle: "invariant", compute: database => ({
-    kind: "ok", value: cycle ? database.get(first, alternate) : 7, diagnostics: [],
-  }) };
+  const first = { name: "A", cycle: "invariant", compute: database => database.get(second, alternate, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const second = { name: "B", cycle: "invariant", compute: context => cycle
+    ? context.get(first, alternate, value => ({ kind: "ok", value, diagnostics: [] }))
+    : { kind: "ok", value: 7, diagnostics: [] } };
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   const key = "O2:S1:aF1:S1:bF2:";
   const chain = [{ query: "A", encodedKey: key }, { query: "B", encodedKey: key }, { query: "A", encodedKey: key }];
@@ -727,10 +727,8 @@ test("declared recovery receives the original attempted key and full chain witho
   const first = { name: "A", cycle: { recover: function (key, chain) {
     recoverThis = this; recoveryKey = key; recoveryChain = chain;
     return { kind: "ok", value: 40, diagnostics: [recovered] };
-  } }, compute: database => ({ kind: "ok", value: database.get(second, attempted) + 1, diagnostics: [] }) };
-  const second = { name: "B", cycle: "invariant", compute: database => ({
-    kind: "ok", value: database.get(first, attempted) + 2, diagnostics: [],
-  }) };
+  } }, compute: database => database.get(second, attempted, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const second = { name: "B", cycle: "invariant", compute: database => database.get(first, attempted, value => ({ kind: "ok", value: value + 2, diagnostics: [] })) };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
   assert.deepEqual(database.run(first, { b: 2, a: 1 }), { kind: "completed", value: 43, diagnostics: [] });
   assert.equal(recoveryKey, attempted);
@@ -752,10 +750,10 @@ test("a refusing recovery carries its complete vector and leaves no abandoned ac
   const query = { name: "cycle", cycle: { recover: () => {
     recoveryCalls += 1;
     return recover ? { kind: "ok", value: 7, diagnostics: [] } : { kind: "refused", diagnostics: [refusal] };
-  } }, compute: database => {
-    const value = database.get(query, null); continuation += 1;
+  } }, compute: context => context.get(query, null, value => {
+    continuation += 1;
     return { kind: "ok", value: value + 1, diagnostics: [] };
-  } };
+  }) };
   const database = product.createDatabase(null, { maxActiveDepth: 1 });
   assert.deepEqual(database.run(query, null), { kind: "refused", diagnostics: [refusal] });
   assert.equal(continuation, 0);
@@ -781,7 +779,7 @@ test("ordinary thrown computations and thrown recovery are not cached or convert
   const cycle = { name: "cycle", cycle: { recover: () => {
     if (recoveryThrows) throw recoveredError;
     return { kind: "ok", value: 9, diagnostics: [] };
-  } }, compute: database => ({ kind: "ok", value: database.get(cycle, null), diagnostics: [] }) };
+  } }, compute: database => database.get(cycle, null, value => ({ kind: "ok", value, diagnostics: [] })) };
   const database = product.createDatabase(null, { maxActiveDepth: 1 });
   for (let request = 0; request < 2; request += 1) assert.throws(() => database.run(query, null), error => error === original);
   assert.throws(() => database.run(cycle, null), error => error === recoveredError);
@@ -793,7 +791,7 @@ test("ordinary thrown computations and thrown recovery are not cached or convert
   assert.deepEqual(database.diagnostics(), []);
 });
 
-test("only the actual engine-private Error identity is recognised, never a copied message or public tag", () => {
+test("an ordinary Error carrying a copied refusal tag is never converted into an expected outcome", () => {
   const fake = Object.assign(Error("query: abandoned computation"), { kind: "refused", diagnostics: [diagnostic(1, "a.ts", "fake")] });
   const query = { name: "forgery", cycle: "invariant", compute: () => { throw fake; } };
   const database = product.createDatabase(null, { maxActiveDepth: 1 });
@@ -802,20 +800,20 @@ test("only the actual engine-private Error identity is recognised, never a copie
   assert.deepEqual(database.diagnostics(), []);
 });
 
-test("an ordinary Error thrown during unwinding is not mistaken for a pending expected-outcome signal", () => {
+test("an ordinary Error while constructing a dependency is not cached or converted to a refusal", () => {
   const original = Error("ordinary finally failure");
   const refusal = diagnostic(1, "a.ts", "actual refusal");
   const child = { name: "child", cycle: "invariant", compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
   let override = true;
   const parent = { name: "parent", cycle: "invariant", compute: database => {
-    try { return { kind: "ok", value: database.get(child, null), diagnostics: [] }; }
+    try { return database.get(child, null, value => ({ kind: "ok", value, diagnostics: [] })); }
     finally { if (override) throw original; }
   } };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
   assert.throws(() => database.run(parent, null), error => error === original);
   override = false;
   assert.deepEqual(database.run(parent, null), { kind: "refused", diagnostics: [refusal] });
-  assert.deepEqual(database.stats(), [{ name: "child", computed: 1, hits: 1 }, { name: "parent", computed: 2, hits: 0 }]);
+  assert.deepEqual(database.stats(), [{ name: "child", computed: 1, hits: 0 }, { name: "parent", computed: 2, hits: 0 }]);
   assert.deepEqual(database.diagnostics(), [refusal]);
 });
 
@@ -824,11 +822,10 @@ test("throwing after a completed sibling does not discard its memo, diagnostics 
   const original = Error("failed parent");
   let throws = true;
   const child = { name: "child", cycle: "invariant", compute: () => ({ kind: "ok", value: 7, diagnostics: [childDiagnostic] }) };
-  const parent = { name: "parent", cycle: "invariant", compute: database => {
-    const value = database.get(child, null);
+  const parent = { name: "parent", cycle: "invariant", compute: context => context.get(child, null, value => {
     if (throws) throw original;
     return { kind: "ok", value: value + 1, diagnostics: [] };
-  } };
+  }) };
   const database = product.createDatabase(null, { maxActiveDepth: 2 });
   assert.throws(() => database.run(parent, null), error => error === original);
   assert.deepEqual(database.diagnostics(), [childDiagnostic]);
@@ -907,10 +904,11 @@ test("database methods are detachable, compute has no hidden this, and the suppl
   } };
   const parent = { name: "parent", cycle: "invariant", compute: current => {
     const { get, stats: currentStats, diagnostics: currentDiagnostics } = current;
-    const value = get(child, null);
-    assert.deepEqual(currentStats(), [{ name: "child", computed: 1, hits: 0 }, { name: "parent", computed: 1, hits: 0 }]);
-    assert.deepEqual(currentDiagnostics(), []);
-    return { kind: "ok", value: value + 1, diagnostics: [] };
+    return get(child, null, value => {
+      assert.deepEqual(currentStats(), [{ name: "child", computed: 1, hits: 0 }, { name: "parent", computed: 1, hits: 0 }]);
+      assert.deepEqual(currentDiagnostics(), []);
+      return { kind: "ok", value: value + 1, diagnostics: [] };
+    });
   } };
   assert.deepEqual(run(parent, null), { kind: "completed", value: 8, diagnostics: [] });
   assert.equal(receivedThis, undefined);
@@ -920,16 +918,13 @@ test("database methods are detachable, compute has no hidden this, and the suppl
   assert.equal(Object.isFrozen(database), true);
 });
 
-test("a nested explicit run owns its boundary and leaves the calling computation's frame intact", () => {
+test("an explicitly scheduled inner query leaves its parent's frame and sibling memo intact", () => {
   const leaf = { name: "leaf", cycle: "invariant", compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const inner = { name: "inner", cycle: "invariant", compute: current => ({
-    kind: "ok", value: current.get(leaf, null) + 1, diagnostics: [],
+  const inner = { name: "inner", cycle: "invariant", compute: current => current.get(leaf, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const outer = { name: "outer", cycle: "invariant", compute: context => context.get(inner, null, value => {
+    assert.equal(value, 8);
+    return context.get(leaf, null, sibling => ({ kind: "ok", value: value + sibling, diagnostics: [] }));
   }) };
-  const outer = { name: "outer", cycle: "invariant", compute: current => {
-    const result = current.run(inner, null);
-    assert.deepEqual(result, { kind: "completed", value: 8, diagnostics: [] });
-    return { kind: "ok", value: result.value + current.get(leaf, null), diagnostics: [] };
-  } };
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
   assert.deepEqual(database.run(outer, null), { kind: "completed", value: 15, diagnostics: [] });
   assert.deepEqual(database.stats(), [{ name: "inner", computed: 1, hits: 0 }, { name: "leaf", computed: 1, hits: 1 },
@@ -938,15 +933,9 @@ test("a nested explicit run owns its boundary and leaves the calling computation
 });
 
 test("an invariant cycle reports the whole root prefix rather than only the repeated-key suffix", () => {
-  const first = { name: "A", cycle: "invariant", compute: current => ({
-    kind: "ok", value: current.get(second, 2), diagnostics: [],
-  }) };
-  const second = { name: "B", cycle: "invariant", compute: current => ({
-    kind: "ok", value: current.get(first, 1), diagnostics: [],
-  }) };
-  const root = { name: "root", cycle: "invariant", compute: current => ({
-    kind: "ok", value: current.get(first, 1), diagnostics: [],
-  }) };
+  const first = { name: "A", cycle: "invariant", compute: current => current.get(second, 2, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const second = { name: "B", cycle: "invariant", compute: current => current.get(first, 1, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const root = { name: "root", cycle: "invariant", compute: current => current.get(first, 1, value => ({ kind: "ok", value, diagnostics: [] })) };
   const chain = [{ query: "root", encodedKey: "N" }, { query: "A", encodedKey: "F1:" },
     { query: "B", encodedKey: "F2:" }, { query: "A", encodedKey: "F1:" }];
   const database = product.createDatabase(null, { maxActiveDepth: 3 });
@@ -976,23 +965,116 @@ test("statistics use total UTF-16 name ordering, independent of request order or
   }
 });
 
-test("get outside an actual computation is a caller TypeError, even for a completed memo key", () => {
+test("the root database exposes no synchronous get and a captured reentrant run is rejected without a child frame", () => {
   let calls = 0;
   const query = { name: "root", cycle: "invariant", compute: () => {
     calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, { maxActiveDepth: 1 });
-  const { get } = database;
-  const failure = { name: "TypeError", message: "query: get requires an active computation; use run" };
-  assert.throws(() => get(query, null), failure);
+  assert.deepEqual(Object.keys(database), ["inputs", "run", "diagnostics", "stats"]);
+  assert.equal(database.get, undefined);
   assert.equal(calls, 0);
   assert.deepEqual(database.stats(), []);
   assert.deepEqual(database.diagnostics(), []);
   assert.deepEqual(database.run(query, null), { kind: "completed", value: 7, diagnostics: [] });
-  assert.throws(() => get(query, null), failure);
+  const parent = { name: "parent", cycle: "invariant", compute: () => database.run(query, null) };
+  assert.throws(() => database.run(parent, null), { name: "TypeError",
+    message: "query: run cannot be nested; request dependencies through context.get" });
   assert.equal(calls, 1);
-  assert.deepEqual(database.stats(), [{ name: "root", computed: 1, hits: 0 }]);
+  assert.deepEqual(database.stats(), [{ name: "parent", computed: 1, hits: 0 }, { name: "root", computed: 1, hits: 0 }]);
   assert.deepEqual(database.diagnostics(), []);
+});
+
+test("one hundred thousand genuine dependency edges finish iteratively and retain every completed memo", () => {
+  const depth = 100000;
+  let resumed = 0;
+  const query = { name: "deep-chain", cycle: "invariant", compute: (context, key) => key === 0
+    ? { kind: "ok", value: 0, diagnostics: [] }
+    : context.get(query, key - 1, value => {
+      resumed += 1;
+      return { kind: "ok", value: value + 1, diagnostics: [] };
+    }) };
+  const database = product.createDatabase(null, { maxActiveDepth: depth + 1 });
+  assert.deepEqual(database.run(query, depth), { kind: "completed", value: depth, diagnostics: [] });
+  assert.equal(resumed, depth);
+  assert.deepEqual(database.stats(), [{ name: "deep-chain", computed: depth + 1, hits: 0 }]);
+  assert.deepEqual(database.run(query, depth), { kind: "completed", value: depth, diagnostics: [] });
+  assert.deepEqual(database.run(query, depth - 1), { kind: "completed", value: depth - 1, diagnostics: [] });
+  assert.deepEqual(database.stats(), [{ name: "deep-chain", computed: depth + 1, hits: 2 }]);
+  assert.equal(resumed, depth);
+  assert.deepEqual(database.diagnostics(), []);
+});
+
+test("deep cycle recovery and exact depth exhaustion retain the complete ordered real-key chain", () => {
+  const depth = 100000;
+  const chains = [];
+  const query = { name: "deep-cycle", cycle: { recover: (key, chain) => {
+    assert.equal(key, 0);
+    chains.push(chain);
+    return { kind: "ok", value: 0, diagnostics: [] };
+  } }, compute: (context, key) => context.get(query, key === depth ? 0 : key + 1,
+    value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const recovered = product.createDatabase(null, { maxActiveDepth: depth + 1 });
+  for (let request = 1; request <= 2; request += 1) {
+    assert.deepEqual(recovered.run(query, 0), { kind: "completed", value: depth + 1, diagnostics: [] });
+    assert.deepEqual(recovered.stats(), [{ name: "deep-cycle", computed: (depth + 1) * request, hits: 0 }]);
+    const chain = chains[request - 1];
+    assert.equal(chain.length, depth + 2);
+    assert.equal(chain.every((entry, index) => entry.query === "deep-cycle" &&
+      entry.encodedKey === `F${index === depth + 1 ? 0 : index}:` && Object.isFrozen(entry)), true,
+    "every full cycle-chain entry, including the repeated actual first key, matches the independent vector");
+    assert.equal(Object.isFrozen(chain), true);
+  }
+  const bounded = product.createDatabase(null, { maxActiveDepth: depth });
+  for (let request = 1; request <= 2; request += 1) {
+    const result = bounded.run(query, 0);
+    assert.equal(result.kind, "depth-exceeded");
+    assert.equal(result.chain.length, depth + 1);
+    assert.equal(result.chain.every((entry, index) => entry.query === "deep-cycle" && entry.encodedKey === `F${index}:`), true,
+      "the complete depth-chain includes the actual uncomputed attempted key");
+    assert.deepEqual(bounded.stats(), [{ name: "deep-cycle", computed: depth * request, hits: 0 }]);
+    assert.deepEqual(bounded.diagnostics(), []);
+  }
+  assert.equal(chains.length, 2, "depth exhaustion is not misclassified as cycle recovery");
+});
+
+test("heterogeneous dependencies preserve each exact value type through one continuation path", () => {
+  const number = { name: "number", cycle: "invariant", compute: (_, key) => ({ kind: "ok", value: key + 1, diagnostics: [] }) };
+  const text = { name: "text", cycle: "invariant", compute: (context, key) => context.get(number, key.length,
+    value => ({ kind: "ok", value: `${key}:${value}`, diagnostics: [] })) };
+  const root = { name: "root", cycle: "invariant", compute: context => context.get(text, "typed",
+    value => ({ kind: "ok", value: value === "typed:6", diagnostics: [] })) };
+  const database = product.createDatabase(null, { maxActiveDepth: 3 });
+  assert.deepEqual(database.run(root, null), { kind: "completed", value: true, diagnostics: [] });
+  assert.deepEqual(database.stats(), [{ name: "number", computed: 1, hits: 0 }, { name: "root", computed: 1, hits: 0 },
+    { name: "text", computed: 1, hits: 0 }]);
+  assert.deepEqual(database.run(text, "typed"), { kind: "completed", value: "typed:6", diagnostics: [] });
+});
+
+test("public dependency steps reject zero, repeated and delayed scheduling and clean every active frame", () => {
+  const leaf = { name: "leaf", cycle: "invariant", compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
+  const resume = value => ({ kind: "ok", value, diagnostics: [] });
+  for (const requests of [0, 2]) {
+    const database = product.createDatabase(null, { maxActiveDepth: 2 });
+    const malformed = { name: "malformed", cycle: "invariant", compute: () => ({ kind: "dependency", schedule: scheduler => {
+      for (let request = 0; request < requests; request += 1) scheduler.request(leaf, null, resume);
+    } }) };
+    assert.throws(() => database.run(malformed, null), { name: "TypeError",
+      message: "query: a dependency step must schedule exactly one request" });
+    assert.deepEqual(database.run(leaf, null), { kind: "completed", value: 7, diagnostics: [] });
+    assert.deepEqual(database.stats(), [{ name: "leaf", computed: 1, hits: 0 },
+      { name: "malformed", computed: 1, hits: 0 }]);
+  }
+  let retained;
+  const database = product.createDatabase(null, { maxActiveDepth: 2 });
+  const query = { name: "retained", cycle: "invariant", compute: () => ({ kind: "dependency", schedule: scheduler => {
+    retained = scheduler;
+    scheduler.request(leaf, null, resume);
+  } }) };
+  assert.deepEqual(database.run(query, null), { kind: "completed", value: 7, diagnostics: [] });
+  assert.throws(() => retained.request(leaf, null, resume), { name: "TypeError",
+    message: "query: dependency scheduling must be synchronous" });
+  assert.deepEqual(database.stats(), [{ name: "leaf", computed: 1, hits: 0 }, { name: "retained", computed: 1, hits: 0 }]);
 });
 
 test("the actual four-file query owner compiles against fresh real dependency public declarations", async () => {
@@ -1041,7 +1123,7 @@ const query: Query<{ readonly name: string }, number, number> = {
 };
 const dependent: Query<{ readonly name: string }, null, number> = {
   name: "dependent", cycle: "invariant",
-  compute: current => ({ kind: "ok", value: current.get(query, 7), diagnostics: [] }),
+  compute: current => current.get(query, 7, value => ({ kind: "ok", value, diagnostics: [] })),
 };
 function consume(result: RunResult<number>): number {
   switch (result.kind) {
@@ -1069,11 +1151,11 @@ consume(database.run(sparseQuery, null));
 consume(database.run(sparseRefusedQuery, null));
 const firstCycle: Query<{ readonly name: string }, null, number> = {
   name: "cycle-A", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [] }) },
-  compute: current => ({ kind: "ok", value: current.get(secondCycle, null) + 1, diagnostics: [] }),
+  compute: current => current.get(secondCycle, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })),
 };
 const secondCycle: Query<{ readonly name: string }, null, number> = {
   name: "cycle-B", cycle: { recover: () => ({ kind: "ok", value: 0, diagnostics: [] }) },
-  compute: current => ({ kind: "ok", value: current.get(firstCycle, null) + 1, diagnostics: [] }),
+  compute: current => current.get(firstCycle, null, value => ({ kind: "ok", value: value + 1, diagnostics: [] })),
 };
 consume(database.run(firstCycle, null));
 consume(database.run(secondCycle, null));
@@ -1081,7 +1163,7 @@ void inputs; void statistics; void diagnostics; void chain; void value;
 `);
   const cases = [
     ["readonly-inputs", "database.inputs = database.inputs;", 2540, 3, 10],
-    ["readonly-get-port", "database.get = database.get;", 2540, 3, 10],
+    ["removed-synchronous-get", "void database.get;", 2339, 3, 15],
     ["readonly-run-port", "database.run = database.run;", 2540, 3, 10],
     ["readonly-stats-port", "database.stats = database.stats;", 2540, 3, 10],
     ["readonly-diagnostics-port", "database.diagnostics = database.diagnostics;", 2540, 3, 10],
@@ -1098,6 +1180,14 @@ void inputs; void statistics; void diagnostics; void chain; void value;
     ["undeclared-runtime-port", 'import { lookup } from "./query/index.js"; void lookup;', 2305, 3, 10],
     ["private-entry", 'import { snapshotChain } from "./query/memo.js"; void snapshotChain;', 2307, 3, 31],
   ];
+  const missingContinuation = 'function legacy(context: Port.QueryContext<null>, query: Port.Query<null, null, number>): void { context.get(query, null); } void legacy;';
+  const nestedRoot = 'function nested(context: Port.QueryContext<null>): void { void context.run; } void nested;';
+  const readonlyGet = 'function mutate(context: Port.QueryContext<null>): void { context.get = context.get; } void mutate;';
+  cases.push(
+    ["removed-synchronous-dependency", missingContinuation, 2554, 3, missingContinuation.indexOf(".get") + 2],
+    ["removed-nested-root", nestedRoot, 2339, 3, nestedRoot.indexOf(".run") + 2],
+    ["readonly-context-get", readonlyGet, 2540, 3, readonlyGet.indexOf(".get") + 2],
+  );
   const files = [positive];
   const expected = [];
   for (const [name, body, code, line, column] of cases) {
@@ -1120,6 +1210,8 @@ void inputs; void statistics; void diagnostics; void chain; void value;
   const actual = [...output.matchAll(/^(.+)\((\d+),(\d+)\): error TS(\d+):/gmu)].map(match => ({
     file: basename(match[1]), line: Number(match[2]), column: Number(match[3]), code: Number(match[4]),
   }));
+  assert.equal([...output.matchAll(/\berror TS\d+:/gu)].length, actual.length,
+    "every compiler error belongs to the complete located diagnostic vector");
   const order = rows => rows.sort((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1
     : left.line - right.line || left.column - right.column || left.code - right.code);
   assert.deepEqual(order(actual), order(expected), output.slice(0, 4000));

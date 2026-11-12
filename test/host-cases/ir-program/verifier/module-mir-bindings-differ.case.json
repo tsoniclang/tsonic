@@ -1,0 +1,1 @@
+{"name":"module-mir-bindings-differ","level":"verifier","rule":"Joint roots, complete binding identities and actual child proof failures remain qualified and are never filtered or replaced with success","input":"test/host-cases/ir-program/verifier/module-mir-bindings-differ.input.json","expected":"test/host-cases/ir-program/verifier/module-mir-bindings-differ.expected.json"}

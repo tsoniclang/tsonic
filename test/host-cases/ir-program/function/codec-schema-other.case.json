@@ -1,0 +1,1 @@
+{"name":"codec-schema-other","level":"function","rule":"ProgramIndex.schema is number: exact numeric text roundtrip preserves the value; schema-supported verification is separate","input":"test/host-cases/ir-program/function/codec-schema-other.input.json","expected":"test/host-cases/ir-program/function/codec-schema-other.expected.json"}

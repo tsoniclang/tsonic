@@ -1,0 +1,7 @@
+{
+  "name": "callgraph-empty",
+  "level": "verifier",
+  "rule": "component-membership-exact",
+  "input": "test/host-cases/ir-facts/verifier/callgraph-empty.input.facts",
+  "expected": "test/host-cases/ir-facts/verifier/callgraph-empty.expected.json"
+}

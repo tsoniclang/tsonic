@@ -13,7 +13,7 @@ export interface InternerStorage extends TypeInterner {
   readonly signatures: unknown[];
   readonly typeKeys: Map<unknown, unknown>;
   readonly signatureKeys: Map<unknown, unknown>;
-  readonly substitutions: Map<unknown, unknown>;
+  readonly substitutions: Map<string, Map<string, number>>;
 }
 
 function hasStorage(value: TypeInterner): value is InternerStorage {

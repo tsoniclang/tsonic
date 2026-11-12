@@ -1,0 +1,1 @@
+{"name":"module-boundary-dual-control","level":"verifier","rule":"same authored body in two genuine complete environments; complete opposite","input":"test/host-cases/ir-program/verifier/module-boundary-dual-control.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-dual-control.expected.json"}

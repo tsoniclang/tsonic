@@ -1,0 +1,5 @@
+{
+  "name": "flow-bounds-complete", "level": "verifier", "rule": "contribution-footprint-complete",
+  "input": "test/host-cases/ir-infer/verifier/flow-bounds-complete.input.json",
+  "expected": "test/host-cases/ir-infer/verifier/flow-bounds-complete.expected.json"
+}

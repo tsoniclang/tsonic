@@ -1,0 +1,1 @@
+{"name":"six-graph-multifault-2","level":"function","rule":"Independent acyclic missing references retain the complete earliest diagnostic; losing faults never format coordinates","input":"test/host-cases/ir-program/function/six-graph-multifault-2.input.json","expected":"test/host-cases/ir-program/function/six-graph-multifault-2.expected.json"}

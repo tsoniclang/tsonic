@@ -1,0 +1,1 @@
+{"name":"module-boundary-instance-node-id","level":"verifier","rule":"instance-node-ids-exact reports parent SourceFile0 edge plus ALL FOUR actual TIR EOF2 diagnostics","input":"test/host-cases/ir-program/verifier/module-boundary-instance-node-id.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-instance-node-id.expected.json"}

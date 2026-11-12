@@ -1,0 +1,1 @@
+{"name":"instantiate-negative-zero-work","level":"function","rule":"Nonnegative safe maxima accept negative zero and retain that exact maximum in the owning resource refusal","input":"test/host-cases/ir-program/function/instantiate-negative-zero-work.input.json","expected":"test/host-cases/ir-program/function/instantiate-negative-zero-work.expected.json"}

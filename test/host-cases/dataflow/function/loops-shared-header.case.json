@@ -1,0 +1,7 @@
+{
+  "name": "loops-shared-header",
+  "level": "function",
+  "rule": "dataflow.natural-loop-membership",
+  "input": "test/host-cases/dataflow/function/loops-shared-header.input.json",
+  "expected": "test/host-cases/dataflow/function/loops-shared-header.expected.json"
+}

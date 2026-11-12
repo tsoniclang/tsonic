@@ -1,0 +1,1 @@
+{"name":"canonical-empty","level":"function","rule":"Empty publication maps every admitted holder and retains the complete index without modules","input":"test/host-cases/ir-program/function/canonical-empty.input.json","expected":"test/host-cases/ir-program/function/canonical-empty.expected.json"}

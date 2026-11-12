@@ -1,0 +1,1 @@
+{"name":"codec-diagnostics-complete","level":"function","rule":"All closed diagnostic families and exact nonfinite/bigint/Unicode values roundtrip in one complete independently authored index document","input":"test/host-cases/ir-program/function/codec-diagnostics-complete.input.json","expected":"test/host-cases/ir-program/function/codec-diagnostics-complete.expected.json"}

@@ -797,7 +797,7 @@ test("ambiguous package/file data never chooses a first or last matching library
 
 for (const name of ["unnamed-root", "missing-root", "extensions-table-mismatch"]) {
   test(`authored complete verifier JSON outcome: ${name}`, async () => {
-    const result = await runCase({ modules: ["snapshot"], readText: path => readFileSync(resolve(repository, path), "utf8"),
+    const result = await runCase({ modules: ["snapshot"], evidenceDirectory: resolve(repository, ".temp/host-case-evidence"), readText: path => readFileSync(resolve(repository, path), "utf8"),
       canonical: path => relative(repository, realpathSync(resolve(repository, path))).split(sep).join("/"),
       list: path => readdirSync(resolve(repository, path)), decode: text => JSON.parse(text),
       adapters: { verifier: input => {
@@ -889,5 +889,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
   assert.equal(refused.status, 1, refused.text);
   const diagnostics = [...refused.text.matchAll(/^(.+)\(\d+,\d+\): error TS(\d+):/gmu)]
     .map(match => [basename(match[1]), Number(match[2])]).sort(([left], [right]) => left < right ? -1 : 1);
+  assert.equal([...refused.text.matchAll(/\berror TS\d+:/gu)].length, diagnostics.length,
+    "every compiler error belongs to the complete located diagnostic vector");
   assert.deepEqual(diagnostics, negative.map(([name, code]) => [name, code]).sort(([left], [right]) => left < right ? -1 : 1), refused.text);
 });

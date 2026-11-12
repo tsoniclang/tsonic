@@ -1,0 +1,1 @@
+{"kind":"accepted","value":[{"rule":"package-export-resolves","site":{"kind":"package","package":"P[%002Fprogram]"},"detail":[{"kind":"text","value":"missing"},{"kind":"text","value":"M[P[%002Fprogram];src%002Fmissing.ts]"}]}],"diagnostics":[]}

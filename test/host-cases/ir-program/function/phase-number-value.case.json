@@ -1,0 +1,1 @@
+{"name":"phase-number-value","level":"function","rule":"Closed typed literal role retains exact native value and full wire/parse payload; publication rewrites only its explicit type holders","input":"test/host-cases/ir-program/function/phase-number-value.input.json","expected":"test/host-cases/ir-program/function/phase-number-value.expected.json"}

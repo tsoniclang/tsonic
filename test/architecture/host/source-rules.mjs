@@ -105,12 +105,23 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   }
   const stageTypes = new Set();
   const brandAssertions = new Map();
+  const brandValues = new Map(publicValues);
+  for (const [declaration, module] of brandValues) {
+    if (!ast.is.IsVariableDeclaration(declaration)) continue;
+    const initializer = ast.as.AsVariableDeclaration(declaration).Initializer;
+    if (initializer === undefined || !ast.is.IsIdentifier(initializer)) continue;
+    const selected = symbol(initializer);
+    const implementation = selected === undefined ? undefined : checker(initializer).getSymbolValueDeclaration(selected);
+    if (implementation === undefined || !ast.is.IsVariableDeclaration(implementation)) continue;
+    const path = ast.getFileName(ast.getSourceFile(implementation)).slice("/host-gate/".length);
+    if (owner(path) === module) brandValues.set(implementation, module);
+  }
   const brandConstructor = (node, module, file) => {
-    if (!["ids", "diag"].includes(module.name) || file !== module.entry || !ast.is.IsAsExpression(node)) return undefined;
+    if (!["ids", "diag"].includes(module.name) || !ast.is.IsAsExpression(node)) return undefined;
     const arrow = ast.parent(node);
     const declaration = ast.parent(arrow);
     if (!ast.is.IsArrowFunction(arrow) || ast.body(arrow) !== node || !ast.is.IsVariableDeclaration(declaration) ||
-      publicValues.get(declaration) !== module) return undefined;
+      brandValues.get(declaration) !== module) return undefined;
     const cast = ast.as.AsAsExpression(node);
     const annotation = ast.typeNode(declaration);
     if (!ast.is.IsTypeReferenceNode(cast.Type) || annotation === undefined || !ast.is.IsTypeReferenceNode(annotation)) return undefined;
@@ -118,21 +129,28 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const constructor = symbol(ast.as.AsTypeReferenceNode(annotation).TypeName);
     if (target === undefined || constructor === undefined || !contractFunctions.get(module)?.has(constructor)) return undefined;
     const targetName = ast.text(ast.as.AsTypeReferenceNode(cast.Type).TypeName);
-    if (ast.text(ast.name(declaration)) !== targetName.charAt(0).toLowerCase() + targetName.slice(1)) return undefined;
+    const declarationName = ast.text(ast.name(declaration));
     const queries = checker(node);
     const targets = queries.getSymbolDeclarations(target);
     const signatures = queries.getSymbolDeclarations(constructor);
     if (targets.length !== 1 || signatures.length !== 1 || ast.getSourceFile(targets[0]) !== sourceFiles.get(module.contract) ||
-      ast.getSourceFile(signatures[0]) !== sourceFiles.get(module.contract) ||
-      ast.text(ast.name(signatures[0])) !== targetName + "Constructor") return undefined;
+      ast.getSourceFile(signatures[0]) !== sourceFiles.get(module.contract)) return undefined;
     const signature = ast.typeNode(signatures[0]);
     const result = ast.as.AsFunctionTypeNode(signature)?.Type;
     const parameters = ast.parameters(arrow);
     const declaredParameters = ast.parameters(signature);
     if (parameters.length !== 1 || declaredParameters.length !== 1 || result === undefined || !ast.is.IsTypeReferenceNode(result) ||
       symbol(ast.as.AsTypeReferenceNode(result).TypeName) !== target ||
-      !["KindNumberKeyword", "KindStringKeyword"].includes(ast.kindName(ast.typeNode(declaredParameters[0]))) ||
-      !ast.is.IsIdentifier(cast.Expression) || symbol(cast.Expression) !== symbol(ast.name(parameters[0]))) return undefined;
+      !["KindNumberKeyword", "KindStringKeyword"].includes(ast.kindName(ast.typeNode(declaredParameters[0])))) return undefined;
+    const signatureName = ast.text(ast.name(signatures[0]));
+    const direct = file === module.entry && signatureName === targetName + "Constructor" &&
+      declarationName === targetName.charAt(0).toLowerCase() + targetName.slice(1) &&
+      ast.is.IsIdentifier(cast.Expression) && symbol(cast.Expression) === symbol(ast.name(parameters[0]));
+    const encoded = module.name === "ids" && signatureName === "Encode" + targetName &&
+      declarationName === "encode" + targetName &&
+      ast.kindName(ast.typeNode(declaredParameters[0])) === "KindStringKeyword" &&
+      ast.is.IsTemplateExpression(cast.Expression);
+    if (!direct && !encoded) return undefined;
     return target;
   };
   for (const [declaration, module] of publicValues) {

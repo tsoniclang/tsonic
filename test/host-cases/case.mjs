@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import { compareCaseValues } from "./compare.mjs";
+import { writeCaseEvidence } from "./evidence.mjs";
 
 const levels = Object.freeze(["function", "pass", "verifier", "pipeline", "corpus"]);
 const formats = Object.freeze(["json", "ts", "hir", "tir", "mir", "facts", "program"]);
@@ -53,7 +54,11 @@ export async function runCase(deps, descriptorPath) {
   catch { return failed("expected", "The authored expected result is invalid."); }
   const result = await adapter(Object.freeze({ module, name, rule, format: posix.extname(input).slice(1), text: inputText }));
   if (!validOutcome(result) || !validOutcome(expectedValue)) return failed("outcome", "A complete accepted or refused outcome and full diagnostics vector are required.");
-  if (!compareCaseValues(result, expectedValue)) return failed("mismatch", "The complete outcome, value or ordered diagnostic vector differs.");
+  if (!compareCaseValues(result, expectedValue)) {
+    const evidence = writeCaseEvidence(deps.evidenceDirectory, result, expectedValue);
+    return failed("mismatch", "The complete outcome, value or ordered diagnostic vector differs. Actual: " +
+      evidence.actual + "\nExpected: " + evidence.expected);
+  }
   return Object.freeze({ status: "passed", path: descriptorPath, outcome: result });
 }
 

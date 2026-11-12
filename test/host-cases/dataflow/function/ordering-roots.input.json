@@ -1,0 +1,6 @@
+{
+  "operation": "orderGraph",
+  "graph": { "vertices": [0, 1, 2, 3, 4], "successors": [[1, 2], [3], [3], [], []] },
+  "roots": [4, 0, 4],
+  "limits": { "maximumWork": 10000, "maximumResultEntries": 10000 }
+}

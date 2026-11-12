@@ -1,0 +1,1 @@
+{"name":"valid-module","level":"verifier","rule":"actual source/publication/table/scopes","input":"test/host-cases/ir-tir/verifier/valid-module.input.tir","expected":"test/host-cases/ir-tir/verifier/valid-module.expected.json"}

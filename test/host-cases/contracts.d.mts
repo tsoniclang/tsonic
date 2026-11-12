@@ -32,6 +32,7 @@ export interface CaseInput {
 export type CaseAdapter = (input: CaseInput) => CaseOutcome | Promise<CaseOutcome>;
 
 export interface CaseDeps {
+  readonly evidenceDirectory: string;
   readonly modules: readonly string[];
   readonly adapters: Readonly<Partial<Record<CaseLevel, CaseAdapter>>>;
   readonly readText: (path: string) => string | Promise<string>;
@@ -49,3 +50,10 @@ export type CaseResult =
 export type RunCase = (deps: CaseDeps, descriptorPath: string) => Promise<CaseResult>;
 export declare function runCase(deps: CaseDeps, descriptorPath: string): Promise<CaseResult>;
 export declare function compareCaseValues(actual: CaseValue, expected: CaseValue): boolean;
+
+export interface CaseEvidence {
+  readonly actual: string;
+  readonly expected: string;
+}
+
+export declare function writeCaseEvidence(directory: string, actual: CaseValue, expected: CaseValue): CaseEvidence;

@@ -1,0 +1,7 @@
+{
+  "name": "uncompleted",
+  "level": "verifier",
+  "rule": "uncompleted-is-not-partial-publication",
+  "input": "test/host-cases/ir-infer/verifier/uncompleted.input.json",
+  "expected": "test/host-cases/ir-infer/verifier/uncompleted.expected.json"
+}

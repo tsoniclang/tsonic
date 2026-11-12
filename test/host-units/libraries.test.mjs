@@ -261,6 +261,7 @@ for (const [level, name] of [["verifier", "empty-catalogue"], ["verifier", "dupl
   test(`independently authored complete JSON outcome ${level}/${name}`, async () => {
     const report = await runCase({
       modules: ["libraries"],
+      evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
       readText: path => readFileSync(resolve(repository, path), "utf8"),
       canonical: path => relative(repository, realpathSync(resolve(repository, path))).split(sep).join("/"),
       list: path => readdirSync(resolve(repository, path)),

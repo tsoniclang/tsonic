@@ -1,0 +1,20 @@
+{
+  "operation": "canonicalize",
+  "program": {
+    "index": {
+      "schema": 1,
+      "rootPackage": "P[%002Fprogram]",
+      "packages": [{"id":"P[%002Fprogram]","name":null,"packageRoot":"/program","sourceRoot":"/program/src","dependencies":[],"exports":[]}],
+      "modules": [],
+      "types": {"terms":[],"signatures":[]},
+      "signatures": [],
+      "bodies": [],
+      "metadata": [],
+      "summaries": [],
+      "constants": [],
+      "diagnostics": []
+    },
+    "modules": []
+  },
+  "publication": {"table":{"terms":[],"signatures":[]},"types":[],"signatures":[]}
+}

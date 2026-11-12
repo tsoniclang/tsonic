@@ -1,0 +1,6 @@
+{
+  "kind": "accepted", "diagnostics": [], "value": { "kind": "parsed", "value": [{
+    "key": { "node": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": -0 }, "candidate": null, "role": { "kind": "flow" } },
+    "reads": [], "bounds": [], "constraint": { "body": "B[D[M[P[project];source.ts];run];function;0]", "index": 0 }
+  }] }
+}

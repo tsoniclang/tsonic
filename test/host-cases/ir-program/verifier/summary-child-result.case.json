@@ -1,0 +1,1 @@
+{"name":"summary-child-result","level":"verifier","rule":"Complete owning-rule opposite uses actual canonical fixture data and preserves full genuine child diagnostics","input":"test/host-cases/ir-program/verifier/summary-child-result.input.json","expected":"test/host-cases/ir-program/verifier/summary-child-result.expected.json"}

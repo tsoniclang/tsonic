@@ -1,0 +1,7 @@
+{
+  "name": "body-count-nan",
+  "level": "verifier",
+  "rule": "body-count-nan",
+  "input": "test/host-cases/ir-program/verifier/body-count-nan.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-count-nan.expected.json"
+}

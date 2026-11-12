@@ -1,0 +1,7 @@
+{
+  "name": "empty-contributions",
+  "level": "function",
+  "rule": "complete-empty-contributions-document",
+  "input": "test/host-cases/ir-infer/function/empty-contributions.input.json",
+  "expected": "test/host-cases/ir-infer/function/empty-contributions.expected.json"
+}

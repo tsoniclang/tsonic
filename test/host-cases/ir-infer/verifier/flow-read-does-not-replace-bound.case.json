@@ -1,0 +1,5 @@
+{
+  "name": "flow-read-does-not-replace-bound", "level": "verifier", "rule": "contribution-footprint-complete",
+  "input": "test/host-cases/ir-infer/verifier/flow-read-does-not-replace-bound.input.json",
+  "expected": "test/host-cases/ir-infer/verifier/flow-read-does-not-replace-bound.expected.json"
+}

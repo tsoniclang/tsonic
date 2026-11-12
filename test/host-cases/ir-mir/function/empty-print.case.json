@@ -1,0 +1,7 @@
+{
+  "name": "empty-print",
+  "level": "function",
+  "rule": "ir-mir.text-declaration-order-required-fields",
+  "input": "test/host-cases/ir-mir/function/empty-print.input.json",
+  "expected": "test/host-cases/ir-mir/function/empty-print.expected.json"
+}

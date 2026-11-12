@@ -1,0 +1,1 @@
+{"name":"chunk-foreign-module","level":"verifier","rule":"A chunk's declared module must resolve and agree with its actual typed source tree and published body ownership","input":"test/host-cases/ir-program/verifier/chunk-foreign-module.input.json","expected":"test/host-cases/ir-program/verifier/chunk-foreign-module.expected.json"}

@@ -1,0 +1,5 @@
+{
+  "kind": "accepted",
+  "value": { "kind": "complete", "value": { "immediate": [null, 0, 0, 0], "reachable": [true, true, true, true] } },
+  "diagnostics": []
+}

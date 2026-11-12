@@ -1,0 +1,1 @@
+{"name":"syntax-c2969-valid-forward","level":"function","rule":"Complete graph references may be declared later or earlier without changing the exact reconstructed typed module","input":"test/host-cases/ir-program/function/syntax-c2969-valid-forward.input.json","expected":"test/host-cases/ir-program/function/syntax-c2969-valid-forward.expected.json"}

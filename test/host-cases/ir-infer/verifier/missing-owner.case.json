@@ -1,0 +1,7 @@
+{
+  "name": "missing-owner",
+  "level": "verifier",
+  "rule": "group-ownership",
+  "input": "test/host-cases/ir-infer/verifier/missing-owner.input.json",
+  "expected": "test/host-cases/ir-infer/verifier/missing-owner.expected.json"
+}

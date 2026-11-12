@@ -1,0 +1,5 @@
+{
+  "kind": "accepted",
+  "value": "InferenceGroup(id=group:\"G[B[D[M[P[project];source.ts];run];function;0]]\", bodies=[body:\"B[D[M[P[project];source.ts];run];function;0]\"], signatures=[])",
+  "diagnostics": []
+}

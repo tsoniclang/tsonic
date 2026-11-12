@@ -1,0 +1,1 @@
+{"name":"instantiate-created-intermediate-4","level":"function","rule":"C2972 intermediate event: budget 4 refuses TIR body row; one more budget reaches a later event, not whole completion","input":"test/host-cases/ir-program/function/instantiate-created-intermediate-4.input.json","expected":"test/host-cases/ir-program/function/instantiate-created-intermediate-4.expected.json"}

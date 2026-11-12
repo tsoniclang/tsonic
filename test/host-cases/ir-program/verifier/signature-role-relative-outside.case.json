@@ -1,0 +1,7 @@
+{
+  "name": "signature-role-relative-outside",
+  "level": "verifier",
+  "rule": "signature-role-relative-outside",
+  "input": "test/host-cases/ir-program/verifier/signature-role-relative-outside.input.json",
+  "expected": "test/host-cases/ir-program/verifier/signature-role-relative-outside.expected.json"
+}

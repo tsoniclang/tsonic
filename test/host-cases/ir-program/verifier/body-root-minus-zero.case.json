@@ -1,0 +1,7 @@
+{
+  "name": "body-root-minus-zero",
+  "level": "verifier",
+  "rule": "body-root-minus-zero",
+  "input": "test/host-cases/ir-program/verifier/body-root-minus-zero.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-root-minus-zero.expected.json"
+}

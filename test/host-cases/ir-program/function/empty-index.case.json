@@ -1,0 +1,1 @@
+{"name":"empty-index","level":"function","rule":"Complete independent index document and exact empty shared arenas","input":"test/host-cases/ir-program/function/empty-index.input.json","expected":"test/host-cases/ir-program/function/empty-index.expected.json"}

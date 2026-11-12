@@ -112,7 +112,7 @@ const functionAdapter = input => {
 };
 
 test("HIR authored function case executes the real generic walk and complete ordered outcome", async () => {
-  const deps = { modules: ["ir-hir"], adapters: { function: functionAdapter },
+  const deps = { modules: ["ir-hir"], adapters: { function: functionAdapter }, evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
     readText: path => readFileSync(resolve(repository, path), "utf8"),
     canonical: path => relative(repository, realpathSync(resolve(repository, path))).split("\\").join("/"),
     list: path => readdirSync(resolve(repository, path)),
@@ -899,7 +899,7 @@ test("HIR authored whole-module text and verifier case has an independent comple
   assert.equal(product.printHir(expected), text);
   const parsed = product.parseHir(text);
   assertComplete(parsed, { kind: "parsed", value: expected }, "independently authored full HIR text");
-  const result = await runCase({ modules: ["ir-hir"],
+  const result = await runCase({ modules: ["ir-hir"], evidenceDirectory: resolve(repository, ".temp/host-case-evidence"),
     readText: path => readFileSync(resolve(repository, path), "utf8"),
     canonical: path => relative(repository, realpathSync(resolve(repository, path))).split("\\").join("/"),
     list: path => readdirSync(resolve(repository, path)), decode: text => JSON.parse(text),

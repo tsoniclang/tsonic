@@ -1,0 +1,7 @@
+{
+  "name": "straight-line",
+  "level": "verifier",
+  "rule": "ir-mir.body-structure",
+  "input": "test/host-cases/ir-mir/verifier/straight-line.input.json",
+  "expected": "test/host-cases/ir-mir/verifier/straight-line.expected.json"
+}

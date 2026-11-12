@@ -1,0 +1,1 @@
+{"name":"empty-module","level":"function","rule":"complete declared fields and module-wide syntax wire identity","input":"test/host-cases/ir-tir/function/empty-module.input.tir","expected":"test/host-cases/ir-tir/function/empty-module.expected.json"}

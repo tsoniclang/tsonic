@@ -7,7 +7,7 @@ import {
   decodeBodyIdentity, decodeComponentIdentity, decodeDefinitionIdentity,
   decodeGroupIdentity, decodeModuleIdentity, decodePackageIdentity,
   encodeBodyIdentity, encodeComponentIdentity, encodeDefinitionIdentity,
-  encodeGroupIdentity, encodeModuleIdentity, encodePackageIdentity,
+  encodeGroupIdentity, encodeModuleIdentity, encodePackageId as encodePackageIdentity,
 } from "./identity.js";
 import { encodeCanonicalKey } from "./key.js";
 import type {

@@ -1,0 +1,1 @@
+{"name":"syntax-c2968-clean-dangling","level":"function","rule":"C2968 stream errors stop the cursor; only clean EOF compares earliest dangling and cycle-closing graph references","input":"test/host-cases/ir-program/function/syntax-c2968-clean-dangling.input.json","expected":"test/host-cases/ir-program/function/syntax-c2968-clean-dangling.expected.json"}

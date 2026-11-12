@@ -1,0 +1,7 @@
+{
+  "name": "syntax-reference-wrong-kind-before-later-field",
+  "level": "function",
+  "rule": "syntax-reference-wrong-kind-before-later-field",
+  "input": "test/host-cases/ir-program/function/syntax-reference-wrong-kind-before-later-field.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-reference-wrong-kind-before-later-field.expected.json"
+}

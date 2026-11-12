@@ -1,0 +1,1 @@
+{"name":"module-inventory-mirConstantCount","level":"verifier","rule":"Program chunk inventory agrees with the same genuine unchanged child module and producer answers","input":"test/host-cases/ir-program/verifier/module-inventory-mirConstantCount.input.json","expected":"test/host-cases/ir-program/verifier/module-inventory-mirConstantCount.expected.json"}

@@ -1,0 +1,30 @@
+{
+  "kind": "accepted",
+  "value": {
+    "printed": "ProgramIndex(schema=1, rootPackage=pkg:\"P[%002Fprogram]\", packages=[PackageRecord(id=pkg:\"P[%002Fprogram]\", name=null, packageRoot=\"/program\", sourceRoot=\"/program/src\", dependencies=[], exports=[])], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], metadata=[], summaries=[], constants=[], diagnostics=[])\n",
+    "parsed": {
+      "kind": "parsed",
+      "value": {
+        "schema": 1,
+        "rootPackage": "P[%002Fprogram]",
+        "packages": [{
+          "id": "P[%002Fprogram]",
+          "name": null,
+          "packageRoot": "/program",
+          "sourceRoot": "/program/src",
+          "dependencies": [],
+          "exports": []
+        }],
+        "modules": [],
+        "types": { "terms": [], "signatures": [] },
+        "signatures": [],
+        "bodies": [],
+        "metadata": [],
+        "summaries": [],
+        "constants": [],
+        "diagnostics": []
+      }
+    }
+  },
+  "diagnostics": []
+}

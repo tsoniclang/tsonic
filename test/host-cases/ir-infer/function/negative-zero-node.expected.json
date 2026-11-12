@@ -1,0 +1,4 @@
+{
+  "kind": "accepted", "diagnostics": [],
+  "value": "AtomicContribution(key=ContributionKey(node=NodeRef(body=body:\"B[D[M[P[project];source.ts];run];function;0]\", node=n:-0), candidate=null, role=flow()), reads=[], bounds=[], constraint=ConstraintRef(body=body:\"B[D[M[P[project];source.ts];run];function;0]\", index=0))"
+}

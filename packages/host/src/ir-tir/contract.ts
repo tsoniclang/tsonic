@@ -653,9 +653,15 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
   | "nested-template-identity" | "nested-instance-key" | "nested-boundary"
   | "template-shared-once" | "stable-order";
 
+export interface TirNodeSite {
+  readonly kind: "node";
+  readonly module: ModuleId;
+  readonly node: NodeId;
+}
+
 export type TirSite =
   | { readonly kind: "body"; readonly body: BodyId }
-  | { readonly kind: "node"; readonly module: ModuleId; readonly node: NodeId };
+  | TirNodeSite;
 
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
@@ -663,4 +669,4 @@ export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Vio
 export type VerifyTirModule = (
   input: TirVerifierInput,
   module: TirModule,
-) => readonly Violation<TirRule, TirSite>[];
+) => readonly Violation<TirRule, TirNodeSite>[];

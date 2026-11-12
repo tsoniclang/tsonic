@@ -1,0 +1,1 @@
+{"name":"module-boundary-nested-inventory","level":"verifier","rule":"nested-body-boundary plus actual TIR stable-order; complete scalar-ID mismatch","input":"test/host-cases/ir-program/verifier/module-boundary-nested-inventory.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-nested-inventory.expected.json"}

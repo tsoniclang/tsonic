@@ -1,0 +1,7 @@
+{
+  "name": "signature-complete-binding-tag",
+  "level": "verifier",
+  "rule": "signature-complete-binding-tag",
+  "input": "test/host-cases/ir-program/verifier/signature-complete-binding-tag.input.json",
+  "expected": "test/host-cases/ir-program/verifier/signature-complete-binding-tag.expected.json"
+}

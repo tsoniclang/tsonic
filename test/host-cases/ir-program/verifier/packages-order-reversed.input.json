@@ -1,0 +1,66 @@
+{
+  "operation": "verify-index",
+  "index": {
+    "schema": 1,
+    "rootPackage": "P[%002Fprogram]",
+    "packages": [
+      {
+        "id": "P[%002Fb]",
+        "name": null,
+        "packageRoot": "/b",
+        "sourceRoot": "/source",
+        "dependencies": [],
+        "exports": []
+      },
+      {
+        "id": "P[%002Fa]",
+        "name": null,
+        "packageRoot": "/a",
+        "sourceRoot": "/source",
+        "dependencies": [],
+        "exports": []
+      },
+      {
+        "id": "P[%002Fprogram]",
+        "name": null,
+        "packageRoot": "/program",
+        "sourceRoot": "/source",
+        "dependencies": [],
+        "exports": []
+      }
+    ],
+    "modules": [],
+    "types": {
+      "terms": [],
+      "signatures": []
+    },
+    "signatures": [],
+    "bodies": [],
+    "metadata": [],
+    "summaries": [],
+    "constants": [],
+    "diagnostics": []
+  },
+  "context": {
+    "limits": {
+      "maximumWork": 10000,
+      "maximumCreatedRecords": 10000,
+      "maximumBindingVectorsPerArtifact": 8,
+      "typeExpansion": {
+        "maximumDepth": 128,
+        "maximumVisits": 10000,
+        "maximumUnionMembers": 128,
+        "maximumIntersectionMembers": 128
+      }
+    },
+    "analysisLimits": {
+      "maximumBlocksPerBody": 128,
+      "maximumPlacesPerBody": 128,
+      "maximumProjectionDepth": 128,
+      "maximumOriginAlternatives": 128,
+      "maximumRelationalRecordsPerBody": 10000,
+      "maximumRelationalReferencesPerBody": 10000
+    },
+    "lookups": []
+  }
+}

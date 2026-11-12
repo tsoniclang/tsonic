@@ -1,0 +1,7 @@
+{
+  "name": "field-complete-duplicate",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-complete-duplicate.input.json",
+  "expected": "test/host-cases/ir-program/function/field-complete-duplicate.expected.json"
+}

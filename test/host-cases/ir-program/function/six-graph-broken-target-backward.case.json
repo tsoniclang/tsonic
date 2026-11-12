@@ -1,0 +1,1 @@
+{"name":"six-graph-broken-target-backward","level":"function","rule":"Clean EOF journal selects the earliest independently declared reference fault, before constructing any child","input":"test/host-cases/ir-program/function/six-graph-broken-target-backward.input.json","expected":"test/host-cases/ir-program/function/six-graph-broken-target-backward.expected.json"}

@@ -1,0 +1,25 @@
+{
+  "constraints": [{
+    "group": "G[B[D[M[P[project];source.ts];run];function;0]]", "body": "B[D[M[P[project];source.ts];run];function;0]",
+    "variables": [
+      { "kind": "local", "id": 0, "occurrence": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": 0 }, "local": null },
+      { "kind": "local", "id": 1, "occurrence": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": 0 }, "local": null }
+    ], "candidates": [], "evidence": [],
+    "constraints": [{ "kind": "flow", "occurrence": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": 0 },
+      "from": 1, "to": 2, "role": "assignment",
+      "bindings": { "classBindings": [], "methodBindings": [], "capturedBindings": [], "selfBindings": [] } }]
+  }],
+  "contributions": [{
+    "key": { "node": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": 0 }, "candidate": null, "role": { "kind": "flow" } },
+    "reads": [1], "bounds": [0], "constraint": { "body": "B[D[M[P[project];source.ts];run];function;0]", "index": 0 }
+  }],
+  "types": {
+    "terms": [{ "kind": "primitive", "primitive": "int32" },
+      { "kind": "open", "group": "G[B[D[M[P[project];source.ts];run];function;0]]", "variable": 0 },
+      { "kind": "open", "group": "G[B[D[M[P[project];source.ts];run];function;0]]", "variable": 1 }],
+    "signatures": [{ "id": 0, "declaration": "D[M[P[project];source.ts];run]",
+      "owner": { "kind": "body", "value": { "body": "B[D[M[P[project];source.ts];run];function;0]", "node": 0 } },
+      "composition": null, "kind": "call", "typeParameters": [], "receiver": null, "parameters": [], "result": 0 }]
+  },
+  "bindingScopes": [{ "classParameters": [], "methodParameters": [], "capturedParameters": [], "selfOwners": [] }]
+}

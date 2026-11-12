@@ -1,0 +1,1 @@
+{"name":"six-conditional-dynamic","level":"function","rule":"Complete admitted public typed codec value; independent publication maps only type/signature holders, never node IDs or literal data","input":"test/host-cases/ir-program/function/six-conditional-dynamic.input.json","expected":"test/host-cases/ir-program/function/six-conditional-dynamic.expected.json"}

@@ -1,0 +1,7 @@
+{
+  "name": "body-count-fraction",
+  "level": "verifier",
+  "rule": "body-count-fraction",
+  "input": "test/host-cases/ir-program/verifier/body-count-fraction.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-count-fraction.expected.json"
+}
