@@ -5,13 +5,15 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { N } from "./fixtures/lower-mir/names.mjs";
-import { T, TABLE } from "./fixtures/lower-mir/typed.mjs";
+import { T, TABLE, bodyId, def } from "./fixtures/lower-mir/typed.mjs";
 import {
   at, checkedPlace, checks, chainOf, controlPoints, effects, effectsOn, entriesOf, invert, localOf, nodesOn, placeOf,
   rootLocalOf, walk, withoutFailureKinds, writesOf,
 } from "./fixtures/lower-mir/observe.mjs";
 import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
+import { wt4 } from "./fixtures/lower-mir/programs/wt4.mjs";
 import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
+import { s7 } from "./fixtures/lower-mir/programs/s7.mjs";
 
 let lowerToMir;
 let deps;
@@ -174,9 +176,9 @@ for (const policy of POLICIES) {
     // R6: every abnormal exit passes through each enclosing cleanup once. R1 and COMMON-DATA §10: a failure that ends
     // the process has no edge; no handler or cleanup runs after it.
     const path = walk(mir, { decide: point => point.node === program.at("a[0]#read") && point.kind === N.resolvePlace ? "unwind" : "normal" });
-    const after = labelled(program, nodesOn(path)).slice(-2);
-    if (policy.bounds === "abort") { assert.equal(path.end, "abort"); assert.deepEqual(after.at(-1), "a[0]#read"); }
-    else { assert.equal(path.end, "unwind"); assert.deepEqual(after, ["a[0]#read", "a[0]#write"]); }
+    const tested = labelled(program, nodesOn(path, new Set([N.resolvePlace]))).slice(-2);
+    if (policy.bounds === "abort") { assert.equal(path.end, "abort"); assert.equal(tested.at(-1), "a[0]#read"); }
+    else { assert.equal(path.end, "unwind"); assert.deepEqual(tested, ["a[0]#read", "a[0]#write"]); }
   });
 
   test(`WT-6 orderGrow and orderFixed (${policy.bounds}): a second control point only where the extent can change`, () => {
@@ -203,4 +205,99 @@ test("WT-6: the two failure policies give the same graph except for the failure 
   // completes normally is the same under both.
   const orders = [unwinding, aborting].map(programs => walk(lower(programs.order)).events.map(item => [item.kind, item.node]));
   assert.deepEqual(orders[1], orders[0]);
+});
+
+// ---- WT-4 -----------------------------------------------------------------------------------
+
+const internalCalls = path => path.events.filter(item => item.statement === null && item.kind === "call" && item.record.callee.kind === N.bodyCallee);
+
+test("WT-4 f: three entries by supplied count; a default runs only in the entry that omits its parameter", () => {
+  const programs = wt4();
+  const mir = lower(programs.f, programs.internal);
+  // R7 and section 7 part 8, WT-4: "`f` has three entries". Graph law 7: entries are ordered by supplied count; the
+  // fully supplied entry is the body's start and runs no default.
+  assert.deepEqual(entriesOf(mir).map(entry => entry.provided), [2, 1, 0]);
+  assert.equal(entriesOf(mir)[0].block, 0);
+  const defaults = entry => internalCalls(walk(mir, { entry })).map(item => item.record.callee.instance.body);
+  // WT-4: "the default body runs only for an omitted argument"; "a default that reads an earlier parameter": x's
+  // default runs before y's.
+  assert.deepEqual(defaults(0), []);
+  assert.deepEqual(defaults(1), [programs.Y_DEFAULT]);
+  assert.deepEqual(defaults(2), [programs.X_DEFAULT, programs.Y_DEFAULT]);
+  // R8: an initializer body executes "as an explicit execution of that body instance", into the parameter it initializes.
+  const [xDefault, yDefault] = internalCalls(walk(mir, { entry: 2 }));
+  assert.equal(rootLocalOf(mir, xDefault.record.destination), sourceLocal(mir, 0));
+  assert.equal(rootLocalOf(mir, yDefault.record.destination), sourceLocal(mir, 1));
+  // WT-4: "the default body as a callee with captures": y's default reads the already-bound x.
+  assert.deepEqual(yDefault.record.callee.captures.map(capture => capture.local), [{ body: bodyId("f"), local: 0 }]);
+  assert.equal(rootLocalOf(mir, yDefault.record.callee.captures[0].place), sourceLocal(mir, 0));
+  // Every path ends in the one shared body: each entry returns.
+  for (const entry of [0, 1, 2]) assert.equal(walk(mir, { entry }).end, "return");
+});
+
+test("WT-4 x default: next() is one call in the default body, and f's own graph does not call it", () => {
+  const programs = wt4();
+  // WT-4: "`next()` executes only in the entry that omits `x`": the call belongs to the default body, which only
+  // that entry executes.
+  const inDefault = effects(lower(programs.xDefault)).filter(point => point.kind === "call");
+  assert.equal(inDefault.length, 1);
+  assert.equal(inDefault[0].node, programs.xDefault.at("next()"));
+  const inF = effects(lower(programs.f, programs.internal)).filter(point => point.kind === "call" && point.record.callee.kind !== N.bodyCallee);
+  assert.deepEqual(inF, []);
+});
+
+test("WT-4 calls: an omitted argument is represented as omitted; a supplied absence is a value", () => {
+  const programs = wt4();
+  const mir = lower(programs.calls);
+  // R7: "an omitted argument is represented as omitted at the call; a default runs in the callee's entry". Section 7
+  // part 8: "`f()` passes two omitted arguments, `f(null)` and `f(undefined)` a supplied absence and one omitted".
+  const shape = label => at(mir, programs.calls.at(label), "call").map(point => point.record.arguments.map(argument => argument.kind));
+  assert.deepEqual(shape("f()"), [[N.omitted, N.omitted]]);
+  assert.deepEqual(shape("f(null)"), [["value", N.omitted]]);
+  assert.deepEqual(shape("f(undefined)"), [["value", N.omitted]]);
+  assert.deepEqual(shape("f(1)"), [["value", N.omitted]]);
+  assert.deepEqual(shape("f(1,2)"), [["value", "value"]]);
+  // No default executes at a call site.
+  assert.deepEqual(internalCalls(walk(mir)), []);
+  // R5: the five calls execute in authored order.
+  assert.deepEqual(labelled(programs.calls, nodesOn(walk(mir))), ["f()", "f(null)", "f(undefined)", "f(1)", "f(1,2)"]);
+});
+
+// ---- S-7 ------------------------------------------------------------------------------------
+
+for (const order of ["fields-first", "base-first"]) {
+  test(`S-7 (${order}): construction runs in the order of the ConstructionPlan, on one object`, () => {
+    const programs = s7(order);
+    const mir = lower(programs.program, programs.internal);
+    // R9: "the object exists, then base construction, field initializers and constructor code run in the order the
+    // typed body's ConstructionPlan gives (MR-16)". S-7 has one oracle per value of the selected order (MR-15).
+    const steps = walk(mir).events.filter(item => item.statement === null && item.kind === "call");
+    const names = steps.map(item => item.record.callee.kind === N.bodyCallee ? item.record.callee.instance.body
+      : item.record.callee.resolution.decision.advertised.declaration);
+    const baseConstructor = def("Base.constructor");
+    assert.deepEqual(names, order === "fields-first" ? [programs.V_INIT, programs.SEEN_INIT, baseConstructor]
+      : [baseConstructor, programs.V_INIT, programs.SEEN_INIT]);
+    // One object: each field initializer writes a field of the object the base constructor receives.
+    const base = steps.find(item => item.record.callee.kind !== N.bodyCallee);
+    assert.equal(base.record.receiver.kind, "place");
+    const object = rootLocalOf(mir, base.record.receiver.place);
+    for (const item of steps.filter(candidate => candidate.record.callee.kind === N.bodyCallee)) {
+      const chain = chainOf(mir, item.record.destination);
+      assert.equal(chain[0].root.local, object);
+      assert.equal(chain.length, 2);
+    }
+    assert.deepEqual(steps.filter(item => item.record.callee.kind === N.bodyCallee).map(item => fieldKey(chainOf(mir, item.record.destination).at(-1))), ["v", "seen"]);
+  });
+}
+
+test("S-7: static initializer and static block run at the class declaration in member order", () => {
+  const programs = s7("fields-first");
+  const mir = lower(programs.moduleBody, programs.moduleInternal);
+  // R8 and section 5 part 1 rows 5 and 6: static field initializers and static blocks run "at the class declaration's
+  // occurrence in its enclosing body, in member order". S-7: "The static initializer and the static block run in
+  // authored order".
+  const steps = internalCalls(walk(mir));
+  assert.deepEqual(steps.map(item => item.record.callee.instance.body), [programs.COUNT_INIT, programs.STATIC_BLOCK]);
+  assert.deepEqual(placeOf(mir, steps[0].record.destination).base, { kind: "static", definition: def("Derived.count") });
+  assert.equal(steps[1].record.destination, null);
 });

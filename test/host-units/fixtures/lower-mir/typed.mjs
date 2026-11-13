@@ -8,7 +8,7 @@ export const def = name => `D[${MODULE};${name}]`;
 export const bodyId = (name, role = "function", ordinal = 0) => `B[${def(name)};${role};${ordinal}]`;
 export const PARAMETRIC = Object.freeze({ kind: "parametric" });
 export const EMPTY_BINDINGS = Object.freeze({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
-export const instanceOf = name => ({ body: bodyId(name), bindings: PARAMETRIC });
+export const instanceOf = (name, role = "function") => ({ body: bodyId(name, role), bindings: PARAMETRIC });
 const LOC = Object.freeze({ pos: 0, end: 512 });
 
 // ---- type table -------------------------------------------------------------------------
@@ -94,8 +94,8 @@ export const list = (...nodes) => ({ $list: true, nodes });
 const token = kind => ({ kind, tsonic: null });
 
 // A program gets its builders bound to its body identity.
-export function builders(name) {
-  const body = bodyId(name);
+export function builders(name, role = "function") {
+  const body = bodyId(name, role);
   const localRef = local => ({ body, local });
   const nodeRef = node => ({ body, node });
   const b = {
@@ -185,8 +185,8 @@ const isNode = value => value !== null && typeof value === "object" && typeof va
 const isList = value => value !== null && typeof value === "object" && value.$list === true;
 
 /** Assigns node identities in pre-order. Returns the sealed root and the label table. */
-export function seal(name, root) {
-  const body = bodyId(name);
+export function seal(name, root, role = "function") {
+  const body = bodyId(name, role);
   const labels = new Map();
   const pending = [];
   let next = 0;
@@ -217,9 +217,9 @@ export function seal(name, root) {
 
 /** A complete TirBody. `locals` rows: [name, role, storage, mutable]; `params` rows: [localIndex, role, storage, initializerBody]. */
 export function typedBody(name, { signature: signatureId, completion, params = [], locals = [], root, captures = [],
-  nestedBodies = [], asynchronous = false, generator = false, yielded = null, sent = null, extra = {} }) {
-  const body = bodyId(name);
-  const sealed = seal(name, root);
+  nestedBodies = [], asynchronous = false, generator = false, yielded = null, sent = null, role = "function", extra = {} }) {
+  const body = bodyId(name, role);
+  const sealed = seal(name, root, role);
   return {
     labels: sealed.labels, at: sealed.at, nodeRef: sealed.nodeRef, nodeCount: sealed.count,
     tir: {
