@@ -4,14 +4,14 @@ import { callableEndpointKey } from "../ir-hir/index.js";
 import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
 import type { BindingVector, MemberKey, MemberOrigin } from "../ir-types/contract.js";
 import type { MemberSelectionKey, ResolvedCallee } from "./contract.js";
-import { bindingVectorKey } from "./verify-instances.js";
+import { bindingVectorData } from "./verify-instances.js";
 
 const each = <Value>(values: readonly Value[], project: (value: Value) => KeyData): KeyData =>
   Array.from(values, value => value === undefined ? null : project(value));
 
 const endpointKey = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null : callableEndpointKey(endpoint);
 
-const bindingsKey = (bindings: BindingVector): KeyData => bindingVectorKey(bindings);
+const bindingsKey = (bindings: BindingVector): KeyData => bindingVectorData(bindings);
 
 const memberKey = (key: MemberKey): KeyData => {
   switch (key.kind) {

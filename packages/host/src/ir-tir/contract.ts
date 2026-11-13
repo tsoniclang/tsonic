@@ -659,7 +659,7 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
   | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type"
-  | "conversion-source" | "conversion-destination" | "conversion-deferred" | "conversion-operation" | "refinement-destination"
+  | "conversion-source" | "conversion-destination" | "conversion-deferred" | "conversion-operation" | "conversion-carried" | "refinement-destination"
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"
   | "authored-node-ids-preserved" | "no-inserted-nodes" | "node-in-body-range"

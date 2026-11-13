@@ -305,6 +305,11 @@ export const verifyValueEndpoints = (body: TirBody, node: TirNode, emit: TirOccu
     const operation = decision.operation;
     if (conversion.kind === "convert" ? operation.kind !== "conversion" : operation.kind !== "library" && operation.kind !== "core")
       emit("conversion-operation", node, "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation");
+    // A conversion that is carried out embeds by a conversion: an identity embedding needs no operation and a refused one is
+    // not carried out. Whether the conversion is the right one is the acceptance replay's (Validate's embedding-replay).
+    const embedding = conversion.kind === "backed-convert" ? conversion.embedding : operation.kind === "conversion" ? operation.embedding : null;
+    if (embedding !== null && embedding.kind !== "conversion")
+      emit("conversion-carried", node, "a carried-out conversion states a conversion embedding");
     if (decision.operands.length !== 1 || decision.operands[0] !== value.type ||
       operation.kind === "conversion" && operation.from !== value.type) {
       emit("conversion-source", node, "conversion does not retain its value source endpoint");

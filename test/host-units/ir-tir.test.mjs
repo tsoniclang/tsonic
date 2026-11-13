@@ -1246,8 +1246,35 @@ test("the member selection key separates two selections that differ in any one f
   const holed = product.memberSelectionKey(holes);
   assertCompleteValue(holed[1], [null, null]);
   assertCompleteValue(holed[2], [null]);
-  assertCompleteValue(holed[10][3], null);
+  assertCompleteValue(holed[10][3], [[null], [], [], []]);
   assertCompleteValue(holed[10][5], [null, ["rest", 0, [null], "by-value"]]);
+});
+
+test("the binding vector key encodes each position of each family on its own, a hole included", () => {
+  const owner = "D[M[P[p];m];owner]";
+  const other = "D[M[P[p];m];other]";
+  const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const members = {
+    classBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
+    methodBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
+    capturedBindings: [{ kind: "rigid", parameter: { owner, index: 0 } }, { kind: "rigid", parameter: { owner: other, index: 3 } }, { kind: "bound", parameter: { owner, index: 0 }, type: 0 }],
+    selfBindings: [{ kind: "rigid", owner }, { kind: "rigid", owner: other }, { kind: "bound", owner, type: 0 }],
+  };
+  const selection = bindings => ({ decision: { key: { kind: "text", value: "x" }, origins: [], selectedDeclarations: [], primary: null, read: 0, write: 0,
+    getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null });
+  const key = bindings => JSON.stringify(product.memberSelectionKey(selection(bindings)), (_name, value) => typeof value === "bigint" ? `${value}n` : value);
+  const holed = (...values) => { const list = new Array(values.length); values.forEach((value, index) => { if (value !== undefined) list[index] = value; }); return list; };
+  for (const family of Object.keys(members)) {
+    const [a, b] = members[family];
+    const vector = list => ({ ...empty, [family]: list });
+    assert.notEqual(key(vector(holed(undefined, a))), key(vector(holed(a, undefined))), `${family}: mixed holes at different positions`);
+    assert.equal(key(vector(holed(undefined, a))), key(vector(holed(undefined, structuredClone(a)))), `${family}: the same holes and members`);
+    assert.notEqual(key(vector(holed(undefined, a))), key(vector(holed(undefined, b))), `${family}: the same position with a different owner`);
+    assert.notEqual(key(vector([a, b])), key(vector([b, a])), `${family}: the same members at different positions`);
+    assert.equal(key(vector([a, b])), key(vector(structuredClone([a, b]))), `${family}: identical vectors give equal keys`);
+    assert.notEqual(key(vector(holed(undefined))), key(empty), `${family}: a hole is not an empty list`);
+  }
+  assert.notEqual(key({ ...empty, classBindings: holed(undefined) }), key({ ...empty, methodBindings: holed(undefined) }), "a hole in class bindings against a hole in method bindings");
 });
 
 test("native syntax comparison checks every declared ordinary field without discovering object properties", () => {
@@ -5050,9 +5077,14 @@ for (const field of ["occurrence", "argument"]) {
   });
 }
 
+// A conversion carried out by an operation embeds by a conversion (`conversion-carried`).
+const carriedComponent = { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] };
+const carriedEmbedding = { kind: "conversion", conversion: "numeric", check: { kind: "none" },
+  proof: { steps: [{ from: carriedComponent, to: carriedComponent, rule: "numeric", premises: [] }], conclusion: 0 } };
+
 test("a conversion's structural source is checked without replaying the embedding rule", () => {
   const fixture = operationScenario();
-  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 },
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: carriedEmbedding, from: 1, to: 1 },
     operands: [1], result: 1, execution: { kind: "pure" } } };
   fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
@@ -5074,7 +5106,7 @@ test("identity conversion preserves its actual source and destination without a 
 
 test("a conversion's structural destination is checked without guessing a receiver or relation", () => {
   const fixture = operationScenario();
-  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 },
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: carriedEmbedding, from: 1, to: 1 },
     operands: [1], result: 1, execution: { kind: "pure" } } };
   fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
   fixture.typed.tsonic.convertedType = 0;
@@ -6440,6 +6472,16 @@ test("a conversion states its embedding once; whether it requires a check and ho
     "a backed arm whose operation is the conversion identity states the embedding twice");
   const discarding = { permissionScope: null, decision: { kind: "selected", operation: { kind: "discard" }, operands: [1], result: 1, execution: pure } };
   verified({ kind: "convert", role: "return", operation: discarding }, [refused], "a convert arm with an operation that converts nothing");
+  // A carried-out conversion embeds by a conversion: an identity embedding needs no operation, a refused one is not carried
+  // out (R1 O-1, the structural part; whether the conversion is the right one is Validate's embedding-replay).
+  const carried = nodeViolation("conversion-carried", 2, "a carried-out conversion states a conversion embedding");
+  const refusedEmbedding = { kind: "refused", reason: "lossy-numeric" };
+  for (const [stated, label] of [[{ kind: "identity" }, "identity"], [refusedEmbedding, "refused"]]) {
+    verified({ kind: "convert", role: "return", operation: identityConversion(stated, pure) }, [carried], `a convert arm whose embedding is ${label}`);
+    for (const kind of ["core", "library"])
+      verified({ kind: "backed-convert", role: "return", embedding: stated, operation: backing(kind, pure) }, [carried],
+        `a ${kind}-backed arm whose embedding is ${label}`, 1);
+  }
   verified({ kind: "backed-convert", role: "return", embedding: embedding(none), operation: discarding }, [refused],
     "a backed arm with an operation that is neither core nor library");
 });
@@ -6448,7 +6490,7 @@ for (const endpoint of ["from", "to"]) {
   test(`F4 explicit conversion ${endpoint} retains both endpoint and operation cofindings`, () => {
     const fixture = operationScenario();
     const operation = { permissionScope: null, decision: { kind: "selected", operation: {
-      kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 }, operands: [1], result: 1, execution: { kind: "pure" } } };
+      kind: "conversion", embedding: carriedEmbedding, from: 1, to: 1 }, operands: [1], result: 1, execution: { kind: "pure" } } };
     fixture.typed.tsonic.conversion = { kind: "convert", role: "return", operation };
     assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
     operation.decision.operation[endpoint] = 0;
