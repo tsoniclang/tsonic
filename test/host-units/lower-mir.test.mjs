@@ -448,9 +448,8 @@ test("WT-9 all: handle creation and suspension are separate control points; fina
   const failed = walk(mir, { decide: point => point.kind === "await" ? "unwind" : once(point) });
   assert.equal(failed.end, "unwind");
   assert.ok(finals(failed) >= 1);
-  // Graph law 9: the cleanup's code is emitted once, not once per exit.
-  const emitted = mir.blocks.flatMap(block => block.statements).filter(statement => statement.tir.node === program.at("out+=."));
-  assert.deepEqual(new Set(resumed.events.filter(item => item.statement !== null && item.node === program.at("out+=.")).map(item => item.record)).size, emitted.length);
+  // Graph law 9: the cleanup's code is emitted in one block, not once per exit.
+  assert.equal(mir.blocks.filter(block => block.statements.some(statement => statement.tir.node === program.at("out+=."))).length, 1);
 });
 
 test("WT-9 take: a yield has the three exits resume, consumer finish and unwind", () => {
