@@ -28,6 +28,10 @@ export type MirLocalRole =
   | { readonly kind: "capture"; readonly index: number }
   | { readonly kind: "user" | "temporary" | "return" | "exception" | "completion" };
 
+// A local of role `receiver` or `parameter` is the storage of a parameter row of the typed body and names that row's
+// source local: the receiver names the local of the row of role `this`; parameter i names the local of the i-th of
+// the other rows. For these two roles `source` is never null. Whether such a local is the body's own slot or the
+// caller's storage is read from its row's passing mode (graph laws 3 and 8), and from nothing else.
 export interface MirLocal {
   readonly id: LocalId;
   readonly storage: TyId;
@@ -166,6 +170,15 @@ export interface MirStepRef {
 // at all, begin or end: the local of a parameter or of the receiver that is not passed by value or moved, and a
 // captured location. Such a local is the caller's storage; when the body's access to it ends is not a fact of this
 // record. The slot of a parameter passed by value or moved is the body's own and may end.
+//
+// Storage liveness (`storage-live-before-use`): a record uses a local only where its storage is live on every path
+// from an entry. It is established by one forward fixed point over sets of live locals. A set is a tree of 32-local
+// words, with one object for each contents within a body's verification; a body of L locals has sets of
+// 1 + ceil(log2(L / 32)) levels (one level for L <= 32). Charged to the body's one account
+// (`MirVerificationLimits.maximumWork`): one unit for each set node entered by a marker's change (the building of the
+// entry set from the locals present on entry included), by a meet of two different sets, and by the lookup of a use
+// that depends on its block's start (one lookup for each local in each block); one unit for each block of a sweep
+// after the first; one unit for each outgoing edge of a block that is read again.
 export type MirStatement = MirSite & (
   | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }
@@ -292,6 +305,7 @@ export type MirRule =
   | "switch-target-unique"
   | "call-receiver-exact"
   | "body-receiver-exact"
+  | "parameter-source-exact"
   | "call-arguments-total"
   | "argument-passing-exact"
   | "call-destination-type"
@@ -333,7 +347,7 @@ export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string |
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
 // The limit of one body's verification. Verification has one account for each body: every pass that does work
-// beyond one visit of each record charges it, in the units its law text states, and the account starts at zero for
+// beyond a constant amount for each record charges it, in the units its law text states, and the account starts at zero for
 // each body. `maximumWork` is the most that account may reach. The caller sets it; there is no default.
 export interface MirVerificationLimits {
   readonly maximumWork: number;

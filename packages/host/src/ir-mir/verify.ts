@@ -301,6 +301,18 @@ export function verifyRows(
       else if (!Object.is(local.storage, selected.storage)) violations.push({ rule: "projection-type", site, detail: [] });
     }
   }
+  // A local of role `receiver` or `parameter` names the source local of its row: the receiver the row of role `this`,
+  // parameter i the i-th of the other rows. The laws read from that row whether the local is the caller's storage.
+  let receiverRow: TirBody["params"][number] | undefined;
+  const parameterRows: TirBody["params"][number][] = [];
+  for (const row of source.params) if (row.role === "this") receiverRow = row; else parameterRows.push(row);
+  for (const local of body.locals) {
+    if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
+    const row = local.role.kind === "receiver" ? receiverRow
+      : densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined;
+    if (row === undefined || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local))
+      violations.push({ rule: "parameter-source-exact", site: { kind: "local", body: body.body, local: local.id }, detail: [] });
+  }
   const constants = new Set<string>();
   let previous: string | null = null;
   for (const [position, constant] of body.constants.entries()) {

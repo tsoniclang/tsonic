@@ -1796,12 +1796,25 @@ test("MIR using protocols retain every actual step operation and optional select
 test("MIR body receiver presence and exact storage are decided by its genuine source signature", () => {
   const body = parsedBody();
   const context = sourceContext(body);
-  const receiverContext = { ...context, types: { ...context.types, signatures: [{ ...context.types.signatures[0], receiver: identities.tyId(1) }] } };
+  // The typed body of a function with a receiver has the row of role `this`, and the receiver's local names its source local.
+  const receiverDefinition = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "this", ordinal: 0 }] });
+  const receiverContext = { ...context, types: { ...context.types, signatures: [{ ...context.types.signatures[0], receiver: identities.tyId(1) }] },
+    source: { ...context.source,
+      params: [{ local: identities.localId(0), declaration: receiverDefinition, role: "this", passing: "by-value", initializer: null, storage: identities.tyId(1) }],
+      locals: [{ id: identities.localId(0), declaration: { kind: "item", value: { owner: receiverDefinition, node: identities.nodeId(0) } }, name: "this",
+        role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(1) }] } };
   same(verified(body, receiverContext), [expectedViolation("body-receiver-exact", { kind: "body" })], "missing receiver complete vector");
-  const receiver = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "receiver" }, source: null, origin: body.blocks[0].origin };
+  const receiver = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "receiver" },
+    source: { body: body.body, local: identities.localId(0) }, origin: body.blocks[0].origin };
   same(verified({ ...body, locals: [receiver] }, receiverContext), [], "one exact receiver valid");
+  same(verified({ ...body, locals: [{ ...receiver, source: null }] }, receiverContext),
+    [expectedViolation("parameter-source-exact", { kind: "local", local: 0 })], "a receiver that names no source local is not the storage of its row");
+  same(verified({ ...body, locals: [receiver] }, { ...receiverContext, source: { ...receiverContext.source, params: [] } }),
+    [expectedViolation("parameter-source-exact", { kind: "local", local: 0 })], "a receiver in a typed body with no row of role this");
+  // The storage differs from the receiver type of the signature and from the storage of the source local the receiver names.
   same(verified({ ...body, locals: [{ ...receiver, storage: identities.tyId(2) }] }, receiverContext),
-    [expectedViolation("body-receiver-exact", { kind: "body" })], "wrong receiver storage complete vector");
+    [expectedViolation("body-receiver-exact", { kind: "body" }), expectedViolation("projection-type", { kind: "local", local: 0 })],
+    "wrong receiver storage complete vector");
 });
 
 function callSetup(passing = "by-value", result = 0, receiver = null) {

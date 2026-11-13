@@ -613,9 +613,11 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   // The account is the body's: verifying two bodies one after the other under the limit of one charges each from zero.
   const one = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
   for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 46 } }), { kind: "complete", violations: [] }, `body ${turn}`);
-  // A body with no block that is entered on several edges with a set needs none of this work. The storage pass needs
-  // 28 units on the satisfying graph (3 for the entry set, 7 markers, 18 lookups).
+  // The satisfying graph has no stable place. Law 3 charges it 2: the two arms of the loop's branch (blocks 4 and 9)
+  // each receive the empty set on their one edge. The storage pass charges it 28 (3 for the entry set, 7 markers,
+  // 18 lookups). So it needs 30.
   assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 30 } }).kind, "complete");
+  assert.deepEqual(verifyMir(good(), { ...context, limits: { maximumWork: 29 } }), refusal(29));
 });
 
 test("law 3: a value delivered on a suspension's return edge into the local a stable place views ends it on that edge", () => {
@@ -674,6 +676,18 @@ test("law 3 at a merge: prefixes of one list, a place checked twice, and a view 
 test("the work limit is one boundary for every body: below it a refusal, from it on the complete answer", () => {
   // Each limit below the boundary exhausts the account at a different charge: an incoming edge, a place counted, a
   // list copied. None of them yields an answer other than the refusal.
+  // The need of each body is derived from the two charging rules. Blocks are read in reverse postorder, in which
+  // the `otherwise` arm of a branch and everything it reaches is read before the other arm: the first body's blocks
+  // after 10 are read in the order 12, 15, 11, 14, 16, 13.
+  // First body. Storage pass: 46 (3 for the entry set, 10 markers, 33 lookups; NEEDS-W4.md has them by block). Law 3:
+  // 8 = the loop's two arms (blocks 4 and 9) + one edge into each of blocks 11, 12, 13 and 14 + one place copied in
+  // block 14, which adds the view of `o!#2` to a list that block 12 has already extended + one place copied in
+  // block 13, which reads the list whose place that copy made available again elsewhere. (A first derivation of 7
+  // left out the copy in block 13; the run refused at 53.)
+  // Second body. Storage pass: 42 (3, 10 and 29 lookups). Law 3: 10 = the loop's two arms + one edge into each of
+  // blocks 10 and 11 + the two edges into the merge (block 14) + the two places on each of the two different lists
+  // that arrive there.
+  const needs = [46 + 8, 42 + 10];
   const bodies = [
     staged(body => {
       body.blocks[7].terminator = checkOf(12, "o!", 10);
@@ -688,17 +702,16 @@ test("the work limit is one boundary for every body: below it a refusal, from it
         blockOf(14, [readView(12), readView(15)], returns(p(9))));
     }),
   ];
-  for (const body of bodies) {
+  for (const [position, body] of bodies.entries()) {
+    const need = needs[position];
     const kinds = [];
-    for (let maximumWork = 0; maximumWork <= 86; maximumWork += 1) {
+    for (let maximumWork = 0; maximumWork <= need + 10; maximumWork += 1) {
       const outcome = verifyMir(body, { ...context, limits: { maximumWork } });
       if (outcome.kind === "complete") assert.deepEqual(outcome.violations, []);
       else assert.deepEqual(outcome, { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
       kinds.push(outcome.kind);
     }
-    const boundary = kinds.indexOf("complete");
-    assert.ok(boundary > 0 && boundary < 86);
-    assert.deepEqual(kinds.slice(boundary), new Array(87 - boundary).fill("complete"));
+    assert.deepEqual(kinds, [...new Array(need).fill("resource-limit"), ...new Array(11).fill("complete")], `body ${position}`);
   }
 });
 
@@ -819,6 +832,26 @@ test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   const markerRules = (body, given) => found(body, given).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.rule);
   assert.deepEqual(markerRules(receiverEnded, receiving("by-value")), []);
   assert.deepEqual(markerRules(receiverEnded, receiving("byref-readwrite")), ["storage-marker-exact"]);
+});
+
+test("a local of role receiver or parameter names the source local of its row", () => {
+  const rule = (body, given = context) => found(body, given).filter(violation => violation.rule === "parameter-source-exact").map(violation => violation.site.local);
+  assert.deepEqual(rule(good()), []);
+  // Parameter 1 with no source local; naming the local of row 0; naming a local of another body; an index with no row.
+  assert.deepEqual(rule(changed(body => { body.locals[1].source = null; })), [1]);
+  assert.deepEqual(rule(changed(body => { body.locals[1].source = { body: BODY, local: 0 }; })), [1]);
+  assert.deepEqual(rule(changed(body => { body.locals[1].source = { body: bodyId("laws.use"), local: 1 }; })), [1]);
+  assert.deepEqual(rule(changed(body => { body.locals[1].role = { kind: "parameter", index: 3 }; })), [1]);
+  // The receiver names the local of the row of role `this` (source local 4 here); the other rows are counted without it.
+  const receiving = { ...context, source: { ...context.source,
+    locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
+    params: [{ ...context.source.params[2], local: 4, role: "this" }, ...context.source.params] } };
+  const withReceiver = named => changed(body => { body.locals.push(local(10, T.optInt32, { kind: "receiver" }, named)); });
+  assert.deepEqual(rule(withReceiver(4), receiving), []);
+  assert.deepEqual(rule(withReceiver(null), receiving), [10]);
+  assert.deepEqual(rule(withReceiver(2), receiving), [10]);
+  // A receiver in a body whose typed body has no row of role `this`.
+  assert.deepEqual(rule(withReceiver(4), context), [10]);
 });
 
 test("check-place-single compares the views of one node kind by kind", () => {
