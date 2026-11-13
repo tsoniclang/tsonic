@@ -1,15 +1,18 @@
 import type { Violation } from "../diag/contract.js";
 import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
-import type { MirBody, MirClosureCapture, MirOperand, MirRule, MirStepRef, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { densePosition, findSourceNode } from "./verify-control.js";
+import type {
+  MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlace, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
+} from "./contract.js";
+import { controlEdges, densePosition, findSourceNode } from "./verify-control.js";
 import type { SourceNode, SourceStep, WireTexts } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
 
 // The graph laws a lowered body satisfies beyond reference and type validity. Every check is a pass over the
 // records of the body; none follows paths. Law numbers are those of the lowering specification's list of ten.
 // Law 2 (a statement executes only a pure decision), the receiver half of law 4 and the agreement of a failure
-// kind with its decision need the execution fields of the decision records and are added with them. Law 3 (the
-// region in which a checked place may be used) is not decided and is not enforced here.
+// kind with its decision need the execution fields of the decision records and are added with them. Law 3 is
+// enforced for every checked place as the contract states it; the stable kind for a fixed extent needs the extent
+// field of the element access decision and is added with it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
   places: ReadonlyMap<PlaceId, PlaceLocation>,
@@ -45,9 +48,28 @@ export function verifyLaws(
     return row === undefined || !densePosition(reference.step, row.length) ? undefined : row[reference.step];
   };
 
+  // Per place: the local whose own cell it is (the local's place or a narrowed view of it), and the nearest checked
+  // place at or above it. A parent precedes its views, so one pass in order of position gives both.
+  const cellOf = new Int32Array(body.places.length).fill(-1);
+  const checkedAbove = new Int32Array(body.places.length).fill(-1);
+  for (const [position, place] of body.places.entries()) {
+    if (place === undefined || !Object.is(place.id, position)) continue;
+    if (place.base.kind === "local") {
+      if (densePosition(place.base.local, body.locals.length)) cellOf[position] = place.base.local;
+      continue;
+    }
+    if (place.base.kind === "static" || !densePosition(place.base.place, position)) continue;
+    if (place.base.projection.kind === "refined") cellOf[position] = cellOf[place.base.place] ?? -1;
+    checkedAbove[position] = place.base.kind === "checked" ? position : checkedAbove[place.base.place] ?? -1;
+  }
+  const presentOnEntry = (local: MirLocal): boolean => local.role.kind === "parameter" || local.role.kind === "receiver" || local.role.kind === "capture";
+
   // Every way a local's cell can be written, counted on the local the written place is rooted at: an assignment,
-  // a value a terminator delivers, a place handed to a call for writing, an address taken, a capture.
+  // a value a terminator delivers, a place handed to a call for writing, an address taken, a capture. `cellWrites`
+  // counts only the values written into the local's own cell; `handedOut` marks a local that other code can reach.
   const writes = new Uint32Array(body.locals.length);
+  const cellWrites = new Uint32Array(body.locals.length);
+  const handedOut = new Uint8Array(body.locals.length);
   const rootOf = (place: PlaceId | null): number | null => {
     if (place === null) return null;
     const location = places.get(place);
@@ -55,9 +77,18 @@ export function verifyLaws(
   };
   const written = (place: PlaceId | null): void => {
     const root = rootOf(place);
-    if (root !== null) writes[root] = (writes[root] ?? 0) + 1;
+    if (root === null || place === null) return;
+    writes[root] = (writes[root] ?? 0) + 1;
+    const own = cellOf[place] ?? -1;
+    if (own >= 0) cellWrites[own] = (cellWrites[own] ?? 0) + 1;
   };
-  const captured = (captures: readonly MirClosureCapture[]): void => { for (const capture of captures) written(capture.place); };
+  const handed = (place: PlaceId): void => {
+    const root = rootOf(place);
+    if (root === null) return;
+    writes[root] = (writes[root] ?? 0) + 1;
+    handedOut[root] = 1;
+  };
+  const captured = (captures: readonly MirClosureCapture[]): void => { for (const capture of captures) handed(capture.place); };
   // The locals that hold the result of a completion test (a step of role `done`).
   const completions = new Set<number>();
   const completion = (reference: MirStepRef | null, source: SourceNode | undefined, destination: PlaceId | null): void => {
@@ -70,7 +101,7 @@ export function verifyLaws(
     for (const statement of block.statements) {
       if (statement.kind !== "assign") continue;
       written(statement.place);
-      if (statement.value.kind === "address-of") written(statement.value.place);
+      if (statement.value.kind === "address-of") handed(statement.value.place);
       else if (statement.value.kind === "closure") captured(statement.value.captures);
       completion(statement.step, sourceOf(statement.tir), statement.place);
     }
@@ -79,7 +110,7 @@ export function verifyLaws(
       case "call":
         written(terminator.destination);
         for (const argument of terminator.arguments) {
-          if (argument.kind === "place" && argument.passing !== "byref-readonly" && argument.passing !== "borrow-shared") written(argument.place);
+          if (argument.kind === "place" && argument.passing !== "byref-readonly" && argument.passing !== "borrow-shared") handed(argument.place);
         }
         if (terminator.callee.kind === "body") captured(terminator.callee.captures);
         completion(terminator.step, sourceOf(terminator.tir), terminator.destination);
@@ -95,8 +126,24 @@ export function verifyLaws(
     if ("unwind" in terminator && terminator.unwind.kind === "handler") written(terminator.unwind.exception);
   }
 
-  for (const place of body.places) {
+  // Whether a checked place is of the stable kind (the contract's law 3), and the first checked place of each node.
+  const stable = new Uint8Array(body.places.length);
+  const checkedAt = new Map<NodeId, MirPlace>();
+  for (const [position, place] of body.places.entries()) {
     if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;
+    if (place.base.kind === "checked" && Object.is(place.id, position)) {
+      if (place.base.tir.body === context.source.body) {
+        const first = checkedAt.get(place.base.tir.node);
+        if (first === undefined) checkedAt.set(place.base.tir.node, place);
+        else if (!sameView(first, place)) reportPlace("check-place-single", place.id);
+      }
+      const parent = place.base.projection.kind === "refined" && densePosition(place.base.place, position) ? body.places[place.base.place] : undefined;
+      if (parent !== undefined && parent.base.kind === "local" && densePosition(parent.base.local, body.locals.length)) {
+        const local = body.locals[parent.base.local];
+        const count = cellWrites[parent.base.local] ?? 0;
+        if (local !== undefined && handedOut[parent.base.local] !== 1 && (presentOnEntry(local) ? count === 0 : count === 1)) stable[position] = 1;
+      }
+    }
     // A narrowed view of a cell exists only as the result of its check.
     if (place.base.projection.kind === "refined" && place.base.kind !== "checked") reportPlace("refined-under-check", place.id);
     // Law 4: an index, once evaluated, cannot be changed by a later write. It is a constant, or a local whose cell
@@ -106,11 +153,161 @@ export function verifyLaws(
       if (operand !== undefined && operand.base.kind === "local") {
         const local = densePosition(operand.base.local, body.locals.length) ? body.locals[operand.base.local] : undefined;
         const count = densePosition(operand.base.local, writes.length) ? writes[operand.base.local] ?? 0 : 0;
-        const present = local !== undefined && (local.role.kind === "parameter" || local.role.kind === "receiver" || local.role.kind === "capture");
-        if (!(present ? count === 0 : count === 1)) reportPlace("index-operand-stable", place.id);
+        if (!(local !== undefined && presentOnEntry(local) ? count === 0 : count === 1)) reportPlace("index-operand-stable", place.id);
       } else if (operand !== undefined) reportPlace("index-operand-stable", place.id);
     }
   }
+
+  // Law 3: a checked place is used only where its check is known to have succeeded. Availability is read forwards
+  // along chains of blocks as the contract states it. Each block and record is visited once; a set is cleared by
+  // advancing a counter, and making a place available costs the number of index projections in its chain.
+  const incoming = new Uint32Array(body.blocks.length);
+  const edge = (target: BlockId): void => { if (densePosition(target, incoming.length)) incoming[target] = (incoming[target] ?? 0) + 1; };
+  for (const entry of body.entries) edge(entry.block);
+  for (const block of body.blocks) if (block !== undefined) for (const out of controlEdges(block.terminator)) edge(out.target);
+  const continuation = (block: MirBlock): number => {
+    const terminator = block.terminator;
+    let target: BlockId;
+    switch (terminator.kind) {
+      case "goto": target = terminator.target; break;
+      case "check": case "call": case "invoke": target = terminator.next; break;
+      case "await": case "yield": case "delegate": target = terminator.resume; break;
+      case "switch": case "throw": case "return": case "unreachable": return -1;
+    }
+    return densePosition(target, incoming.length) && incoming[target] === 1 ? target : -1;
+  };
+  const inherits = new Uint8Array(body.blocks.length);
+  for (const block of body.blocks) {
+    if (block === undefined) continue;
+    const next = continuation(block);
+    if (next >= 0) inherits[next] = 1;
+  }
+  // A checked place is available when it was stamped with the current count of its kind.
+  let clock = 2;
+  let mutableNow = 1;
+  let stableNow = 2;
+  const stamp = new Uint32Array(body.places.length);
+  const mutableLocals = new Uint32Array(body.locals.length);
+  const stableLocals = new Uint32Array(body.locals.length);
+  const endMutable = (): void => { clock += 1; mutableNow = clock; };
+  const endStable = (): void => { clock += 1; stableNow = clock; };
+  const available = (checked: number): boolean => stamp[checked] === (stable[checked] === 1 ? stableNow : mutableNow);
+  const use = (place: PlaceId | null, block: BlockId, statement: number | null): void => {
+    if (place === null || !densePosition(place, checkedAbove.length)) return;
+    const checked = checkedAbove[place] ?? -1;
+    if (checked >= 0 && !available(checked)) reportAt("checked-place-available", block, statement);
+  };
+  const useOperand = (operand: MirOperand | null, block: BlockId, statement: number | null): void => {
+    if (operand !== null && operand.kind === "place") use(operand.place, block, statement);
+  };
+  const useValue = (value: MirRvalue, block: BlockId, statement: number): void => {
+    switch (value.kind) {
+      case "use": case "unary": case "convert": useOperand(value.operand, block, statement); break;
+      case "binary": useOperand(value.left, block, statement); useOperand(value.right, block, statement); break;
+      case "aggregate": {
+        const aggregate = value.aggregate;
+        switch (aggregate.kind) {
+          case "object": case "record": for (const field of aggregate.fields) useOperand(field.value, block, statement); break;
+          case "array": case "tuple": case "fixed-array": for (const element of aggregate.elements) useOperand(element, block, statement); break;
+        }
+        break;
+      }
+      case "address-of": use(value.place, block, statement); break;
+      case "closure": for (const capture of value.captures) use(capture.place, block, statement); break;
+    }
+  };
+  const touched = (local: number): void => {
+    if (mutableLocals[local] === mutableNow) endMutable();
+    if (stableLocals[local] === stableNow) endStable();
+  };
+  const stored = (place: PlaceId | null): void => {
+    if (place === null || !densePosition(place, cellOf.length)) return;
+    const own = cellOf[place] ?? -1;
+    if (own >= 0) touched(own);
+    if (own < 0 || handedOut[own] === 1) endMutable();
+  };
+  const delivered = (place: PlaceId | null, block: BlockId): void => { use(place, block, null); stored(place); };
+  const begin = (checked: PlaceId): void => {
+    const place = densePosition(checked, body.places.length) ? body.places[checked] : undefined;
+    if (place === undefined || place.base.kind !== "checked" || !Object.is(place.id, checked)) return;
+    const above = densePosition(place.base.place, checkedAbove.length) ? checkedAbove[place.base.place] ?? -1 : -1;
+    if (above >= 0 && !available(above)) return;
+    const kind = stable[checked] === 1;
+    const now = kind ? stableNow : mutableNow;
+    const locals = kind ? stableLocals : mutableLocals;
+    stamp[checked] = now;
+    const location = places.get(checked);
+    if (location === undefined) return;
+    if (location.root !== null) locals[location.root.id] = now;
+    for (let index = location.indices; index !== null; index = index.parent) {
+      const root = rootOf(index.place);
+      if (root !== null) locals[root] = now;
+    }
+  };
+  const visited = new Uint8Array(body.blocks.length);
+  const chain = (head: number): void => {
+    endMutable();
+    endStable();
+    for (let position = head; position >= 0 && visited[position] !== 1;) {
+      visited[position] = 1;
+      const block = body.blocks[position];
+      if (block === undefined) return;
+      for (const [index, statement] of block.statements.entries()) {
+        if (statement.kind === "assign") {
+          useValue(statement.value, block.id, index);
+          use(statement.place, block.id, index);
+          stored(statement.place);
+        } else if (densePosition(statement.local, body.locals.length)) touched(statement.local);
+      }
+      const terminator = block.terminator;
+      switch (terminator.kind) {
+        case "goto": case "unreachable": break;
+        case "switch": useOperand(terminator.operand, block.id, null); break;
+        case "return": useOperand(terminator.value, block.id, null); break;
+        case "throw": useOperand(terminator.operand, block.id, null); break;
+        case "check": {
+          // The check reads the parent of its place and the index; the place itself is what it makes available.
+          const place = densePosition(terminator.place, body.places.length) ? body.places[terminator.place] : undefined;
+          if (place === undefined || place.base.kind !== "checked") { use(terminator.place, block.id, null); break; }
+          use(place.base.place, block.id, null);
+          if (place.base.projection.kind === "index") useOperand(place.base.projection.operand, block.id, null);
+          break;
+        }
+        case "call":
+          if (terminator.callee.kind === "indirect") useOperand(terminator.callee.operand, block.id, null);
+          else if (terminator.callee.kind === "body") for (const capture of terminator.callee.captures) use(capture.place, block.id, null);
+          useOperand(terminator.receiver, block.id, null);
+          for (const argument of terminator.arguments) {
+            if (argument.kind === "value") useOperand(argument.operand, block.id, null);
+            else if (argument.kind === "place") use(argument.place, block.id, null);
+          }
+          endMutable();
+          delivered(terminator.destination, block.id);
+          break;
+        case "invoke":
+          for (const operand of terminator.operands) useOperand(operand, block.id, null);
+          endMutable();
+          delivered(terminator.destination, block.id);
+          break;
+        case "await": case "yield":
+          useOperand(terminator.operand, block.id, null);
+          endMutable();
+          delivered(terminator.destination, block.id);
+          break;
+        case "delegate":
+          useOperand(terminator.iterator, block.id, null);
+          endMutable();
+          delivered(terminator.destination, block.id);
+          break;
+      }
+      const next = continuation(block);
+      if (next >= 0 && terminator.kind === "check") begin(terminator.place);
+      position = next;
+    }
+  };
+  for (const [position, block] of body.blocks.entries()) if (block !== undefined && inherits[position] !== 1) chain(position);
+  // Blocks left over form a closed ring that nothing enters; each is read once all the same.
+  for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
 
   // Law 6: a protocol step names its step. A record that names a step executes that step's callee or operation, and
   // a record that executes the callee or operation of a step of its node's protocols names it. A record that names
@@ -174,7 +371,8 @@ export function verifyLaws(
         break;
       case "invoke": case "goto": case "switch": case "return": case "unreachable": break;
     }
-    // Law 9: no effect occurrence is emitted twice. The occurrence is the node, the step and the selection executed.
+    // Laws 5 and 9: no effect occurrence, and no completion branch, is emitted twice. The occurrence is the node, the
+    // step and the selection executed.
     let occurrence: string | null = null;
     switch (terminator.kind) {
       case "call": {
@@ -225,6 +423,8 @@ export function verifyLaws(
         const complete = constant !== undefined && constant.value.kind === "literal" && constant.value.value.kind === "boolean"
           && constant.value.value.value === true;
         if (only === undefined || !complete || Object.is(only.target, terminator.otherwise)) reportAt("completion-branch-canonical", block.id, null);
+        // Law 5: the completion of a handle is one record, so a step has one completion branch.
+        occurrence = "completion";
         break;
       }
       case "throw": occurrence = terminator.kind; break;
@@ -237,4 +437,17 @@ export function verifyLaws(
     effects.add(key);
   }
   return violations;
+}
+
+/** Whether two checked places of one node are the same view: one parent and, for an element, one index. */
+function sameView(first: MirPlace, second: MirPlace): boolean {
+  if (first.base.kind !== "checked" || second.base.kind !== "checked" || !Object.is(first.base.place, second.base.place)) return false;
+  const one = first.base.projection;
+  const other = second.base.projection;
+  if (one.kind === "index" && other.kind === "index") {
+    return one.operand.kind === "place" ? other.operand.kind === "place" && Object.is(one.operand.place, other.operand.place)
+      : other.operand.kind === "constant" && Object.is(one.operand.constant, other.operand.constant);
+  }
+  if (one.kind === "element" && other.kind === "element") return Object.is(one.index, other.index);
+  return one.kind === other.kind;
 }

@@ -61,6 +61,30 @@ export type MirProjection =
   | { readonly kind: "capture"; readonly index: number }
   | { readonly kind: "refined" };
 
+// A checked place and where it may be used (graph law 3).
+//
+// A `checked` base is a view of its parent that may be used only where its check is known to have succeeded. A use
+// is any occurrence, in a statement or a terminator, of the place or of a place based on it. Success of the check
+// makes the place available; it says nothing about whether its contents are initialised.
+//
+// The check is a terminator. Availability begins at the block the check continues to (`next`) and is established by
+// reading forwards along a chain of blocks:
+//   - A block passes what is available at its end to the block its terminator continues to (the target of `goto`;
+//     the `next` of `check`, `call` and `invoke`; the `resume` of `await`, `yield` and `delegate`) when that block
+//     has exactly one incoming edge and is not an entry. Every other block starts with nothing available: a block
+//     with several incoming edges (a merge, a loop head), a target of `switch`, a handler, the return target of a
+//     suspension, an entry.
+//   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
+//     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
+//     writing mode, no capture). Every other checked place is mutable. The second stable kind, the bounds of an
+//     element whose access decision states a fixed extent, is added with that field; until then an `index` view is mutable.
+//   - Mutable availability ends at a `call`, `invoke`, `await`, `yield` or `delegate`; at a value written into a
+//     place that is not a local's own cell, or into the cell of a local that is handed out; and at a value written into
+//     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
+//   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
+//   - The destination of a terminator is used after the terminator's own effect.
+// A second check of the same place makes it available again. All checked places of one node have one parent and one
+// index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
 export type MirPlaceBase =
   | { readonly kind: "local"; readonly local: LocalId }
   | { readonly kind: "static"; readonly definition: DefId }
@@ -134,6 +158,25 @@ export type MirCallee =
   | { readonly kind: "indirect"; readonly operand: MirOperand; readonly resolution: ResolvedCallee }
   | { readonly kind: "body"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
+// Execution events and the record that stands for each (graph law 5). An event belongs to its actual subject, edge
+// or protocol step, and has one representation:
+//   creation of a handle             the `call` that creates it. The handle is the value delivered to the destination
+//                                    of that call: two executions of one creating call create two handles.
+//   activation of an execution       the entry of the activated body in its own graph (`MirBody.entries`), entered
+//                                    once for each handle. The creating call names the body instance it connects to
+//                                    and, through its callee decision, the selected mode: at creation the call enters
+//                                    that entry; otherwise the first drive of the handle does. A later drive or a
+//                                    resumption does not enter it again, and no record of the caller stands for the
+//                                    activation.
+//   suspension                       `await`, `yield`, `delegate`
+//   resumption                       the `resume` edge of that terminator
+//   exit by return                   `return`
+//   exit by unwind                   a failure arm `escape`
+//   exit by the consumer finishing   the `return` edge of `yield` or `delegate`
+//   completion of a handle           for an iteration, the completion branch: the `switch` that names the `done` step;
+//                                    for an awaited handle, the resume or unwind edge of its `await`. An await of one
+//                                    handle states nothing about another.
+// No occurrence has two records: effects by law 9, steps and the one completion branch of a step by law 6, entries by law 7.
 export type MirTerminator = MirSite & (
   | { readonly kind: "goto"; readonly target: BlockId }
   | { readonly kind: "switch"; readonly operand: MirOperand;
@@ -216,6 +259,8 @@ export type MirRule =
   | "switch-targets-order"
   | "failure-kind-exact"
   | "check-place-exact"
+  | "check-place-single"
+  | "checked-place-available"
   | "refined-under-check"
   | "statement-pure"
   | "index-operand-stable"

@@ -1,8 +1,8 @@
 // Cases for the graph laws of a lowered body (COMPONENTS section 7 part 9, laws 1 and 4 to 10; S2-18).
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
-// Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11); law 3 is
-// not decided (C-3181) and has no case here.
-//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); return a[i]; }
+// Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11). Law 3 is cased as
+// ruled (K-3238, relayed by the controller); its fixed-extent kind waits for `extent` on the element access decision.
+//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; return a[i]; }
 // where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
@@ -46,6 +46,7 @@ const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
         at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("v") }] })) })), ITERATE) },
     b.expressionStatement({ $: "bump(i)", ...b.call(b.global("bump", "laws.bump", T.unknown), [{ $: "i of bump", ...b.id("i", 1, T.int32) }], T.void,
       at => ({ callee: BUMP_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("i of bump") }] })) }),
+    b.expressionStatement({ $: "o!", ...b.nonNull({ $: "o", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
     { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
       { ...value(T.int32), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
 
@@ -108,7 +109,7 @@ function good() {
   };
 }
 
-const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "refined-under-check", "index-operand-stable", "protocol-step-exact",
+const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "check-place-single", "checked-place-available", "refined-under-check", "index-operand-stable", "protocol-step-exact",
   "completion-branch-canonical", "entries-exact", "omission-admitted", "storage-marker-exact", "effect-site-unique"]);
 let verifyMir;
 let printMir;
@@ -159,20 +160,21 @@ test("law 1: a call cannot end the process or be unable to fail", () => {
 
 test("law 1: a check names a checked place at its own node", () => {
   // "a check is a control point": the control point and the place it tests are one occurrence.
-  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.place = 9; })), ["check-place-exact"]);
+  // The check tests another place, so a[i] is also read with no check of its own (law 3).
+  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.place = 9; })), ["checked-place-available", "check-place-exact"]);
   assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.tir = site("return").tir; })), ["check-place-exact"]);
 });
 
 test("a narrowed view exists only under a checked base", () => {
   // R2's verdict on C4, taken into S2-18: `refined` under a direct base would be a narrowing with no check.
-  const add = kind => changed(body => { body.places.push(place(11, { kind, place: 2, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32)); });
+  const add = kind => changed(body => { body.places.push(place(11, { kind, place: 2, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32)); });
   assert.deepEqual(laws(add("place")), ["refined-under-check"]);
   assert.deepEqual(laws(add("checked")), []);
 });
 
 test("a narrowed view has the type its node's narrowing selected", () => {
-  // The node a[i] has type int32; a view of it at another type is refused.
-  const view = storage => changed(body => { body.places.push(place(11, { kind: "checked", place: 2, projection: { kind: "refined" }, tir: site("a[i]").tir }, storage)); });
+  // The node `o!` has type int32; a view of it at another type is refused.
+  const view = storage => changed(body => { body.places.push(place(11, { kind: "checked", place: 2, projection: { kind: "refined" }, tir: site("o!").tir }, storage)); });
   assert.deepEqual(all(view(T.int32)), []);
   assert.deepEqual(all(view(T.bool)), ["projection-type"]);
 });
@@ -187,19 +189,22 @@ test("law 4: an index is a constant or a local written once", () => {
   assert.deepEqual(all(changed(body => { direct(body); body.blocks.pop(); body.blocks[3].terminator.targets[0].target = 6; })), []);
   // Handed to a call for writing, it is no longer written once (R2, L-1).
   assert.deepEqual(all(changed(direct)), ["index-operand-stable"]);
-  // A projected place is not a value written once.
-  assert.deepEqual(laws(changed(body => { body.places[10].base.projection.operand = p(10); })), ["index-operand-stable"]);
+  // A projected place is not a value written once. The place here is its own index, so its check reads it unchecked (law 3).
+  assert.deepEqual(laws(changed(body => { body.places[10].base.projection.operand = p(10); })), ["index-operand-stable", "checked-place-available"]);
 });
 
 test("law 4: every way the index local's cell can be written is a write", () => {
   // R1: a second write through a narrowed view of the index local's own cell, after the indexed place was formed.
+  // Law 3 reports the same graph twice more: the view is used with no check of its own, and the write through it
+  // ends the availability of a[i], which the next statement reads.
   assert.deepEqual(all(changed(body => {
-    body.places.push(place(11, { kind: "checked", place: 7, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32));
+    body.places.push(place(11, { kind: "checked", place: 7, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32));
     body.blocks[7].statements.unshift({ ...site("i"), kind: "assign", place: 11, value: { kind: "use", operand: p(1) }, step: null });
-  })), ["index-operand-stable"]);
-  // R1, R2: the index local handed by place to a call that may write it, between the check and the use.
+  })), ["index-operand-stable", "checked-place-available", "checked-place-available"]);
+  // R1, R2: the index local handed by place to a call that may write it. The count is of the body, so where the
+  // call stands does not matter; here it stands before the check, so that law 3 has nothing to report.
   const handed = passing => changed(body => {
-    body.blocks[3].terminator.targets[0].target = 6; body.blocks[6].terminator.next = 9; body.blocks[9].terminator.next = 7;
+    body.blocks[9].statements.push(body.blocks[6].statements.pop());
     body.blocks[9].terminator.arguments = [{ kind: "place", passing, place: 7 }];
   });
   assert.deepEqual(all(handed("byref-readwrite")), ["index-operand-stable"]);
@@ -218,6 +223,111 @@ test("law 4: every way the index local's cell can be written is a write", () => 
     { ...site("i"), kind: "assign", place: 4, value: { kind: "closure", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }, step: null }); })), ["index-operand-stable"]);
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.callee = { kind: "body", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }; })),
     ["index-operand-stable"]);
+});
+
+const READ = () => ({ ...site("a[i]"), kind: "assign", place: 9, value: { kind: "use", operand: p(10) }, step: null });
+const STORE = () => ({ ...site("a[i]"), kind: "assign", place: 10, value: { kind: "use", operand: p(1) }, step: null });
+/** `bump(i)` moved between the read of a[i] in block 7 and block 9, which the change then fills. */
+const callAfterRead = body => {
+  body.blocks[3].terminator.targets[0].target = 6;
+  body.blocks[7].terminator = { ...body.blocks[9].terminator, next: 9 };
+};
+const returns = operand => ({ ...site("return"), kind: "return", value: operand });
+
+test("law 3: a checked place is available where its check continues and along single-entry blocks (ruling point 2)", () => {
+  // The satisfying graph reads a[i] in the block its check continues to. A goto into a block with one incoming edge
+  // carries it.
+  assert.deepEqual(all(changed(body => {
+    body.blocks.push({ ...site("a[i]"), id: 10, statements: [], terminator: { ...site("a[i]"), kind: "goto", target: 7 } });
+    body.blocks[6].terminator.next = 10;
+  })), []);
+  // "Same block before the use" is not the rule: a use in the block that ends with the check is before the check.
+  assert.deepEqual(all(changed(body => { body.blocks[6].statements.push(READ()); })), ["checked-place-available"]);
+  // A merge ends it. Block 7 becomes a loop head: it is entered from the check and from itself.
+  assert.deepEqual(all(changed(body => {
+    body.locals.push(local(10, T.bool, { kind: "temporary" }));
+    body.places.push(place(11, { kind: "local", local: 10 }, T.bool));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 10 });
+    body.blocks[6].statements.push({ ...site("a[i]"), kind: "assign", place: 11, value: { kind: "use", operand: { kind: "constant", constant: 1 } }, step: null });
+    body.blocks[7].terminator = { ...site("return"), kind: "switch", operand: p(11), targets: [{ constant: 1, target: 10 }], otherwise: 7, step: null };
+    body.blocks.push({ ...site("return"), id: 10, statements: [], terminator: returns(p(9)) });
+  })), ["checked-place-available"]);
+});
+
+test("law 3: mutable availability ends at a call, a store, and a write or marker of a local the place depends on (point 3)", () => {
+  // A value written into a local that the place does not depend on ends nothing.
+  assert.deepEqual(all(changed(body => { body.blocks[7].statements.unshift({ ...site("i"), kind: "assign", place: 9, value: { kind: "use", operand: p(1) }, step: null }); })), []);
+  // A call between the check and the use (it may run user code).
+  assert.deepEqual(all(changed(body => { body.blocks[3].terminator.targets[0].target = 6; body.blocks[6].terminator.next = 9; body.blocks[9].terminator.next = 7; })),
+    ["checked-place-available"]);
+  // A store into a place that is not a local's own cell: here the store into a[i] itself, then a read of it.
+  assert.deepEqual(all(changed(body => { body.blocks[7].statements.unshift(STORE()); })), ["checked-place-available"]);
+  // The saved receiver written again.
+  assert.deepEqual(all(changed(body => { body.blocks[7].statements.unshift({ ...site("a"), kind: "assign", place: 8, value: { kind: "use", operand: p(0) }, step: null }); })),
+    ["checked-place-available"]);
+  // The storage of the index local ended. The liveness rule reports the same graph; only the law rules are compared.
+  assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift({ ...site("i"), kind: "storage-dead", local: 7 }); })), ["checked-place-available"]);
+  // Suspension ends it by the same step as a call; this body is neither asynchronous nor a generator, so it has no case here.
+});
+
+const WAITS_EXTENT = { todo: "waits for `extent: CarrierExtent` on the element access decision (W2, the commit after A1)" };
+test("law 3: a fixed extent with an unchanged receiver and index stays available across a call (point 4)", WAITS_EXTENT, () => {
+  // With `extent: "fixed"` on the decision of a[i], the call between the check and the use ends nothing.
+  assert.deepEqual(all(changed(body => { body.blocks[3].terminator.targets[0].target = 6; body.blocks[6].terminator.next = 9; body.blocks[9].terminator.next = 7; })), []);
+});
+test("law 3: a fixed extent does not survive a write of its saved receiver (point 4)", WAITS_EXTENT, () => {
+  // Until the field exists this graph is refused as every mutable place is; with it, it must still be refused.
+  assert.fail("the fixed-extent kind is not implemented");
+});
+
+/** A saved copy of `o` in local 10 (place 11) and its narrowed view, place 12, checked in a new block 10 that continues to `bump(i)`. */
+const narrowedView = (body, parent) => {
+  body.locals.push(local(10, T.optInt32, { kind: "temporary" }));
+  body.places.push(place(11, { kind: "local", local: 10 }, T.optInt32),
+    place(12, { kind: "checked", place: parent, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32));
+  body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 10 });
+  body.blocks[3].terminator.targets[0].target = 10;
+  body.blocks.push({ ...site("o!"), id: 10, statements: [{ ...site("o"), kind: "assign", place: 11, value: { kind: "use", operand: p(2) }, step: null }],
+    terminator: { ...site("o!"), kind: "check", place: 12, next: 9, unwind: { kind: "escape" } } });
+  // o = undefined, then a read of the narrowed view; after the call and the check of a[i], another read of it.
+  body.blocks[9].statements.push({ ...site("o"), kind: "assign", place: 2, value: { kind: "use", operand: { kind: "constant", constant: 0 } }, step: null },
+    { ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null });
+  body.blocks[7].statements.push({ ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null });
+};
+
+test("law 3: the narrowed view of a saved value stays available; a view in place is checked again (point 5)", () => {
+  // `opt!.count += (opt = undefined, 1)`: the saved reference is not absent although the variable is assigned, and
+  // it stays so across a call and another check.
+  assert.deepEqual(all(changed(body => { narrowedView(body, 11); })), []);
+  // The view of the variable's own cell: the assignment to the variable ends it, and so does the call.
+  assert.deepEqual(all(changed(body => { narrowedView(body, 2); })), ["checked-place-available", "checked-place-available"]);
+});
+
+test("law 3: success of a check makes the place available; it does not stand for the state of its storage (point 6)", () => {
+  // A store into an available checked place needs no earlier read of it.
+  assert.deepEqual(all(changed(body => { body.blocks[7].statements = [STORE()]; body.blocks[7].terminator = returns(p(1)); })), []);
+  // The check of a[i] succeeded, and the receiver's storage was never begun: the liveness rule still reports it.
+  const rules = all(changed(body => { body.blocks[0].statements = body.blocks[0].statements.filter(statement => statement.local !== 8); }));
+  assert.ok(rules.includes("storage-live-before-use"));
+  assert.ok(!rules.includes("checked-place-available"));
+});
+
+test("law 3: a store after a call is checked again through the same saved receiver and index (point 7; WT-6 order, orderGrow)", () => {
+  // a[i] is read, `bump` is called, a[i] is checked again and stored: two control points over one place.
+  const again = (body, checked) => {
+    callAfterRead(body);
+    body.blocks[9] = { ...site("a[i]"), id: 9, statements: [], terminator: { ...site("a[i]"), kind: "check", place: checked, next: 10, unwind: { kind: "escape" } } };
+    body.blocks.push({ ...site("a[i]"), id: 10, statements: [{ ...STORE(), place: checked }], terminator: returns(p(9)) });
+  };
+  assert.deepEqual(all(changed(body => { again(body, 10); })), []);
+  // No second check.
+  assert.deepEqual(all(changed(body => { callAfterRead(body); body.blocks[9] = { ...site("a[i]"), id: 9, statements: [STORE()], terminator: returns(p(9)) }; })),
+    ["checked-place-available"]);
+  // A second check that resolves the element again from the parameter, not from the saved receiver.
+  assert.deepEqual(all(changed(body => {
+    body.places.push(place(11, { kind: "checked", place: 0, projection: { kind: "index", operand: p(7) }, tir: site("a[i]").tir }, T.int32));
+    again(body, 11);
+  })), ["check-place-single"]);
 });
 
 test("law 6: a record that performs a step of its node's protocol names the step (R1, R2 L-2)", () => {
@@ -287,6 +397,14 @@ test("law 9: no effect occurrence is emitted twice", () => {
   assert.deepEqual(laws(doubled), ["effect-site-unique"]);
   // Two different steps of one node are two occurrences.
   assert.deepEqual(laws(good()).filter(rule => rule === "effect-site-unique"), []);
+});
+
+test("law 5: the completion of a handle is one record: a step has one completion branch", () => {
+  // "one representation per execution event". A second branch on the same `done` step, reached when the first is not taken.
+  assert.deepEqual(all(changed(body => {
+    body.blocks.push({ ...site("for"), id: 10, statements: [], terminator: { ...body.blocks[3].terminator, targets: [{ constant: 1, target: 9 }] } });
+    body.blocks[3].terminator.otherwise = 10;
+  })), ["effect-site-unique"]);
 });
 
 test("law 10: every record names a node of the typed body", () => {
