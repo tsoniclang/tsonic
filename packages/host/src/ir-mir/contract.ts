@@ -88,10 +88,19 @@ export type MirProjection =
 //     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
 //   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
 //   - The destination of a terminator is used after the terminator's own effect.
-// Cost of establishing this for one body: each block and record is read once, and for every edge that is not
-// continued along, the stable places available at its source are copied once and read once at its target. The
-// worst case is the number of such edges times the number of stable checked places, in time and in retained
-// lists; a body without stable places, or without branches, costs its record count.
+//   - A checked place, or a place under one, is never the destination of a terminator: not of a result, not of an
+//     exception, not of the value a suspension returns with.
+// Cost of establishing this for one body. Each block and record is read once. The stable places available at a
+// point are a prefix of a list that is only appended to; an edge hands on that prefix without copying it, and a
+// block whose incoming edges all bring prefixes of one list reads through the shortest. Work beyond the record
+// count arises in two places: where the incoming edges bring different lists, each place on each of them is
+// counted once; and where a block must add to a list it does not end, or read a list whose places were made
+// available again elsewhere since, the prefix is copied. The worst case is the number of edges not continued
+// along times the number of stable checked places, which is quadratic when both grow with the body. That work is
+// charged to `MirVerificationLimits.maximumMergeWork`: one unit for each place counted or copied and for each
+// incoming edge of a block not continued into. When the limit is passed, reading stops and the one finding
+// `merge-work-limit` is reported for the body: a refusal for resources, never an acceptance and never a weaker
+// law. Lists are kept only until the block they were handed to has been read.
 // A second check of the same place makes it available again. All checked places of one node have one parent and one
 // index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
 export type MirPlaceBase =
@@ -130,6 +139,9 @@ export type MirRvalue =
   | { readonly kind: "address-of"; readonly place: PlaceId; readonly type: TyId }
   | { readonly kind: "closure"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
+// The step of a protocol of the record's node that the record performs: `protocol` is the position of the protocol
+// among the node's protocols, `step` the position of the step in it. The result of a `done` step is delivered into
+// a local's own place that nothing else writes; the completion branch is the `switch` on that local.
 export interface MirStepRef {
   readonly protocol: number;
   readonly step: number;
@@ -270,6 +282,9 @@ export type MirRule =
   | "check-place-exact"
   | "check-place-single"
   | "checked-place-available"
+  | "checked-place-destination"
+  | "merge-work-limit"
+  | "suspension-admitted"
   | "refined-under-check"
   | "statement-pure"
   | "index-operand-stable"
@@ -294,7 +309,13 @@ export type MirViolationSite =
 export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
+export interface MirVerificationLimits {
+  /** The work law 3 may spend where stable checked places meet at a block; the contract's law text defines the unit. */
+  readonly maximumMergeWork: number;
+}
+
 export interface MirVerificationContext {
+  readonly limits: MirVerificationLimits;
   readonly source: TirBody;
   readonly types: TypeTable;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;

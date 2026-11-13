@@ -91,10 +91,13 @@ export function verifyLaws(
   const captured = (captures: readonly MirClosureCapture[]): void => { for (const capture of captures) handed(capture.place); };
   // The locals that hold the result of a completion test (a step of role `done`).
   const completions = new Set<number>();
+  const completionWrites = new Uint32Array(body.locals.length);
   const completion = (reference: MirStepRef | null, source: SourceNode | undefined, destination: PlaceId | null): void => {
     if (reference === null || source === undefined) return;
     const root = rootOf(destination);
-    if (root !== null && named(reference, source)?.role === "done") completions.add(root);
+    if (root === null || named(reference, source)?.role !== "done") return;
+    completions.add(root);
+    completionWrites[root] = (completionWrites[root] ?? 0) + 1;
   };
   for (const block of body.blocks) {
     if (block === undefined) continue;
@@ -128,13 +131,15 @@ export function verifyLaws(
 
   // Whether a checked place is of the stable kind (the contract's law 3), and the first checked place of each node.
   const stable = new Uint8Array(body.places.length);
-  const checkedAt = new Map<NodeId, MirPlace>();
+  const checkedAt = new Map<number, MirPlace>();
   for (const [position, place] of body.places.entries()) {
     if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;
     if (place.base.kind === "checked" && Object.is(place.id, position)) {
       if (place.base.tir.body === context.source.body) {
-        const first = checkedAt.get(place.base.tir.node);
-        if (first === undefined) checkedAt.set(place.base.tir.node, place);
+        // One node can carry checks of several kinds (an element that is also narrowed); each kind has one view.
+        const key = place.base.tir.node * VIEW_KINDS.length + VIEW_KINDS.indexOf(place.base.projection.kind);
+        const first = checkedAt.get(key);
+        if (first === undefined) checkedAt.set(key, place);
         else if (!sameView(first, place)) reportPlace("check-place-single", place.id);
       }
       const parent = place.base.projection.kind === "refined" && densePosition(place.base.place, position) ? body.places[place.base.place] : undefined;
@@ -159,10 +164,8 @@ export function verifyLaws(
   }
 
   // Law 3: a checked place is used only where its check is known to have succeeded. Availability is read forwards
-  // as the contract states it. Each block and record is visited once. Within a chain of blocks a set is cleared by
-  // advancing a counter, and making a place available costs the number of index projections in its chain. Where an
-  // edge is not continued along, the stable places available at its source are copied for its target, which keeps
-  // those that arrive on every incoming edge: edges of that kind times stable places, in the worst case.
+  // as the contract states it, and the contract states the cost. Each block and record is visited once; a use is
+  // one test of a stamp; within a chain of blocks a set is ended by advancing a counter.
   const incoming = new Uint32Array(body.blocks.length);
   const edge = (target: BlockId): void => { if (densePosition(target, incoming.length)) incoming[target] = (incoming[target] ?? 0) + 1; };
   for (const entry of body.entries) edge(entry.block);
@@ -188,31 +191,31 @@ export function verifyLaws(
     const next = continuation(block);
     if (next >= 0) inherits[next] = 1;
   }
-  // A checked place is available when it was stamped with the current count of its kind.
+
+  // A mutable place is available when its stamp is the current mutable count. The stable places available now are
+  // `log[0 .. visible)`: a prefix of a list that is only appended to, each place stamped with the list's count and
+  // with its position. A count whose stamps were overwritten is superseded: its list is copied before it is read again.
   let clock = 2;
   let mutableNow = 1;
   let stableNow = 2;
+  let log: PlaceId[] = [];
+  let visible = 0;
   const stamp = new Uint32Array(body.places.length);
+  const slot = new Uint32Array(body.places.length);
   const mutableLocals = new Uint32Array(body.locals.length);
   const stableLocals = new Uint32Array(body.locals.length);
+  const superseded = new Set<number>();
+  let work = 0;
+  let exhausted = false;
+  const charge = (units: number): void => {
+    work += units;
+    if (work > context.limits.maximumMergeWork) exhausted = true;
+  };
   const endMutable = (): void => { clock += 1; mutableNow = clock; };
-  // The stable places available now, in the order they became so; and, for each block not yet read, the lists
-  // that have arrived on its incoming edges.
-  const held: PlaceId[] = [];
-  const arriving: (PlaceId[][] | undefined)[] = [];
-  const nothing: PlaceId[] = [];
-  const endStable = (): void => { clock += 1; stableNow = clock; held.length = 0; };
-  const give = (target: number, facts: PlaceId[]): void => {
-    if (!densePosition(target, incoming.length)) return;
-    const lists = arriving[target];
-    if (lists === undefined) arriving[target] = [facts]; else lists.push(facts);
-  };
-  /** What a failure or suspension-return edge carries: the stable places, unless the value the edge delivers is written into a local one of them depends on. */
-  const carried = (now: PlaceId[], delivered: PlaceId): PlaceId[] => {
-    const root = rootOf(delivered);
-    return root !== null && stableLocals[root] === stableNow ? nothing : now;
-  };
-  const available = (checked: number): boolean => stamp[checked] === (stable[checked] === 1 ? stableNow : mutableNow);
+  const endStable = (): void => { clock += 1; stableNow = clock; log = []; visible = 0; };
+  const available = (checked: number): boolean => stable[checked] === 1
+    ? stamp[checked] === stableNow && (slot[checked] ?? 0) < visible
+    : stamp[checked] === mutableNow;
   const use = (place: PlaceId | null, block: BlockId, statement: number | null): void => {
     if (place === null || !densePosition(place, checkedAbove.length)) return;
     const checked = checkedAbove[place] ?? -1;
@@ -247,46 +250,130 @@ export function verifyLaws(
     if (own >= 0) touched(own);
     if (own < 0 || handedOut[own] === 1) endMutable();
   };
-  const delivered = (place: PlaceId | null, block: BlockId): void => { use(place, block, null); stored(place); };
+  /** A terminator delivers a value into `place`: never a checked place or a place under one. */
+  const delivered = (place: PlaceId | null, block: BlockId): void => {
+    if (place !== null && densePosition(place, checkedAbove.length) && (checkedAbove[place] ?? -1) >= 0) reportAt("checked-place-destination", block, null);
+    stored(place);
+  };
+  /** Stamps the local a place is rooted at and each local that indexes it. */
+  const depend = (checked: PlaceId, locals: Uint32Array, now: number, shared: boolean): void => {
+    const location = places.get(checked);
+    if (location === undefined) return;
+    if (location.root !== null) {
+      const old = locals[location.root.id] ?? 0;
+      if (shared && old !== 0 && old !== now) superseded.add(old);
+      locals[location.root.id] = now;
+    }
+    for (let index = location.indices; index !== null; index = index.parent) {
+      const root = rootOf(index.place);
+      if (root === null) continue;
+      const old = locals[root] ?? 0;
+      if (shared && old !== 0 && old !== now) superseded.add(old);
+      locals[root] = now;
+    }
+  };
+  /** Makes a stable place available: appended to the list when this view ends it, otherwise to a copy of the view. */
+  const hold = (checked: PlaceId): void => {
+    if (stamp[checked] === stableNow) {
+      if ((slot[checked] ?? 0) < visible) return;
+      copyView();
+    } else if (log.length !== visible) copyView();
+    const old = stamp[checked] ?? 0;
+    if (old !== 0) superseded.add(old);
+    stamp[checked] = stableNow;
+    slot[checked] = log.length;
+    log.push(checked);
+    visible = log.length;
+    depend(checked, stableLocals, stableNow, true);
+  };
+  const copyView = (): void => {
+    const facts = log;
+    const count = visible;
+    endStable();
+    charge(count);
+    for (let index = 0; index < count; index += 1) {
+      const fact = facts[index];
+      if (fact !== undefined) hold(fact);
+    }
+  };
   const begin = (checked: PlaceId): void => {
     const place = densePosition(checked, body.places.length) ? body.places[checked] : undefined;
     if (place === undefined || place.base.kind !== "checked" || !Object.is(place.id, checked)) return;
     const above = densePosition(place.base.place, checkedAbove.length) ? checkedAbove[place.base.place] ?? -1 : -1;
     if (above >= 0 && !available(above)) return;
-    const kind = stable[checked] === 1;
-    const now = kind ? stableNow : mutableNow;
-    const locals = kind ? stableLocals : mutableLocals;
-    if (kind && stamp[checked] !== now) held.push(checked);
-    stamp[checked] = now;
-    const location = places.get(checked);
-    if (location === undefined) return;
-    if (location.root !== null) locals[location.root.id] = now;
-    for (let index = location.indices; index !== null; index = index.parent) {
-      const root = rootOf(index.place);
-      if (root !== null) locals[root] = now;
-    }
+    if (stable[checked] === 1) { hold(checked); return; }
+    stamp[checked] = mutableNow;
+    depend(checked, mutableLocals, mutableNow, false);
+  };
+  // What an edge hands to a block that is not continued into, and the sets handed to each block not yet read.
+  const nothing: StableSet = { log: [], visible: 0, count: 0 };
+  let lastSet: StableSet = nothing;
+  const snapshot = (): StableSet => {
+    if (visible === 0) return nothing;
+    if (lastSet.log !== log || lastSet.visible !== visible || lastSet.count !== stableNow) lastSet = { log, visible, count: stableNow };
+    return lastSet;
+  };
+  const arriving: (StableSet[] | undefined)[] = [];
+  const give = (target: number, facts: StableSet): void => {
+    if (!densePosition(target, incoming.length)) return;
+    const sets = arriving[target];
+    if (sets === undefined) arriving[target] = [facts]; else sets.push(facts);
+  };
+  /** What a failure or suspension-return edge carries: nothing, if the value it delivers is written into a local a stable place depends on. */
+  const carried = (now: StableSet, place: PlaceId, block: BlockId): StableSet => {
+    if (densePosition(place, checkedAbove.length) && (checkedAbove[place] ?? -1) >= 0) reportAt("checked-place-destination", block, null);
+    const root = rootOf(place);
+    return root !== null && stableLocals[root] === stableNow ? nothing : now;
   };
   const visited = new Uint8Array(body.blocks.length);
   const arrivals = new Uint32Array(body.places.length);
   const arrivedAt = new Uint32Array(body.places.length);
   let merges = 0;
-  const chain = (head: number): void => {
+  /** Starts a block that is not continued into: no mutable place, and the stable places every incoming edge brings. */
+  const enter = (head: number): void => {
     endMutable();
-    endStable();
-    // The stable places that arrive on every incoming edge. An entry, and an edge whose source is not read yet,
-    // deliver no list, so the count of lists falls short of the count of edges and nothing is kept.
-    const lists = arriving[head];
+    const sets = arriving[head];
     arriving[head] = undefined;
-    const first = lists === undefined ? undefined : lists[0];
-    if (lists !== undefined && first !== undefined && lists.length === incoming[head]) {
-      merges += 1;
-      for (const list of lists) for (const fact of list) {
+    const first = sets === undefined ? undefined : sets[0];
+    // An entry, and an edge whose source is not read yet, hand over no set: the count of sets falls short of the
+    // count of incoming edges and nothing is kept.
+    if (sets === undefined || first === undefined || sets.length !== incoming[head]) { endStable(); return; }
+    charge(sets.length);
+    let one = true;
+    let shortest = first.visible;
+    for (const set of sets) {
+      if (set.log !== first.log || set.count !== first.count) one = false;
+      if (set.visible < shortest) shortest = set.visible;
+    }
+    if (shortest === 0) { endStable(); return; }
+    if (one) {
+      // Prefixes of one list: the shortest is what all of them bring.
+      stableNow = first.count;
+      log = first.log;
+      visible = shortest;
+      if (superseded.has(first.count)) copyView();
+      return;
+    }
+    merges += 1;
+    for (const set of sets) {
+      charge(set.visible);
+      for (let index = 0; index < set.visible; index += 1) {
+        const fact = set.log[index];
+        if (fact === undefined) continue;
         if (arrivedAt[fact] !== merges) { arrivedAt[fact] = merges; arrivals[fact] = 0; }
         arrivals[fact] = (arrivals[fact] ?? 0) + 1;
       }
-      for (const fact of first) if (arrivals[fact] === lists.length) begin(fact);
     }
-    for (let position = head; position >= 0 && visited[position] !== 1;) {
+    endStable();
+    for (let index = 0; index < first.visible; index += 1) {
+      const fact = first.log[index];
+      if (fact !== undefined && arrivals[fact] === sets.length) hold(fact);
+    }
+  };
+  const chain = (head: number): void => {
+    if (exhausted) return;
+    enter(head);
+    for (let position = head; position >= 0 && visited[position] !== 1 && !exhausted;) {
       visited[position] = 1;
       const block = body.blocks[position];
       if (block === undefined) return;
@@ -298,18 +385,12 @@ export function verifyLaws(
         } else if (densePosition(statement.local, body.locals.length)) touched(statement.local);
       }
       const terminator = block.terminator;
-      // What the edges that leave before the terminator's effect carry: built once, and only if such an edge exists.
-      let before: PlaceId[] | null = null;
-      const now = (): PlaceId[] => {
-        if (before === null) before = held.length === 0 ? nothing : held.slice();
-        return before;
-      };
       switch (terminator.kind) {
         case "goto": case "unreachable": break;
         case "switch":
           useOperand(terminator.operand, block.id, null);
-          for (const target of terminator.targets) give(target.target, now());
-          give(terminator.otherwise, now());
+          for (const target of terminator.targets) give(target.target, snapshot());
+          give(terminator.otherwise, snapshot());
           break;
         case "return": useOperand(terminator.value, block.id, null); break;
         case "throw": useOperand(terminator.operand, block.id, null); break;
@@ -342,8 +423,10 @@ export function verifyLaws(
       }
       // The failure edge and the return edge of a suspension leave before the effect; the place of a failing
       // check is not available on its failure edge.
-      if ("unwind" in terminator && terminator.unwind.kind === "handler") give(terminator.unwind.target, carried(now(), terminator.unwind.exception));
-      if (terminator.kind === "yield" || terminator.kind === "delegate") give(terminator.return.target, carried(now(), terminator.return.destination));
+      if ("unwind" in terminator && terminator.unwind.kind === "handler")
+        give(terminator.unwind.target, carried(snapshot(), terminator.unwind.exception, block.id));
+      if (terminator.kind === "yield" || terminator.kind === "delegate")
+        give(terminator.return.target, carried(snapshot(), terminator.return.destination, block.id));
       switch (terminator.kind) {
         case "call": case "invoke": case "await": case "yield": case "delegate":
           endMutable();
@@ -354,7 +437,7 @@ export function verifyLaws(
       }
       const next = continuation(block);
       const target = continues(block);
-      if (next < 0 && target >= 0) give(target, held.length === 0 ? nothing : held.slice());
+      if (next < 0 && target >= 0) give(target, snapshot());
       position = next;
     }
   };
@@ -398,13 +481,15 @@ export function verifyLaws(
   }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
   for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
+  // The limit was passed: the body is not verified, and the finding says so.
+  if (exhausted) reportBody("merge-work-limit");
 
   // Law 6: a protocol step names its step. A record that names a step executes that step's callee or operation, and
   // a record that executes the callee or operation of a step of its node's protocols names it. A record that names
   // a step and carries no selection of its own (a call of an internal body, an assignment without an operation) is
   // held to the step's form only.
   const step = (reference: MirStepRef | null, source: SourceNode | undefined, callee: string | null, operation: string | null,
-    block: BlockId, statement: number | null): void => {
+    destination: PlaceId | null, block: BlockId, statement: number | null): void => {
     if (source === undefined) return;
     if (reference === null) {
       if (callee === null && operation === null) return;
@@ -419,6 +504,12 @@ export function verifyLaws(
     const selected = named(reference, source);
     if (selected === undefined || (callee !== null ? selected.callee !== callee
       : selected.callee !== null || operation !== null && selected.operation !== operation)) reportAt("protocol-step-exact", block, statement);
+    if (selected === undefined || selected.role !== "done") return;
+    // The result of a completion test goes into a local's own place that nothing else writes: the completion
+    // branch is found by that local.
+    const place = destination !== null && densePosition(destination, body.places.length) ? body.places[destination] : undefined;
+    const own = place !== undefined && place.base.kind === "local" && densePosition(place.base.local, writes.length) ? place.base.local : -1;
+    if (own < 0 || writes[own] !== completionWrites[own]) reportAt("protocol-step-exact", block, statement);
   };
   const hasRole = (source: SourceNode, role: SourceStep["role"]): boolean => source.steps.some(row => row.some(candidate => candidate.role === role));
   const completionOperand = (operand: MirOperand): boolean => {
@@ -435,7 +526,7 @@ export function verifyLaws(
         if (source === undefined || statement.step === null && source.steps.length === 0) continue;
         const value = statement.value;
         step(statement.step, source, null, value.kind === "unary" || value.kind === "binary" || value.kind === "convert"
-          ? texts.operation(value.operation) : null, block.id, position);
+          ? texts.operation(value.operation) : null, statement.place, block.id, position);
         continue;
       }
       // Law 8: a local that is present on entry carries no begin marker.
@@ -467,18 +558,20 @@ export function verifyLaws(
     switch (terminator.kind) {
       case "call": {
         const callee = terminator.callee.kind === "body" ? null : texts.callee(terminator.callee.resolution);
-        step(terminator.step, source, callee, null, block.id, null);
+        step(terminator.step, source, callee, null, terminator.destination, block.id, null);
         occurrence = terminator.callee.kind === "body" ? `body:${terminator.callee.instance.body}` : `call:${callee}`;
         break;
       }
       case "invoke": {
         const operation = texts.operation(terminator.operation);
-        step(terminator.step, source, null, operation, block.id, null);
+        step(terminator.step, source, null, operation, terminator.destination, block.id, null);
         occurrence = `invoke:${operation}`;
         break;
       }
       case "await": {
         occurrence = terminator.kind;
+        // Law 5: a suspension stands only in a body that can suspend.
+        if (!context.source.asynchronous) reportAt("suspension-admitted", block.id, null);
         if (source === undefined) break;
         // An await at a node whose protocols list an await step is that step.
         if (terminator.step === null ? hasRole(source, "await") : named(terminator.step, source)?.role !== "await")
@@ -487,6 +580,7 @@ export function verifyLaws(
       }
       case "yield": case "delegate": {
         occurrence = terminator.kind;
+        if (!context.source.generator) reportAt("suspension-admitted", block.id, null);
         if (source === undefined) break;
         // The suspension of a yield or a delegation is the protocol itself: it names the protocol, and the step it
         // performs if one is listed.
@@ -529,7 +623,16 @@ export function verifyLaws(
   return violations;
 }
 
-/** Whether two checked places of one node are the same view: one parent and, for an element, one index. */
+/** The stable checked places an edge hands on: `log[0 .. visible)`, stamped with `count`. */
+interface StableSet {
+  readonly log: PlaceId[];
+  readonly visible: number;
+  readonly count: number;
+}
+
+const VIEW_KINDS = ["field", "index", "element", "deref", "capture", "refined"] as const;
+
+/** Whether two checked places of one node and one kind are the same view: one parent and, for an element, one index. */
 function sameView(first: MirPlace, second: MirPlace): boolean {
   if (first.base.kind !== "checked" || second.base.kind !== "checked" || !Object.is(first.base.place, second.base.place)) return false;
   const one = first.base.projection;

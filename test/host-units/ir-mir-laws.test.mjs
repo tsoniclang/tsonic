@@ -110,7 +110,8 @@ function good() {
   };
 }
 
-const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "check-place-single", "checked-place-available", "refined-under-check", "index-operand-stable", "protocol-step-exact",
+const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "check-place-single", "checked-place-available", "checked-place-destination",
+  "merge-work-limit", "suspension-admitted", "refined-under-check", "index-operand-stable", "protocol-step-exact",
   "completion-branch-canonical", "entries-exact", "omission-admitted", "storage-marker-exact", "effect-site-unique"]);
 let verifyMir;
 let printMir;
@@ -125,13 +126,15 @@ before(async () => {
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
     ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
-  context = { source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
+  context = { limits: { maximumMergeWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
 });
 
 const laws = body => verifyMir(body, context).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
 /** Every rule the verifier reports, for the cases that assert that a changed graph has its one finding and no other. */
 const all = body => verifyMir(body, context).map(violation => violation.rule);
+/** The same, for the body taken as asynchronous: a suspension stands only in a body that can suspend. */
+const allAsync = body => verifyMir(body, { ...context, source: { ...context.source, asynchronous: true } }).map(violation => violation.rule);
 const changed = change => { const body = good(); change(body); return body; };
 
 test("the graph that satisfies the laws has no law violation, and its text form is read back equal", () => {
@@ -178,6 +181,9 @@ test("a narrowed view has the type its node's narrowing selected", () => {
   const view = storage => changed(body => { body.places.push(place(11, { kind: "checked", place: 2, projection: { kind: "refined" }, tir: site("o!").tir }, storage)); });
   assert.deepEqual(all(view(T.int32)), []);
   assert.deepEqual(all(view(T.bool)), ["projection-type"]);
+  // R2 M-1: one node can be both an element and narrowed (`if (xs[0] !== null) use(xs[0].v)`). The narrowed view of
+  // the checked element a[i] is a second checked place of the node a[i], of another kind and with another parent.
+  assert.deepEqual(all(changed(body => { body.places.push(place(11, { kind: "checked", place: 10, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32)); })), []);
 });
 
 test("law 4: an index is a constant or a local written once", () => {
@@ -280,9 +286,11 @@ test("law 3: a suspension between the check and the use ends mutable availabilit
     } else body.blocks.push({ ...site("return"), id: 10, statements: [READ()], terminator: returns(p(9)) });
   };
   // Checked again after resumption, through the same place.
-  assert.deepEqual(all(changed(body => { suspended(body, true); })), []);
+  assert.deepEqual(allAsync(changed(body => { suspended(body, true); })), []);
   // Used after resumption on the strength of the check before it.
-  assert.deepEqual(all(changed(body => { suspended(body, false); })), ["checked-place-available"]);
+  assert.deepEqual(allAsync(changed(body => { suspended(body, false); })), ["checked-place-available"]);
+  // Law 5: the same graph in a body that is not asynchronous has a suspension with no event to stand for.
+  assert.deepEqual(all(changed(body => { suspended(body, true); })), ["suspension-admitted"]);
 });
 
 const WAITS_EXTENT = { todo: "waits for `extent: CarrierExtent` on the element access decision (W2, the commit after A1)" };
@@ -416,14 +424,60 @@ test("law 3 at a merge: a failure edge carries what held before the failing term
   })), ["checked-place-available"]);
 });
 
+test("law 3: a checked place is never the destination of a terminator (R2 M-2)", () => {
+  // The stable view as the destination of an invoked step, and as the exception place of a handler. The second
+  // graph has a type finding for the exception place as well; the law rules are compared.
+  assert.deepEqual(all(staged(body => { body.blocks[4].terminator.destination = 12; })), ["checked-place-destination"]);
+  assert.deepEqual(laws(staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push({ ...site("a[i]"), id: 10, statements: [], terminator: checkOf(10, "a[i]", 11, { kind: "handler", exception: 12, target: 11 }) },
+      blockOf(11, [], returns(p(9))));
+  })), ["checked-place-destination"]);
+});
+
+test("law 3 at a merge: a block reads only the part of a shared list that its own edge brought", () => {
+  // The view at `o!` is checked in block 7. Block 10 branches: block 12 checks the second view and so appends it
+  // to the list block 7 began; block 11 was handed that list before the append.
+  const forked = inFirst => staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, inFirst, returns(p(9))), blockOf(12, [], checkOf(15, "o!#2", 13)),
+      blockOf(13, [readView(15), readView(12)], returns(p(9))));
+  });
+  assert.deepEqual(all(forked([readView(12)])), []);
+  assert.deepEqual(all(forked([readView(15)])), ["checked-place-available"]);
+  // Three blocks are handed the list of block 7: one appends to it, one must copy it to add the same place, and the
+  // third reads it after that copy.
+  assert.deepEqual(all(staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, [], branch(13, 14)), blockOf(12, [], checkOf(15, "o!#2", 15)),
+      blockOf(13, [readView(12)], returns(p(9))), blockOf(14, [], checkOf(15, "o!#2", 16)),
+      blockOf(15, [readView(15)], returns(p(9))), blockOf(16, [readView(15), readView(12)], returns(p(9))));
+  })), []);
+  // Both arms check both views, in opposite orders: two lists with the same two facts.
+  assert.deepEqual(all(staged(body => {
+    body.blocks[7].terminator = branch(10, 11);
+    body.blocks.push(blockOf(10, [], checkOf(12, "o!", 12)), blockOf(11, [], checkOf(15, "o!#2", 13)),
+      blockOf(12, [], checkOf(15, "o!#2", 14)), blockOf(13, [], checkOf(12, "o!", 14)),
+      blockOf(14, [readView(12), readView(15)], returns(p(9))));
+  })), []);
+});
+
+test("law 3 at a merge: past the work limit the body is refused, not accepted", () => {
+  const body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
+  const rules = verifyMir(body, { ...context, limits: { maximumMergeWork: 0 } }).map(violation => violation.rule);
+  assert.deepEqual(rules, ["merge-work-limit"]);
+  // The same body within the limit has no finding.
+  assert.deepEqual(all(body), []);
+});
+
 test("law 3: a stable place stays available across a suspension; a mutable one does not", () => {
   const suspendedThen = statement => staged(body => {
     body.blocks[7].terminator = checkOf(12, "o!", 10);
     body.blocks.push(blockOf(10, [], { ...site("return"), kind: "await", operand: p(4), destination: 5, resume: 11, unwind: { kind: "escape" }, step: null }),
       blockOf(11, [statement], returns(p(9))));
   });
-  assert.deepEqual(all(suspendedThen(readView())), []);
-  assert.deepEqual(all(suspendedThen(READ())), ["checked-place-available"]);
+  assert.deepEqual(allAsync(suspendedThen(readView())), []);
+  assert.deepEqual(allAsync(suspendedThen(READ())), ["checked-place-available"]);
 });
 
 test("law 3: success of a check makes the place available; it does not stand for the state of its storage (point 6)", () => {
@@ -472,6 +526,13 @@ test("law 6: a protocol step names a step of a protocol of its node, in the form
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.tir = site("for").tir; body.blocks[5].terminator.step = step(1); })), ["protocol-step-exact"]);
   // Only the `done` step is branched on.
   assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.step = step(1); })), ["protocol-step-exact"]);
+});
+
+test("law 6: the result of a completion test goes into a local that nothing else writes (R2 M-4)", () => {
+  // The completion branch is found by the local the `done` step wrote; a second writer of that local would make an
+  // ordinary branch on it look like a completion branch.
+  assert.deepEqual(all(changed(body => { body.blocks[6].statements.push(
+    { ...site("a[i]"), kind: "assign", place: 6, value: { kind: "use", operand: { kind: "constant", constant: 1 } }, step: null }); })), ["protocol-step-exact"]);
 });
 
 test("law 6: the completion branch of an iteration has one canonical shape", () => {

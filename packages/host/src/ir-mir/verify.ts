@@ -517,7 +517,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
     owners.set(body, selected);
     return selected;
   };
-  const input: MirVerificationContext = { source: context.source, types: context.types, declarationOf, bodyOwner };
+  const input: MirVerificationContext = { limits: context.limits, source: context.source, types: context.types, declarationOf, bodyOwner };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
   const nodes = sourceNodes(input.source, texts);
