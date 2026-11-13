@@ -1,6 +1,19 @@
-import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
-import type { ModuleId, PackageId } from "../ids/contract.js";
+import type { CheckedSourceProgram, CompilerExtension, Node, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
+import type { Diagnostic } from "../diag/contract.js";
+import type { ModuleId, NodeId, PackageId } from "../ids/contract.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, SourceContributions } from "../snapshot/contract.js";
+
+/** One file's numbering: its nodes in identity order (preorder) and each node's identity. */
+export interface FileNumbering {
+  readonly nodes: readonly Node[];
+  readonly ids: ReadonlyMap<Node, NodeId>;
+}
+
+/** A file's numbering, or the resource refusal that stopped it before any node was captured; the limits it was made under. */
+export interface FileSyntaxEntry {
+  readonly limits: { readonly maximumSyntaxDepth: number; readonly maximumCapturedNodesPerModule: number };
+  readonly outcome: { readonly kind: "numbered"; readonly numbering: FileNumbering } | { readonly kind: "refused"; readonly diagnostic: Diagnostic };
+}
 
 export interface ProviderRegistration {
   readonly reference: ExtensionReference;
@@ -45,6 +58,7 @@ export class OpenedProgram {
   private readonly textByPath: ReadonlyMap<string, string>;
   private readonly roleRows: readonly PackageLibraryData[];
   private readonly contributionRows: SourceContributions;
+  private readonly syntaxRows = new Map<string, FileSyntaxEntry>();
 
   private constructor(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
     packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>, libraryData: readonly PackageLibraryData[],
@@ -73,4 +87,6 @@ export class OpenedProgram {
   static packageNames(program: OpenedProgram): ReadonlyMap<PackageId, string | null> { return program.nameByPackage; }
   /** The captured text of each file of the session, by path. */
   static texts(program: OpenedProgram): ReadonlyMap<string, string> { return program.textByPath; }
+  /** The numbering of each file captured so far, by path: made once per file of this program and kept with it. */
+  static syntax(program: OpenedProgram): Map<string, FileSyntaxEntry> { return program.syntaxRows; }
 }

@@ -1,6 +1,6 @@
 import type { Node, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
-import type { InvariantFailure, Result } from "../diag/contract.js";
-import { throwInvariant } from "../diag/index.js";
+import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
 import { nodeId, rawComponentId, rawSignatureId, rawSymbolId, rawTypeId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
@@ -9,6 +9,7 @@ import type {
   CaptureDeps, CheckedProgram, RawCallableAssociation, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawModule, RawModuleExport, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
+import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 
@@ -32,7 +33,18 @@ interface CaptureTables {
   readonly signatureIds: Map<Signature, RawSignatureId>;
 }
 
+/** The facts and edges a capture has admitted, and the first limit it met. */
+interface CaptureMeter {
+  facts: number;
+  edges: number;
+  refusal: Diagnostic | null;
+}
+
 interface CaptureScope {
+  readonly deps: CaptureDeps;
+  readonly program: CheckedProgram;
+  readonly path: string;
+  readonly meter: CaptureMeter;
   readonly module: ModuleId;
   readonly file: SourceFile;
   readonly checked: OpenedProgramView;
@@ -40,21 +52,63 @@ interface CaptureScope {
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly tables: CaptureTables;
-  readonly otherNodes: Map<SourceFile, ReadonlyMap<Node, NodeId>>;
 }
 
 type OpenedProgramView = ReturnType<typeof OpenedProgram.checked>;
 
-/** The preorder identities of a file's nodes, in the order HIR numbers them (the checker's child order). */
-function preorderOf(scope: Pick<CaptureScope, "checked">, file: SourceFile): ReadonlyMap<Node, NodeId> {
-  const ast = scope.checked.ast;
-  const ids = new Map<Node, NodeId>();
-  const visit = (node: Node): void => {
-    ids.set(node, nodeId(ids.size));
-    ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
-  };
-  visit(file);
-  return ids;
+const limitRefusal = (module: ModuleId, path: string, limit: string, maximum: number): Diagnostic =>
+  resourceLimitDiagnostic({ owner: "front", limit, maximum, site: { kind: "file", path }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } });
+
+/**
+ * The one numbering of a file's nodes (V-1): their preorder, made by one iterative walk. A module's own capture and every
+ * reference into another file use it; the syntax capture consumes it and checks, node by node, that it visits the nodes
+ * in this order, so the two cannot disagree silently. It is made once per file and kept on the opened program (V-2),
+ * whatever module asks, and never captures another file's syntax. The walk enforces the syntax-depth and node limits
+ * before each node is numbered; a file over either is refused, with that refusal kept, and nothing of it is numbered.
+ */
+function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: string, module: ModuleId): FileSyntaxEntry["outcome"] {
+  const cache = OpenedProgram.syntax(program);
+  const limits = { maximumSyntaxDepth: deps.navigationCapture.maximumSyntaxDepth, maximumCapturedNodesPerModule: deps.navigationCapture.maximumCapturedNodesPerModule };
+  const known = cache.get(path);
+  if (known !== undefined) {
+    if (known.limits.maximumSyntaxDepth !== limits.maximumSyntaxDepth || known.limits.maximumCapturedNodesPerModule !== limits.maximumCapturedNodesPerModule)
+      throw new TypeError("front: one opened program is captured under one set of navigation capture limits");
+    return known.outcome;
+  }
+  const keep = (outcome: FileSyntaxEntry["outcome"]): FileSyntaxEntry["outcome"] => { cache.set(path, { limits, outcome }); return outcome; };
+  const checked = OpenedProgram.checked(program);
+  const ast = checked.ast;
+  const file = checked.getSourceFile(path);
+  if (file === undefined) return throwInvariant(invariant("A file of the opened program has no source file."));
+  const nodes: Node[] = [];
+  const pending: { readonly node: Node; readonly depth: number }[] = [{ node: file, depth: 1 }];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    if (next.depth > limits.maximumSyntaxDepth) return keep({ kind: "refused", diagnostic: limitRefusal(module, path, "front.maximumSyntaxDepth", limits.maximumSyntaxDepth) });
+    if (nodes.length + 1 > limits.maximumCapturedNodesPerModule)
+      return keep({ kind: "refused", diagnostic: limitRefusal(module, path, "front.maximumCapturedNodesPerModule", limits.maximumCapturedNodesPerModule) });
+    nodes.push(next.node);
+    const children: Node[] = [];
+    ast.forEachChild(next.node, child => { if (child !== undefined) children.push(child); });
+    const depth = next.depth + 1;
+    for (let position = children.length - 1; position >= 0; position -= 1) {
+      const child = children[position];
+      if (child !== undefined) pending.push({ node: child, depth });
+    }
+  }
+  const numbering: FileNumbering = { nodes, ids: new Map(nodes.map((node, index) => [node, nodeId(index)])) };
+  return keep({ kind: "numbered", numbering });
+}
+
+/** Admits one more fact or edge, before it is added; the first one over its limit stops the capture with a refusal. */
+function admit(scope: CaptureScope, dimension: "facts" | "edges"): boolean {
+  if (scope.meter.refusal !== null) return false;
+  const maximum = dimension === "facts" ? scope.deps.navigationCapture.maximumCapturedFactsPerModule : scope.deps.navigationCapture.maximumCapturedEdgesPerModule;
+  if (scope.meter[dimension] + 1 > maximum) {
+    scope.meter.refusal = limitRefusal(scope.module, scope.path, dimension === "facts" ? "front.maximumCapturedFactsPerModule" : "front.maximumCapturedEdgesPerModule", maximum);
+    return false;
+  }
+  scope.meter[dimension] += 1;
+  return true;
 }
 
 function moduleOfFile(program: CheckedProgram, file: SourceFile, ast: OpenedProgramView["ast"]): ModuleId | undefined {
@@ -71,18 +125,18 @@ function referenceTo(scope: CaptureScope, program: CheckedProgram, declaration: 
     const own = scope.ownNodes.get(declaration);
     return own === undefined ? null : { module, node: own };
   }
-  let ids = scope.otherNodes.get(file);
-  if (ids === undefined) {
-    ids = preorderOf(scope, file);
-    scope.otherNodes.set(file, ids);
+  const other = fileNumberingOf(scope.deps, program, ast.getFileName(file), module);
+  if (other.kind === "refused") {
+    if (scope.meter.refusal === null) scope.meter.refusal = other.diagnostic;
+    return null;
   }
-  const other = ids.get(declaration);
-  return other === undefined ? null : { module, node: other };
+  const node = other.numbering.ids.get(declaration);
+  return node === undefined ? null : { module, node };
 }
 
 function component(scope: CaptureScope, root: RawNodeRef, path: readonly RawComponentStep[]): RawComponentId {
   const id = rawComponentId(scope.tables.components.length);
-  scope.tables.components.push({ id, root, path });
+  if (admit(scope, "facts")) scope.tables.components.push({ id, root, path });
   return id;
 }
 
@@ -136,7 +190,7 @@ function rawType(scope: CaptureScope, type: Type | undefined, position: RawCompo
   if (type === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
   const id = rawTypeId(scope.tables.types.length);
   const form = typeForm(scope, type);
-  scope.tables.types.push({
+  if (admit(scope, "facts")) scope.tables.types.push({
     id, component: position, authoredTypeNode, declaration: null, definitionOwner: null, definitionFacet: null,
     definitionParameters: available([]), alias: available(null), instantiatedBases: available([]), literal: available(null),
     primitive: notProvided(), form: available(form),
@@ -153,7 +207,7 @@ function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: Checker
     const reference = declaration === undefined ? null : referenceTo(scope, program, declaration);
     return reference === null ? [] : [reference];
   });
-  scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
+  if (admit(scope, "facts")) scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
   return id;
 }
 
@@ -175,7 +229,7 @@ function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: S
       type: rawType(scope, scope.checker.getTypeOfSymbol(symbol), position, null), acceptsOmission: false, initializer: null, passing: notProvided(),
     };
   });
-  scope.tables.signatures.push({
+  if (admit(scope, "facts")) scope.tables.signatures.push({
     id, target: null, owner, declaration, kind: "call", typeParameters: available([]), receiver: available(null), parameters,
     result: available(rawType(scope, scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null)),
     composition: null,
@@ -198,25 +252,35 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   OpenedProgram.modules(program).forEach((candidate, filePath) => { if (candidate === module) path = filePath; });
   const file = path === undefined ? undefined : checked.getSourceFile(path);
   if (path === undefined || file === undefined) throw new TypeError("front: the module is not a module of the opened program's snapshot");
+  if (checked.diagnostics.some(diagnostic => diagnostic !== undefined && diagnostic.file === file))
+    throw new TypeError("front: the conversion of a module's checker diagnostics waits for the checker's message accessor");
+  const own = fileNumberingOf(deps, program, path, module);
+  if (own.kind === "refused") return { kind: "refused", diagnostics: [own.diagnostic] };
+  const { nodes, ids: ownNodes } = own.numbering;
   const original = OpenedProgram.texts(program).get(path);
   const delivered = ast.getSourceText(file);
   if (original === undefined) return throwInvariant(invariant("A module of the opened program has no captured text."));
   const displacement = original.length - delivered.length;
   if (displacement < 0 || original.slice(displacement) !== delivered) return throwInvariant(invariant("The checker's text of a module does not join its captured text."));
-  if (checked.diagnostics.some(diagnostic => diagnostic !== undefined && diagnostic.file === file))
-    throw new TypeError("front: the conversion of a module's checker diagnostics waits for the checker's message accessor");
-  const nodes: Node[] = [];
-  const context: SyntaxCaptureContext = { ast, file, module, displacement, next: node => { nodes.push(node); return nodeId(nodes.length - 1); } };
+  // The syntax capture takes each node's identity from the numbering, and must reach the nodes in its order.
+  let visited = 0;
+  const context: SyntaxCaptureContext = { ast, file, module, displacement, next: node => {
+    const id = ownNodes.get(node);
+    if (id === undefined || id !== nodeId(visited)) return throwInvariant(invariant("The syntax capture visits a module's nodes in another order than its numbering."));
+    visited += 1;
+    return id;
+  } };
   const tree = captureNode(context, file, null);
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
-  const ownNodes = new Map<Node, NodeId>(nodes.map((node, index) => [node, nodeId(index)]));
+  if (visited !== nodes.length) return throwInvariant(invariant("The syntax capture reaches fewer nodes than the module's numbering."));
   const queries = checked.getSourceFileQueries(file);
-  const scope: CaptureScope = { module, file, checked, checker: queries.checker, shape: queries.typeShape, ownNodes,
-    tables: { types: [], components: [], signatures: [], symbols: [], symbolIds: new Map(), signatureIds: new Map() }, otherNodes: new Map() };
+  const scope: CaptureScope = { deps, program, path, meter: { facts: 0, edges: 0, refusal: null }, module, file, checked, checker: queries.checker,
+    shape: queries.typeShape, ownNodes, tables: { types: [], components: [], signatures: [], symbols: [], symbolIds: new Map(), signatureIds: new Map() } };
   const views: RawCheckerViews[] = [];
   const references: RawReference[] = [];
   const associations: RawCallableAssociation[] = [];
-  nodes.forEach((node, index) => {
+  for (const [index, node] of nodes.entries()) {
+    if (scope.meter.refusal !== null) break;
     const reference: RawNodeRef = { module, node: nodeId(index) };
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
@@ -224,17 +288,18 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName) {
       const contextual = scope.checker.getContextualType(node);
       const symbol = scope.checker.getSymbolAtLocation(node);
-      views.push({
+      const view: RawCheckerViews = {
         node: reference,
         read: available(rawType(scope, scope.checker.getTypeAtLocation(node), component(scope, reference, []), null)),
         declared: available(null),
         contextual: available(contextual === undefined ? null : rawType(scope, contextual, component(scope, reference, []), null)),
         symbol: available(symbol === undefined ? null : rawSymbol(scope, program, symbol)),
-      });
+      };
+      if (admit(scope, "facts")) views.push(view);
       if (kind === "KindIdentifier" && symbol !== undefined) {
         scope.checker.getSymbolDeclarations(symbol).forEach(declaration => {
           const target = declaration === undefined ? null : referenceTo(scope, program, declaration);
-          if (target !== null) references.push({ occurrence: reference, meaning: "value", declaration: target, module: target.module,
+          if (target !== null && admit(scope, "edges")) references.push({ occurrence: reference, meaning: "value", declaration: target, module: target.module,
             project: target.module === module || OpenedProgram.modules(program).has(ast.getFileName(ast.getSourceFile(declaration) ?? file)) });
         });
       }
@@ -252,25 +317,27 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
         return id === undefined ? [] : [{ module, node: id }];
       });
       const bodyReference = body === undefined ? undefined : ownNodes.get(body);
-      associations.push({
+      if (admit(scope, "facts")) associations.push({
         declaration: reference, advertised: [advertised],
         body: bodyReference === undefined ? notProvided() : available({ module, node: bodyReference }),
         classParameters: available([]), advertisedParameters: [{ signature: advertised, parameters: available(parameters) }],
         bodyParameters: available(parameters), captures: available([]),
       });
     }
-  });
+  }
   const empty = closedInventoryEmpty(program);
-  const core = [...ownNodes.values()].map(id => coreFacts({ module, node: id }, empty));
+  const core = [...ownNodes.values()].flatMap(id => admit(scope, "facts") ? [coreFacts({ module, node: id }, empty)] : []);
   const exports: RawModuleExport[] = [];
   const moduleSymbol = scope.checker.getSymbolAtLocation(file);
   if (moduleSymbol !== undefined) scope.checker.getExportsOfModule(moduleSymbol).forEach(exported => {
     if (exported === undefined) return;
     scope.checker.getSymbolDeclarations(exported).forEach(declaration => {
       const target = declaration === undefined ? null : referenceTo(scope, program, declaration);
-      if (target !== null) exports.push({ name: scope.checker.getSymbolName(exported), declaration: target, module: target.module });
+      if (target !== null && admit(scope, "edges")) exports.push({ name: scope.checker.getSymbolName(exported), declaration: target, module: target.module });
     });
   });
+  // A capture that met a limit returns its refusal and nothing of what it read.
+  if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: [scope.meter.refusal] };
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: [],

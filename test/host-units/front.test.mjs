@@ -899,3 +899,61 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   assert.deepEqual(outcomes.keyword.sort(), [...keywordFiles].sort());
   assert.equal(outcomes.type.length, 31, "every other file of the 42 is refused at the checker-type frontier");
 });
+
+// K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
+// Expectations written before the run. add has 18 nodes and depth 6 (SourceFile, FunctionDeclaration, Block, ReturnStatement,
+// BinaryExpression, Identifier). Its facts: the signature with its two parameters (3 each), its result (2) and its row (1), the
+// association (1), three annotations (2 each), the views of a, b (3 each) and a + b (5), and 18 core rows: 45. Its edges: the
+// references of a and b and the export of add: 3.
+test("capture limits: nodes, syntax depth, facts and edges are each refused at zero and one under the count and accepted at the exact count, as one resource refusal and no partial result", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const refusal = (limit, maximum) => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit, maximum,
+    site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
+  const under = (name, value) => {
+    const { deps, program } = openedModule(addSource);
+    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [name]: value } }, program, module);
+  };
+  for (const [name, limit, exact] of [["maximumCapturedNodesPerModule", "front.maximumCapturedNodesPerModule", 18], ["maximumSyntaxDepth", "front.maximumSyntaxDepth", 6],
+    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 45], ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 3]]) {
+    for (const value of [0, exact - 1]) assert.deepEqual(under(name, value), refusal(limit, value), `${name} = ${value}`);
+    assert.equal(under(name, exact).kind, "ok", `${name} = ${exact}`);
+  }
+});
+
+test("one numbering for every file (V-1, V-2): a reference into another module names the node that module's own capture names, two modules share one numbering of a file they both reach, a repeated capture is equal, and one program keeps one set of limits", () => {
+  const globals = "declare var limit: number;\ndeclare var second: number;\ndeclare var third: number;\ndeclare var fourth: number;\n";
+  const sourceFiles = { "a.ts": "export function f(x: number): number { return x + limit + Infinity; }\n",
+    "b.ts": "export function g(y: number): number { return y + limit + Infinity; }\n", "globals.d.ts": globals };
+  const { deps, program } = openAndCapture(projectSnapshot({ sourceFiles, libraries: bundled() }));
+  const [a, b, c] = ["a.ts", "b.ts", "globals.d.ts"].map(name => moduleOf(packageOf("/project"), `src/${name}`));
+  const library = moduleOf(packageOf("/checker"), "lib.es5.d.ts");
+  const capturedA = front.captureModule(deps, program, a);
+  const capturedB = front.captureModule(deps, program, b);
+  const capturedC = front.captureModule(deps, program, c);
+  assert.deepEqual([capturedA.kind, capturedB.kind, capturedC.kind], ["ok", "ok", "ok"]);
+  const declarationsOf = raw => raw.references.filter(reference => reference.declaration.module !== raw.module).map(reference => reference.declaration);
+  const limitDeclaration = ids => ids.find(node => node.kind === "VariableDeclaration" && node.name.text === "limit").id;
+  const hirModule = import("../../packages/host/dist/ir-hir/index.js");
+  return hirModule.then(hir => {
+    const ownLimit = limitDeclaration(hir.indexSyntaxTree(capturedC.value.tree));
+    const intoA = declarationsOf(capturedA.value);
+    assert.deepEqual(intoA.map(reference => reference.module), [c, library]);
+    assert.deepEqual(intoA[0], { module: c, node: ownLimit }, "A's reference into the globals file is the node of that file's own capture");
+    assert.deepEqual(declarationsOf(capturedB.value), intoA, "B reaches the same nodes through the same numbering");
+    assert.deepEqual(front.captureModule(deps, program, a), capturedA, "a repeated capture of one program is equal");
+    assert.throws(() => front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedNodesPerModule: 99999 } }, program, a),
+      { name: "TypeError", message: "front: one opened program is captured under one set of navigation capture limits" });
+  });
+});
+
+test("a limit met in another file refuses the capture that needed it: the referenced file's node count over the limit, with that file's own refusal", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const globals = "declare var limit: number;\ndeclare var second: number;\ndeclare var third: number;\ndeclare var fourth: number;\n";
+  const sourceFiles = { "a.ts": "export function f(x: number): number { return x + limit; }\n", "globals.d.ts": globals };
+  const { deps, program } = openAndCapture(projectSnapshot({ sourceFiles, libraries: bundled() }));
+  const [a, c] = ["a.ts", "globals.d.ts"].map(name => moduleOf(packageOf("/project"), `src/${name}`));
+  const tight = { ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedNodesPerModule: 20 } };
+  assert.deepEqual(front.captureModule(tight, program, a), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedNodesPerModule",
+    maximum: 20, site: { kind: "file", path: "/project/src/globals.d.ts" }, unit: { request: { query: "captureModule", key: c }, position: { kind: "result" } } })] });
+});
