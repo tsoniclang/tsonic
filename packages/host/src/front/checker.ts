@@ -71,7 +71,6 @@ export function extensionReferences(table: CheckerExtensions): readonly Extensio
 /** What one compiler session is created from, computed from the snapshot alone. */
 export interface SessionInputs {
   readonly currentDirectory: string;
-  readonly configurationFile: string;
   readonly files: ReadonlyMap<string, string>;
   readonly rootFiles: readonly string[];
   readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
@@ -87,9 +86,8 @@ export interface SessionInputs {
  * checker is read. Whether that list is closed under the libraries' own references is stated by the import
  * preparation's reference rows and is not decided here.
  *
- * The session's configuration is Front's: it stands at the project root under the checker's configuration file
- * name, and a captured file of that path is not a file of the session, so that no configuration of a project
- * replaces the option table.
+ * A configuration file the project captured is an ordinary file of the session: the session is opened in the
+ * checker's options mode, which reads no file as configuration (SDK 86b0512f, K-3265).
  */
 export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
   const modules = new Map<string, ModuleId>();
@@ -105,9 +103,8 @@ export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
     if (entry.id === snapshot.packages.rootPackage) projectRoot = entry.packageRoot;
   });
   if (projectRoot === undefined) throw new TypeError("front: the snapshot's root package is not among its packages");
-  const configurationFile = `${projectRoot}/tsconfig.json`;
   const files = new Map<string, string>();
-  snapshot.packages.files.forEach(file => { if (file.path !== configurationFile) files.set(file.path, file.text); });
+  snapshot.packages.files.forEach(file => { files.set(file.path, file.text); });
   const rootFiles: string[] = [];
   const rooted = new Set<string>();
   const root = (path: string | undefined): void => {
@@ -122,12 +119,13 @@ export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
   snapshot.contributions.declarationPolicy.bundledLibraries.forEach(module => { root(paths.get(module)); });
   const options: Record<string, boolean | string | readonly string[]> = {};
   optionSet(snapshot.contributions.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
-  return ({ currentDirectory: projectRoot, configurationFile, files, rootFiles, options, modules, packageNames });
+  return ({ currentDirectory: projectRoot, files, rootFiles, options, modules, packageNames });
 }
 
 /**
- * One compiler session on the inputs above and the extension table. A diagnostic that names no file, or names the
- * session's own configuration (an option the checker rejects), belongs to no module: the program is not opened.
+ * One compiler session on the inputs above and the extension table, in the checker's options mode: the options are
+ * the table's and no file of the session is read as configuration, whatever the snapshot captured. A diagnostic that
+ * names no file (an option the checker rejects among them) belongs to no module: the program is not opened.
  * The import preparation is an input of the run and is not read here.
  */
 export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, preparation: ImportPreparation): Result<CheckedProgram> {
@@ -135,7 +133,6 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   const inputs = sessionInputs(snapshot);
   const session = createCompilerSessionFromFiles({
     currentDirectory: inputs.currentDirectory,
-    configFileName: inputs.configurationFile,
     files: inputs.files,
     rootFiles: inputs.rootFiles,
     compilerOptions: inputs.options,
@@ -150,7 +147,7 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   const checked = session.checkSource();
   const sessionLevel = [
     ...session.getDiagnostics("all").map(diagnostic => requirePresent(diagnostic, invariant("The checker returned an empty diagnostic.")))
-      .filter(diagnostic => diagnostic.file === undefined || checked.ast.getFileName(diagnostic.file) === inputs.configurationFile)
+      .filter(diagnostic => diagnostic.file === undefined)
       .map(diagnostic => `TS${diagnostic.code}`),
     ...checked.extensionDiagnostics.filter(diagnostic => diagnostic.nodeOrSpan === undefined)
       .map(diagnostic => `${diagnostic.extensionId}:${diagnostic.extensionCode}`),

@@ -4,7 +4,7 @@
 import type * as Hir from "../ir-hir/contract.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SdkNodeList, SyntaxCaptureContext, SyntaxNodeOf } from "./syntax-support.js";
-import { attributesToken, checkJsDirective, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, pragmas, prefixOperator, rangeOf, scriptKind, typeOperator, unnamedFlags } from "./syntax-support.js";
+import { attributesToken, checkJsDirective, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, pragmas, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";
 
 type Guard<T extends Hir.SyntaxNode<Hir.SyntaxPhase>> = (node: Hir.SyntaxNode<Hir.SyntaxPhase>) => node is T;
 
@@ -1249,7 +1249,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "StringLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }
     case "KindNumericLiteral":
@@ -1259,7 +1259,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "NumericLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }
     case "KindBigIntLiteral":
@@ -1269,7 +1269,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "BigIntLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }
     case "KindRegularExpressionLiteral":
@@ -1279,7 +1279,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       return { kind: "RegularExpressionLiteral", ...header, text: text_, tokenFlags: tokenFlags_, tsonic: null };
     }
     case "KindNoSubstitutionTemplateLiteral":
@@ -1289,9 +1289,9 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       const rawText_ = view.RawText;
-      const templateFlags_ = unnamedFlags(view.TemplateFlags, "template flags");
+      const templateFlags_ = tokenFlags(view.TemplateFlags);
       return { kind: "NoSubstitutionTemplateLiteral", ...header, text: text_, tokenFlags: tokenFlags_, rawText: rawText_, templateFlags: templateFlags_, tsonic: null };
     }
     case "KindBinaryExpression":
@@ -1889,9 +1889,9 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       const rawText_ = view.RawText;
-      const templateFlags_ = unnamedFlags(view.TemplateFlags, "template flags");
+      const templateFlags_ = tokenFlags(view.TemplateFlags);
       return { kind: "TemplateHead", ...header, text: text_, tokenFlags: tokenFlags_, rawText: rawText_, templateFlags: templateFlags_, tsonic: null };
     }
     case "KindTemplateMiddle":
@@ -1901,9 +1901,9 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       const rawText_ = view.RawText;
-      const templateFlags_ = unnamedFlags(view.TemplateFlags, "template flags");
+      const templateFlags_ = tokenFlags(view.TemplateFlags);
       return { kind: "TemplateMiddle", ...header, text: text_, tokenFlags: tokenFlags_, rawText: rawText_, templateFlags: templateFlags_, tsonic: null };
     }
     case "KindTemplateTail":
@@ -1913,9 +1913,9 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       const rawText_ = view.RawText;
-      const templateFlags_ = unnamedFlags(view.TemplateFlags, "template flags");
+      const templateFlags_ = tokenFlags(view.TemplateFlags);
       return { kind: "TemplateTail", ...header, text: text_, tokenFlags: tokenFlags_, rawText: rawText_, templateFlags: templateFlags_, tsonic: null };
     }
     case "KindTemplateLiteralType":
@@ -2063,7 +2063,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const text_ = view.Text;
-      const tokenFlags_ = unnamedFlags(view.TokenFlags, "token flags");
+      const tokenFlags_ = tokenFlags(view.TokenFlags);
       const containsOnlyTriviaWhiteSpaces_ = view.ContainsOnlyTriviaWhiteSpaces;
       return { kind: "JsxText", ...header, text: text_, tokenFlags: tokenFlags_, containsOnlyTriviaWhiteSpaces: containsOnlyTriviaWhiteSpaces_, tsonic: null };
     }

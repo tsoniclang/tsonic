@@ -1,4 +1,10 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
+import {
+  CommentDirectiveKindExpectError, CommentDirectiveKindIgnore, CommentDirectiveKindUnknown, LanguageVariantJSX, LanguageVariantStandard,
+  NodeFlagsLet, NodeFlagsConst, NodeFlagsUsing, NodeFlagsOptionalChain, NodeFlagsDisallowInContext, NodeFlagsYieldContext, NodeFlagsDecoratorContext, NodeFlagsAwaitContext, NodeFlagsDisallowConditionalTypesContext, NodeFlagsThisNodeHasError, NodeFlagsJavaScriptFile, NodeFlagsThisNodeOrAnySubNodesHasError, NodeFlagsHasJSDoc, NodeFlagsJSDoc, NodeFlagsAmbient, NodeFlagsInWithStatement, NodeFlagsJsonFile, NodeFlagsIdentifierHasExtendedUnicodeEscape, NodeFlagsIdentifierIsInJSDocNamespace, NodeFlagsNestedNamespace, NodeFlagsAwaitUsing,
+  ScriptKindDeferred, ScriptKindExternal, ScriptKindJS, ScriptKindJSON, ScriptKindJSX, ScriptKindTS, ScriptKindTSX, ScriptKindUnknown,
+  TokenFlagsPrecedingLineBreak, TokenFlagsPrecedingJSDocComment, TokenFlagsUnterminated, TokenFlagsExtendedUnicodeEscape, TokenFlagsScientific, TokenFlagsOctal, TokenFlagsHexSpecifier, TokenFlagsBinarySpecifier, TokenFlagsOctalSpecifier, TokenFlagsContainsSeparator, TokenFlagsUnicodeEscape, TokenFlagsContainsInvalidEscape, TokenFlagsHexEscape, TokenFlagsContainsLeadingZero, TokenFlagsContainsInvalidSeparator, TokenFlagsPrecedingJSDocLeadingAsterisks, TokenFlagsSingleQuote, TokenFlagsPrecedingJSDocWithDeprecated, TokenFlagsPrecedingJSDocWithSeeOrLink,
+} from "@tsonic/tsts";
 import type * as Hir from "../ir-hir/contract.js";
 import type { ModuleId, NodeId, Origin } from "../ids/contract.js";
 
@@ -47,29 +53,46 @@ function originOf(context: SyntaxCaptureContext, node: SyntaxNodeOf): Origin {
   return { module: context.module, start: authored.start + context.displacement, length: authored.end - authored.start, derived: [] };
 }
 
-/** The header every HIR syntax node has. Node flags are not yet readable by name from the checker (an SDK need). */
+/** The header every HIR syntax node has. */
 export function headerOf(context: SyntaxCaptureContext, node: SyntaxNodeOf, id: NodeId, parent: NodeId | null): Hir.NodeHeader {
   return {
-    id, origin: originOf(context, node), parent, flags: unnamedFlags(node.Flags, "node flags"),
+    id, origin: originOf(context, node), parent, flags: syntaxFlags(node.Flags),
     loc: originalRange(context, context.ast.pos(node), context.ast.end(node)),
   };
 }
 
 /**
- * A flag set the checker states as a number whose names it does not export. An empty set is the empty list; a
- * non-empty one cannot be named here and is a defect until the checker exports the names.
+ * A node's flags in HIR's vocabulary, read with the checker's own exported flag constants. `await using` is the
+ * checker's combination of the const and using flags and is HIR's one flag `AwaitUsing`. The checker's other
+ * flags (reparsing, synthesis, reachability and the like) are not in HIR's vocabulary and are not carried.
  */
-export function unnamedFlags(value: number, what: string): readonly never[] {
-  return value === 0 ? [] : defect(`${what} ${value} cannot be named: the checker does not export their names`);
+export function syntaxFlags(value: number): readonly Hir.SyntaxFlag[] {
+  const flags: Hir.SyntaxFlag[] = [];
+  const awaitUsing = (value & NodeFlagsAwaitUsing) === NodeFlagsAwaitUsing;
+  const single: readonly (readonly [Hir.SyntaxFlag, number])[] = [
+    ["Let", NodeFlagsLet], ["Const", NodeFlagsConst], ["Using", NodeFlagsUsing], ["OptionalChain", NodeFlagsOptionalChain], ["DisallowInContext", NodeFlagsDisallowInContext], ["YieldContext", NodeFlagsYieldContext], ["DecoratorContext", NodeFlagsDecoratorContext], ["AwaitContext", NodeFlagsAwaitContext], ["DisallowConditionalTypesContext", NodeFlagsDisallowConditionalTypesContext], ["ThisNodeHasError", NodeFlagsThisNodeHasError], ["JavaScriptFile", NodeFlagsJavaScriptFile], ["ThisNodeOrAnySubNodesHasError", NodeFlagsThisNodeOrAnySubNodesHasError], ["HasJSDoc", NodeFlagsHasJSDoc], ["JSDoc", NodeFlagsJSDoc], ["Ambient", NodeFlagsAmbient], ["InWithStatement", NodeFlagsInWithStatement], ["JsonFile", NodeFlagsJsonFile], ["IdentifierHasExtendedUnicodeEscape", NodeFlagsIdentifierHasExtendedUnicodeEscape], ["IdentifierIsInJSDocNamespace", NodeFlagsIdentifierIsInJSDocNamespace], ["NestedNamespace", NodeFlagsNestedNamespace]];
+  for (const [name, bit] of single) {
+    if ((name === "Const" || name === "Using") && awaitUsing) continue;
+    if ((value & bit) !== 0) flags.push(name);
+  }
+  if (awaitUsing) flags.push("AwaitUsing");
+  return flags;
+}
+
+/** A literal's token or template flags in HIR's vocabulary, read with the checker's own exported constants. */
+export function tokenFlags(value: number): readonly Hir.TokenFlag[] {
+  const named: readonly (readonly [Hir.TokenFlag, number])[] = [
+    ["PrecedingLineBreak", TokenFlagsPrecedingLineBreak], ["PrecedingJSDocComment", TokenFlagsPrecedingJSDocComment], ["Unterminated", TokenFlagsUnterminated], ["ExtendedUnicodeEscape", TokenFlagsExtendedUnicodeEscape], ["Scientific", TokenFlagsScientific], ["Octal", TokenFlagsOctal], ["HexSpecifier", TokenFlagsHexSpecifier], ["BinarySpecifier", TokenFlagsBinarySpecifier], ["OctalSpecifier", TokenFlagsOctalSpecifier], ["ContainsSeparator", TokenFlagsContainsSeparator], ["UnicodeEscape", TokenFlagsUnicodeEscape], ["ContainsInvalidEscape", TokenFlagsContainsInvalidEscape], ["HexEscape", TokenFlagsHexEscape], ["ContainsLeadingZero", TokenFlagsContainsLeadingZero], ["ContainsInvalidSeparator", TokenFlagsContainsInvalidSeparator], ["PrecedingJSDocLeadingAsterisks", TokenFlagsPrecedingJSDocLeadingAsterisks], ["SingleQuote", TokenFlagsSingleQuote], ["PrecedingJSDocWithDeprecated", TokenFlagsPrecedingJSDocWithDeprecated], ["PrecedingJSDocWithSeeOrLink", TokenFlagsPrecedingJSDocWithSeeOrLink]];
+  return named.filter(([, bit]) => (value & bit) !== 0).map(([name]) => name);
 }
 
 /**
  * The keyword token of a heritage clause, import attributes, a meta property or a module declaration. The checker
- * states it as a kind number whose name is public only from the SDK's kind names, which this vendored SDK does not
- * export: refused until it is vendored (W3's export, K-3297). Never read from the source words.
+ * states it as a kind number; the SDK exports kind names only for nodes (AstReader.kindName), not for kind numbers:
+ * refused until it does (K-3297). Never read from the source words.
  */
 function keywordNotReadable(context: SyntaxCaptureContext, node: SyntaxNodeOf): never {
-  return defect(`the keyword of a ${context.ast.kindName(node)} node needs the SDK's public kind names (W3's export, not yet vendored)`);
+  return defect(`the keyword of a ${context.ast.kindName(node)} node needs a public name of the checker's kind numbers, which the SDK does not export`);
 }
 
 export function heritageToken(context: SyntaxCaptureContext, node: SyntaxNodeOf): "ExtendsKeyword" | "ImplementsKeyword" {
@@ -122,23 +145,25 @@ export function phaseModifier(value: number): null {
   return value === 0 ? null : defect("an import phase modifier cannot be named: the checker does not export kind names by number");
 }
 
-/**
- * A source file's language variant, script kind and comment directive kinds: the checker states them as numbers
- * whose names its public entry exports only from W3's export (ScriptKind, LanguageVariant, CommentDirectiveKind and
- * their names), not yet vendored. No copied table: refused until it is vendored (K-3297, K-3302).
- */
+/** A source file's language variant, read with the checker's own exported constants. */
 export function languageVariant(value: number): Hir.SourceFile<Hir.SyntaxPhase>["languageVariant"] {
-  return defect(`the language variant ${value} needs the SDK's public LanguageVariant names (W3's export, not yet vendored)`);
+  return value === LanguageVariantStandard ? "Standard" : value === LanguageVariantJSX ? "JSX" : defect(`the checker states an unknown language variant ${value}`);
 }
 
+/** A source file's script kind, read with the checker's own exported constants. */
 export function scriptKind(value: number): Hir.SourceFile<Hir.SyntaxPhase>["scriptKind"] {
-  return defect(`the script kind ${value} needs the SDK's public ScriptKind names (W3's export, not yet vendored)`);
+  const kinds: readonly (readonly [Hir.SourceFile<Hir.SyntaxPhase>["scriptKind"], number])[] = [["Unknown", ScriptKindUnknown], ["JS", ScriptKindJS],
+    ["JSX", ScriptKindJSX], ["TS", ScriptKindTS], ["TSX", ScriptKindTSX], ["External", ScriptKindExternal], ["JSON", ScriptKindJSON], ["Deferred", ScriptKindDeferred]];
+  const found = kinds.find(([, kind]) => kind === value);
+  return found === undefined ? defect(`the checker states an unknown script kind ${value}`) : found[0];
 }
 
+/** A source file's comment directives, their kinds read with the checker's own exported constants. */
 export function commentDirectives(context: SyntaxCaptureContext,
   directives: readonly { readonly Loc: { readonly pos: number; readonly end: number }; readonly Kind: number }[]): readonly Hir.CommentDirective[] {
-  return directives.length === 0 ? []
-    : defect(`a comment directive at ${rangeOf(context, directives[0]?.Loc ?? { pos: 0, end: 0 }).pos} needs the SDK's public CommentDirectiveKind names (W3's export, not yet vendored)`);
+  return directives.map(directive => ({ loc: rangeOf(context, directive.Loc),
+    kind: directive.Kind === CommentDirectiveKindExpectError ? "ExpectError" : directive.Kind === CommentDirectiveKindIgnore ? "Ignore"
+      : directive.Kind === CommentDirectiveKindUnknown ? "Unknown" : defect(`the checker states an unknown comment directive kind ${directive.Kind}`) }));
 }
 
 /** Pragmas of a file: none is the only form read here so far. */

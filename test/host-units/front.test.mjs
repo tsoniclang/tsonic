@@ -348,7 +348,7 @@ test("a program file that is no module of the snapshot is an invariant failure; 
  */
 function sessionDiagnostics(snapshot) {
   const inputs = checkerModule.sessionInputs(snapshot);
-  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, configFileName: inputs.configurationFile, files: inputs.files,
+  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
     rootFiles: inputs.rootFiles, compilerOptions: inputs.options, useCaseSensitiveFileNames: true });
   const checked = session.checkSource();
   return session.getDiagnostics("all").map(diagnostic => `TS${diagnostic.code} ${diagnostic.file === undefined ? "(no file)" : checked.ast.getFileName(diagnostic.file)}`);
@@ -493,19 +493,19 @@ test("F-7: the real checker accepts the whole option set, and a name it does not
   for (const policy of ["none", "package-contract"]) {
     assert.deepEqual(checkedUnder(files, { policy }), { diagnostics: [], notSupplied: 0, files: [main, "/project/src/util.mts"] }, policy);
   }
-  assert.deepEqual(checkedUnder(files, { changes: { noUncheckedIndexAccess: true } }).diagnostics, ["TS5023 /project/tsconfig.json"],
+  assert.deepEqual(checkedUnder(files, { changes: { noUncheckedIndexAccess: true } }).diagnostics, ["TS5023 (no file)"],
     "so the empty list above states that every name of the table is an option of this checker");
 });
 
 // For each row: one program, its checked result under the table, and under the opposite value of that row alone.
 const rowCases = [
   { row: "module", opposite: "esnext", files: { [main]: "import { twice } from \"./util\";\nexport const t = twice(1);\n", ...utility },
-    table: ["TS2835 /project/src/main.mts"], other: ["TS2835 /project/src/main.mts", "TS5110 /project/tsconfig.json"] },
+    table: ["TS2835 /project/src/main.mts"], other: ["TS2835 /project/src/main.mts", "TS5110 (no file)"] },
   { row: "moduleResolution", opposite: "bundler", files: { [main]: "import { twice } from \"./util\";\nexport const t = twice(1);\n", ...utility },
-    table: ["TS2835 /project/src/main.mts"], other: ["TS2307 /project/src/main.mts", "TS5095 /project/tsconfig.json", "TS5109 /project/tsconfig.json"] },
+    table: ["TS2835 /project/src/main.mts"], other: ["TS2307 /project/src/main.mts", "TS5095 (no file)", "TS5109 (no file)"] },
   { row: "target", opposite: "es2019", files: { [main]: "export const big = 1n;\n" }, table: [], other: ["TS2737 /project/src/main.mts"] },
   { row: "strict", opposite: false, files: { [main]: "export const n: number = null;\n" }, table: ["TS2322 /project/src/main.mts"], other: [] },
-  { row: "noEmit", opposite: false, files: { [main]: "export const n: number = 1;\n" }, table: [], other: ["TS5096 /project/tsconfig.json"] },
+  { row: "noEmit", opposite: false, files: { [main]: "export const n: number = 1;\n" }, table: [], other: ["TS5096 (no file)"] },
   { row: "noLib", opposite: false, files: { [main]: "export const m = new Map<string, number>();\n" }, libraries: [],
     table: ["TS2318 (no file)", "TS2583 /project/src/main.mts"], other: [], otherReadsInstalledLibraries: true },
   { row: "allowImportingTsExtensions", opposite: false, files: { [main]: "import { twice } from \"./util.mts\";\nexport const t = twice(1);\n", ...utility },
@@ -525,7 +525,7 @@ const rowCases = [
   { row: "esModuleInterop", opposite: false,
     files: { [main]: "import { n } from \"./a.cjs\";\nexport const m = n;\n", "/project/src/a.d.cts": "import v from \"./lib.cjs\";\nexport declare const n: typeof v;\n",
       "/project/src/lib.d.cts": "declare const v: { n: number };\nexport = v;\n" },
-    table: [], other: ["TS5108 /project/tsconfig.json"] },
+    table: [], other: ["TS5108 (no file)"] },
   { row: "resolveJsonModule", opposite: true,
     files: { [main]: "import data from \"./data.json\" with { type: \"json\" };\nexport const d = data;\n", "/project/src/data.json": "{ \"a\": 1 }\n" },
     table: ["TS2732 /project/src/main.mts"], other: [], otherFiles: ["/project/src/data.json", main] },
@@ -576,20 +576,21 @@ test("a source module of a second captured package is checked like any other: no
     "the opposite: with an emission root the checker refuses the second package's source, which is why the table has no such row");
 });
 
-test("the session's configuration is Front's: a configuration file captured at the project root is not a file of the session and changes nothing", () => {
+test("the session's configuration is Front's: a configuration file captured at the project root is an ordinary file of the session and changes nothing, because the session is in the checker's options mode", () => {
   const sourceFiles = { "main.mts": "export const n: number = null;\n" };
   const projectConfiguration = "{ \"compilerOptions\": { \"strict\": false, \"noLib\": false }, \"files\": [\"src/main.mts\"] }\n";
   const snapshot = projectSnapshot({ sourceFiles, libraries: bundled(),
     extraFiles: { "/project/tsconfig.json": projectConfiguration, "/project/src/tsconfig.json": "{ \"compilerOptions\": { \"strict\": false } }\n" } });
   const inputs = checkerModule.sessionInputs(snapshot);
-  assert.equal(inputs.configurationFile, "/project/tsconfig.json");
-  assert.equal(inputs.files.has("/project/tsconfig.json"), false);
-  assert.equal(inputs.files.has("/project/src/tsconfig.json"), true, "every other captured file is a file of the session");
+  assert.equal(inputs.files.get("/project/tsconfig.json"), projectConfiguration, "the captured bytes are in the session");
+  assert.equal(inputs.files.has("/project/src/tsconfig.json"), true, "as is every other captured file");
   assert.deepEqual(sessionDiagnostics(snapshot), ["TS2322 /project/src/main.mts"], "strict, from the table");
   assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot), "and no library of the installed checker is a program file");
-  const given = checkedUnder({ [main]: sourceFiles["main.mts"], "/project/tsconfig.json": projectConfiguration });
-  assert.deepEqual({ diagnostics: given.diagnostics, readsInstalledLibraries: given.notSupplied > 0 }, { diagnostics: [], readsInstalledLibraries: true },
-    "the opposite: a session that is given the project's file takes its options from it, not from the table");
+  const configured = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", configFileName: "/project/tsconfig.json",
+    files: new Map([[main, sourceFiles["main.mts"]], ["/project/tsconfig.json", projectConfiguration]]), useCaseSensitiveFileNames: true });
+  const configuredChecked = configured.checkSource();
+  assert.deepEqual({ diagnostics: configured.getDiagnostics("all").length, readsInstalledLibraries: configuredChecked.getSourceFiles().some(file => !configuredChecked.ast.getFileName(file).startsWith("/project/")) },
+    { diagnostics: 0, readsInstalledLibraries: true }, "the opposite: the checker's configuration mode, given the file by name, takes its options from it");
 });
 
 test("a module is its captured path: one text captured under two paths is two modules with distinct identities, and link preservation is no option of the table", () => {
@@ -690,9 +691,8 @@ function lowerDepsFor(definitions, interner, sourceText) {
   };
 }
 
-const sdkNamesPending = "waits for the SDK's public ScriptKind and LanguageVariant names (W3's export 4afd8286, to be vendored): until then every source file's capture is refused (K-3297, K-3302)";
 
-test("checkpoint 1: add is opened through the checker and the snapshot, captured, lowered by Front's production operations to HIR the HIR verifier accepts, and equals the independently written expectation", { todo: sdkNamesPending }, async () => {
+test("checkpoint 1: add is opened through the checker and the snapshot, captured, lowered by Front's production operations to HIR the HIR verifier accepts, and equals the independently written expectation", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const { deps, program, module } = checkpointModule(addSource);
@@ -795,7 +795,7 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   assert.deepEqual(front.lowerModule(lowerDepsFor(definitionsAgain.value, types.createTypeInterner(), addSource), rawAgain.value).value, value);
 });
 
-test("checkpoint 1, the development frontier: a module holding a kind whose checked annotation is not written is refused at once by the one check, never lowered in part", { todo: sdkNamesPending }, async () => {
+test("checkpoint 1, the development frontier: a module holding a kind whose checked annotation is not written is refused at once by the one check, never lowered in part", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const sourceText = "export function negate(a: number): number { return -a; }\n";
   const { deps, program, module } = checkpointModule(sourceText);
@@ -806,8 +806,3 @@ test("checkpoint 1, the development frontier: a module holding a kind whose chec
     { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression" });
 });
 
-test("until the SDK's public names are vendored, a source file's capture is refused naming the export it waits on, never filled from a copied table", () => {
-  const { deps, program, module } = checkpointModule(addSource);
-  assert.throws(() => front.captureModule(deps, program, module),
-    { name: "TypeError", message: "front: the language variant 0 needs the SDK's public LanguageVariant names (W3's export, not yet vendored)" });
-});
