@@ -94,6 +94,7 @@ export type InvariantOwner =
   | "query"
   | "libraries"
   | "snapshot"
+  | "step"
   | "front"
   | "decls"
   | "rules"

@@ -21,7 +21,7 @@ const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
   ["ir-infer", first.slice(0, 4)], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag"]],
-  ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]],
+  ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]], ["step", []],
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer"]],
   ["elaborate", [...first.slice(0, 5), "ir-infer"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
@@ -61,13 +61,13 @@ function expect(entries, expected, authority = hostCatalogue) {
 const at = (code, path, line = 1, column = 1) => ({ code, path, line, column });
 
 test("the complete R6 catalogue and snapshot amendment have exactly one explicit row per owner", () => {
-  assert.equal(hostCatalogue.length, 38);
+  assert.equal(hostCatalogue.length, 39);
   assert.equal(JSON.stringify(hostCatalogue.map(module => [module.name, module.imports])), JSON.stringify(expectedImports));
   assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
   assert.equal(JSON.stringify(hostCatalogue.filter(module => module.effects.length > 0).map(module => [module.name, module.effects])),
     JSON.stringify(["project", "packages", "plugins", "artifacts", "orchestration"].map(name => [name,
       [{ path: `${host}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }]])));
-  assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 13);
+  assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 14);
   assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 17);
 });
 

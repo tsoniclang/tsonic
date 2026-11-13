@@ -130,7 +130,7 @@ test("a bad actual dependency contract retains its complete rejection vector", a
   });
 });
 
-for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "ir-facts", "ir-program", "dataflow", "query", "libraries", "snapshot"]) {
+for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "ir-facts", "ir-program", "dataflow", "query", "libraries", "snapshot", "step"]) {
   test(`whole library ${name} compiles in strict isolation with its actual owned function signature`, async () => {
     const contract = path(name);
     const entry = path(name, "index.ts");
@@ -278,7 +278,7 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
 
 test("all actual Host modules pass S1 inspection and fresh whole-module declaration isolation", async context => {
   const modules = hostCatalogue.filter(module => module.directory.startsWith(`${host}/`));
-  assert.equal(modules.length, 36, "complete current contract owners");
+  assert.equal(modules.length, 37, "complete current contract owners");
   const deps = isolationDeps(tooling, quarantineRoots);
   const inventory = deps.enumerate(resolve(repository, host)).map(path => relative(repository, path)).sort();
   const files = new Map(inventory.map(path => [path, readFileSync(resolve(repository, path), "utf8")]));
@@ -326,6 +326,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "roles.ts", "verify-catalogue.ts", "bind-summaries.ts", "verify-summaries.ts",
       "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
+    ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
