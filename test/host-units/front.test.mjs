@@ -119,3 +119,46 @@ test("F-7: the real checker opens a session on the whole option set with no diag
   assert.equal(implicit.files.filter(name => name.startsWith(bundledPath)).length, libraries.length,
     "the opposite of noLib: the session reads the installed SDK's own library texts, which is why the row is true");
 });
+
+const identityKinds = new Set(["SourceFile", "FunctionDeclaration", "ClassDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "EnumDeclaration",
+  "EnumMember", "ModuleDeclaration", "VariableDeclaration", "BindingElement", "Parameter", "TypeParameter", "PropertyDeclaration", "MethodDeclaration",
+  "GetAccessor", "SetAccessor", "Constructor", "ClassStaticBlockDeclaration", "PropertySignature", "MethodSignature", "CallSignature",
+  "ConstructSignature", "IndexSignature", "FunctionExpression", "ArrowFunction", "ClassExpression", "ExportAssignment"]);
+
+test("K-3236: the authored identity inputs obey the law they state: kinds of F-1, owners before members, ordinals counted across kinds per owner and name", () => {
+  const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
+  assert.deepEqual(cases.map(entry => entry.name), ["type-then-value", "value-then-type", "type-and-value-uses", "overloads", "function-with-namespace",
+    "class-with-interface", "unnamed-class-members", "unnamed-signatures", "augmentation-and-reexport", "default-expression", "default-declarations",
+    "external-export-equals", "authored-export-equals"]);
+  const key = path => JSON.stringify(path);
+  for (const entry of cases) {
+    assert.equal(entry.rule.length > 20, true, entry.name);
+    const declared = new Map();
+    for (const [file, rows] of Object.entries(entry.definitions ?? {})) {
+      assert.equal(Object.hasOwn(entry.files, file), true, `${entry.name}: ${file} is a file of the case`);
+      assert.deepEqual(rows[0], { kind: "SourceFile", path: [] }, `${entry.name}: the module's own definition comes first`);
+      const seen = new Set();
+      const counts = new Map();
+      for (const row of rows) {
+        assert.equal(identityKinds.has(row.kind), true, `${entry.name}: ${row.kind}`);
+        assert.equal(seen.has(key(row.path)), false, `${entry.name}: one identity per declaration in ${file}`);
+        seen.add(key(row.path));
+        if (row.path.length === 0) continue;
+        const owner = row.path.slice(0, -1);
+        const [name, ordinal] = row.path.at(-1);
+        assert.equal(seen.has(key(owner)), true, `${entry.name}: the owner of ${key(row.path)} is declared before it`);
+        const counter = `${key(owner)} ${JSON.stringify(name)}`;
+        assert.equal(ordinal, counts.get(counter) ?? 0, `${entry.name}: ${key(row.path)} is the next declaration of that name in its owner, whatever its kind`);
+        counts.set(counter, ordinal + 1);
+      }
+      declared.set(file, seen);
+    }
+    const resolves = (file, member) => typeof member[0] === "string" && Array.isArray(member[1]) && typeof member[1][0] !== "string" && typeof member[1][0] !== "number"
+      ? declared.get(member[0]).has(key(member[1])) : declared.get(file).has(key(member));
+    for (const [file, names] of Object.entries(entry.exports ?? {})) for (const [name, group] of Object.entries(names)) {
+      assert.equal(group.length > 0, true, `${entry.name}: the group of ${name} is not empty`);
+      for (const member of group) assert.equal(resolves(file, member), true, `${entry.name}: ${name} names a declaration of the case`);
+    }
+    for (const use of entry.uses ?? []) for (const member of use.group) assert.equal(resolves(use.file, member), true, `${entry.name}: ${use.occurrence}`);
+  }
+});
