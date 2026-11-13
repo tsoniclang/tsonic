@@ -3,7 +3,7 @@ import type { BlockId, BodyId, DefId, NodeId, NodeRef, Origin, PlaceId } from ".
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, selectedEndpointRoleFaults, walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision } from "../ir-infer/contract.js";
-import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TypedOperation } from "../ir-tir/contract.js";
+import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TirProtocolStep, TypedOperation } from "../ir-tir/contract.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
@@ -135,7 +135,38 @@ export interface SourceNode {
   readonly operations: ReadonlySet<string>;
   readonly callees: ReadonlySet<string>;
   readonly protocols: readonly TirProtocol[];
+  /** Per protocol of the node, per step: the text of its selected operation and of its callee, if it has one. */
+  readonly steps: readonly (readonly SourceStep[])[];
   readonly bodies: ReadonlySet<BodyId>;
+}
+
+export interface SourceStep {
+  readonly role: TirProtocolStep["role"];
+  readonly operation: string;
+  readonly callee: string | null;
+}
+
+/** The text of a selected callee or operation, computed once per record and shared by every rule that compares it. */
+export interface WireTexts {
+  readonly callee: (selected: ResolvedCallee) => string;
+  readonly operation: (selected: TypedOperation) => string;
+}
+
+export function createWireTexts(wires: DecisionWires): WireTexts {
+  const callees = new WeakMap<ResolvedCallee, string>();
+  const operations = new WeakMap<TypedOperation, string>();
+  return {
+    callee: selected => {
+      let text = callees.get(selected);
+      if (text === undefined) { text = wireText(wires.calleeWire, selected); callees.set(selected, text); }
+      return text;
+    },
+    operation: selected => {
+      let text = operations.get(selected);
+      if (text === undefined) { text = wireText(wires.operationWire, selected); operations.set(selected, text); }
+      return text;
+    },
+  };
 }
 
 export function findSourceNode(nodes: ReadonlyMap<NodeId, SourceNode>, identity: NodeId): SourceNode | undefined {
@@ -156,8 +187,7 @@ function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
   return excluded;
 }
 
-export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<NodeId, SourceNode> {
-  const { calleeWire, operationWire } = wires;
+export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<NodeId, SourceNode> {
   const visited = new Set<NodeId>();
   const boundaries = new Set<NodeId>();
   const pending: TirNode[] = [source.root];
@@ -175,10 +205,10 @@ export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<
     const callees = new Set<string>();
     const protocols: TirProtocol[] = [];
     const bodies = new Set<BodyId>();
-    const operation = (selected: TypedOperation): void => { operations.add(wireText(operationWire, selected)); };
+    const operation = (selected: TypedOperation): void => { operations.add(texts.operation(selected)); };
     const selection = (selected: MemberSelection): void => {
-      if (selected.getter !== null) callees.add(wireText(calleeWire, selected.getter));
-      if (selected.setter !== null) callees.add(wireText(calleeWire, selected.setter));
+      if (selected.getter !== null) callees.add(texts.callee(selected.getter));
+      if (selected.setter !== null) callees.add(texts.callee(selected.setter));
     };
     const payload = node.tsonic;
     if (payload !== null) {
@@ -187,7 +217,7 @@ export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<
       if ("construction" in payload && payload.construction.kind === "decided") operation(payload.construction.decision);
       if ("conversion" in payload && payload.conversion.kind === "convert") operation(payload.conversion.operation);
       if ("application" in payload && payload.application !== null && payload.application.kind === "decided"
-        && "callee" in payload.application.decision) callees.add(wireText(calleeWire, payload.application.decision.callee));
+        && "callee" in payload.application.decision) callees.add(texts.callee(payload.application.decision.callee));
       if ("selection" in payload && payload.selection !== null && payload.selection.kind === "decided") {
         selection(payload.selection.decision);
       }
@@ -197,11 +227,19 @@ export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<
       if ("initializer" in payload && payload.initializer !== null) bodies.add(payload.initializer);
       if ("template" in payload && payload.template !== null) bodies.add(payload.template.body);
     }
-    for (const protocol of protocols) for (const step of protocol.steps) {
-      operation(step.operation);
-      if (step.callee !== null) callees.add(wireText(calleeWire, step.callee));
+    const steps: SourceStep[][] = [];
+    for (const protocol of protocols) {
+      const row: SourceStep[] = [];
+      for (const step of protocol.steps) {
+        const operationText = texts.operation(step.operation);
+        const calleeText = step.callee === null ? null : texts.callee(step.callee);
+        operations.add(operationText);
+        if (calleeText !== null) callees.add(calleeText);
+        row.push({ role: step.role, operation: operationText, callee: calleeText });
+      }
+      steps.push(row);
     }
-    nodes.set(node.id, { node, operations, callees, protocols, bodies });
+    nodes.set(node.id, { node, operations, callees, protocols, steps, bodies });
   }
   return nodes;
 }
@@ -213,9 +251,8 @@ export function validOrigin(origin: Origin): boolean {
 }
 
 export function verifySelections(
-  body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, wires: DecisionWires,
+  body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
 ): readonly Violation<MirRule, MirViolationSite>[] {
-  const { calleeWire, operationWire } = wires;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const knownNode = (node: NodeId): boolean => findSourceNode(nodes, node) !== undefined;
@@ -260,7 +297,7 @@ export function verifySelections(
   };
   const operation = (selected: TypedOperation, source: SourceNode | undefined, site: MirViolationSite): void => {
     // One finding per operation occurrence: it differs from its source, or one of its call steps is not a valid selection.
-    let selection = source !== undefined && !source.operations.has(wireText(operationWire, selected));
+    let selection = source !== undefined && !source.operations.has(texts.operation(selected));
     if (selection) report("operation-selected", site);
     if (selected.permissionScope !== null && !knownNode(selected.permissionScope)) report("tir-node-resolves", site);
     const identity = selected.decision.operation;
@@ -279,7 +316,7 @@ export function verifySelections(
   };
   const callee = (selected: ResolvedCallee, source: SourceNode | undefined, site: MirViolationSite): void => {
     // One finding per callee occurrence: it differs from its source, or it is not a valid selection of its family.
-    if (source !== undefined && !source.callees.has(wireText(calleeWire, selected)) || !validSelection(selected.decision))
+    if (source !== undefined && !source.callees.has(texts.callee(selected)) || !validSelection(selected.decision))
       report("operation-selected", site);
     definition(selected.decision.api.declaration, site);
     definition(selected.decision.advertised.declaration, site);

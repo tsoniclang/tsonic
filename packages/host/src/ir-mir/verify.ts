@@ -5,7 +5,7 @@ import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, Liter
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 import type { MirBody, MirConstantValue, MirRule, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import { createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
 import type { SignatureReference } from "./verify-storage.js";
@@ -519,7 +519,8 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
   };
   const input: MirVerificationContext = { source: context.source, types: context.types, declarationOf, bodyOwner };
   const wires = createDecisionWires(createScalarWires());
-  const nodes = sourceNodes(input.source, wires);
+  const texts = createWireTexts(wires);
+  const nodes = sourceNodes(input.source, texts);
   const rows = verifyRows(body, input.source, input.types, declarationOf);
   const places = placeLocations(body);
   const values = verifyValues(body, input, nodes, places);
@@ -527,7 +528,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
   const signatures: SignatureReference[] = [...values.signatures];
   const decisions = decisionReferences(body, input, types, signatures);
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, wires), verifyStorage(body, places),
-    verifyLaws(body, input, nodes, wires), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
+  for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, texts), verifyStorage(body, places),
+    verifyLaws(body, input, nodes, texts, places), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
   return violations;
 }

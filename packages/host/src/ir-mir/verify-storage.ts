@@ -416,7 +416,14 @@ export function verifyValues(
       case "capture":
         if (!densePosition(projection.index, context.source.captures.length)) report("capture-location-exact", site);
         break;
-      case "deref": case "refined": break;
+      case "deref": break;
+      case "refined": {
+        // The place is the cell viewed at the type its node's narrowing selected.
+        const node = place.base.tir.body === context.source.body ? findSourceNode(nodes, place.base.tir.node) : undefined;
+        const expected = selectedType(node);
+        if (expected !== null) match(place.storage, expected, "projection-type", site);
+        break;
+      }
     }
     if (projected !== null) match(place.storage, projected, "projection-type", site);
   }
@@ -485,13 +492,17 @@ export function verifyValues(
           } else if (terminator.receiver === null) report("call-receiver-exact", site);
           else match(operandType(terminator.receiver, site), signature.receiver, "call-receiver-exact", site);
           if (signature.parameters.length !== terminator.arguments.length) report("call-arguments-total", site);
+          let omitting = false;
           for (const [position, argument] of terminator.arguments.entries()) {
             const parameter = signature.parameters[position];
             if (argument.kind === "omitted") {
               // A call may omit only what the callee's signature lets be omitted.
               if (parameter === undefined || parameter.kind !== "optional" && parameter.kind !== "default") report("omission-admitted", site);
+              omitting = true;
               continue;
             }
+            // Omitted fixed arguments are a suffix: an entry is named by a count. The rest vector is always supplied.
+            if (omitting && (parameter === undefined || parameter.kind !== "rest")) report("omission-admitted", site);
             const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             if (parameter !== undefined) {
               if (argument.passing !== parameter.passing || actual !== null && !Object.is(actual, parameter.type))

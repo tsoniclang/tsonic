@@ -2,13 +2,16 @@
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
 // Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11); law 3 is
 // not decided (C-3181) and has no case here.
-//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } return a[i]; }
+//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); return a[i]; }
+// where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
 const SIG_USE = signature("laws.use", [["v", T.int32]], T.void);
+const SIG_BUMP = signature("laws.bump", [["v", T.int32, "required", null, "byref-readwrite"]], T.void);
+const SIG_TWO = signature("laws.two", [["x", T.optInt32, "optional"], ["y", T.optInt32, "optional"]], T.void);
 const coreOperation = (name, operands, result) => ({ decision: { kind: "selected",
   operation: { kind: "core", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result }, permissionScope: null });
 const ACQUIRE = coreOperation("laws.acquire", [T.int32Array], T.unknown);
@@ -20,6 +23,13 @@ const USE_CALLEE = { decision: { candidate: 0, advertised: endpoint("laws.use", 
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
   completion: { signature: SIG_USE, completion: T.void, yielded: null, sent: null }, result: T.void },
   activation: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures: [] };
+const callee = (name, sig, parameters) => ({ decision: { candidate: 0, advertised: endpoint(name, "advertised", sig), api: endpoint(name, "api-body", sig),
+  bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters,
+  completion: { signature: sig, completion: T.void, yielded: null, sent: null }, result: T.void },
+  activation: { body: bodyId(name), bindings: PARAMETRIC }, captures: [] });
+const BUMP_CALLEE = callee("laws.bump", SIG_BUMP, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "byref-readwrite" }]);
+const TWO_CALLEE = callee("laws.two", SIG_TWO, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" },
+  { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }]);
 const ITERATE = { kind: "iterate", asynchronous: false, value: T.int32, completion: T.void, sent: null, thrown: T.unknown,
   steps: [{ role: "acquire", operation: ACQUIRE, callee: null }, { role: "next", operation: NEXT, callee: null },
     { role: "done", operation: DONE, callee: null }, { role: "value", operation: VALUE, callee: null }] };
@@ -34,6 +44,8 @@ const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
     { $: "for", ...b.forOf(b.declarationList([b.variable(b.declName("v", 3), 3, T.int32)]), b.id("a", 0, T.int32Array),
       b.block(b.expressionStatement({ $: "use(v)", ...b.call(b.global("use", "laws.use", T.unknown), [{ $: "v", ...b.id("v", 3, T.int32) }], T.void,
         at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("v") }] })) })), ITERATE) },
+    b.expressionStatement({ $: "bump(i)", ...b.call(b.global("bump", "laws.bump", T.unknown), [{ $: "i of bump", ...b.id("i", 1, T.int32) }], T.void,
+      at => ({ callee: BUMP_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("i of bump") }] })) }),
     { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
       { ...value(T.int32), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
 
@@ -45,7 +57,10 @@ const place = (id, base, storage) => ({ id, base, storage, origin: site("for").o
 const p = id => ({ kind: "place", place: id });
 const step = index => ({ protocol: 0, step: index });
 
-/** The graph that satisfies every law. Places 0 to 9 are the locals 0 to 9; place 10 is the checked element a[i]. */
+/**
+ * The graph that satisfies every law. Places 0 to 9 are the locals 0 to 9; place 10 is the checked element a[i].
+ * `i` is handed to `bump` for writing, so the index of a[i] is the copy in local 7, which is written once.
+ */
 function good() {
   return {
     body: BODY, bindings: PARAMETRIC,
@@ -71,7 +86,7 @@ function good() {
       { ...site("for"), id: 2, statements: [],
         terminator: { ...site("for"), kind: "invoke", operation: DONE, operands: [p(5)], destination: 6, next: 3, unwind: { kind: "none" }, step: step(2) } },
       { ...site("for"), id: 3, statements: [],
-        terminator: { ...site("for"), kind: "switch", operand: p(6), targets: [{ constant: 1, target: 6 }], otherwise: 4, step: step(2) } },
+        terminator: { ...site("for"), kind: "switch", operand: p(6), targets: [{ constant: 1, target: 9 }], otherwise: 4, step: step(2) } },
       { ...site("for"), id: 4, statements: [],
         terminator: { ...site("for"), kind: "invoke", operation: VALUE, operands: [p(5)], destination: 3, next: 5, unwind: { kind: "none" }, step: step(3) } },
       { ...site("use(v)"), id: 5, statements: [],
@@ -85,6 +100,9 @@ function good() {
         terminator: { ...site("return"), kind: "return", value: p(9) } },
       { ...site("for"), id: 8, statements: [{ ...site("for"), kind: "assign", place: 2, value: { kind: "use", operand: { kind: "constant", constant: 0 } }, step: null }],
         terminator: { ...site("for"), kind: "goto", target: 0 } },
+      { ...site("bump(i)"), id: 9, statements: [],
+        terminator: { ...site("bump(i)"), kind: "call", callee: { kind: "direct", resolution: BUMP_CALLEE }, receiver: null,
+          arguments: [{ kind: "place", passing: "byref-readwrite", place: 1 }], destination: null, next: 6, unwind: { kind: "escape" }, step: null } },
     ],
     result: T.int32,
   };
@@ -101,13 +119,17 @@ let context;
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "MIR law cases require a guarded admission");
   ({ verifyMir, printMir, parseMir, constantKeyOfMir } = await import("../../packages/host/dist/ir-mir/index.js"));
-  const declaration = name => ({ scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [endpoint(name, "advertised", SIG_USE), endpoint(name, "api-body", SIG_USE)] });
-  const declared = new Map(["laws", "laws.use", "laws.acquire", "laws.next", "laws.done", "laws.value"].map(name => [def(name), declaration(name)]));
+  const declaration = (name, sig) => ({ scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
+    endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
+  const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
+    ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
   context = { source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
-    bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : null };
+    bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
 });
 
 const laws = body => verifyMir(body, context).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+/** Every rule the verifier reports, for the cases that assert that a changed graph has its one finding and no other. */
+const all = body => verifyMir(body, context).map(violation => violation.rule);
 const changed = change => { const body = good(); change(body); return body; };
 
 test("the graph that satisfies the laws has no law violation, and its text form is read back equal", () => {
@@ -148,15 +170,65 @@ test("a narrowed view exists only under a checked base", () => {
   assert.deepEqual(laws(add("checked")), []);
 });
 
+test("a narrowed view has the type its node's narrowing selected", () => {
+  // The node a[i] has type int32; a view of it at another type is refused.
+  const view = storage => changed(body => { body.places.push(place(11, { kind: "checked", place: 2, projection: { kind: "refined" }, tir: site("a[i]").tir }, storage)); });
+  assert.deepEqual(all(view(T.int32)), []);
+  assert.deepEqual(all(view(T.bool)), ["projection-type"]);
+});
+
 test("law 4: an index is a constant or a local written once", () => {
   // "a place's receiver and index, once evaluated, cannot be changed by a later write (… an index [is] held in
   // values written once …)".
   const twice = changed(body => { body.blocks[7].statements.push({ ...site("i"), kind: "assign", place: 7, value: { kind: "use", operand: p(1) }, step: null }); });
   assert.deepEqual(laws(twice), ["index-operand-stable"]);
-  // A parameter the body never writes was written once, at entry.
-  assert.deepEqual(laws(changed(body => { body.places[10].base.projection.operand = p(1); })), []);
+  // A parameter the body never writes was written once, at entry. Here `bump(i)` is removed, so nothing writes `i`.
+  const direct = body => { body.places[10].base.projection.operand = p(1); };
+  assert.deepEqual(all(changed(body => { direct(body); body.blocks.pop(); body.blocks[3].terminator.targets[0].target = 6; })), []);
+  // Handed to a call for writing, it is no longer written once (R2, L-1).
+  assert.deepEqual(all(changed(direct)), ["index-operand-stable"]);
   // A projected place is not a value written once.
   assert.deepEqual(laws(changed(body => { body.places[10].base.projection.operand = p(10); })), ["index-operand-stable"]);
+});
+
+test("law 4: every way the index local's cell can be written is a write", () => {
+  // R1: a second write through a narrowed view of the index local's own cell, after the indexed place was formed.
+  assert.deepEqual(all(changed(body => {
+    body.places.push(place(11, { kind: "checked", place: 7, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32));
+    body.blocks[7].statements.unshift({ ...site("i"), kind: "assign", place: 11, value: { kind: "use", operand: p(1) }, step: null });
+  })), ["index-operand-stable"]);
+  // R1, R2: the index local handed by place to a call that may write it, between the check and the use.
+  const handed = passing => changed(body => {
+    body.blocks[3].terminator.targets[0].target = 6; body.blocks[6].terminator.next = 9; body.blocks[9].terminator.next = 7;
+    body.blocks[9].terminator.arguments = [{ kind: "place", passing, place: 7 }];
+  });
+  assert.deepEqual(all(handed("byref-readwrite")), ["index-operand-stable"]);
+  // The other writing modes are counted the same; the callee here takes `byref-readwrite`, so the complete list
+  // also has the passing mismatch and only the law rules are compared. A reading mode is not a write.
+  assert.deepEqual(laws(handed("byref-writeonly-must-init")), ["index-operand-stable"]);
+  assert.deepEqual(laws(handed("borrow-mut")), ["index-operand-stable"]);
+  assert.deepEqual(laws(handed("byref-readonly")), []);
+  assert.deepEqual(laws(handed("borrow-shared")), []);
+  // Its address taken, or the local captured by a closure or by an internal body's call. These hand-made records
+  // have other findings (no reference type and no second body in this fixture); only the law rules are compared.
+  assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift(
+    { ...site("i"), kind: "assign", place: 9, value: { kind: "address-of", place: 7, type: T.int32 }, step: null }); })), ["index-operand-stable"]);
+  const captures = [{ local: { body: BODY, local: 1 }, place: 7 }];
+  assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift(
+    { ...site("i"), kind: "assign", place: 4, value: { kind: "closure", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }, step: null }); })), ["index-operand-stable"]);
+  assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.callee = { kind: "body", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }; })),
+    ["index-operand-stable"]);
+});
+
+test("law 6: a record that performs a step of its node's protocol names the step (R1, R2 L-2)", () => {
+  // The iteration's `next` and `done` steps with no step named.
+  assert.deepEqual(all(changed(body => { body.blocks[1].terminator.step = null; })), ["protocol-step-exact"]);
+  assert.deepEqual(all(changed(body => { body.blocks[2].terminator.step = null; })), ["protocol-step-exact"]);
+  // The completion branch with no step named, its targets exchanged: a branch on the result of the `done` step.
+  assert.deepEqual(all(changed(body => { const branch = body.blocks[3].terminator;
+    branch.step = null; branch.targets = [{ constant: 1, target: 4 }]; branch.otherwise = 9; })), ["protocol-step-exact"]);
+  // A record that names a step executes that step's operation: the `next` operation named as the `value` step.
+  assert.deepEqual(all(changed(body => { body.blocks[1].terminator.step = step(3); })), ["protocol-step-exact"]);
 });
 
 test("law 6: a protocol step names a step of a protocol of its node, in the form of that step", () => {
@@ -172,24 +244,33 @@ test("law 6: a protocol step names a step of a protocol of its node, in the form
 test("law 6: the completion branch of an iteration has one canonical shape", () => {
   // "the completion branch of an iteration has one canonical shape": one listed target, the constant true; otherwise elsewhere.
   assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.targets = []; })), ["completion-branch-canonical"]);
-  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.otherwise = 6; })), ["completion-branch-canonical"]);
+  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.otherwise = 9; })), ["completion-branch-canonical"]);
   assert.deepEqual(laws(changed(body => { body.constants[1].value.value.value = false; })), ["completion-branch-canonical"]);
 });
 
 test("law 7: entries are ordered by supplied count and offer only admissible counts", () => {
   // "entries are ordered by supplied count and offer only admissible counts".
-  assert.deepEqual(laws(changed(body => { body.entries.reverse(); })), ["entries-exact", "entries-exact"]);
+  assert.deepEqual(laws(changed(body => { body.entries.reverse(); })), ["entries-exact"]);
   assert.deepEqual(laws(changed(body => { body.entries = []; })), ["entries-exact"]);
   assert.deepEqual(laws(changed(body => { body.entries[0].block = 8; })), ["entries-exact"]);
   // `i` is required: an entry that omits it is not admissible.
   assert.deepEqual(laws(changed(body => { body.entries.push({ provided: 1, block: 8 }); })), ["entries-exact"]);
-  // Offering fewer entries than are admissible is allowed; offering the full count alone is the smallest valid list.
-  assert.deepEqual(laws(changed(body => { body.entries = [{ provided: 3, block: 0 }]; })), []);
+  // One entry per admissible count (R2, L-3): `o` may be omitted, so the full count alone is not the list.
+  assert.deepEqual(all(changed(body => { body.entries = [{ provided: 3, block: 0 }]; })), ["entries-exact"]);
+  assert.deepEqual(laws(changed(body => { body.entries = [{ provided: 3, block: 0 }, { provided: 3, block: 8 }]; })), ["entries-exact"]);
 });
 
 test("law 7: a call may omit only what the callee's signature lets be omitted", () => {
   // `use(v: int32)` has one required parameter.
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.arguments = [{ kind: "omitted" }]; })), ["omission-admitted"]);
+  // Omitted arguments are a suffix (R2, L-3): an entry is named by a count. `two(x?: int32, y?: int32)` is not the
+  // callee of this node, so the complete list also has the selection finding; only the law rules are compared.
+  const two = (...argumentList) => changed(body => { body.blocks[5].terminator.callee = { kind: "direct", resolution: TWO_CALLEE };
+    body.blocks[5].terminator.arguments = argumentList; });
+  const supplied = { kind: "value", passing: "by-value", operand: p(2) };
+  assert.deepEqual(laws(two(supplied, { kind: "omitted" })), []);
+  assert.deepEqual(laws(two({ kind: "omitted" }, { kind: "omitted" })), []);
+  assert.deepEqual(laws(two({ kind: "omitted" }, supplied)), ["omission-admitted"]);
 });
 
 test("law 8: a local that is present on entry carries no begin marker", () => {
