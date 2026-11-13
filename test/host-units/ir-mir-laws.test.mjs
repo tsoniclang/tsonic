@@ -267,7 +267,21 @@ test("law 3: mutable availability ends at a call, a store, and a write or marker
     ["checked-place-available"]);
   // The storage of the index local ended. The liveness rule reports the same graph; only the law rules are compared.
   assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift({ ...site("i"), kind: "storage-dead", local: 7 }); })), ["checked-place-available"]);
-  // Suspension ends it by the same step as a call; this body is neither asynchronous nor a generator, so it has no case here.
+});
+
+test("law 3: a suspension between the check and the use ends mutable availability (point 3)", () => {
+  // a[i] is read, the body suspends at an await, and a[i] is read again after resumption.
+  const suspended = (body, rechecked) => {
+    body.blocks[7].terminator = { ...site("return"), kind: "await", operand: p(4), destination: 5, resume: 10, unwind: { kind: "escape" }, step: null };
+    if (rechecked) {
+      body.blocks.push({ ...site("a[i]"), id: 10, statements: [], terminator: { ...site("a[i]"), kind: "check", place: 10, next: 11, unwind: { kind: "escape" } } },
+        { ...site("return"), id: 11, statements: [READ()], terminator: returns(p(9)) });
+    } else body.blocks.push({ ...site("return"), id: 10, statements: [READ()], terminator: returns(p(9)) });
+  };
+  // Checked again after resumption, through the same place.
+  assert.deepEqual(all(changed(body => { suspended(body, true); })), []);
+  // Used after resumption on the strength of the check before it.
+  assert.deepEqual(all(changed(body => { suspended(body, false); })), ["checked-place-available"]);
 });
 
 const WAITS_EXTENT = { todo: "waits for `extent: CarrierExtent` on the element access decision (W2, the commit after A1)" };
