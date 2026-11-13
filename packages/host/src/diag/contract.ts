@@ -62,10 +62,16 @@ export interface UnitRequest {
   readonly key: KeyData;
 }
 
+/**
+ * `component` is a position inside a type that the request produced. Its path is key data produced only by the one
+ * function of `ir-types` that encodes a selector path; no producer encodes a path of its own, so that one component
+ * has one position.
+ */
 export type UnitPosition =
   | { readonly kind: "result" }
   | { readonly kind: "module-node"; readonly module: ModuleId; readonly node: NodeId }
-  | { readonly kind: "source-node"; readonly node: SourceNodeRef };
+  | { readonly kind: "source-node"; readonly node: SourceNodeRef }
+  | { readonly kind: "component"; readonly path: readonly KeyData[] };
 
 export interface UnitRef {
   readonly request: UnitRequest;
@@ -79,6 +85,11 @@ export type DiagnosticIdentity =
 /** Equal keys are the same identity; the canonical order of identities is the UTF-16 code unit order of their keys. */
 export type DiagnosticIdentityKey = (identity: DiagnosticIdentity) => string;
 
+/**
+ * A `unit` cause names a unit whose result was complete before the result that cites it, so every chain of unit
+ * causes ends in a `diagnostic` cause. A result that absorbs an error cites the unit it took the error from and does
+ * not copy that unit's causes. For captured associations the grounding is checked by the checked-module verifier.
+ */
 export type Cause =
   | { readonly kind: "diagnostic"; readonly diagnostic: DiagnosticIdentity }
   | { readonly kind: "unit"; readonly unit: UnitRef };

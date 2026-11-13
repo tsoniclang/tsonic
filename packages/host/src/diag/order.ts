@@ -38,6 +38,7 @@ function positionKey(position: UnitPosition): readonly KeyData[] {
   switch (position.kind) {
     case "result": return [position.kind];
     case "module-node": return [position.kind, position.module, position.node];
+    case "component": return [position.kind, position.path];
     case "source-node": return position.node.kind === "body"
       ? [position.kind, position.node.kind, position.node.value.body, position.node.value.node]
       : [position.kind, position.node.kind, position.node.value.owner, position.node.value.node];
