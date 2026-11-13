@@ -431,7 +431,7 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
   verifyPublicationInventory(input.module, body, emit);
   const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, emit);
   verifyControlledContexts(body, inventory.original, structure, semantics, emit);
-  verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, input.source.bodies, emit);
+  verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, input.source.bodies, input.module.bodies, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, inventory.sourceNodes, declarationOf, emit);
   const instance: BodyInstance = { body: body.body, bindings: body.bindings };

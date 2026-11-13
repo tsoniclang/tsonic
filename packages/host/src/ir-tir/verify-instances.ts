@@ -3,7 +3,7 @@ import { encodeKey } from "../ids/index.js";
 import type { BindingScope, BindingVector, BodyInstance, TypeBinding } from "../ir-types/contract.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
-import type { CaptureSource } from "../ir-infer/contract.js";
+import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
 import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
 import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
@@ -264,7 +264,7 @@ export const verifyControlledContexts = (
 
 export const verifyBindingSlots = (
   body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: readonly (HirBody | undefined)[],
-  emit: TirOccurrenceEmit,
+  published: readonly (TirBody | undefined)[], emit: TirOccurrenceEmit,
 ): void => {
   const reassignable = (reference: LocalRef): boolean | null => {
     for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
@@ -273,12 +273,27 @@ export const verifyBindingSlots = (
   // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
   // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
   // no parameter record: its storage is the body's own. A local that is itself a capture of the creating body has its
-  // logical capture in the creating body's typed rows, which the verification of the created body does not hold: no
-  // evidence here; Infer judges it against the constraint's evidence.
+  // logical capture in the creating body's typed row for the local it was captured from: the creating body published with
+  // the bindings of the body verified here, or else its parametric template. A null row (a template whose creating closure
+  // saved the closure rule) states nothing yet.
+  const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null => {
+    let template: TirBody | undefined;
+    for (const candidate of published) if (candidate !== undefined && candidate.body === creating) {
+      if (instanceKey({ body: creating, bindings: candidate.bindings }) === instanceKey({ body: creating, bindings: body.bindings })) {
+        return candidate.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
+      }
+      if (candidate.bindings.kind === "parametric") template = candidate;
+    }
+    return template?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
+  };
   const incomingOf = (reference: LocalRef): CaptureSource | null => {
     for (const source of sources) if (source !== undefined && source.body === reference.body) {
       const local = source.locals[reference.local];
-      if (local === undefined || local.role === "capture") return null;
+      if (local === undefined) return null;
+      if (local.role === "capture") {
+        const capture = local.capturedFrom === null ? null : enclosingRow(reference.body, local.capturedFrom);
+        return capture === null ? null : { kind: "capture", capture };
+      }
       const parameter = local.role === "parameter" ? source.params.find(candidate => candidate.local === reference.local) : undefined;
       return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
     }
@@ -328,8 +343,12 @@ export const verifyBindingSlots = (
           }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
       }
       if (closure.kind === "decided") {
-        if (closure.decision.captures.some(row => row.capture === "captured-value" &&
-          captureRequiresLocation(reassignable(row.local) === true, incomingOf(row.local) ?? { kind: "binding" })))
+        if (closure.decision.captures.some(row => {
+          if (row.capture !== "captured-value") return false;
+          const incoming = incomingOf(row.local);
+          // with no incoming storage known, only the reassignment fact is evidence
+          return incoming === null ? reassignable(row.local) === true : captureRequiresLocation(reassignable(row.local) === true, incoming);
+        }))
           emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
       } else if (closure.deferred.invocation.rule === "closure") {
         if (closure.deferred.invocation.input.captures.some(capture => {

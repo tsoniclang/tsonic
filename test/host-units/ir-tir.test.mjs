@@ -4381,6 +4381,51 @@ test("an API endpoint declared by another definition is selected only through th
   associated.declarations.get(associated.definition).endpoints.push(foreignApi(associated));
   assertCompleteValue(product.verifyTir(associated.input, associated.body), []);
 });
+test("an enclosing capture's logical capture is read from the creating body's own typed row", () => {
+  // function outer() { v is outer's capture of a local of f; return () => v; }: the closure (verified here, the root of its
+  // body) captures v, a capture of the creating body; v's row in the creating body states whether it is a location.
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  const foreign = { body: "B[D[M[P[foreign];source];f];function;0]", local: 0 };
+  const own = { body: bodyId, local: 0 };
+  const input = fixture.inputFor(body);
+  const source = input.source.bodies.find(candidate => candidate.body === bodyId);
+  source.locals = [{ id: 0, declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: "v", role: "capture",
+    checkerSlot: available(0), capturedFrom: foreign, mutable: false }];
+  const localExists = input.localExists;
+  input.localExists = reference => reference.body === foreign.body ? reference.local === 0 : localExists(reference);
+  fixture.originalFunction.captures = [own];
+  fixture.checkedFunction.tsonic.captures = [own];
+  const binding = nodeViolation("closure-capture-binding", 2, "a binding whose storage another party can write is a captured location");
+  const judged = (enclosing, inner) => {
+    fixture.outer.captures = enclosing === undefined ? [] : [{ local: foreign, capture: enclosing }];
+    body.captures = bodyRows([own], inner);
+    body.root.tsonic.closure = closureDecisionOf(4, [own], inner);
+    return product.verifyTir(input, body).filter(violation => violation.rule === "closure-capture-binding");
+  };
+  assertCompleteValue(judged("captured-location", "captured-value"), [binding], "an enclosing captured location is a captured location");
+  assertCompleteValue(judged("captured-location", "captured-location"), []);
+  assertCompleteValue(judged("captured-value", "captured-value"), [], "an enclosing captured value forces neither");
+  assertCompleteValue(judged("captured-value", "captured-location"), []);
+  assertCompleteValue(judged(null, "captured-value"), [], "a null row of the creating body states nothing yet");
+  assertCompleteValue(judged(undefined, "captured-value"), [], "no row for the local it was captured from: no evidence");
+  // An instance of the created body: the creating body has no instance with its bindings, so its template's row is read.
+  const instance = fixture.instances[0];
+  const instanceInput = fixture.inputFor(instance);
+  instanceInput.localExists = input.localExists;
+  fixture.outer.captures = [{ local: foreign, capture: "captured-location" }];
+  instance.captures = bodyRows([own], "captured-value");
+  instance.root.tsonic.closure = closureDecisionOf(4, [own], "captured-value");
+  assertCompleteValue(product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding"), [binding],
+    "the creating body's template row is read for an instance");
+  fixture.outer.captures = [];
+  assertCompleteValue(product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding"), [],
+    "the template has no row for that local: no evidence");
+  // A capture-role local that names no captured-from local (refused by the HIR verifier) gives no evidence here.
+  source.locals = [{ ...source.locals[0], capturedFrom: null }];
+  assertCompleteValue(judged("captured-location", "captured-value"), [], "a capture without its captured-from local: no evidence");
+});
+
 test("a callee's activation names its API body", () => {
   const fixture = callScenario();
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
