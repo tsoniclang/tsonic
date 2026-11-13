@@ -74,11 +74,12 @@ export interface GraphComponents {
   readonly componentOf: readonly number[];
 }
 
-// An execution is a body instance and one of its entries. `entry` is an index into `body.entries`; the solution
-// starts at that entry's block and nowhere else.
+// An execution is a body instance and an entry, and an entry is named by its count of supplied fixed arguments
+// (the execution key). `provided` is that count; the solution starts at the block of the entry the body offers for it
+// and nowhere else.
 export type Solve = <State>(
   body: MirBody,
-  entry: number,
+  provided: number,
   problem: Problem<State>,
   limits: DataflowLimits,
 ) => DataflowResult<FlowSolution<State>>;

@@ -31,7 +31,7 @@ const missingForwardEdgeRow: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "forward edge row is missing",
 });
 const missingEntry: InvariantFailure = ({
-  owner: "dataflow", query: null, origin: null, message: "the selected entry is not an entry of the body",
+  owner: "dataflow", query: null, origin: null, message: "the body offers no entry for the supplied count",
 });
 const missingBackwardSuccessorCell: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "backward successor cell is missing",
@@ -336,7 +336,7 @@ function solveDirection<State>(context: Context<State>, problem: Problem<State>)
 
 export function solveProblem<State>(
   body: MirBody,
-  entry: number,
+  provided: number,
   problem: Problem<State>,
   limits: DataflowLimits,
 ): DataflowResult<FlowSolution<State>> {
@@ -346,8 +346,8 @@ export function solveProblem<State>(
   if (entryStop !== null) return entryStop;
   const graph = buildMirGraph(body, meter);
   if (graph.kind === "resource-limit") return graph;
-  // The selected entry must be one of the body's entries; no other block stands in for it.
-  const start = requirePresent(Number.isSafeInteger(entry) && entry >= 0 ? body.entries[entry] : undefined, missingEntry).block;
+  // The body must offer an entry for the supplied count; no other block stands in for it.
+  const start = requirePresent(body.entries.find(entry => Object.is(entry.provided, provided)), missingEntry).block;
   const traversal = walkGraph(graph.value, [start], meter, false);
   if (traversal.kind === "resource-limit") return traversal;
   const context = createContext(graph.value, traversal.value, start, problem, meter);

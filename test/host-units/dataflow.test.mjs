@@ -419,8 +419,9 @@ function chainBody(length) {
   Array.from({ length }, () => []));
 }
 
-// An execution is a body instance and an entry (COMMON-DATA section 1); body facts are per execution. The body below has
-// the fully supplied entry at block 0 and one omission entry whose prologue, block 1, is not reachable from block 0:
+// An execution is a body instance and an entry, named by its supplied count (COMMON-DATA section 1); body facts are per
+// execution. The body below offers supplied count 1 at block 0 and supplied count 0 at block 1, a prologue that block 0
+// does not reach. The position of an entry in the list is not its name:
 //   block 0: goto 3      block 1: [storage-live] goto 0      block 2: return      block 3: return
 function twoEntryBody() {
   const body = fixtureBody([
@@ -443,26 +444,30 @@ test("solve starts at the block of the selected entry and nowhere else", () => {
   const problem = { direction: "forward", lattice, boundary: 1,
     statement: (statement, state) => statement.kind === "storage-live" ? 2 : state,
     terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
-  // Entry 0: the boundary applies at block 0. The prologue of the other entry is not part of this execution: block 1 is
-  // unreached and its statement does not change the facts of entry 0.
-  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
-    entry: [1, 0, 0, 1], exit: [1, 0, 0, 1], reachable: [true, false, false, true] } }, "entry 0");
-  // Entry 1: its block is not reachable from block 0. The boundary applies at block 1 and not again at block 0, which
-  // this execution enters with the prologue's state.
+  // Supplied count 1: the boundary applies at block 0. The prologue of the other entry is not part of this execution:
+  // block 1 is unreached and its statement does not change these facts.
   complete(product.solve(body, 1, problem, limits), { kind: "complete", value: {
-    entry: [2, 1, 0, 2], exit: [2, 2, 0, 2], reachable: [true, true, false, true] } }, "entry 1");
+    entry: [1, 0, 0, 1], exit: [1, 0, 0, 1], reachable: [true, false, false, true] } }, "supplied count 1");
+  // Supplied count 0: its block is not reachable from block 0. The boundary applies at block 1 and not again at
+  // block 0, which this execution enters with the prologue's state.
+  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+    entry: [2, 1, 0, 2], exit: [2, 2, 0, 2], reachable: [true, true, false, true] } }, "supplied count 0");
+  // The same body with its entries listed in the other order gives the same two results: the count names the entry.
+  const reordered = { ...body, entries: [...body.entries].reverse() };
+  complete(product.solve(reordered, 1, problem, limits), product.solve(body, 1, problem, limits), "count 1, reordered");
+  complete(product.solve(reordered, 0, problem, limits), product.solve(body, 0, problem, limits), "count 0, reordered");
   // A backward problem is bounded by the same execution: only blocks reached from the selected entry take part.
-  const backward = product.solve(body, 1, scalarProblem("backward"), limits);
+  const backward = product.solve(body, 0, scalarProblem("backward"), limits);
   assert.equal(backward.kind, "complete");
   assert.deepEqual(backward.value.reachable, [true, true, false, true]);
-  assert.deepEqual(product.solve(body, 0, scalarProblem("backward"), limits).value.reachable, [true, false, false, true]);
+  assert.deepEqual(product.solve(body, 1, scalarProblem("backward"), limits).value.reachable, [true, false, false, true]);
 });
 
-test("an entry that is not an entry of the body is an invariant failure, never block 0", () => {
+test("a supplied count the body does not offer is an invariant failure, never block 0", () => {
   const body = twoEntryBody();
-  for (const entry of [2, -1, 0.5, Number.NaN])
-    assert.throws(() => product.solve(body, entry, scalarProblem("forward"), limits),
-      error => error instanceof Error && error.message.includes("the selected entry is not an entry of the body"), String(entry));
+  for (const provided of [2, -1, 0.5, Number.NaN])
+    assert.throws(() => product.solve(body, provided, scalarProblem("forward"), limits),
+      error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), String(provided));
 });
 
 test("solve retains complete forward per-edge unions, statement order and unreachable bottom", () => {
@@ -667,7 +672,7 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
       lattice: { bottom: -1, overflow: -1, stateBound: 0, join: unexpected, equals: unexpected, isOverflow: unexpected } };
     // A body without blocks has no entry: there is no execution to solve, and no block stands in for one.
     assert.throws(() => product.solve(parsedBody([], []), 0, problem, { maximumWork: 0, maximumResultEntries: 0 }),
-      error => error instanceof Error && error.message.includes("the selected entry is not an entry of the body"), `${direction} empty domain`);
+      error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), `${direction} empty domain`);
     const failure = new Error(`${direction} caller callback failed`);
     assert.throws(() => product.solve(chainBody(1), 0, { ...scalarProblem(direction), terminator: () => { throw failure; } }, limits),
       error => error === failure);
