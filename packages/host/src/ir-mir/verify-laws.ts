@@ -4,7 +4,7 @@ import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
 import { controlEdges, densePosition, findSourceNode } from "./verify-control.js";
-import { chargeWork } from "./verify-control.js";
+import { chargeWork, read, reversePostorder } from "./verify-control.js";
 import type { SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
 
@@ -454,33 +454,10 @@ export function verifyLaws(
   };
   // Blocks are read in reverse postorder of the control edges, from the entries and then from every block not
   // reached, so that the sources of a block's forward edges are read before it. A chain is read from its head.
-  const postorder: number[] = [];
-  const reached = new Uint8Array(body.blocks.length);
-  const search = (root: number): void => {
-    const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
-    if (start === undefined || reached[root] === 1) return;
-    reached[root] = 1;
-    const frames: SearchFrame[] = [{ block: root, edges: controlEdges(start.terminator), next: 0 }];
-    for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
-      const candidate = frame.edges[frame.next];
-      if (candidate === undefined) {
-        postorder.push(frame.block);
-        frames.pop();
-        continue;
-      }
-      frame.next += 1;
-      const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
-      if (block === undefined || reached[candidate.target] === 1) continue;
-      reached[candidate.target] = 1;
-      frames.push({ block: candidate.target, edges: controlEdges(block.terminator), next: 0 });
-    }
-  };
-  for (const entry of body.entries) search(entry.block);
-  for (const position of body.blocks.keys()) search(position);
-  for (let index = postorder.length - 1; index >= 0; index -= 1) {
-    const position = postorder[index];
-    if (position !== undefined && inherits[position] !== 1 && visited[position] !== 1) chain(position);
-  }
+  const roots: number[] = [];
+  for (const entry of body.entries) roots.push(entry.block);
+  for (const position of body.blocks.keys()) roots.push(position);
+  for (const ordered of reversePostorder(body, roots)) if (inherits[ordered.position] !== 1 && visited[ordered.position] !== 1) chain(ordered.position);
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
   for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
 
@@ -651,23 +628,6 @@ interface CompletionResult {
   readonly block: BlockId;
   readonly statement: number | null;
   branched: boolean;
-}
-
-/**
- * The number a table holds at a position, or `outside` for a position the table does not have. The tables of this
- * file are sized by the body's rows, so a position outside one comes only from a record that names a row the body
- * does not have; that defect is reported by the rule that owns the reference.
- */
-function read(table: ArrayLike<number>, position: number, outside: number): number {
-  const value = table[position];
-  return value === undefined ? outside : value;
-}
-
-/** One block on the path of the depth-first walk that orders the blocks, with the edge it looks at next. */
-interface SearchFrame {
-  readonly block: number;
-  readonly edges: readonly { readonly target: BlockId }[];
-  next: number;
 }
 
 /** The stable checked places an edge hands on: `log[0 .. visible)`, stamped with `count`. */

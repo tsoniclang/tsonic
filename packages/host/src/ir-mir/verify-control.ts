@@ -47,6 +47,60 @@ export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] 
   }
 }
 
+/** A block with its position in the body. */
+export interface OrderedBlock {
+  readonly position: number;
+  readonly block: MirBlock;
+}
+
+/**
+ * The blocks reachable from `roots` along control edges, in reverse postorder of one depth-first walk: a block comes
+ * after the source of each of its edges that is not a back edge of that walk. Roots are taken in the order given; a
+ * position that holds no block is skipped.
+ */
+export function reversePostorder(body: MirBody, roots: readonly number[]): readonly OrderedBlock[] {
+  const postorder: OrderedBlock[] = [];
+  const reached = new Uint8Array(body.blocks.length);
+  for (const root of roots) {
+    const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
+    if (start === undefined || reached[root] === 1) continue;
+    reached[root] = 1;
+    const frames: SearchFrame[] = [{ position: root, block: start, edges: controlEdges(start.terminator), next: 0 }];
+    for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
+      const candidate = frame.edges[frame.next];
+      if (candidate === undefined) {
+        postorder.push({ position: frame.position, block: frame.block });
+        frames.pop();
+        continue;
+      }
+      frame.next += 1;
+      const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
+      if (block === undefined || reached[candidate.target] === 1) continue;
+      reached[candidate.target] = 1;
+      frames.push({ position: candidate.target, block, edges: controlEdges(block.terminator), next: 0 });
+    }
+  }
+  return postorder.reverse();
+}
+
+/** One block on the path of the depth-first walk, with the edge it looks at next. */
+interface SearchFrame {
+  readonly position: number;
+  readonly block: MirBlock;
+  readonly edges: readonly ControlEdge[];
+  next: number;
+}
+
+/**
+ * The number a table holds at a position, or `outside` for a position the table does not have. The verifier's tables
+ * are sized by the body's rows, so a position outside one comes only from a record that names a row the body does
+ * not have; that defect is reported by the rule that owns the reference.
+ */
+export function read(table: ArrayLike<number>, position: number, outside: number): number {
+  const value = table[position];
+  return value === undefined ? outside : value;
+}
+
 export function densePosition(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 }
