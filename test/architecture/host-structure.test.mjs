@@ -620,6 +620,46 @@ test("Pipeline's wiring names every public component operation once, and a table
   // An operation of a bound table is a semantic invocation: a callable hidden in what it returns is reported at the table's declaration.
   for (const hidden of ["readonly value: number; readonly later: () => number;", "readonly values: readonly (() => number)[];", "readonly value: (() => number) | null;"])
     expect([table(hidden), ...rules, ...infer, [pipeline, wiring() + bound]], [at("impure-component", tableFile, 2)]);
+  // R3 T-1 (R2 J-3): a bound table is judged at every level. Each form holds operations whose results are data (accepted);
+  // the same form with a callable hidden in one result is reported at the member that declares that operation.
+  // Expectations written before the run; a finding's line is that of the top-level statement holding the member (the inline
+  // form's position corrected after the run to that rule).
+  const hiddenOutcome = "readonly value: number; readonly later: () => number;";
+  const forms = [
+    ["an alias of a function type", outcome => `export interface Outcome { ${outcome} }\nexport type Decide = (input: number) => Outcome;\nexport interface RuleTable {\n  readonly decide: Decide;\n}`, 3],
+    ["a method signature", outcome => `export interface Outcome { ${outcome} }\nexport interface RuleTable {\n  decide(input: number): Outcome;\n}`, 2],
+    ["a sub-table record", outcome => `export interface Outcome { ${outcome} }\nexport interface Sub {\n  readonly decide: (input: number) => Outcome;\n}\nexport interface RuleTable {\n  readonly variables: Sub;\n}`, 2],
+    ["a sub-table of a sub-table", outcome => `export interface Outcome { ${outcome} }\nexport interface Leaf {\n  readonly decide: (input: number) => Outcome;\n}\nexport interface Sub {\n  readonly leaf: Leaf;\n}\nexport interface RuleTable {\n  readonly variables: Sub;\n}`, 2],
+    ["a generic sub-table with its type argument", outcome => `export interface Outcome { ${outcome} }\nexport interface Scheme<T> {\n  readonly evaluate: (input: T) => Outcome;\n}\nexport interface RuleTable {\n  readonly eq: Scheme<number>;\n}`, 2],
+    ["an inline sub-table", outcome => `export interface Outcome { ${outcome} }\nexport interface RuleTable {\n  readonly variables: {\n    readonly decide: (input: number) => Outcome;\n  };\n}`, 2],
+    ["a table declared as an alias of a type literal", outcome => `export interface Outcome { ${outcome} }\nexport type RuleTable = {\n  readonly decide: (input: number) => Outcome;\n};`, 2],
+  ];
+  for (const [label, form, line] of forms) {
+    assert.deepEqual(inspect([[tableFile, form(data)], ...rules, ...infer, [pipeline, wiring() + bound]]), [], label);
+    assert.deepEqual(inspect([[tableFile, form(hiddenOutcome)], ...rules, ...infer, [pipeline, wiring() + bound]]), [at("impure-component", tableFile, line)], `${label}, hidden callable`);
+  }
+  // A record walked twice is walked once: a sub-table that names itself ends and is judged by its operations.
+  expect([[tableFile, `export interface Outcome { ${data} }\nexport interface Sub {\n  readonly decide: (input: number) => Outcome;\n  readonly again: Sub;\n}\nexport interface RuleTable {\n  readonly variables: Sub;\n}`], ...rules, ...infer, [pipeline, wiring() + bound]], []);
+  // A type argument that carries a callable is reported where it is written, though the record's own operations return data.
+  expect([[tableFile, `export interface Outcome { ${data} }\nexport interface Scheme<T> {\n  readonly evaluate: (input: T) => Outcome;\n}\nexport interface RuleTable {\n  readonly eq: Scheme<() => number>;\n}`], ...rules, ...infer, [pipeline, wiring() + bound]],
+    [at("impure-component", tableFile, 5)]);
+  // R2 J-4: a default type argument that names its own declaration is walked once and the walk ends.
+  expect([[tableFile, `export interface Outcome<T = Outcome> { ${data} }\nexport interface RuleTable {\n  readonly decide: (input: number) => Outcome;\n}`], ...rules, ...infer, [pipeline, wiring() + bound]], []);
+  // The real RuleTable's shape (ir-infer/contract.ts): operations, a record of VariableRule sub-tables and a record of generic
+  // ConstraintScheme sub-tables whose operations return Result of data. Accepted; a callable hidden in one scheme's result, or in
+  // one variable rule's result, is reported at that member's line.
+  const realShape = (variable, scheme) => [tableFile, [
+    `export interface Outcome { ${data} }`,
+    'export type Result<T> = { readonly kind: "ok"; readonly value: T } | { readonly kind: "refused"; readonly reason: string };',
+    `export interface VariableRule { readonly bound: (input: number) => Result<${variable}>; }`,
+    "export interface VariableRules { readonly signature: VariableRule; readonly local: VariableRule; }",
+    `export interface ConstraintScheme<K extends Outcome> { readonly enumerate: (input: K) => Result<readonly Outcome[]>; readonly evaluate: (input: K) => Result<${scheme}>; }`,
+    "export interface ConstraintSchemes { readonly eq: ConstraintScheme<Outcome>; readonly flow: ConstraintScheme<Outcome>; }",
+    "export interface RuleTable { readonly decide: (input: number) => Outcome; readonly variables: VariableRules; readonly constraints: ConstraintSchemes; }",
+  ].join("\n")];
+  expect([realShape("Outcome", "Outcome"), ...rules, ...infer, [pipeline, wiring() + bound]], []);
+  expect([realShape("Outcome", "() => number"), ...rules, ...infer, [pipeline, wiring() + bound]], [at("impure-component", tableFile, 5)]);
+  expect([realShape("() => number", "Outcome"), ...rules, ...infer, [pipeline, wiring() + bound]], [at("impure-component", tableFile, 3)]);
   // Exhaustive both ways: a public operation that the wiring does not name, a member that no component implements, a member twice.
   const withoutSolve = `${imports}export interface Wiring {\n  readonly createRuleTable: CreateRuleTable;\n}\nexport function compose(wiring: Wiring, setup: RulesDeps): InferDeps { const deps: InferDeps = { rules: wiring.createRuleTable(setup) }; return deps; }`;
   expect([table(data), ...rules, ...infer, [pipeline, withoutSolve]], [at("unwired-operation", inferEntry, 2)]);

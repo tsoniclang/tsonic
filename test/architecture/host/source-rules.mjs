@@ -587,6 +587,12 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   // instantiations closed. A generic data record is a different thing: its arguments are walked where it is used.
   const carriesCallable = (start, stage) => {
     const seen = new Set();
+    const walkedDefaults = new Set();
+    const defaultCarries = parameter => {
+      if (walkedDefaults.has(parameter)) return false;
+      walkedDefaults.add(parameter);
+      return visit(ast.as.AsTypeParameterDeclaration(parameter).DefaultType);
+    };
     const signatures = node => {
       const shape = typeShape(node);
       const type = shape.getTypeFromTypeNode(node);
@@ -627,7 +633,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           return true;
         }
         const generic = ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeParameters(declaration) : [];
-        if (generic.slice(supplied).some(parameter => visit(ast.as.AsTypeParameterDeclaration(parameter).DefaultType))) return true;
+        if (generic.slice(supplied).some(defaultCarries)) return true;
         if (seen.has(declaration)) continue;
         seen.add(declaration);
         if (ast.is.IsInterfaceDeclaration(declaration)) {
@@ -849,18 +855,61 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     }
     return calls > 0 && placed;
   };
-  // The operations of a bound table are semantic invocations: the result of each is data.
+  // The operations of a bound table are semantic invocations: the result of each is data, at every level. A table is a
+  // record: an interface, or an alias of a type literal. Each member is an operation (a method, an inline function type,
+  // or a function type named through an alias: its result is judged), a sub-table (a record that holds operations,
+  // inline or named, judged the same way with its type arguments; each record once), or data. A finding is reported at
+  // the member or type argument where the callable is.
+  const recordMembers = declaration => ast.is.IsInterfaceDeclaration(declaration) ? ast.members(declaration)
+    : ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))
+      ? ast.members(ast.typeNode(declaration)) : undefined;
+  const inspectedDeclarations = (at, selected) => selected === undefined ? [] : checker(at).getSymbolDeclarations(selected)
+    .filter(declaration => declaration !== undefined && files.has(pathOf(declaration)));
   const tableOperationFindings = selected => {
-    for (const declaration of checker(sourceFiles.values().next().value).getSymbolDeclarations(resultReference(selected))) {
-      const members = ast.is.IsInterfaceDeclaration(declaration) ? ast.members(declaration) : undefined;
-      if (members === undefined) return false;
+    const walked = new Set();
+    const report = node => add("impure-component", pathOf(node), node);
+    const judgeResult = (result, member) => { if (carriesCallable(result)) report(member); };
+    const judgeMembers = members => {
       for (const member of members) {
-        const type = ast.is.IsPropertySignatureDeclaration(member) ? ast.typeNode(member) : undefined;
-        if (ast.is.IsMethodSignatureDeclaration(member) ? carriesCallable(ast.typeNode(member))
-          : type !== undefined && ast.is.IsFunctionTypeNode(type) ? carriesCallable(ast.as.AsFunctionTypeNode(type).Type) : carriesCallable(type))
-          add("impure-component", pathOf(member), member);
+        if (member === undefined) continue;
+        if (ast.is.IsMethodSignatureDeclaration(member)) judgeResult(ast.typeNode(member), member);
+        else if (ast.is.IsPropertySignatureDeclaration(member) || ast.is.IsIndexSignatureDeclaration(member)) judgeType(ast.typeNode(member), member);
+        else report(member);
       }
-    }
+    };
+    const judgeRecord = (declaration, at) => {
+      if (walked.has(declaration)) return;
+      walked.add(declaration);
+      if (ast.is.IsInterfaceDeclaration(declaration)) for (const base of ast.extendsHeritageElements(declaration)) {
+        const expression = ast.children(base).find(child => child !== undefined);
+        judgeReference(base, symbol(expression), ast.typeArguments(base), at);
+      }
+      judgeMembers(recordMembers(declaration));
+    };
+    // A named member type: an alias of a function type is an operation; a record is data or a sub-table; anything else
+    // is judged whole. A type argument that carries a callable is reported where it is written.
+    const judgeReference = (at, target, typeArguments, member) => {
+      const declarations = inspectedDeclarations(at, target);
+      const operation = declarations.length === 1 && ast.is.IsTypeAliasDeclaration(declarations[0]) && ast.typeNode(declarations[0]) !== undefined &&
+        ast.is.IsFunctionTypeNode(ast.typeNode(declarations[0])) ? ast.as.AsFunctionTypeNode(ast.typeNode(declarations[0])) : undefined;
+      const records = declarations.length > 0 && declarations.every(declaration => recordMembers(declaration) !== undefined);
+      if (operation === undefined && !records) { if (carriesCallable(at)) report(member); return; }
+      for (const argument of typeArguments) if (carriesCallable(argument)) report(member);
+      if (operation !== undefined) judgeResult(operation.Type, member);
+      else for (const declaration of declarations) judgeRecord(declaration, at);
+    };
+    const judgeType = (type, member) => {
+      if (type === undefined) return;
+      if (ast.is.IsFunctionTypeNode(type)) judgeResult(ast.as.AsFunctionTypeNode(type).Type, member);
+      else if (ast.is.IsTypeLiteralNode(type)) { if (!walked.has(type)) { walked.add(type); judgeMembers(ast.members(type)); } }
+      else if (ast.is.IsTypeReferenceNode(type)) {
+        const name = ast.as.AsTypeReferenceNode(type).TypeName;
+        judgeReference(type, symbol(ast.is.IsQualifiedName(name) ? ast.as.AsQualifiedName(name).Right : name), ast.typeArguments(type), member);
+      } else if (carriesCallable(type)) report(member);
+    };
+    const roots = inspectedDeclarations(sourceFiles.values().next().value, resultReference(selected));
+    if (roots.length === 0 || roots.some(declaration => recordMembers(declaration) === undefined)) return false;
+    for (const declaration of roots) judgeRecord(declaration, declaration);
     return true;
   };
   for (const [file, node] of sourceFiles) {
