@@ -16,7 +16,7 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify"];
+const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
 const sourceFiles = [...productNames, "contract", "data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();

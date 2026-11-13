@@ -6,7 +6,7 @@ import { substitute as transform, substituteSignature as transformSignature } fr
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
-import { selectorPathKey } from "./value.js";
+import { selectorPathKey } from "./selector-path.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
 export const seedTypeInterner: SeedTypeInterner = seed;
