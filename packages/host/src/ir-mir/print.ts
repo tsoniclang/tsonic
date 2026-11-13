@@ -129,22 +129,24 @@ export function createBodyWire(): Wire<MirBody> {
   const baseStatic = record<MirPlaceBase & { readonly kind: "static" }>("static", () =>
     field("definition", () => definitionWire, value => value.definition, definition => finish(() => ({ kind: "static", definition }))));
 
-  function projectedBase<Kind extends "place" | "checked">(kind: Kind) {
-    return record<MirPlaceBase & { readonly kind: Kind }>(kind, () =>
-      field("place", () => placeWire, value => value.place, place =>
-        field("projection", () => projectionWire, value => value.projection, projection =>
-          field("tir", () => nodeRefWire, value => value.tir, tir =>
-            finish(() => ({ kind, place, projection, tir } as MirPlaceBase & { readonly kind: Kind }))))));
-  }
+  const basePlace = record<MirPlaceBase & { readonly kind: "place" }>("place", () =>
+    field("place", () => placeWire, value => value.place, place =>
+      field("projection", () => projectionWire, value => value.projection, projection =>
+        field("tir", () => nodeRefWire, value => value.tir, tir => finish(() => ({ kind: "place", place, projection, tir }))))));
+
+  const baseChecked = record<MirPlaceBase & { readonly kind: "checked" }>("checked", () =>
+    field("place", () => placeWire, value => value.place, place =>
+      field("projection", () => projectionWire, value => value.projection, projection =>
+        field("tir", () => nodeRefWire, value => value.tir, tir => finish(() => ({ kind: "checked", place, projection, tir }))))));
 
   const baseWire: Wire<MirPlaceBase> = variants([choice("local", () => baseLocal), choice("static", () => baseStatic),
-    choice("place", () => projectedBase("place")), choice("checked", () => projectedBase("checked"))],
+    choice("place", () => basePlace), choice("checked", () => baseChecked)],
     (value, path, next) => {
       switch (value.kind) {
         case "local": return baseLocal.write(value, path, next);
         case "static": return baseStatic.write(value, path, next);
-        case "place": return projectedBase("place").write(value, path, next);
-        case "checked": return projectedBase("checked").write(value, path, next);
+        case "place": return basePlace.write(value, path, next);
+        case "checked": return baseChecked.write(value, path, next);
       }
     });
 
