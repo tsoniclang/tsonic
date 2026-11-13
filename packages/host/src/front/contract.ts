@@ -3,7 +3,7 @@ import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, Nod
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type { HirModule, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
-import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot, SourceDeclarationPolicy } from "../snapshot/contract.js";
 import type { ExtensionReference } from "../snapshot/contract.js";
 import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 
@@ -790,6 +790,31 @@ export interface ConvertedCheckedType {
   readonly type: TyId;
   readonly evidence: TypeEvidence;
 }
+
+/**
+ * One row of the checker option set. A constant row has the same value in every session. Two rows are read from
+ * the snapshot: the project root, and whether installed declaration packages are admitted.
+ */
+export type CheckerOptionValue =
+  | { readonly kind: "constant"; readonly value: boolean | string }
+  | { readonly kind: "project-root" }
+  | { readonly kind: "installed-declarations" };
+
+export interface CheckerOptionRow {
+  readonly name: string;
+  readonly value: CheckerOptionValue;
+  readonly reason: string;
+}
+
+export interface CheckerOptionInput {
+  readonly projectRoot: string;
+  readonly installedDeclarations: SourceDeclarationPolicy["installedDeclarations"];
+}
+
+export type CheckerOptionSet = Readonly<Record<string, boolean | string | readonly string[]>>;
+
+/** The options of the one compiler session of an analysis: exactly one entry per row of the table, and no other. */
+export type CheckerOptions = (input: CheckerOptionInput) => CheckerOptionSet;
 
 export type PrepareSourceImports = (
   deps: PreparationDeps,
