@@ -761,7 +761,7 @@ test("decision/proof/construction/protocol checks compare full structural final 
   const flow = { kind: "flow", occurrence, from: 0, to: 0, role: "initialization", bindings: emptyBindings };
   const proof = { steps: [{ from: componentGolden.value, to: componentGolden.value, rule: "identity", premises: [] }], conclusion: 0 };
   const solutionWith = decision => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision }] });
-  const conversion = proofValue => ({ kind: "flow", embedding: { kind: "conversion", conversion: "shape", proof: proofValue } });
+  const conversion = proofValue => ({ kind: "flow", embedding: { kind: "conversion", conversion: "shape", proof: proofValue, check: { kind: "none" } } });
   const flowInput = { constraints: [constraintSet([flow])], bindingScopes: [emptyScope], solution: solutionWith(conversion(proof)) };
   ruleCase("proof-reference", flowInput, { ...flowInput, solution: solutionWith(conversion({ ...proof, conclusion: 1 })) },
     [violation("proof-reference", { kind: "proof", constraint: { body, index: 0 }, step: 1 }, "conclusion")]);
@@ -772,7 +772,7 @@ test("decision/proof/construction/protocol checks compare full structural final 
     [violation("decision-kind", constraintSite(0), "decision")]);
   const construction = { kind: "construct-literal", occurrence, construction: "object", parts: [{ kind: "element", occurrence, type: 0 }], destination: null, result: 0 };
   const part = { part: 0, source: occurrence, destination: componentGolden.value, member: null, embedding: { kind: "identity" } };
-  const constructDecision = parts => ({ kind: "construct-literal", operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [0], result: 0 } });
+  const constructDecision = parts => ({ kind: "construct-literal", operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [0], result: 0, execution: { kind: "pure" } } });
   ruleCase("construction-part-total", { constraints: [constraintSet([construction])], solution: solutionWith(constructDecision([part])) },
     { constraints: [constraintSet([construction])], solution: solutionWith(constructDecision([])) },
     [violation("construction-part-total", constraintSite(0), "parts")]);
@@ -780,7 +780,7 @@ test("decision/proof/construction/protocol checks compare full structural final 
   const operation = { kind: "protocol", protocol: "iterate", asynchronous: false, steps: [
     { role: "completion", operation: { kind: "completion" }, operands: [], result: 0 },
   ], value: 0, completion: 0, yielded: null, sent: null, thrown: 0 };
-  const protocolDecision = value => ({ kind: "protocol", operation: { kind: "selected", operation: value, operands: [], result: 0 } });
+  const protocolDecision = value => ({ kind: "protocol", operation: { kind: "selected", operation: value, operands: [], result: 0, execution: { kind: "pure" } } });
   ruleCase("protocol-channels", { constraints: [constraintSet([protocol])], bindingScopes: [emptyScope], solution: solutionWith(protocolDecision(operation)) },
     { constraints: [constraintSet([protocol])], bindingScopes: [emptyScope], solution: solutionWith(protocolDecision({ ...operation, asynchronous: true })) },
     [violation("protocol-channels", constraintSite(0), "protocol")]);
@@ -790,7 +790,7 @@ test("decision/proof/construction/protocol checks compare full structural final 
 
 test("selected operation and narrowed-proof traversal verifies every actual closed structural family", () => {
   const member = { key: { kind: "text", value: "field" }, origins: [], selectedDeclarations: [], primary: null,
-    read: 0, write: null, getter: null, setter: null, bindings: emptyBindings };
+    read: 0, write: null, getter: null, setter: null, bindings: emptyBindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
   const part = { part: 0, source: occurrence, destination: componentGolden.value, member, embedding: { kind: "identity" } };
   const application = applicationGolden().value;
   const protocol = { kind: "protocol", protocol: "iterate", asynchronous: false, steps: [
@@ -814,7 +814,7 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
   ];
   const raw = { kind: "op", occurrence, operator: "+", operands: [0], result: 0, permissionScope: null };
   const solved = operation => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: { kind: "op",
-    operation: { kind: "selected", operation, operands: [0], result: 0 } } }] });
+    operation: { kind: "selected", operation, operands: [0], result: 0, execution: { kind: "pure" } } } }] });
   for (const [operation, bindingScopes] of rows)
     fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([raw])], bindingScopes, solution: solved(operation) })), [],
       `complete selected ${operation.kind} final record, without replaying semantic selection`);
@@ -831,7 +831,7 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
   const refinement = { kind: "refine", occurrence, source: 0, checked: 0, result: 0 };
   const proof = { steps: [{ from: componentGolden.value, to: componentGolden.value, rule: "identity", premises: [] }], conclusion: 0 };
   const narrowed = proof => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
-    decision: { kind: "refine", refinement: { kind: "narrowed", source: 0, result: 0, proof } } }] });
+    decision: { kind: "refine", refinement: { kind: "narrowed", source: 0, result: 0, proof, failure: "unwind" } } }] });
   ruleCase("proof-reference", { constraints: [constraintSet([refinement])], solution: narrowed(proof) },
     { constraints: [constraintSet([refinement])], solution: narrowed({ ...proof, steps: [{ ...proof.steps[0], premises: [2] }] }) },
     [violation("proof-reference", { kind: "proof", constraint: { body, index: 0 }, step: 0 }, "premises")],
@@ -839,7 +839,7 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
   const construction = { kind: "construct-literal", occurrence, construction: "object", parts: [{ kind: "element", occurrence, type: 0 }],
     destination: null, result: 0 };
   const constructed = parts => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: { kind: "construct-literal",
-    operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [], result: 0 } } }] });
+    operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [], result: 0, execution: { kind: "pure" } } } }] });
   const complete = { constraints: [constraintSet([construction])], bindingScopes: [emptyScope], solution: constructed([part]),
     nodes: [{ owner: source, ids: [0, 1] }] };
   for (const changed of [{ ...part, part: -0 }, { ...part, source: { body, node: 1 } }])
@@ -889,7 +889,7 @@ test("recorded checks correlate actual final variables and bound keys, not unkno
       [violation("check-recorded", { kind: "check", index: 0 }, "bound")], "recorded variable references reject negative zero without normalization");
   const step = { from: componentGolden.value, to: componentGolden.value, rule: "identity", premises: [] };
   const converted = proof => ({ ...solution, checks: [{ ...check,
-    outcome: { kind: "satisfied", embedding: { kind: "conversion", conversion: "numeric", proof } } }] });
+    outcome: { kind: "satisfied", embedding: { kind: "conversion", conversion: "numeric", proof, check: { kind: "none" } } } }] });
   ruleCase("proof-reference", { ...input, solution: converted({ steps: [step], conclusion: 0 }) },
     { ...input, solution: converted({ steps: [{ ...step, premises: [2] }], conclusion: 0 }) },
     [violation("proof-reference", { kind: "proof", constraint: { body, index: 0 }, step: 0 }, "premises")],
@@ -999,7 +999,7 @@ test("actual formal tables and canonical endpoint associations are independent o
     solution: solved({ ...selected, completion: { ...selected.completion, completion: 1 } }) },
   [violation("body-completion-endpoints", constraintSite(0), "completion")], "the actual activated body owns its completion channels");
   for (const kind of ["call", "construct"]) {
-    const selectedOperation = { kind: "decided", decision: { kind: "selected", operation: { kind: "discard" }, operands: [], result: 0 } };
+    const selectedOperation = { kind: "decided", decision: { kind: "selected", operation: { kind: "discard" }, operands: [], result: 0, execution: { kind: "pure" } } };
     const deferredOperation = { kind: "deferred", deferred: { invocation: { rule: "core", input: {
       context: contextGolden.value, captured: captureGolden.value, declaration: definition, operands: [],
       result: evidence(), permissionScope: null,
@@ -1131,7 +1131,7 @@ test("selected endpoint roles follow the endpoint family of the selected declara
   const setOf = declaration => ({ ...constraintSet([{ kind: "call", occurrence, application: raw }]),
     candidates: [{ id: 0, candidates: [candidateOf(declaration)] }] });
   const applicationOf = (advertised, api) => ({ candidate: 0, advertised, api, bindings: emptyBindings,
-    implementationBindings: emptyBindings, parameters: [], completion: { signature: api.signature, completion: 0, yielded: null, sent: null }, result: 0 });
+    implementationBindings: emptyBindings, parameters: [], completion: { signature: api.signature, completion: 0, yielded: null, sent: null }, result: 0, activation: null });
   const solved = application => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
     decision: { kind: "call", application, operation: null } }] });
   const records = (declaration, application) => ({ constraints: [setOf(declaration)], solution: solved(application),
@@ -1191,7 +1191,7 @@ test("bodyless APIs retain their own complete generic environment independently 
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application: raw }]), candidates: [{ id: 0, candidates: [candidate] }] };
   const application = { candidate: 0, advertised, api, bindings: advertisedBindings, implementationBindings: apiBindings,
-    parameters: [], completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0 };
+    parameters: [], completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
   const solution = { ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
     decision: { kind: "call", application, operation: null } }] };
   const parameter = identity => ({ identity, declaration: `D[${moduleIdentity};${identity.owner === definition ? "run" : "nativeRun"}/T]`,
@@ -1224,7 +1224,7 @@ test("bodyless APIs retain their own complete generic environment independently 
       signature: scalarGolden(1, "sig"), body: nullGolden }), bindings: bindings(advertisedParameterGolden),
     implementationBindings: bindings(parameterGolden), parameters: emptyGolden,
     completion: recordGolden("CompletionEndpoint", { signature: scalarGolden(1, "sig"), completion: typeGolden,
-      yielded: nullGolden, sent: nullGolden }), result: typeGolden });
+      yielded: nullGolden, sent: nullGolden }), result: typeGolden, activation: nullGolden });
   fullEqual(bodyless.value, application, "independent complete wire fixture names both actual environments");
   const golden = solutionGolden([recordGolden("call", { application: bodyless, operation: nullGolden }, "call")]);
   assertRoundTrip("Solution", golden.value, golden.text, "bodyless generic API environment is preserved, not erased by activation");
@@ -1367,7 +1367,7 @@ test("raw-to-final type instantiation is not approximated by saved ID equality",
   const protocol = { kind: "protocol", occurrence, protocol: "iterate", asynchronous: false,
     subject: 2, operands: [], result: 1, bindings: emptyBindings };
   const operation = { kind: "selected", operation: { kind: "protocol", protocol: "iterate", asynchronous: false,
-    steps: [], value: 0, completion: 0, yielded: null, sent: null, thrown: 0 }, operands: [], result: 0 };
+    steps: [], value: 0, completion: 0, yielded: null, sent: null, thrown: 0 }, operands: [], result: 0, execution: { kind: "pure" } };
   fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([protocol], [localVariable(0)])], types,
     bindingScopes: [emptyScope], solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence() }],
       constraints: [{ constraint: { body, index: 0 }, decision: { kind: "protocol", operation } }] } })), [],
@@ -1543,7 +1543,7 @@ test("member declarations and accessor endpoints use actual independent declarat
   const constraint = { kind: "member", occurrence, receiver: 0, key: { kind: "text", value: "member" },
     access: "read", result: 0, origins: [], bindings: emptyBindings };
   const member = { key: constraint.key, origins: [], selectedDeclarations: [definition], primary: definition,
-    read: 0, write: null, getter: declarationFacts.endpoints[1], setter: null, bindings: emptyBindings };
+    read: 0, write: null, getter: declarationFacts.endpoints[1], setter: null, bindings: emptyBindings, location: { kind: "accessor" } };
   const solved = value => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
     decision: { kind: "member", member: value } }] });
   const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope, emptyScope], solution: solved(member) };
@@ -1560,6 +1560,15 @@ test("member declarations and accessor endpoints use actual independent declarat
     violation("endpoint-agreement", constraintSite(0), "getter"),
     violation("qualified-reference", constraintSite(0), "declarations"),
   ], "an absent actual accessor declaration is not an empty successful endpoint association");
+  const dataLocation = { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "by-reference" };
+  ruleCase("access-location", input, { ...input, solution: solved({ ...member, location: dataLocation }) },
+    [violation("access-location", constraintSite(0), "location")], "a selected getter with a data location");
+  const field = { ...member, getter: null, location: dataLocation };
+  const fieldInput = { ...input, solution: solved(field) };
+  ruleCase("access-location", fieldInput, { ...input, solution: solved({ ...field, location: { kind: "accessor" } }) },
+    [violation("access-location", constraintSite(0), "location")], "an accessor location with no selected getter or setter");
+  ruleCase("access-location", fieldInput, { ...input, solution: solved({ ...field, setter: declarationFacts.endpoints[1] }) },
+    [violation("access-location", constraintSite(0), "location")], "a selected setter with a data location");
 });
 
 function assertRoundTrip(family, value, text, label) {
@@ -1625,6 +1634,14 @@ const nodeGolden = recordGolden("NodeRef", { body: bodyGolden, node: scalarGolde
 const sourceGolden = recordGolden("body", { value: nodeGolden }, "body");
 const bindingGolden = recordGolden("BindingVector", { classBindings: emptyGolden, methodBindings: emptyGolden,
   capturedBindings: emptyGolden, selfBindings: emptyGolden });
+const noCheckGolden = recordGolden("none", {}, "none");
+const requiredCheckGolden = failure => recordGolden("required", { failure: scalarGolden(failure) }, "required");
+const checkGoldens = [noCheckGolden, requiredCheckGolden("unwind"), requiredCheckGolden("abort")];
+const dataLocationGolden = (check, receiver) => recordGolden("data", { check, receiver: scalarGolden(receiver) }, "data");
+const accessorLocationGolden = recordGolden("accessor", {}, "accessor");
+const pureGolden = recordGolden("pure", {}, "pure");
+const invocationGolden = (writesStorage, failure) => recordGolden("invocation",
+  { writesStorage: scalarGolden(writesStorage), failure: scalarGolden(failure) }, "invocation");
 const componentGolden = recordGolden("TypeComponent", { root: sourceGolden, path: emptyGolden });
 const categoryGolden = recordGolden("known", { category: scalarGolden("number") }, "known");
 const evidenceGolden = recordGolden("TypeEvidence", { type: typeGolden, component: sourceGolden, category: categoryGolden,
@@ -1661,15 +1678,24 @@ function solutionGolden(decisions, variables = [], checks = [], bodies = []) {
   checks: arrayGolden(checks), bodies: arrayGolden(bodies) });
 }
 
-function applicationGolden(parameters = []) {
+function applicationGolden(parameters = [], activation = nullGolden) {
   return recordGolden("ApplicationDecision", { candidate: scalarGolden(0), advertised: endpointGolden(),
     api: endpointGolden("api-body", bodyGolden), bindings: bindingGolden, implementationBindings: bindingGolden,
     parameters: arrayGolden(parameters), completion: recordGolden("CompletionEndpoint", { signature: signatureGolden,
-      completion: typeGolden, yielded: nullGolden, sent: nullGolden }), result: typeGolden });
+      completion: typeGolden, yielded: nullGolden, sent: nullGolden }), result: typeGolden, activation });
 }
 
-function operationGolden(operation) {
-  return recordGolden("selected", { operation, operands: arrayGolden([typeGolden]), result: typeGolden }, "selected");
+function closureGolden(modes, execution = pureGolden) {
+  return recordGolden("ClosureDecision", { carrier: typeGolden, captures: arrayGolden(modes.map(mode => scalarGolden(mode))), execution });
+}
+
+function closureConstraintGolden(captureCount) {
+  return recordGolden("closure", { occurrence: nodeGolden, created: bodyGolden,
+    captures: arrayGolden(Array.from({ length: captureCount }, () => typeGolden)), result: typeGolden, bindings: bindingGolden }, "closure");
+}
+
+function operationGolden(operation, execution = pureGolden) {
+  return recordGolden("selected", { operation, operands: arrayGolden([typeGolden]), result: typeGolden, execution }, "selected");
 }
 
 function deferredGolden(rule, input) {
@@ -2051,7 +2077,12 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
     recordGolden("class-prototype", { owner: definitionGolden }, "class-prototype"),
     recordGolden("mapped", { owner: sourceGolden, key: textKeyGolden }, "mapped"),
   ]), selectedDeclarations: arrayGolden([definitionGolden]), primary: definitionGolden, read: typeGolden, write: typeGolden,
-  getter: endpointGolden("api-signature"), setter: endpointGolden("api-body", bodyGolden), bindings: bindingGolden });
+  getter: endpointGolden("api-signature"), setter: endpointGolden("api-body", bodyGolden), bindings: bindingGolden,
+  location: accessorLocationGolden });
+  const dataMembers = checkGoldens.flatMap(check => ["in-place", "by-reference"].map(receiver =>
+    recordGolden("MemberDecision", { key: textKeyGolden, origins: arrayGolden([recordGolden("declared", { declaration: definitionGolden }, "declared")]),
+      selectedDeclarations: arrayGolden([definitionGolden]), primary: definitionGolden, read: typeGolden, write: typeGolden,
+      getter: nullGolden, setter: nullGolden, bindings: bindingGolden, location: dataLocationGolden(check, receiver) })));
   const mappings = [
     recordGolden("argument", { parameter: scalarGolden(0), argument: scalarGolden(0), component: nullGolden, passing: scalarGolden("by-value") }, "argument"),
     recordGolden("argument", { parameter: scalarGolden(1), argument: scalarGolden(1), component: scalarGolden(0), passing: scalarGolden("borrow-shared") }, "argument"),
@@ -2062,7 +2093,9 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
   const application = applicationGolden(mappings);
   const embeddings = [identityGolden,
     ...["numeric", "literal-fit", "absence", "union-injection", "shape", "callable", "readonly"].map(conversion =>
-      recordGolden("conversion", { conversion: scalarGolden(conversion), proof: proofGolden }, "conversion")),
+      recordGolden("conversion", { conversion: scalarGolden(conversion), proof: proofGolden, check: noCheckGolden }, "conversion")),
+    ...["unwind", "abort"].map(failure =>
+      recordGolden("conversion", { conversion: scalarGolden("numeric"), proof: proofGolden, check: requiredCheckGolden(failure) }, "conversion")),
     ...["incompatible-domain", "lossy-numeric", "missing-correspondence", "passing-mode", "rigid-parameter"].map(reason =>
       recordGolden("refused", { reason: scalarGolden(reason) }, "refused"))];
   const part = recordGolden("ConstructionPartDecision", { part: scalarGolden(0), source: nodeGolden,
@@ -2089,13 +2122,22 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
   const decisions = [recordGolden("eq", { equivalent: scalarGolden(false) }, "eq"),
     ...embeddings.flatMap(embedding => [recordGolden("flow", { embedding }, "flow"), recordGolden("literal", { embedding }, "literal")]),
     recordGolden("member", { member }, "member"), recordGolden("index", { member }, "index"),
+    ...dataMembers.flatMap(data => [recordGolden("member", { member: data }, "member"), recordGolden("index", { member: data }, "index")]),
     recordGolden("call", { application, operation: nullGolden }, "call"),
+    ...["at-creation", "when-first-driven"].map(activation =>
+      recordGolden("call", { application: applicationGolden(mappings, scalarGolden(activation)), operation: nullGolden }, "call")),
+    ...[false, true].flatMap(writesStorage => ["none", "unwind", "abort"].map(failure =>
+      recordGolden("op", { operation: operationGolden(operations[0], invocationGolden(writesStorage, failure)) }, "op"))),
     recordGolden("construct", { application, operation: recordGolden("decided", { decision: operationGolden(operations[0]) }, "decided") }, "construct"),
     ...operations.map(operation => recordGolden("op", { operation: operationGolden(operation) }, "op")),
     recordGolden("construct-literal", { operation: operationGolden(operations[5]) }, "construct-literal"),
     recordGolden("protocol", { operation: operationGolden(operations[7]) }, "protocol"),
+    recordGolden("closure", { closure: closureGolden([]) }, "closure"),
+    recordGolden("closure", { closure: closureGolden(["captured-value", "captured-location"]) }, "closure"),
+    recordGolden("closure", { closure: closureGolden(["captured-location"], invocationGolden(false, "unwind")) }, "closure"),
     recordGolden("refine", { refinement: recordGolden("identity", { type: typeGolden }, "identity") }, "refine"),
-    recordGolden("refine", { refinement: recordGolden("narrowed", { source: typeGolden, result: typeGolden, proof: proofGolden }, "narrowed") }, "refine"),
+    ...["unwind", "abort"].map(failure => recordGolden("refine", { refinement: recordGolden("narrowed",
+      { source: typeGolden, result: typeGolden, proof: proofGolden, failure: scalarGolden(failure) }, "narrowed") }, "refine")),
     recordGolden("discharge", { proof: recordGolden("DischargeProof", { checkerDiagnostic: scalarGolden(2322), obligations: arrayGolden([
       recordGolden("DischargeObligationProof", { ordinal: scalarGolden(0), rule: scalarGolden("embed"), evidence: proofGolden }),
     ]) }) }, "discharge"), recordGolden("default", { type: typeGolden }, "default")];
@@ -2133,9 +2175,11 @@ test("every saved rule invocation retains its actual closed input rather than on
       arguments: arrayGolden([evidenceGolden]), result: evidenceGolden })),
     deferredGolden("core", recordGolden("CoreInput", { context: contextGolden, captured: captureGolden, declaration: definitionGolden,
       operands: arrayGolden([evidenceGolden]), result: evidenceGolden, permissionScope: nodeGolden })),
+    deferredGolden("closure", recordGolden("ClosureInput", { context: contextGolden, callable: evidenceGolden,
+      captures: arrayGolden([evidenceGolden, evidenceGolden]) })),
   ];
   const golden = solutionGolden(invocations.map(deferred => recordGolden("deferred", { deferred }, "deferred")));
-  assertRoundTrip("Solution", golden.value, golden.text, "all thirteen rule input families and candidate/protocol subarms");
+  assertRoundTrip("Solution", golden.value, golden.text, "all fourteen rule input families and candidate/protocol subarms");
   const call = solutionGolden([recordGolden("call", { application: applicationGolden(),
     operation: recordGolden("deferred", { deferred: invocations[0] }, "deferred") }, "call")]);
   assertRoundTrip("Solution", call.value, call.text, "deferred operation inside an otherwise selected application");
@@ -2195,7 +2239,7 @@ test("binding families, sum components, nominal identity and pointer evidence re
   const proof = recordGolden("EmbeddingProof", { steps: arrayGolden([recordGolden("CorrespondenceStep", {
     from: component, to: componentGolden, rule: scalarGolden("identity"), premises: emptyGolden })]), conclusion: scalarGolden(0) });
   const converted = solutionGolden([recordGolden("flow", { embedding: recordGolden("conversion", {
-    conversion: scalarGolden("callable"), proof }, "conversion") }, "flow")]);
+    conversion: scalarGolden("callable"), proof, check: noCheckGolden }, "conversion") }, "flow")]);
   assertRoundTrip("Solution", converted.value, converted.text, "every component selector including nested sum families");
   const pointers = [recordGolden("raw-address", {}, "raw-address"),
     recordGolden("typed-location", { pointee: typeGolden, mutability: scalarGolden("readonly") }, "typed-location"),
@@ -2481,7 +2525,7 @@ test("the earliest real text position wins across lexical, framing, field, value
   const ruleOffset = wrongRule.indexOf('"unknown"');
   fullEqual(product.parseSolution(wrongRule), { kind: "invalid-text", offset: ruleOffset, line: 1, column: ruleOffset + 1,
     expected: ['"embed"', '"domain-fit"', '"memory-equivalent"', '"member"', '"index"', '"construct-literal"', '"candidate"',
-      '"operator"', '"literal-fit"', '"protocol"', '"refinement"', '"library"', '"core"'], found: '"unknown"' },
+      '"operator"', '"literal-fit"', '"protocol"', '"refinement"', '"library"', '"core"', '"closure"'], found: '"unknown"' },
     "the complete saved-rule prefix is checked before any rule-specific input layout");
 });
 
@@ -2832,6 +2876,111 @@ test("the removed nullable API environment is rejected at its exact text field",
   const offset = text.indexOf("null", text.indexOf("implementationBindings="));
   fullEqual(product.parseSolution(text), { kind: "invalid-text", offset, line: 1, column: offset + 1,
     expected: ["BindingVector"], found: "null" }, "old null spelling is not a compatibility form");
+});
+
+test("check, failure, execution, location and activation fields refuse an unknown value and the record without the field", () => {
+  const narrowed = failure => recordGolden("refine", { refinement: recordGolden("narrowed",
+    { source: typeGolden, result: typeGolden, proof: proofGolden, failure: scalarGolden(failure) }, "narrowed") }, "refine");
+  const documents = {
+    conversion: solutionGolden([recordGolden("flow", { embedding: recordGolden("conversion",
+      { conversion: scalarGolden("numeric"), proof: proofGolden, check: requiredCheckGolden("unwind") }, "conversion") }, "flow")]),
+    member: solutionGolden([recordGolden("member", { member: recordGolden("MemberDecision", { key: textKeyGolden, origins: emptyGolden,
+      selectedDeclarations: emptyGolden, primary: nullGolden, read: typeGolden, write: nullGolden, getter: nullGolden, setter: nullGolden,
+      bindings: bindingGolden, location: dataLocationGolden(noCheckGolden, "in-place") }) }, "member")]),
+    call: solutionGolden([recordGolden("call", { application: applicationGolden([], scalarGolden("at-creation")), operation: nullGolden }, "call")]),
+    operation: solutionGolden([recordGolden("op", { operation: operationGolden(recordGolden("discard", {}, "discard"),
+      invocationGolden(true, "abort")) }, "op")]),
+    narrowed: solutionGolden([narrowed("abort")]),
+  };
+  for (const document of Object.values(documents))
+    fullEqual(product.parseSolution(document.text), { kind: "parsed", value: document.value }, "the complete document is valid before a field is changed");
+  const checkFailures = ['"unwind"', '"abort"'];
+  for (const [name, slot, replacement, expected, found] of [
+    ["conversion", 'failure="unwind"', '"proved"', checkFailures, '"proved"'],
+    ["conversion", 'failure="unwind"', '"none"', checkFailures, '"none"'],
+    ["conversion", 'check=required(failure="unwind")', "proved()", ["none", "required"], "proved"],
+    ["member", 'receiver="in-place"', '"copied"', ['"in-place"', '"by-reference"'], '"copied"'],
+    ["member", 'location=data(check=none(), receiver="in-place")', "field()", ["data", "accessor"], "field"],
+    ["member", "check=none()", "proved()", ["none", "required"], "proved"],
+    ["call", 'activation="at-creation"', '"lazy"', ['"at-creation"', '"when-first-driven"'], '"lazy"'],
+    ["operation", 'failure="abort"', '"proved"', ['"none"', '"unwind"', '"abort"'], '"proved"'],
+    ["operation", "writesStorage=true", '"yes"', ["boolean"], '"yes"'],
+    ["operation", 'execution=invocation(writesStorage=true, failure="abort")', "effect()", ["pure", "invocation"], "effect"],
+    ["narrowed", 'failure="abort"', '"none"', checkFailures, '"none"'],
+  ]) {
+    const text = documents[name].text;
+    const start = text.indexOf(slot);
+    assert.equal(start >= 0 && text.indexOf(slot, start + 1) < 0, true, "the authored slot occurs exactly once");
+    const offset = start + slot.indexOf("=") + 1;
+    fullEqual(product.parseSolution(text.slice(0, offset) + replacement + text.slice(start + slot.length)),
+      { kind: "invalid-text", offset, line: 1, column: offset + 1, expected, found }, `${name}: ${replacement} at ${slot}`);
+  }
+  for (const [name, removed, field] of [
+    ["conversion", ', check=required(failure="unwind")', "check"],
+    ["member", ', location=data(check=none(), receiver="in-place")', "location"],
+    ["call", ', activation="at-creation"', "activation"],
+    ["operation", ', execution=invocation(writesStorage=true, failure="abort")', "execution"],
+    ["operation", ', failure="abort"', "failure"],
+    ["narrowed", ', failure="abort"', "failure"],
+  ]) {
+    const text = documents[name].text;
+    const offset = text.indexOf(removed);
+    assert.equal(offset >= 0 && text.indexOf(removed, offset + 1) < 0, true, "the authored field occurs exactly once");
+    fullEqual(product.parseSolution(text.slice(0, offset) + text.slice(offset + removed.length)),
+      { kind: "invalid-text", offset, line: 1, column: offset + 1, expected: [field], found: ")" },
+      `${name}: the record as it was before ${field} existed is not accepted`);
+  }
+});
+
+test("the closure constraint, its decision and its deferred form: codec vectors, refusals and the verifier's laws", () => {
+  for (const count of [0, 2]) {
+    const golden = constraintsGolden([closureConstraintGolden(count)]);
+    assertRoundTrip("Constraints", golden.value, golden.text, `closure constraint with ${count} captures`);
+  }
+  const decided = solutionGolden([recordGolden("closure", { closure: closureGolden(["captured-value", "captured-location"]) }, "closure")]);
+  for (const [slot, replacement, expected, found] of [
+    ['captures=["captured-value", "captured-location"]', '["copied"]', ['"captured-value"', '"captured-location"'], '"copied"'],
+    ["execution=pure()", "proved()", ["pure", "invocation"], "proved"],
+    ["carrier=t:0", "sig:0", ["t"], "sig:0"],
+  ]) {
+    const start = decided.text.indexOf(slot);
+    assert.equal(start >= 0 && decided.text.indexOf(slot, start + 1) < 0, true, "the authored slot occurs exactly once");
+    const offset = start + slot.indexOf("=") + 1 + (replacement.startsWith("[") ? 1 : 0);
+    fullEqual(product.parseSolution(decided.text.slice(0, start + slot.indexOf("=") + 1) + replacement + decided.text.slice(start + slot.length)),
+      { kind: "invalid-text", offset, line: 1, column: offset + 1, expected, found }, `closure decision: ${replacement} at ${slot}`);
+  }
+  const removed = ", execution=pure()";
+  const removedAt = decided.text.indexOf(removed);
+  fullEqual(product.parseSolution(decided.text.slice(0, removedAt) + decided.text.slice(removedAt + removed.length)),
+    { kind: "invalid-text", offset: removedAt, line: 1, column: removedAt + 1, expected: ["execution"], found: ")" },
+    "a closure decision without its execution is not accepted");
+  const pure = { kind: "pure" };
+  const constraint = { kind: "closure", occurrence, created: body, captures: [0, 0], result: 0, bindings: emptyBindings };
+  const solved = decision => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision }] });
+  const closure = modes => ({ kind: "closure", closure: { carrier: 0, captures: modes, execution: pure } });
+  const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope], solution: solved(closure(["captured-location", "captured-value"])) };
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(["captured-location"])) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "one capture mode per captured local");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(["captured-location", "captured-value", "captured-value"])) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "no capture mode without a captured local");
+  ruleCase("decision-kind", input, { ...input, solution: solved({ kind: "default", type: 0 }) },
+    [violation("decision-kind", constraintSite(0), "decision")], "a closure constraint is not answered by another decision kind");
+  const flow = { kind: "flow", occurrence, from: 0, to: 0, role: "initialization", bindings: emptyBindings };
+  ruleCase("decision-kind", input, { ...input, constraints: [constraintSet([flow])] },
+    [violation("decision-kind", constraintSite(0), "decision")], "a closure decision answers only a closure constraint");
+  const evidenceValue = evidence();
+  const deferred = captures => ({ kind: "deferred", deferred: { invocation: { rule: "closure", input: {
+    context: { occurrence, origin: originGolden.value, bindings: emptyBindings }, callable: evidenceValue, captures } }, result: 0 } });
+  for (const role of [{ kind: "flow" }, { kind: "selection" }, { kind: "default" }]) {
+    const key = { node: occurrence, candidate: null, role };
+    ruleCase("contribution-role", input, { ...input, contributions: [{ key, reads: [], bounds: [], constraint: { body, index: 0 } }] },
+      [violation("contribution-role", { kind: "contribution", key }, "role")], `a closure constraint has no ${role.kind} contribution`);
+  }
+  const deferredInput = { ...input, bindingScopes: [emptyScope, emptyScope], solution: solved(deferred([evidenceValue, evidenceValue])) };
+  ruleCase("deferred-invocation", deferredInput, { ...deferredInput, solution: solved(deferred([evidenceValue])) },
+    [violation("deferred-invocation", constraintSite(0), "input")], "the saved closure input retains one evidence per captured local");
+  ruleCase("deferred-invocation", deferredInput, { ...deferredInput, constraints: [constraintSet([flow])] },
+    [violation("deferred-invocation", constraintSite(0), "input")], "the closure rule is saved only for a closure constraint");
 });
 
 test("schema-valid nesting of one hundred thousand levels prints, parses and verifies iteratively", () => {
@@ -3545,14 +3694,14 @@ test("sum evidence retains its own complete binding occurrence in the public ver
 test("the independent logic inventory includes every approved port and every named final-record rule", () => {
   assert.equal(exercisedPorts.size, 9);
   deepEqual([...inputArms.constraints].sort(), ["eq", "flow", "literal", "op", "member", "index", "call", "construct",
-    "construct-literal", "protocol", "refine", "discharge", "default"].sort());
+    "construct-literal", "protocol", "refine", "discharge", "default", "closure"].sort());
   deepEqual([...inputArms.variables].sort(), ["signature", "local", "binder", "literal"].sort());
   deepEqual([...inputArms.contributions].sort(), ["equality", "flow", "selection", "argument-flow", "receiver-flow", "context-flow",
     "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction-part"].sort());
   deepEqual([...resultArms.decisions].sort(), ["eq", "flow", "literal", "member", "index", "call", "construct", "op", "construct-literal",
-    "protocol", "refine", "discharge", "default", "deferred"].sort());
+    "protocol", "refine", "discharge", "default", "closure", "deferred"].sort());
   assert.equal(resultArms.operations.size, 17);
-  assert.equal(resultArms.deferred.size, 13);
+  assert.equal(resultArms.deferred.size, 14);
   assert.equal(resultArms.public.size, 10);
   deepEqual([...nestedArms.stringOperators].sort(), ["+", "==", "!=", "===", "!==", "<", "<=", ">", ">="].sort());
   deepEqual([...nestedArms.booleanOperators].sort(), ["!", "&&", "||", "==", "!=", "===", "!=="].sort());
@@ -3567,6 +3716,7 @@ test("the independent logic inventory includes every approved port and every nam
     "constraint-reference", "candidate-reference", "candidate-order", "open-term-resolves", "open-term-owner", "contribution-key-unique", "contribution-order",
     "contribution-role", "contribution-reads-bounds-declared", "contribution-footprint-complete", "one-publication-per-variable", "solution-total", "solution-order",
     "no-open-in-solution", "check-recorded", "decision-kind", "binding-vector-complete", "parameter-mapping-total", "endpoint-agreement", "proof-reference",
-    "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation"].sort());
-  console.log("F.ir-infer logic ports9/9 input-outer-arms34/34 result-outer-arms54/54 rules32/32 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
+    "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation",
+    "access-location", "closure-capture-total"].sort());
+  console.log("F.ir-infer logic ports9/9 input-outer-arms35/35 result-outer-arms56/56 rules34/34 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
 });

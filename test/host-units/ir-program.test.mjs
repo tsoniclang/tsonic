@@ -1210,7 +1210,7 @@ for (const kind of ["CallExpression", "BinaryExpression", "Decorator", "ObjectLi
     if (kind === "component") {
       const component = { root: { kind: "body", value: { body: fixture.bodyId, node: node.id } }, path: [{ kind: "array-element" }] };
       node.tsonic.narrowing = { kind: "narrowed", source: 0, result: 0,
-        proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 } };
+        proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 }, failure: "unwind" };
     }
     if (kind === "ExpressionWithTypeArguments") node.tsonic = { role: "value", type: 0, convertedType: 0, conversion: { kind: "identity" },
       narrowing: null, evidenceIndex: null, demand: { kind: "always" }, application: null, bindings: {
@@ -1514,7 +1514,8 @@ test("ir-program complete write-only member origins retain null read identity in
   const node = structuredClone(example.node);
   node.tsonic.selection = { kind: "decided", decision: { decision: { key: { kind: "text", value: "value" },
     origins: [{ kind: "declared", declaration: fixture.definition }], selectedDeclarations: [], primary: null, read: null, write: 0,
-    getter: null, setter: null, bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, getter: null, setter: null } };
+    getter: null, setter: null, bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
+    location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null } };
   completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"), example.input.index.types);
 });
 
@@ -1524,7 +1525,7 @@ for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array
     const mir = first.module.bodies[0].mir;
     const operand = { kind: "constant", constant: 0 };
     const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "native-operator", operator: "+", carrier: "uint64" },
-      operands: kind === "binary" ? [2, 2] : [2], result: 2 } };
+      operands: kind === "binary" ? [2, 2] : [2], result: 2, execution: { kind: "pure" } } };
     let value;
     if (kind === "unary" || kind === "convert") value = { kind, operation, operand, ...(kind === "convert" ? { to: 2 } : {}) };
     else if (kind === "binary") value = { kind, operation, left: operand, right: operand };
@@ -1540,7 +1541,8 @@ for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array
       mir.places[0].storage = type;
       const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
         read: 2, write: 2, getter: null, setter: null,
-        bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, getter: null, setter: null };
+        bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
+        location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
       value = { kind: "aggregate", type, aggregate: kind === "object" || kind === "record"
         ? { kind, fields: [{ member, value: operand }] } : { kind, elements: [operand] } };
     }
@@ -1571,9 +1573,9 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
     } else if (kind === "field-accessors") {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const callee = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings,
-        parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 }, activation: first.instance, captures: [] };
+        parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: first.instance, captures: [] };
       const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null, read: 2, write: 2,
-        getter: null, setter: null, bindings }, getter: callee, setter: callee };
+        getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: callee, setter: callee };
       mir.places.push({ id: 1, base: { kind: "place", place: 0, projection: { kind: "field", member } }, storage: 2, origin: mir.places[0].origin });
       first.index.bodies[0].mirPlaceCount = 2;
     } else {
@@ -1628,10 +1630,10 @@ test("ir-program complete relational member references retain field, method and 
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const getter = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
-    implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 },
+    implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
   activation: fixture.instance, captures: [] };
   const member = { decision: { key: { kind: "text", value: "selected" }, origins: [], selectedDeclarations: [], primary: null,
-    read: 0, write: null, getter: advertised, setter: null, bindings }, getter, setter: null };
+    read: 0, write: null, getter: advertised, setter: null, bindings, location: { kind: "accessor" } }, getter, setter: null };
   facts.arena.projections = [{ id: 0, parent: null, projection: { kind: "field", member } },
     { id: 1, parent: null, projection: { kind: "method-value", member } }];
   facts.closedArrays = [{ node: 0, kind: "closed", declarations: [], references: [], literals: [], elements: [member] }];
@@ -1650,7 +1652,7 @@ for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-pr
   facts.arena.origins = [{ id: 0, kind: "complete", producers: [], includesAbsence: false }];
   facts.origins.invocations = [{ node: 0, kind: "call", boundaries: [], alternatives: [{ resolution: { decision: { candidate: 0, advertised,
     api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings, parameters: [],
-    completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 }, activation: null, captures: [] },
+    completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: null, captures: [] },
   context: 0, arguments: [], result: 0, thrown: 0, summary: key }] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope, fixture.scope]);
   if (change !== "absent") {
@@ -1855,12 +1857,12 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
     else if (kind === "throw") terminator = { kind, operand, unwind };
     else if (kind === "return") terminator = { kind, value: operand };
     else if (kind === "invoke") terminator = { kind, operation: { permissionScope: null, decision: { kind: "selected",
-      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2 } },
+      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2, execution: { kind: "pure" } } },
     operands: [operand], destination: null, next: 0, unwind };
     else {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const resolution = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings: empty,
-        implementationBindings: empty, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 },
+        implementationBindings: empty, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
       activation: null, captures: [] };
       terminator = { kind: "call", callee: kind === "call" ? { kind: "direct", resolution } : { kind: "indirect", operand, resolution },
         receiver: kind === "call" ? null : operand, arguments: kind === "call" ? [] : [{ kind: "value", passing: "by-value", operand }],
@@ -1883,7 +1885,7 @@ test("ir-program all component selectors retain full proof paths, signature iden
   const node = structuredClone(syntaxExamples.get("StringLiteral").node);
   node.tsonic.narrowing = { kind: "narrowed", source: 0, result: 0,
     proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] },
-      { from: component, to: component, rule: "identity", premises: [0] }], conclusion: 1 } };
+      { from: component, to: component, rule: "identity", premises: [0] }], conclusion: 1 }, failure: "unwind" };
   const module = syntaxTransportModule({ module: fixture.module }, node, "Expression");
   completeSyntaxTransport(fixture, module);
 });

@@ -53,6 +53,8 @@ function memberReferences(input: InferVerificationInput, member: MemberDecision,
     emit(output, "endpoint-agreement", site, "getter");
   if (member.setter !== null && !actualEndpoint(input, member.setter, endpoints))
     emit(output, "endpoint-agreement", site, "setter");
+  if ((member.location.kind === "accessor") !== (member.getter !== null || member.setter !== null))
+    emit(output, "access-location", site, "location");
 }
 
 function mappingReferences(input: InferVerificationInput, decision: ApplicationDecision, site: InferSite,
@@ -189,6 +191,7 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
     case "protocol": matches = value.kind === "protocol" && invocation.input.kind === value.protocol && invocation.input.asynchronous === value.asynchronous &&
       (invocation.input.subject === null) === (value.subject === null) && invocation.input.operands.length === value.operands.length; break;
     case "refinement": matches = value.kind === "refine"; break;
+    case "closure": matches = value.kind === "closure" && invocation.input.captures.length === value.captures.length; break;
     case "library": case "core": {
       matches = true;
       if (invocation.rule === "core" && (value.kind === "call" || value.kind === "construct"))
@@ -236,6 +239,10 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
         if (obligation.ordinal !== index || Object.is(obligation.ordinal, -0))
           emit(output, "proof-reference", site, "ordinal");
       for (const obligation of decision.proof.obligations) pending.push({ kind: "proof", value: obligation.evidence });
+      break;
+    case "closure":
+      if (constraint?.value.kind === "closure" && decision.closure.captures.length !== constraint.value.captures.length)
+        emit(output, "closure-capture-total", site, "captures");
       break;
     case "deferred": deferredReferences(context, decision.deferred, constraint, site, output); break;
   }
@@ -379,7 +386,8 @@ export function visitBindings(input: InferVerificationInput,
     }
     for (const evidence of set.evidence) roots.push({ kind: "evidence", value: evidence, site: bodySite });
     for (const [index, constraint] of set.constraints.entries()) {
-      if (constraint.kind === "flow" || constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "protocol")
+      if (constraint.kind === "flow" || constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "protocol" ||
+        constraint.kind === "closure")
         roots.push({ kind: "vector", value: constraint.bindings, definition: null,
           site: { kind: "constraint", constraint: { body: set.body, index } } });
     }
@@ -472,6 +480,10 @@ export function visitBindings(input: InferVerificationInput,
         case "core":
           for (const operand of invocation.input.operands) evidence(operand);
           evidence(invocation.input.result); break;
+        case "closure":
+          evidence(invocation.input.callable);
+          for (const capture of invocation.input.captures) evidence(capture);
+          break;
       }
     }
     push(children);

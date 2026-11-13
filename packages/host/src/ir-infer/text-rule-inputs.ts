@@ -1,4 +1,4 @@
-import type { CandidateArgument, CandidateEndpoint, CandidateInput, CoreInput, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput, RuleContext } from "./contract.js";
+import type { CandidateArgument, CandidateEndpoint, CandidateInput, ClosureInput, CoreInput, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput, RuleContext } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { CapturesSchemas } from "./text-captures.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
@@ -213,6 +213,7 @@ export interface RuleInputsSchemas {
   readonly refinementInputSchema: RecordSchema<RefinementInput>;
   readonly libraryInputSchema: RecordSchema<LibraryInput>;
   readonly coreInputSchema: RecordSchema<CoreInput>;
+  readonly closureInputSchema: RecordSchema<ClosureInput>;
 }
 
 export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, constraints: ConstraintsSchemas, data: DataSchemas, evidence: EvidenceSchemas): RuleInputsSchemas {
@@ -535,5 +536,11 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const permissionScope = read("permissionScope", () => nullableSchema(nodeRefSchema), value => value.permissionScope);
     return { fields: [context, captured, declaration, operands, result, permissionScope], value: () => ({ context: context.value(), captured: captured.value(), declaration: declaration.value(), operands: operands.value(), result: result.value(), permissionScope: permissionScope.value() }) };
   });
-  return { ruleContextSchema, embedInputSchema, domainFitInputSchema, memoryEquivalentInputSchema, memberInputSchema, indexInputSchema, literalConstructionInputSchema, literalConstructionPartSchema, constructionElementSchema, constructionPropertySchema, constructionSpreadSchema, candidateInputSchema, callInputSchema, constructInputSchema, getterInputSchema, setterInputSchema, candidateArgumentSchema, candidateValueSchema, candidateSpreadSchema, candidateEndpointSchema, operatorInputSchema, literalFitInputSchema, protocolInputSchema, iterateInputSchema, awaitInputSchema, yieldInputSchema, delegateInputSchema, disposeInputSchema, spreadInputSchema, passingInputSchema, pointerInputSchema, refinementInputSchema, libraryInputSchema, coreInputSchema };
+  const closureInputSchema = recordSchema<ClosureInput>("ClosureInput", "ClosureInput", read => {
+    const context = read("context", () => ruleContextSchema, value => value.context);
+    const callable = read("callable", () => typeEvidenceSchema, value => value.callable);
+    const captures = read("captures", () => arraySchema(typeEvidenceSchema), value => value.captures);
+    return { fields: [context, callable, captures], value: () => ({ context: context.value(), callable: callable.value(), captures: captures.value() }) };
+  });
+  return { closureInputSchema, ruleContextSchema, embedInputSchema, domainFitInputSchema, memoryEquivalentInputSchema, memberInputSchema, indexInputSchema, literalConstructionInputSchema, literalConstructionPartSchema, constructionElementSchema, constructionPropertySchema, constructionSpreadSchema, candidateInputSchema, callInputSchema, constructInputSchema, getterInputSchema, setterInputSchema, candidateArgumentSchema, candidateValueSchema, candidateSpreadSchema, candidateEndpointSchema, operatorInputSchema, literalFitInputSchema, protocolInputSchema, iterateInputSchema, awaitInputSchema, yieldInputSchema, delegateInputSchema, disposeInputSchema, spreadInputSchema, passingInputSchema, pointerInputSchema, refinementInputSchema, libraryInputSchema, coreInputSchema };
 }

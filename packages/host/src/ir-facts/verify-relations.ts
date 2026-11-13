@@ -2,7 +2,7 @@ import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { DefId, KeyData, LocalRef, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ParameterMapping } from "../ir-infer/contract.js";
+import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BindingVerificationInput, BodyInstance, MemberKey, MemberOrigin, TypeBinding,
@@ -100,7 +100,7 @@ export const calleeData = (callee: ResolvedCallee | null): KeyData => callee ===
   callee.decision.parameters.map(parameterData),
   [callee.decision.completion.signature, callee.decision.completion.completion,
     callee.decision.completion.yielded, callee.decision.completion.sent],
-  callee.decision.result,
+  callee.decision.result, callee.decision.activation,
   callee.activation === null ? null : [callee.activation.body, artifactData(callee.activation.bindings)],
   Array.from(callee.captures, capture => capture === undefined ? null : [capture.body, capture.local]),
 ];
@@ -123,11 +123,14 @@ const memberOriginData = (origin: MemberOrigin): KeyData => {
   }
 };
 
+const locationData = (location: AccessLocation): KeyData => location.kind === "accessor" ? [location.kind]
+  : [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
+
 export const memberData = (member: MemberSelection): KeyData => [
   memberKeyData(member.decision.key), member.decision.origins.map(memberOriginData),
   member.decision.selectedDeclarations, member.decision.primary, member.decision.read, member.decision.write,
   endpointData(member.decision.getter), endpointData(member.decision.setter), bindingsData(member.decision.bindings),
-  calleeData(member.getter), calleeData(member.setter),
+  locationData(member.decision.location), calleeData(member.getter), calleeData(member.setter),
 ];
 
 export const relationalSiteData = (site: RelationalSite): KeyData => site.kind === "node"

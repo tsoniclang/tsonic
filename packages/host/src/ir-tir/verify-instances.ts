@@ -303,6 +303,9 @@ export const verifyBindingSlots = (
         }
         if (!captures) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
       }
+      const closure = node.tsonic.closure;
+      if (closure.kind === "decided" && closure.decision.captures.length !== node.tsonic.captures.length)
+        emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
     }
   }
 };

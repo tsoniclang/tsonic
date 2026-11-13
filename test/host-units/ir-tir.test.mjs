@@ -232,7 +232,7 @@ const checkedValue = (type = 0) => ({ views: checkerViews(type), place: availabl
 const typedValue = (type = 0) => ({ type, convertedType: type, conversion: { kind: "identity" }, narrowing: null,
   evidenceIndex: null, demand: { kind: "always" } });
 const selectedOperation = (operation, result = 0) => ({ kind: "decided", decision: { permissionScope: null,
-  decision: { kind: "selected", operation, operands: [], result } } });
+  decision: { kind: "selected", operation, operands: [], result, execution: { kind: "pure" } } } });
 
 function memberScenario(holder, duplicatedPart = false) {
   const body = emptyModuleBody();
@@ -246,7 +246,7 @@ function memberScenario(holder, duplicatedPart = false) {
   const key = { kind: "text", value: "x" };
   const provenance = { kind: "mapped", owner: { kind: "body", value: { body: bodyId, node: 2 } }, key: { kind: "text", value: "x" } };
   const decision = { key, origins: [provenance], selectedDeclarations: [], primary: null, read: 0, write: 0,
-    getter: null, setter: null, bindings: emptyBindings() };
+    getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
   const selection = { decision, getter: null, setter: null };
   const name = (id, parent, role) => pair("Identifier", id, parent, { text: "x" }, { text: "x" },
     role === "property-name"
@@ -309,7 +309,7 @@ function memberScenario(holder, duplicatedPart = false) {
     if (duplicatedPart) {
       typedPhase.conversion = { kind: "convert", role: "initialization", embedding: { kind: "identity" },
         operation: { permissionScope: null, decision: { kind: "selected",
-          operation: { kind: "object-construction", parts: [part] }, operands: [0], result: 0 } } };
+          operation: { kind: "object-construction", parts: [part] }, operands: [0], result: 0, execution: { kind: "pure" } } } };
       selectedCount = 2;
     }
     expression = pair("ObjectLiteralExpression", 2, 1, { properties: nodeList(), multiLine: false },
@@ -347,6 +347,14 @@ function evidenceText(category) {
   return `TypeEvidence(type=t:0, component=body(value=NodeRef(body=body:"${bodyId}", node=n:0)), category=${category}, numeric=null, sum=null, nominal=null, pointer=null)`;
 }
 
+function closureDecisionOf(carrier, count, mode = "captured-location") {
+  return { kind: "decided", decision: { carrier, captures: Array.from({ length: count }, () => mode), execution: { kind: "pure" } } };
+}
+
+function closureDecisionWire(count, mode = "captured-location") {
+  return `decided(decision=ClosureDecision(carrier=t:0, captures=[${Array.from({ length: count }, () => JSON.stringify(mode)).join(", ")}], execution=pure()))`;
+}
+
 function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeName: 4, parameter: 5,
   parameterName: 6, block: 7, return: 8, value: 9, end: 10 }) {
   const definition = "D[M[P[p];m];f]";
@@ -380,7 +388,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
     return { ...header(nodes.callable, 1), kind: "FunctionExpression", modifiers: null, typeParameters: nodeList([typeNode]),
       parameters: nodeList([valueParameter]), type: null, fullSignature: null, asteriskToken: null, body: block,
       name: null, tsonic: { ...typedValue(4), callable: { definition, parameters: [parameter], signatures: [endpoint],
-        template: template(), attributes: [] }, captures: [] } };
+        template: template(), attributes: [] }, captures: [], closure: closureDecisionOf(4, 0) } };
   };
   const checkedTypeName = { ...header(nodes.typeName, nodes.typeParameter), kind: "Identifier", text: "T",
     tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: typeDefinition, aliases: [] } } };
@@ -723,7 +731,7 @@ function genericObjectScenario() {
     value.parent = 10;
     const name = { ...header(11, 10), kind: "Identifier", text: "x", tsonic: { role: "property-name", key } };
     const decision = { key, origins: [provenance], selectedDeclarations: [], primary: null, read: type, write: type,
-      getter: null, setter: null, bindings: body.lexicalBindings };
+      getter: null, setter: null, bindings: body.lexicalBindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
     const property = { ...header(10, 9), kind: "PropertyAssignment", modifiers: null, name, postfixToken: null,
       type: null, initializer: value, tsonic: { key, member: { kind: "decided", decision: { decision, getter: null, setter: null } } } };
     const expression = { ...header(9, 8), kind: "ObjectLiteralExpression", properties: nodeList([property]), multiLine: false,
@@ -828,7 +836,7 @@ function argumentScenario(form = "whole", passing = "by-value") {
     : form === "default" ? [{ kind: "default", parameter: 0, initializer: initializerBody }]
       : [{ kind: "rest", parameter: 0, arguments: omitted ? [] : values ? [0, 1, 2] : [0], passing }];
   const decision = { candidate: 0, advertised, api, bindings: emptyBindings(), implementationBindings: emptyBindings(),
-    parameters: mappings, completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0 };
+    parameters: mappings, completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
   const callee = { decision, activation: null, captures: [] };
   const originals = [];
   const pair = (kind, identity, parent, fields, checkedPhase, typedPhase) => {
@@ -993,7 +1001,7 @@ function operationScenario() {
   const operand = { ...header(3, 2), kind: "NumericLiteral", text: "1", tokenFlags: [],
     tsonic: { ...typedValue(1), role: "value", value: exact } };
   const operation = { permissionScope: 0, decision: { kind: "selected",
-    operation: { kind: "native-operator", operator: "+", carrier: "int32" }, operands: [1], result: 1 } };
+    operation: { kind: "native-operator", operator: "+", carrier: "int32" }, operands: [1], result: 1, execution: { kind: "pure" } } };
   const typed = { ...header(2, 1), kind: "PrefixUnaryExpression", operator: "PlusToken", operand,
     tsonic: { ...typedValue(1), role: "value", operation: { kind: "decided", decision: operation } } };
   const checkedOperand = { ...header(3, 2), kind: "NumericLiteral", text: "1", tokenFlags: [],
@@ -1018,7 +1026,7 @@ function binaryScenario(role = "arithmetic", token = "PlusToken") {
   const phase = { ...typedValue(1), role };
   if (role === "arithmetic" || role === "comparison") phase.operation = { kind: "decided", decision: {
     permissionScope: null, decision: { kind: "selected", operation: { kind: "native-operator", operator: "+", carrier: "int32" },
-      operands: [1, 1], result: 1 } } };
+      operands: [1, 1], result: 1, execution: { kind: "pure" } } } };
   if (role === "assignment") { phase.storage = 1; phase.calculation = null; phase.selection = null; }
   if (role === "short-circuit") phase.selection = { kind: "and", control: 3, right: 5, disposition: "right" };
   const typed = { ...header(2, 1), kind: "BinaryExpression", modifiers: null, left: value(3), type: null,
@@ -1069,10 +1077,10 @@ function nestedPartScenario(holder) {
   const receiver = fixture.input.types.terms.length;
   fixture.input.types.terms.push({ kind: "shape", members: [member], indexes: [], calls: [], constructs: [] });
   const decision = { key, origins: [provenance], selectedDeclarations: [], primary: null, read: 0, write: 0,
-    getter: null, setter: null, bindings: emptyBindings() };
+    getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
   const part = { part: 0, source: reference, destination: { root, path: [] }, member: decision, embedding: { kind: "identity" } };
   const operation = { permissionScope: null, decision: { kind: "selected",
-    operation: { kind: "object-construction", parts: [part] }, operands: [], result: holder === "calculation" ? 1 : receiver } };
+    operation: { kind: "object-construction", parts: [part] }, operands: [], result: holder === "calculation" ? 1 : receiver, execution: { kind: "pure" } } };
   install(operation);
   const table = { receiver, members: [member], indexes: [], calls: [], constructs: [], accessors: [], constructors: [],
     completeness: { kind: "complete" } };
@@ -2151,20 +2159,20 @@ const codecApplicationDecision = { candidate: 0, advertised: codecEndpoint, api:
     { kind: "argument", parameter: 0, argument: 0, component: 0, passing: "by-value" },
     { kind: "default", parameter: 1, initializer: bodyId }, { kind: "omitted", parameter: 2, type: 0 },
     { kind: "rest", parameter: 3, arguments: [0, 1], passing: "move" },
-  ], completion: { signature: 0, completion: 0, yielded: 0, sent: 0 }, result: 0 };
+  ], completion: { signature: 0, completion: 0, yielded: 0, sent: 0 }, result: 0, activation: null };
 const codecApplicationDecisionWire = `ApplicationDecision(candidate=0, advertised=${codecEndpointWire}, ` +
   `api=HirCallableEndpoint(declaration=def:"${ownerId}", role="api-body", signature=sig:0, body=body:"${bodyId}"), ` +
   `bindings=${codecBindingsWire}, implementationBindings=${codecBindingsWire}, parameters=[` +
   'argument(parameter=0, argument=0, component=0, passing="by-value"), ' +
   `default(parameter=1, initializer=body:"${bodyId}"), omitted(parameter=2, type=t:0), ` +
   'rest(parameter=3, arguments=[0, 1], passing="move")], ' +
-  'completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=t:0, sent=t:0), result=t:0)';
+  'completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=t:0, sent=t:0), result=t:0, activation=null)';
 const codecMemberDecision = { key: codecKey, origins: [codecMemberOrigin, { kind: "declared", declaration: ownerId },
   { kind: "class-prototype", owner: ownerId }], selectedDeclarations: [ownerId], primary: ownerId, read: 0, write: 0,
-  getter: codecEndpoint, setter: codecEndpoint, bindings: emptyBindings() };
+  getter: codecEndpoint, setter: codecEndpoint, bindings: emptyBindings(), location: { kind: "accessor" } };
 const codecMemberDecisionWire = `MemberDecision(key=${codecKeyWire}, origins=[${codecMemberOriginWire}, ` +
   `declared(declaration=def:"${ownerId}"), class-prototype(owner=def:"${ownerId}")], selectedDeclarations=[def:"${ownerId}"], ` +
-  `primary=def:"${ownerId}", read=t:0, write=t:0, getter=${codecEndpointWire}, setter=${codecEndpointWire}, bindings=${codecBindingsWire})`;
+  `primary=def:"${ownerId}", read=t:0, write=t:0, getter=${codecEndpointWire}, setter=${codecEndpointWire}, bindings=${codecBindingsWire}, location=accessor())`;
 const codecPart = { part: 0, source: codecReference, destination: { root: codecSource, path: [] }, member: codecMemberDecision,
   embedding: { kind: "identity" } };
 const codecPartWire = `ConstructionPartDecision(part=0, source=${codecReferenceWire}, destination=TypeComponent(root=${codecSourceWire}, path=[]), ` +
@@ -2201,13 +2209,15 @@ for (const [selector, selectorWire] of selectorCases) {
     const toWire = `TypeComponent(root=${codecSourceWire}, path=[])`;
     const proofWire = `EmbeddingProof(steps=[CorrespondenceStep(from=${fromWire}, to=${toWire}, rule="identity", premises=[]), ` +
       `CorrespondenceStep(from=${toWire}, to=${toWire}, rule="readonly", premises=[0])], conclusion=1)`;
-    const narrowing = { kind: "narrowed", source: 0, result: 0, proof };
-    const narrowedWire = `type=t:0, convertedType=t:0, conversion=identity(), narrowing=narrowed(source=t:0, result=t:0, ` +
-      `proof=${proofWire}), evidenceIndex=0, demand=always()`;
-    assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
-      tsonic: { ...typedValue(), narrowing } }, [
-      `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=TypedValue(${narrowedWire}))`, codecNameWire(5, 4),
-    ], selectorWire);
+    for (const failure of ["unwind", "abort"]) {
+      const narrowing = { kind: "narrowed", source: 0, result: 0, proof, failure };
+      const narrowedWire = `type=t:0, convertedType=t:0, conversion=identity(), narrowing=narrowed(source=t:0, result=t:0, ` +
+        `proof=${proofWire}, failure="${failure}"), evidenceIndex=0, demand=always()`;
+      assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
+        tsonic: { ...typedValue(), narrowing } }, [
+        `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=TypedValue(${narrowedWire}))`, codecNameWire(5, 4),
+      ], `${selectorWire} ${failure}`);
+    }
   });
 }
 const codecOriginWire = `Origin(module=mod:"${moduleId}", start=0, length=0, derived=[])`;
@@ -2307,12 +2317,46 @@ const selectedIdentityCases = [
       'value=t:0, completion=t:0, yielded=t:0, sent=t:0, thrown=t:0)'])),
 ];
 
+test("check, location, execution and activation fields of the decisions have a complete public codec vector for every value", () => {
+  const roundTrip = (identity, identityWire, execution, executionWire, label) => {
+    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution } };
+    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=${executionWire}), permissionScope=n:4)`;
+    const fixture = syntaxPayloadCase({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusToken", operand: codecName(5, 4),
+      tsonic: { ...typedValue(), role: "value", operation: { kind: "decided", decision: operation } } }, [
+      `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusToken", operand=n:5, ` +
+        `tsonic=TypedPrefix(${valueWire}, role="value", operation=decided(decision=${operationWire})))`, codecNameWire(5, 4),
+    ]);
+    assertBodyRoundTrip(fixture.body, fixture.expected, label);
+  };
+  for (const writesStorage of [false, true]) for (const failure of ["none", "unwind", "abort"])
+    roundTrip({ kind: "discard" }, "discard()", { kind: "invocation", writesStorage, failure },
+      `invocation(writesStorage=${writesStorage}, failure="${failure}")`, `invocation ${writesStorage} ${failure}`);
+  for (const [check, checkWire] of [[{ kind: "none" }, "none()"], [{ kind: "required", failure: "unwind" }, 'required(failure="unwind")'],
+    [{ kind: "required", failure: "abort" }, 'required(failure="abort")']]) for (const receiver of ["in-place", "by-reference"]) {
+    const member = { ...codecMemberDecision, getter: null, setter: null, location: { kind: "data", check, receiver } };
+    const memberWire = codecMemberDecisionWire.replace(`getter=${codecEndpointWire}, setter=${codecEndpointWire}`, "getter=null, setter=null")
+      .replace("location=accessor()", `location=data(check=${checkWire}, receiver="${receiver}")`);
+    assert.equal(memberWire.includes("getter=null, setter=null") && memberWire.includes("location=data("), true);
+    roundTrip({ kind: "array-construction", parts: [{ ...codecPart, member }] },
+      `array-construction(parts=[${codecPartWire.replace(codecMemberDecisionWire, memberWire)}])`, { kind: "pure" }, "pure()", `data location ${checkWire} ${receiver}`);
+  }
+  for (const activation of ["at-creation", "when-first-driven"]) {
+    const application = { ...codecApplicationDecision, activation };
+    const applicationWire = codecApplicationDecisionWire.replace("result=t:0, activation=null", `result=t:0, activation="${activation}"`);
+    assert.equal(applicationWire.includes(`activation="${activation}"`), true);
+    roundTrip({ kind: "protocol", protocol: "iterate", asynchronous: false,
+      steps: [{ role: "acquire", operation: { kind: "call", application }, operands: [0], result: 0 }], value: 0, completion: 0, yielded: 0, sent: 0, thrown: 0 },
+    `protocol(protocol="iterate", asynchronous=false, steps=[ProtocolStepDecision(role="acquire", operation=call(application=${applicationWire}), ` +
+      'operands=[t:0], result=t:0)], value=t:0, completion=t:0, yielded=t:0, sent=t:0, thrown=t:0)', { kind: "pure" }, "pure()", `activation ${activation}`);
+  }
+});
+
 for (const [identity, identityWire] of selectedIdentityCases) {
   const suffix = [identity.carrier, identity.operator, identity.protocol, identity.asynchronous, identity.negated]
     .filter(value => value !== undefined).join("/");
   test(`the complete selected ${identity.kind}/${suffix} operation has an independently authored public codec vector`, () => {
-    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0 } };
-    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0), permissionScope=n:4)`;
+    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution: { kind: "pure" } } };
+    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=pure()), permissionScope=n:4)`;
     const fixture = syntaxPayloadCase({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusToken", operand: codecName(5, 4),
       tsonic: { ...typedValue(), role: "value", operation: { kind: "decided", decision: operation } } }, [
       `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusToken", operand=n:5, ` +
@@ -2346,9 +2390,9 @@ test("actual prefix type-literal/update and postfix update roles use their own m
     `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="MinusToken", operand=n:5, tsonic=TypedPrefix(role="type-literal", type=t:0))`,
     codecNameWire(5, 4),
   ], "prefix type literal");
-  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "type-query" }, operands: [0], result: 0 } };
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "type-query" }, operands: [0], result: 0, execution: { kind: "pure" } } };
   const operationWire = 'decided(decision=TypedOperation(decision=selected(operation=type-query(), ' +
-    'operands=[t:0], result=t:0), permissionScope=null))';
+    'operands=[t:0], result=t:0, execution=pure()), permissionScope=null))';
   assertSyntaxPayload({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusPlusToken", operand: codecName(5, 4),
     tsonic: { ...typedValue(), role: "update", storage: 0, operation: { kind: "decided", decision: operation } } }, [
     `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusPlusToken", operand=n:5, ` +
@@ -2365,8 +2409,8 @@ const codecCallee = { decision: codecApplicationDecision, activation: { body: bo
   captures: [{ body: bodyId, local: 0 }] };
 const codecCalleeWire = `ResolvedCallee(decision=${codecApplicationDecisionWire}, activation=BodyInstance(body=body:"${bodyId}", ` +
   `bindings=instantiated(bindings=${codecBindingsWire})), captures=[${localWire}])`;
-const codecTypedOperation = { decision: { kind: "selected", operation: { kind: "discard" }, operands: [0], result: 0 }, permissionScope: 4 };
-const codecTypedOperationWire = 'TypedOperation(decision=selected(operation=discard(), operands=[t:0], result=t:0), permissionScope=n:4)';
+const codecTypedOperation = { decision: { kind: "selected", operation: { kind: "discard" }, operands: [0], result: 0, execution: { kind: "pure" } }, permissionScope: 4 };
+const codecTypedOperationWire = 'TypedOperation(decision=selected(operation=discard(), operands=[t:0], result=t:0, execution=pure()), permissionScope=n:4)';
 const codecProtocol = { kind: "delegate", asynchronous: true, steps: [
   { role: "acquire", operation: codecTypedOperation, callee: codecCallee },
   ...["next", "done", "value", "finish", "fail", "await", "dispose", "completion"]
@@ -2904,8 +2948,8 @@ for (const kind of ["FunctionDeclaration", "FunctionExpression", "Constructor"])
     const fields = { modifiers: nodeList(), typeParameters: nodeList([codecTypeParameter(5, 4)]), parameters: nodeList([codecParameter(10, 4)]),
       type: codecType(16, 4), fullSignature: codecType(17, 4), asteriskToken: { ...header(18, 4), kind: "AsteriskToken", tsonic: null },
       body: codecBlock(19, 4), ...(kind === "Constructor" ? {} : { name: codecName(20, 4) }) };
-    const phase = closure ? { ...typedValue(), callable: codecCallable, captures: [{ body: bodyId, local: 0 }] } : codecCallable;
-    const phaseWire = closure ? `TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[${localWire}])` : codecCallableWire;
+    const phase = closure ? { ...typedValue(), callable: codecCallable, captures: [{ body: bodyId, local: 0 }], closure: closureDecisionOf(0, 1) } : codecCallable;
+    const phaseWire = closure ? `TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[${localWire}], closure=${closureDecisionWire(1)})` : codecCallableWire;
     assertSyntaxPayload({ ...header(4, 2), kind, ...fields, tsonic: phase }, [
       `${kind}(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), typeParameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:5]), ` +
         'parameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:10]), type=n:16, fullSignature=n:17, asteriskToken=n:18, body=n:19, ' +
@@ -2938,10 +2982,10 @@ test("actual arrow and static initializer syntax retain their body/token/templat
   assertSyntaxPayload({ ...header(4, 2), kind: "ArrowFunction", modifiers: nodeList(), typeParameters: null, parameters: nodeList([codecParameter(5, 4)]),
     type: codecType(11, 4), fullSignature: codecType(12, 4), asteriskToken: null, body: codecBlock(13, 4),
     equalsGreaterThanToken: { ...header(14, 4), kind: "EqualsGreaterThanToken", tsonic: null },
-    tsonic: { ...typedValue(), callable: codecCallable, captures: [{ body: bodyId, local: 0 }] } }, [
+    tsonic: { ...typedValue(), callable: codecCallable, captures: [{ body: bodyId, local: 0 }], closure: closureDecisionOf(0, 1, "captured-value") } }, [
     `ArrowFunction(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), typeParameters=null, parameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:5]), ` +
       'type=n:11, fullSignature=n:12, asteriskToken=null, body=n:13, equalsGreaterThanToken=n:14, ' +
-      `tsonic=TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[${localWire}]))`,
+      `tsonic=TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[${localWire}], closure=${closureDecisionWire(1, "captured-value")}))`,
     ...codecParameterDefinitions(5, 4), codecTypeWire(11, 4), codecTypeWire(12, 4), codecBlockWire(13, 4),
     `EqualsGreaterThanToken(${syntaxHeaderWire(14, 4)}, tsonic=null)`,
   ], "arrow");
@@ -3157,8 +3201,12 @@ for (const role of ["initialization", "assignment", "argument", "return", "recei
 }
 for (const [embedding, embeddingWire] of [
   ...["numeric", "literal-fit", "absence", "union-injection", "shape", "callable", "readonly"].map(conversion => [
-    { kind: "conversion", conversion, proof: codecProof },
-    `conversion(conversion="${conversion}", proof=${codecProofWire})`,
+    { kind: "conversion", conversion, proof: codecProof, check: { kind: "none" } },
+    `conversion(conversion="${conversion}", proof=${codecProofWire}, check=none())`,
+  ]),
+  ...["unwind", "abort"].map(failure => [
+    { kind: "conversion", conversion: "numeric", proof: codecProof, check: { kind: "required", failure } },
+    `conversion(conversion="numeric", proof=${codecProofWire}, check=required(failure="${failure}"))`,
   ]),
   ...["incompatible-domain", "lossy-numeric", "missing-correspondence", "passing-mode", "rigid-parameter"].map(reason => [
     { kind: "refused", reason }, `refused(reason="${reason}")`,
@@ -3303,6 +3351,26 @@ for (const count of [0, 1, 2]) {
   }
 }
 
+test("a typed closure carries its decision: every capture mode, a creation that can fail, and the deferred closure rule with its input", () => {
+  const arrow = closure => ({ ...header(4, 2), kind: "ArrowFunction", modifiers: null, typeParameters: null, parameters: nodeList(), type: null,
+    fullSignature: null, asteriskToken: null, body: codecBlock(5, 4),
+    equalsGreaterThanToken: { ...header(6, 4), kind: "EqualsGreaterThanToken", tsonic: null },
+    tsonic: { ...typedValue(), callable: codecCallable, captures: [{ body: bodyId, local: 0 }, { body: bodyId, local: 0 }], closure } });
+  const arrowWire = closureWire => [
+    `ArrowFunction(${syntaxHeaderWire(4, 2)}, modifiers=null, typeParameters=null, parameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), ` +
+      'type=null, fullSignature=null, asteriskToken=null, body=n:5, equalsGreaterThanToken=n:6, ' +
+      `tsonic=TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[${localWire}, ${localWire}], closure=${closureWire}))`,
+    codecBlockWire(5, 4), `EqualsGreaterThanToken(${syntaxHeaderWire(6, 4)}, tsonic=null)`];
+  assertSyntaxPayload(arrow({ kind: "decided", decision: { carrier: 0, captures: ["captured-value", "captured-location"],
+    execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } }),
+  arrowWire('decided(decision=ClosureDecision(carrier=t:0, captures=["captured-value", "captured-location"], execution=invocation(writesStorage=false, failure="unwind")))'),
+  "decided closure");
+  assertSyntaxPayload(arrow({ kind: "deferred", deferred: { invocation: { rule: "closure", input: { context: codecContext,
+    callable: codecEvidence, captures: [codecEvidence, codecEvidence] } }, result: 0 } }),
+  arrowWire(`deferred(deferred=DeferredDecision(invocation=DeferredInvocation(rule="closure", input=ClosureInput(context=${codecContextWire}, ` +
+    `callable=${codecEvidenceWire}, captures=[${codecEvidenceWire}, ${codecEvidenceWire}])), result=t:0))`), "deferred closure");
+});
+
 for (const asterisk of [false, true]) {
   test(`F4 complete ArrowFunction type parameters and asterisk=${asterisk}`, () => {
     const bodyId = asterisk ? 11 : 10;
@@ -3311,10 +3379,10 @@ for (const asterisk of [false, true]) {
       typeParameters: nodeList([codecTypeParameter(5, 4)]), parameters: nodeList(), type: null, fullSignature: null,
       asteriskToken: asterisk ? { ...header(10, 4), kind: "AsteriskToken", tsonic: null } : null,
       body: codecBlock(bodyId, 4), equalsGreaterThanToken: { ...header(arrowId, 4), kind: "EqualsGreaterThanToken", tsonic: null },
-      tsonic: { ...typedValue(), callable: codecCallable, captures: [] } }, [
+      tsonic: { ...typedValue(), callable: codecCallable, captures: [], closure: closureDecisionOf(0, 0) } }, [
       `ArrowFunction(${syntaxHeaderWire(4, 2)}, modifiers=null, typeParameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:5]), ` +
         `parameters=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), type=null, fullSignature=null, asteriskToken=${asterisk ? "n:10" : "null"}, ` +
-        `body=n:${bodyId}, equalsGreaterThanToken=n:${arrowId}, tsonic=TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[]))`,
+        `body=n:${bodyId}, equalsGreaterThanToken=n:${arrowId}, tsonic=TypedClosure(${valueWire}, callable=${codecCallableWire}, captures=[], closure=${closureDecisionWire(0)}))`,
       ...codecTypeParameterDefinitions(5, 4), ...(asterisk ? [`AsteriskToken(${syntaxHeaderWire(10, 4)}, tsonic=null)`] : []),
       codecBlockWire(bodyId, 4), `EqualsGreaterThanToken(${syntaxHeaderWire(arrowId, 4)}, tsonic=null)`,
     ], `arrow/${asterisk}`);
@@ -3478,11 +3546,11 @@ for (const count of [0, 1]) {
 
 for (const kind of ["DeleteExpression", "TypeOfExpression", "VoidExpression"]) {
   test(`actual ${kind} maps to the complete TypedUnary record, not a prefix role`, () => {
-    const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "discard" }, operands: [0], result: 0 } };
+    const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "discard" }, operands: [0], result: 0, execution: { kind: "pure" } } };
     assertSyntaxPayload({ ...header(4, 2), kind, expression: codecName(5, 4),
       tsonic: { ...typedValue(), operation: { kind: "decided", decision: operation } } }, [
       `${kind}(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=TypedUnary(${valueWire}, operation=decided(decision=TypedOperation(` +
-        'decision=selected(operation=discard(), operands=[t:0], result=t:0), permissionScope=null))))',
+        'decision=selected(operation=discard(), operands=[t:0], result=t:0, execution=pure()), permissionScope=null))))',
       codecNameWire(5, 4),
     ], kind);
   });
@@ -3764,6 +3832,26 @@ test("the indexed lower join preserves every original finding across repeated bi
     bodyViolation("evidence-reference", "type verifier: sum-arm-order"),
     bodyViolation("evidence-reference", "type verifier: sum-arm-order"),
   ]);
+});
+
+test("a deferred closure decision is a saved invocation of its own occurrence, verified with its context and evidence", () => {
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  const context = { occurrence: { body: body.body, node: 2 }, origin: origin(), bindings: body.root.tsonic.callable.template.lexicalBindings };
+  const evidence = { type: 4, component: { kind: "body", value: context.occurrence },
+    category: { kind: "known", category: "callable" }, numeric: null, sum: null, nominal: null, pointer: null };
+  const decided = body.root.tsonic.closure;
+  body.root.tsonic.closure = { kind: "deferred", deferred: { result: 4, invocation: { rule: "closure", input: { context, callable: evidence, captures: [] } } } };
+  const input = fixture.inputFor(body);
+  replaceScopeInventory(input, [fixture.scope, fixture.scope, fixture.scope]);
+  assertCompleteValue(product.verifyTir(input, body), []);
+  context.occurrence = { body: body.body, node: 3 };
+  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("deferred-parameters", 2,
+    "saved invocation does not retain its occurrence and complete captured rigid-parameter support")]);
+  context.occurrence = { body: body.body, node: 2 };
+  body.root.tsonic.closure = decided;
+  replaceScopeInventory(input, [fixture.scope, fixture.scope]);
+  assertCompleteValue(product.verifyTir(input, body), []);
 });
 
 test("a shared vector is authenticated against each occurrence's actual declaration, never an object-wide owner union", () => {
@@ -4749,7 +4837,7 @@ test("a protocol step retains its genuine bodyless API result without inventing 
   const spread = fixture.body.root.statements.nodes[0].expression.arguments.nodes[0];
   const callee = fixture.body.root.statements.nodes[0].expression.tsonic.application.decision.callee;
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "library",
-    declaration: callee.decision.api.declaration, bindings: emptyBindings() }, operands: [], result: 0 } };
+    declaration: callee.decision.api.declaration, bindings: emptyBindings() }, operands: [], result: 0, execution: { kind: "pure" } } };
   spread.tsonic.protocol.decision.steps = [{ role: "next", operation, callee }];
   replaceScopeInventory(fixture.input, Array.from({ length: 7 }, emptyScope));
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
@@ -4766,7 +4854,7 @@ test("the saved protocol operation checks its own closed step results and canoni
     steps: [{ role: "next", operation: { kind: "call", application }, operands: [5], result: 0 }],
     value: 2, completion: 0, yielded: null, sent: null, thrown: 0 };
   call.tsonic.operation = { kind: "decided", decision: { permissionScope: null,
-    decision: { kind: "selected", operation: identity, operands: [], result: 0 } } };
+    decision: { kind: "selected", operation: identity, operands: [], result: 0, execution: { kind: "pure" } } } };
   replaceScopeInventory(fixture.input, Array.from({ length: 6 }, emptyScope));
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
   identity.steps[0].result = 2;
@@ -5422,9 +5510,10 @@ function attachActualGetter(fixture) {
   fixture.input.declarationOf = actual => actual === definition ? { scope: emptyScope(), parameterCount: 0,
     endpoints: [advertised, api] } : originalDeclarationOf(actual);
   fixture.decision.getter = api;
+  fixture.decision.location = { kind: "accessor" };
   fixture.selection.getter = { activation: null, captures: [], decision: { candidate: 0, advertised, api,
     bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [],
-    completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0 } };
+    completion: { signature: 1, completion: 0, yielded: null, sent: null }, result: 0, activation: null } };
   fixture.table.accessors = [{ origin: fixture.decision.origins[0], getter: definition, setter: null }];
   bodyScopes(fixture.input, fixture.body).push(emptyScope(), emptyScope());
   const source = fixture.input.source.tree.statements.nodes[0].expression.tsonic;
@@ -5483,10 +5572,11 @@ function attachActualSetter(fixture) {
   fixture.input.declarationOf = selected => selected === definition ? { scope: emptyScope(), parameterCount: 1, endpoints: [advertised, api] }
     : selected === parameter ? { scope: emptyScope(), parameterCount: 0, endpoints: [] } : declarationOf(selected);
   fixture.decision.setter = api;
+  fixture.decision.location = { kind: "accessor" };
   fixture.selection.setter = { activation: null, captures: [], decision: { candidate: 0, advertised, api,
     bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [
       { kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
-    completion: { signature, completion: 0, yielded: null, sent: null }, result: 0 } };
+    completion: { signature, completion: 0, yielded: null, sent: null }, result: 0, activation: null } };
   fixture.table.accessors = [{ origin: fixture.decision.origins[0], getter: fixture.decision.getter?.declaration ?? null, setter: definition }];
   fixture.sourceMember.tsonic.accessor = available({ kind: "accessor-set", receiver: 3,
     arguments: [{ kind: "value", expression: 12 }], typeArguments: [],
@@ -5778,10 +5868,26 @@ test("F4 a selected getter's genuine endpoint cannot become a null decision endp
   attachActualGetter(fixture);
   const actual = fixture.decision.getter;
   fixture.decision.getter = null;
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("accessor-activation", 2,
-    "selected accessor activation does not retain the actual member endpoint and access role")]);
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    nodeViolation("access-location", 2, "member location is an accessor exactly when a getter or setter is selected"),
+    nodeViolation("accessor-activation", 2, "selected accessor activation does not retain the actual member endpoint and access role")]);
   fixture.decision.getter = actual;
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+});
+
+test("a member location is an accessor exactly when the decision selects a getter or a setter", () => {
+  const data = { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "by-reference" };
+  const finding = nodeViolation("access-location", 2, "member location is an accessor exactly when a getter or setter is selected");
+  const field = memberScenario("property-access");
+  field.decision.location = data;
+  assertCompleteValue(product.verifyTir(field.input, field.body), []);
+  field.decision.location = { kind: "accessor" };
+  assertCompleteValue(product.verifyTir(field.input, field.body), [finding]);
+  const accessor = memberScenario("property-access");
+  attachActualGetter(accessor);
+  assertCompleteValue(product.verifyTir(accessor.input, accessor.body), []);
+  accessor.decision.location = data;
+  assertCompleteValue(product.verifyTir(accessor.input, accessor.body), [finding]);
 });
 
 for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
@@ -5919,7 +6025,7 @@ for (const endpoint of ["from", "to"]) {
   test(`F4 explicit conversion ${endpoint} retains both endpoint and operation cofindings`, () => {
     const fixture = operationScenario();
     const operation = { permissionScope: null, decision: { kind: "selected", operation: {
-      kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 }, operands: [1], result: 1 } };
+      kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 }, operands: [1], result: 1, execution: { kind: "pure" } } };
     fixture.typed.tsonic.conversion = { kind: "convert", role: "return", embedding: { kind: "identity" }, operation };
     assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
     operation.decision.operation[endpoint] = 0;
@@ -6021,7 +6127,7 @@ test("F4 protocol core and genuine callee retain the same real declaration endpo
   const spread = fixture.call.arguments.nodes[0];
   const callee = fixture.application.callee;
   const operation = { permissionScope: null, decision: { kind: "selected", operation: {
-    kind: "core", declaration: fixture.definition, bindings: emptyBindings() }, operands: [], result: 0 } };
+    kind: "core", declaration: fixture.definition, bindings: emptyBindings() }, operands: [], result: 0, execution: { kind: "pure" } } };
   spread.tsonic.protocol.decision.steps = [{ role: "next", operation, callee }];
   replaceScopeInventory(fixture.input, Array.from({ length: 7 }, emptyScope));
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
@@ -6304,6 +6410,7 @@ for (const kind of ["FunctionExpression", "ArrowFunction"]) {
       for (const published of [fixture.functionTemplate, ...fixture.instances]) {
         published.captures = [...captures];
         published.root.tsonic.captures = [...captures];
+        published.root.tsonic.closure = closureDecisionOf(4, count);
         if (kind === "ArrowFunction") {
           published.root.kind = kind;
           delete published.root.name;
@@ -6324,6 +6431,7 @@ for (const kind of ["FunctionExpression", "ArrowFunction"]) {
       assertCompleteValue(product.verifyTir(input, body), [
         nodeViolation("capture-qualified", 2, "closure captures contain a local from the closure's own body"),
         nodeViolation("capture-qualified", 2, "closure captures do not retain the real authored outer-local sequence"),
+        ...(count === 1 ? [] : [nodeViolation("closure-capture-total", 2, "closure decision does not state one logical capture per captured local, in order")]),
       ]);
       body.root.tsonic.captures = [...captures];
       if (count === 2) {
@@ -6332,6 +6440,16 @@ for (const kind of ["FunctionExpression", "ArrowFunction"]) {
           "closure captures do not retain the real authored outer-local sequence")]);
         body.root.tsonic.captures.reverse();
       }
+      assertCompleteValue(product.verifyTir(input, body), []);
+      const decided = body.root.tsonic.closure;
+      for (const wrong of [count + 1, ...(count === 0 ? [] : [count - 1])]) {
+        body.root.tsonic.closure = closureDecisionOf(4, wrong);
+        assertCompleteValue(product.verifyTir(input, body), [nodeViolation("closure-capture-total", 2,
+          "closure decision does not state one logical capture per captured local, in order")]);
+      }
+      body.root.tsonic.closure = closureDecisionOf(4, count, "captured-value");
+      assertCompleteValue(product.verifyTir(input, body), []);
+      body.root.tsonic.closure = decided;
       assertCompleteValue(product.verifyTir(input, body), []);
     });
   }
@@ -6714,6 +6832,7 @@ test("F4 a genuine captured local cannot substitute another existing foreign loc
   body.locals = [{ id: 0, declaration, name: "first", role: "capture", storage: 0, capturedFrom: first, mutable: true }];
   body.captures = [first];
   body.root.tsonic.captures = [first];
+  body.root.tsonic.closure = closureDecisionOf(4, 1);
   fixture.checkedFunction.parameters = nodeList();
   fixture.checkedFunction.tsonic.captures = [first];
   fixture.originalFunction.params = [];
@@ -6904,7 +7023,7 @@ test("F4 a genuine nonidentity refinement arm retains its explicit result endpoi
   const fixture = operationScenario();
   const component = { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] };
   const narrowing = { kind: "narrowed", source: 1, result: 1,
-    proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 } };
+    proof: { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 }, failure: "unwind" };
   fixture.typed.tsonic.narrowing = narrowing;
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
   narrowing.result = 0;

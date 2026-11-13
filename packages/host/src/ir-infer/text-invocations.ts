@@ -1,4 +1,4 @@
-import type { CandidateInput, CoreInput, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput } from "./contract.js";
+import type { CandidateInput, ClosureInput, CoreInput, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput } from "./contract.js";
 import { enumSchema, recordSchema, unionSchema } from "./text-data.js";
 import type { DataSchemas } from "./text-data.js";
 import type { RuleInputsSchemas } from "./text-rule-inputs.js";
@@ -65,6 +65,11 @@ export interface DeferredLibraryRecord {
   readonly input: LibraryInput;
 }
 
+export interface DeferredClosureRecord {
+  readonly rule: "closure";
+  readonly input: ClosureInput;
+}
+
 export interface DeferredCoreRecord {
   readonly rule: "core";
   readonly input: CoreInput;
@@ -86,6 +91,7 @@ export interface InvocationsSchemas {
   readonly deferredRefinementSchema: RecordSchema<DeferredRefinementRecord>;
   readonly deferredLibrarySchema: RecordSchema<DeferredLibraryRecord>;
   readonly deferredCoreSchema: RecordSchema<DeferredCoreRecord>;
+  readonly deferredClosureSchema: RecordSchema<DeferredClosureRecord>;
   readonly embedRuleSchema: Schema<"embed">;
   readonly domainRuleSchema: Schema<"domain-fit">;
   readonly memoryRuleSchema: Schema<"memory-equivalent">;
@@ -99,11 +105,12 @@ export interface InvocationsSchemas {
   readonly refinementRuleSchema: Schema<"refinement">;
   readonly libraryRuleSchema: Schema<"library">;
   readonly coreRuleSchema: Schema<"core">;
+  readonly closureRuleSchema: Schema<"closure">;
 }
 
 export function createInvocationsSchemas(data: DataSchemas, ruleInputs: RuleInputsSchemas): InvocationsSchemas {
   const { tSchema } = data;
-  const { candidateInputSchema, coreInputSchema, domainFitInputSchema, embedInputSchema, indexInputSchema, libraryInputSchema, literalConstructionInputSchema, literalFitInputSchema, memberInputSchema, memoryEquivalentInputSchema, operatorInputSchema, protocolInputSchema, refinementInputSchema } = ruleInputs;
+  const { candidateInputSchema, closureInputSchema, coreInputSchema, domainFitInputSchema, embedInputSchema, indexInputSchema, libraryInputSchema, literalConstructionInputSchema, literalFitInputSchema, memberInputSchema, memoryEquivalentInputSchema, operatorInputSchema, protocolInputSchema, refinementInputSchema } = ruleInputs;
   const deferredDecisionSchema = recordSchema<DeferredDecision>("DeferredDecision", "DeferredDecision", read => {
     const invocation = read("invocation", () => deferredInvocationSchema, value => value.invocation);
     const result = read("result", () => tSchema, value => value.result);
@@ -111,7 +118,7 @@ export function createInvocationsSchemas(data: DataSchemas, ruleInputs: RuleInpu
   });
 
   const deferredInvocationSchema: RecordSchema<DeferredInvocation> = unionSchema<DeferredInvocation>("DeferredInvocation",
-    () => [deferredEmbedSchema, deferredDomainSchema, deferredMemorySchema, deferredMemberSchema, deferredIndexSchema, deferredConstructionSchema, deferredCandidateSchema, deferredOperatorSchema, deferredLiteralSchema, deferredProtocolSchema, deferredRefinementSchema, deferredLibrarySchema, deferredCoreSchema], value => {
+    () => [deferredEmbedSchema, deferredDomainSchema, deferredMemorySchema, deferredMemberSchema, deferredIndexSchema, deferredConstructionSchema, deferredCandidateSchema, deferredOperatorSchema, deferredLiteralSchema, deferredProtocolSchema, deferredRefinementSchema, deferredLibrarySchema, deferredCoreSchema, deferredClosureSchema], value => {
     switch (value.rule) {
       case "embed": return deferredEmbedSchema.stage(value);
       case "domain-fit": return deferredDomainSchema.stage(value);
@@ -126,6 +133,7 @@ export function createInvocationsSchemas(data: DataSchemas, ruleInputs: RuleInpu
       case "refinement": return deferredRefinementSchema.stage(value);
       case "library": return deferredLibrarySchema.stage(value);
       case "core": return deferredCoreSchema.stage(value);
+      case "closure": return deferredClosureSchema.stage(value);
     }
   });
 
@@ -231,6 +239,13 @@ export function createInvocationsSchemas(data: DataSchemas, ruleInputs: RuleInpu
 
   const libraryRuleSchema = enumSchema("LibraryRule", ["library"]);
 
+  const deferredClosureSchema = recordSchema<DeferredClosureRecord>("DeferredClosure", "DeferredInvocation", read => {
+    const rule = read("rule", () => closureRuleSchema, value => value.rule);
+    const input = read("input", () => closureInputSchema, value => value.input);
+    return { fields: [rule, input], value: () => ({ rule: rule.value(), input: input.value() }) };
+  });
+
   const coreRuleSchema = enumSchema("CoreRule", ["core"]);
-  return { deferredDecisionSchema, deferredInvocationSchema, deferredEmbedSchema, deferredDomainSchema, deferredMemorySchema, deferredMemberSchema, deferredIndexSchema, deferredConstructionSchema, deferredCandidateSchema, deferredOperatorSchema, deferredLiteralSchema, deferredProtocolSchema, deferredRefinementSchema, deferredLibrarySchema, deferredCoreSchema, embedRuleSchema, domainRuleSchema, memoryRuleSchema, memberRuleSchema, indexRuleSchema, constructionRuleSchema, candidateRuleSchema, operatorRuleSchema, literalRuleSchema, protocolRuleSchema, refinementRuleSchema, libraryRuleSchema, coreRuleSchema };
+  const closureRuleSchema = enumSchema("ClosureRule", ["closure"]);
+  return { deferredClosureSchema, closureRuleSchema, deferredDecisionSchema, deferredInvocationSchema, deferredEmbedSchema, deferredDomainSchema, deferredMemorySchema, deferredMemberSchema, deferredIndexSchema, deferredConstructionSchema, deferredCandidateSchema, deferredOperatorSchema, deferredLiteralSchema, deferredProtocolSchema, deferredRefinementSchema, deferredLibrarySchema, deferredCoreSchema, embedRuleSchema, domainRuleSchema, memoryRuleSchema, memberRuleSchema, indexRuleSchema, constructionRuleSchema, candidateRuleSchema, operatorRuleSchema, literalRuleSchema, protocolRuleSchema, refinementRuleSchema, libraryRuleSchema, coreRuleSchema };
 }

@@ -1150,7 +1150,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       equalsGreaterThanToken: { ...header(6, 2), kind: "EqualsGreaterThanToken", tsonic: null }, body: value(7, 2),
       tsonic: { ...typedValue(3), callable: { definition: definitions.callee, parameters: [], signatures: [
         { declaration: definitions.callee, role: "api-signature", signature: 1, body: callableBody },
-      ], template: { body: callableBody, lexicalBindings: emptyBindings(), dependence: "parametric" }, attributes: [] }, captures: [{ body, local: 0 }] },
+      ], template: { body: callableBody, lexicalBindings: emptyBindings(), dependence: "parametric" }, attributes: [] }, captures: [{ body, local: 0 }],
+        closure: { kind: "decided", decision: { carrier: 3, captures: ["captured-location"], execution: { kind: "pure" } } } },
     } }];
     supplied.tir.nestedBodies = [callableBody, defaultBody];
     input.refinements.integers = [{ node: 2, range: null, nonnegative: false }];
@@ -1163,7 +1164,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const name = (id, parent, local) => ({ ...header(id, parent), kind: "Identifier", text: "counter", tsonic: { ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local } } } });
     const literal = (id, parent, value) => ({ ...header(id, parent), kind: "NumericLiteral", text: String(value), tokenFlags: [],
       tsonic: { ...typedValue(), role: "value", value: { numerator: BigInt(value), denominator: 1n, negativeZero: false } } });
-    const operation = (operator, result) => ({ kind: "decided", decision: { operation: { kind: "selected", operation: { kind: "native-operator", operator, carrier: "int64" }, operands: operator === "++" ? [0] : [0, 0], result }, permissionScope: null } });
+    const operation = (operator, result) => ({ kind: "decided", decision: { operation: { kind: "selected", operation: { kind: "native-operator", operator, carrier: "int64" }, operands: operator === "++" ? [0] : [0, 0], result, execution: { kind: "pure" } }, permissionScope: null } });
     supplied.tir.root.statements.nodes = Array.from({ length: count }, (_, local) => {
       const offset = local * 13;
       return { ...header(offset + 1), kind: "ForStatement", tsonic: null,
@@ -1370,7 +1371,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
     const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: emptyBindings(),
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
-      completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1 }, activation: null, captures: [] };
+      completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1, activation: null }, activation: null, captures: [] };
     supplied.tir.root = { ...header(1), kind: "CallExpression", questionDotToken: null, typeArguments: null,
       expression: { ...header(2, 1), kind: "Identifier", text: "callee", tsonic: { ...typedValue(3), role: "value",
         resolution: { kind: "definition", definition: definitions.callee, aliases: [] } } },
@@ -2110,7 +2111,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
 
   const member = (primary = definitions.field) => ({ decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: primary }],
-    selectedDeclarations: [primary], primary, read: 0, write: 0, getter: null, setter: null, bindings: emptyBindings() }, getter: null, setter: null });
+    selectedDeclarations: [primary], primary, read: 0, write: 0, getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null });
   const memoryField = (id = 0, primary = definitions.field) => ({ id, occurrence: itemRef(primary), owner: 3,
     selector: itemRef(primary), selection: itemRef(primary), member: member(primary), primary, selectedDeclarations: [primary],
     value: 0, layout: 0, byteOffset: 0n, byteAlignment: 8n });
@@ -2242,7 +2243,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["declaration", endpoint => { endpoint.declaration = definitions.missing; }, "producer-resolves", "A selected member endpoint retains its actual declaration."],
     ["signature", endpoint => { endpoint.signature = 99; }, "signature-resolves", "A selected member endpoint resolves in the actual supplied signature table."],
   ]) await factOpposite(`a selected member endpoint retains its actual ${name}`, (input, supplied) => {
-    const selected = member(); selected.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null };
+    const selected = member(); selected.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null }; selected.decision.location = { kind: "accessor" };
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "method-value", member: selected } });
     supplied.scopeRows.body.unshift(emptyScope());
   }, input => amend(input.arena.projections[2].projection.member.decision.getter),
@@ -2251,10 +2252,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const formal = parameter(); formal.kind = "optional";
     supplied.types.signatures.push(signature(1, [formal], null, definitions.callee));
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
-    const selected = member(); selected.decision.getter = endpoint("api-signature");
+    const selected = member(); selected.decision.getter = endpoint("api-signature"); selected.decision.location = { kind: "accessor" };
     selected.getter = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"),
       bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [{ kind: "omitted", parameter: 0, type: 0 }],
-      completion: { signature: 1, completion: 1, yielded: null, sent: 0 }, result: 0 }, activation: null, captures: [{ body: otherBody, local: 0 }] };
+      completion: { signature: 1, completion: 1, yielded: null, sent: 0 }, result: 0, activation: null }, activation: null, captures: [{ body: otherBody, local: 0 }] };
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "method-value", member: selected } });
     supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
   };
@@ -2426,6 +2427,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await metadataOpposite("self-consistent field data cannot replace the finalized captured selection", withField,
     input => { input.fields[0].member.decision.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
     [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+  for (const location of [{ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" },
+    { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" },
+    { kind: "data", check: { kind: "none" }, receiver: "by-reference" }])
+    await metadataOpposite(`a field's selected access location is part of the captured selection: ${location.check.kind} ${location.check.failure ?? ""} ${location.receiver}`, withField,
+      input => { input.fields[0].member.decision.location = location; },
+      [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   await metadataOpposite("finalized physical fields cannot disappear", withField, input => { input.layouts[1].fields = []; },
     [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")]);
   await metadataOpposite("finalized array cannot be relabelled as an opaque value", withArray, input => {
@@ -2553,7 +2560,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
     ]);
   await metadataOpposite("selected member signature failures retain the metadata result domain", (input, supplied) => {
-    withField(input, supplied); input.fields[0].member.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null };
+    withField(input, supplied); input.fields[0].member.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null }; input.fields[0].member.decision.location = { kind: "accessor" };
   }, input => { input.fields[0].member.decision.getter.signature = 99; }, [
     violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
     violation("member-correspondence-exact", metadataSite(), "A selected member endpoint resolves in the actual supplied signature table."),
@@ -2628,7 +2635,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
   const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
-  ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1)`;
+  ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1, activation=null)`;
   const resolvedText = `ResolvedCallee(decision=${applicationText}, activation=null, captures=[])`;
   for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
     const input = bodyFacts(); invocationFixture(input, setup());
@@ -2663,7 +2670,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText([authored])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
   }
   await suite.test("superseded null API environment is rejected at its exact typed field", () => {
-    const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}), getter=${resolvedText}, setter=null)`;
+    const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=none(), receiver="in-place")), getter=${resolvedText}, setter=null)`;
     const expected = emptyFactsText.replace("projections=[]", `projections=${arrayText([
       `ProjectionPath(id=path:0, parent=null, projection=field(member=${decision}))`,
     ])}`);
@@ -2672,6 +2679,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const before = invalid.slice(0, offset).split("\n");
     malformed(product.parseFacts, invalid, offset, ["BindingVector"], "null", "null API environment", before.length, before.at(-1).length + 1);
   });
+  for (const activation of ["at-creation", "when-first-driven"]) {
+    const input = bodyFacts(); invocationFixture(input, setup());
+    const row = input.origins.invocations[0]; row.alternatives[0].resolution.decision.activation = activation;
+    await factTransport(`handle activation transport ${activation}`, ["origins", "invocations"], "invocations=[]", row,
+      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText.replace("result=t:1, activation=null", `result=t:1, activation="${activation}"`)}, context=context:0, arguments=${arrayText([
+        argumentText(0, definitions.parameter), argumentText(1, definitions.capture),
+      ])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+  }
   for (const kind of ["call", "construct", "getter", "setter", "native-callback"]) {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     const row = input.origins.invocations[0]; row.kind = kind;
@@ -2690,7 +2705,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     row.decision.completion.yielded = 0; row.decision.completion.sent = 1;
     row.activation = { body, bindings: { kind: "instantiated", bindings: fullBindings } }; row.captures = [{ body: otherBody, local: 0 }];
     const selected = member(); selected.getter = row; selected.setter = clone(row);
-    const decision = `MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText})`;
+    const decision = `MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=none(), receiver="in-place"))`;
     const application = applicationText.replace(`implementationBindings=${bindingsText}`, `implementationBindings=${fullBindingsText}`)
       .replace(`parameters=${arrayText(['argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")'])}`, `parameters=${arrayText([authored])}`)
       .replace("yielded=null, sent=null", "yielded=t:0, sent=t:1");
@@ -2804,7 +2819,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, input => { input.fieldBindings.reverse(); }, [violation("field-bindings-order", nodeSite(1), orderMessage)]);
 
   const selectionText = (key, origins, primary = `def:"${definitions.field}"`, getter = "null", setter = "null") =>
-    `MemberSelection(decision=MemberDecision(key=${key}, origins=${arrayText(origins)}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=${primary}, read=t:0, write=t:0, getter=${getter}, setter=${setter}, bindings=${bindingsText}), getter=null, setter=null)`;
+    `MemberSelection(decision=MemberDecision(key=${key}, origins=${arrayText(origins)}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=${primary}, read=t:0, write=t:0, getter=${getter}, setter=${setter}, bindings=${bindingsText}, location=data(check=none(), receiver="in-place")), getter=null, setter=null)`;
   for (const [key, authored] of [[{ kind: "text", value: "value" }, 'text(value="value")'], [{ kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } }, "number(value=ExactRational(numerator=0n, denominator=1n, negativeZero=true))"],
     [{ kind: "symbol", declaration: definitions.field }, `symbol(declaration=def:"${definitions.field}")`]]) {
     const selected = member(); selected.decision.key = key;
@@ -2828,10 +2843,20 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }
   for (const accessor of ["getter", "setter"]) for (const role of ["advertised", "api-signature", "api-body"]) {
     const selected = member(); selected.decision[accessor] = { declaration: definitions.callee, role, signature: 1, body };
+    selected.decision.location = { kind: "accessor" };
     const expected = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`])
+      .replace('location=data(check=none(), receiver="in-place")', "location=accessor()")
       .replace(`${accessor}=null`, `${accessor}=HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=body:"${body}")`);
     await arenaTextCase(`member ${accessor}/${role} endpoint retains its actual body identity`, "projections", [{ id: 0, parent: null, projection: { kind: "method-value", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=method-value(member=${expected}))`]);
+  }
+  for (const [check, checkText] of [[{ kind: "none" }, "none()"], [{ kind: "required", failure: "unwind" }, 'required(failure="unwind")'],
+    [{ kind: "required", failure: "abort" }, 'required(failure="abort")']]) for (const receiver of ["in-place", "by-reference"]) {
+    const selected = member(); selected.decision.location = { kind: "data", check, receiver };
+    const expected = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`])
+      .replace('location=data(check=none(), receiver="in-place")', `location=data(check=${checkText}, receiver="${receiver}")`);
+    await arenaTextCase(`member data location transport ${checkText} ${receiver}`, "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
+      [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
   }
   for (const timing of ["synchronous", "deferred"]) {
     const input = emptySummary(); input.parameters = [{ slot: { kind: "receiver" }, reads: { kind: "open", paths: [0], boundaries: [0] }, writes: completePaths() },

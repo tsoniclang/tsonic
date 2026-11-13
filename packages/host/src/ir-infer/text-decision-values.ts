@@ -1,4 +1,4 @@
-import type { ApplicationDecision, CompletionEndpoint, CorrespondenceStep, DischargeObligationProof, DischargeProof, EmbeddingDecision, EmbeddingProof, MemberDecision, ParameterMapping, RefinementDecision } from "./contract.js";
+import type { AccessLocation, ApplicationDecision, CheckFailure, CheckRequirement, CompletionEndpoint, CorrespondenceStep, DischargeObligationProof, DischargeProof, EmbeddingDecision, EmbeddingProof, FailureKind, HandleActivation, MemberDecision, ParameterMapping, ReceiverAccess, RefinementDecision } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
@@ -17,6 +17,28 @@ export interface ConversionEmbeddingRecord {
   readonly kind: "conversion";
   readonly conversion: "numeric" | "literal-fit" | "absence" | "union-injection" | "shape" | "callable" | "readonly";
   readonly proof: EmbeddingProof;
+  readonly check: CheckRequirement;
+}
+
+export interface NoCheckRecord {
+  readonly kind: "none";
+
+}
+
+export interface RequiredCheckRecord {
+  readonly kind: "required";
+  readonly failure: CheckFailure;
+}
+
+export interface DataLocationRecord {
+  readonly kind: "data";
+  readonly check: CheckRequirement;
+  readonly receiver: ReceiverAccess;
+}
+
+export interface AccessorLocationRecord {
+  readonly kind: "accessor";
+
 }
 
 export interface RefusedEmbeddingRecord {
@@ -61,6 +83,7 @@ export interface NarrowedRefinementRecord {
   readonly source: TyId;
   readonly result: TyId;
   readonly proof: EmbeddingProof;
+  readonly failure: CheckFailure;
 }
 
 export interface DecisionValuesSchemas {
@@ -86,6 +109,16 @@ export interface DecisionValuesSchemas {
   readonly narrowedRefinementSchema: RecordSchema<NarrowedRefinementRecord>;
   readonly dischargeProofSchema: RecordSchema<DischargeProof>;
   readonly dischargeObligationProofSchema: RecordSchema<DischargeObligationProof>;
+  readonly checkFailureSchema: Schema<CheckFailure>;
+  readonly failureKindSchema: Schema<FailureKind>;
+  readonly checkRequirementSchema: RecordSchema<CheckRequirement>;
+  readonly noCheckSchema: RecordSchema<NoCheckRecord>;
+  readonly requiredCheckSchema: RecordSchema<RequiredCheckRecord>;
+  readonly accessLocationSchema: RecordSchema<AccessLocation>;
+  readonly dataLocationSchema: RecordSchema<DataLocationRecord>;
+  readonly accessorLocationSchema: RecordSchema<AccessorLocationRecord>;
+  readonly receiverAccessSchema: Schema<ReceiverAccess>;
+  readonly handleActivationSchema: Schema<HandleActivation>;
 }
 
 export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas, constraints: ConstraintsSchemas, data: DataSchemas, evidence: EvidenceSchemas): DecisionValuesSchemas {
@@ -109,8 +142,52 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
   const conversionEmbeddingSchema = recordSchema<ConversionEmbeddingRecord>("ConversionEmbedding", "conversion", read => {
     const conversion = read("conversion", () => conversionKindSchema, value => value.conversion);
     const proof = read("proof", () => embeddingProofSchema, value => value.proof);
-    return { fields: [conversion, proof], value: () => ({ kind: "conversion", conversion: conversion.value(), proof: proof.value() }) };
+    const check = read("check", () => checkRequirementSchema, value => value.check);
+    return { fields: [conversion, proof, check], value: () => ({ kind: "conversion", conversion: conversion.value(), proof: proof.value(), check: check.value() }) };
   });
+
+  const checkFailureSchema = enumSchema<CheckFailure>("CheckFailure", ["unwind","abort"]);
+
+  const failureKindSchema = enumSchema<FailureKind>("FailureKind", ["none","unwind","abort"]);
+
+  const checkRequirementSchema: RecordSchema<CheckRequirement> = unionSchema<CheckRequirement>("CheckRequirement",
+    () => [noCheckSchema, requiredCheckSchema], value => {
+    switch (value.kind) {
+      case "none": return noCheckSchema.stage(value);
+      case "required": return requiredCheckSchema.stage(value);
+    }
+  });
+
+  const noCheckSchema = recordSchema<NoCheckRecord>("NoCheck", "none", () => {
+    return { fields: [], value: () => ({ kind: "none" }) };
+  });
+
+  const requiredCheckSchema = recordSchema<RequiredCheckRecord>("RequiredCheck", "required", read => {
+    const failure = read("failure", () => checkFailureSchema, value => value.failure);
+    return { fields: [failure], value: () => ({ kind: "required", failure: failure.value() }) };
+  });
+
+  const accessLocationSchema: RecordSchema<AccessLocation> = unionSchema<AccessLocation>("AccessLocation",
+    () => [dataLocationSchema, accessorLocationSchema], value => {
+    switch (value.kind) {
+      case "data": return dataLocationSchema.stage(value);
+      case "accessor": return accessorLocationSchema.stage(value);
+    }
+  });
+
+  const dataLocationSchema = recordSchema<DataLocationRecord>("DataLocation", "data", read => {
+    const check = read("check", () => checkRequirementSchema, value => value.check);
+    const receiver = read("receiver", () => receiverAccessSchema, value => value.receiver);
+    return { fields: [check, receiver], value: () => ({ kind: "data", check: check.value(), receiver: receiver.value() }) };
+  });
+
+  const accessorLocationSchema = recordSchema<AccessorLocationRecord>("AccessorLocation", "accessor", () => {
+    return { fields: [], value: () => ({ kind: "accessor" }) };
+  });
+
+  const receiverAccessSchema = enumSchema<ReceiverAccess>("ReceiverAccess", ["in-place","by-reference"]);
+
+  const handleActivationSchema = enumSchema<HandleActivation>("HandleActivation", ["at-creation","when-first-driven"]);
 
   const refusedEmbeddingSchema = recordSchema<RefusedEmbeddingRecord>("RefusedEmbedding", "refused", read => {
     const reason = read("reason", () => embeddingRefusalSchema, value => value.reason);
@@ -147,7 +224,8 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const getter = read("getter", () => nullableSchema(hirCallableEndpointSchema), value => value.getter);
     const setter = read("setter", () => nullableSchema(hirCallableEndpointSchema), value => value.setter);
     const bindings = read("bindings", () => bindingVectorSchema, value => value.bindings);
-    return { fields: [key, origins, selectedDeclarations, primary, readField, write, getter, setter, bindings], value: () => ({ key: key.value(), origins: origins.value(), selectedDeclarations: selectedDeclarations.value(), primary: primary.value(), read: readField.value(), write: write.value(), getter: getter.value(), setter: setter.value(), bindings: bindings.value() }) };
+    const location = read("location", () => accessLocationSchema, value => value.location);
+    return { fields: [key, origins, selectedDeclarations, primary, readField, write, getter, setter, bindings, location], value: () => ({ location: location.value(), key: key.value(), origins: origins.value(), selectedDeclarations: selectedDeclarations.value(), primary: primary.value(), read: readField.value(), write: write.value(), getter: getter.value(), setter: setter.value(), bindings: bindings.value() }) };
   });
 
   const applicationDecisionSchema = recordSchema<ApplicationDecision>("ApplicationDecision", "ApplicationDecision", read => {
@@ -159,7 +237,8 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const parameters = read("parameters", () => arraySchema(parameterMappingSchema), value => value.parameters);
     const completion = read("completion", () => completionEndpointSchema, value => value.completion);
     const result = read("result", () => tSchema, value => value.result);
-    return { fields: [candidate, advertised, api, bindings, implementationBindings, parameters, completion, result], value: () => ({ candidate: candidate.value(), advertised: advertised.value(), api: api.value(), bindings: bindings.value(), implementationBindings: implementationBindings.value(), parameters: parameters.value(), completion: completion.value(), result: result.value() }) };
+    const activation = read("activation", () => nullableSchema(handleActivationSchema), value => value.activation);
+    return { fields: [candidate, advertised, api, bindings, implementationBindings, parameters, completion, result, activation], value: () => ({ activation: activation.value(), candidate: candidate.value(), advertised: advertised.value(), api: api.value(), bindings: bindings.value(), implementationBindings: implementationBindings.value(), parameters: parameters.value(), completion: completion.value(), result: result.value() }) };
   });
 
   const parameterMappingSchema: RecordSchema<ParameterMapping> = unionSchema<ParameterMapping>("ParameterMapping",
@@ -224,7 +303,8 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const source = read("source", () => tSchema, value => value.source);
     const result = read("result", () => tSchema, value => value.result);
     const proof = read("proof", () => embeddingProofSchema, value => value.proof);
-    return { fields: [source, result, proof], value: () => ({ kind: "narrowed", source: source.value(), result: result.value(), proof: proof.value() }) };
+    const failure = read("failure", () => checkFailureSchema, value => value.failure);
+    return { fields: [source, result, proof, failure], value: () => ({ kind: "narrowed", source: source.value(), result: result.value(), proof: proof.value(), failure: failure.value() }) };
   });
 
   const dischargeProofSchema = recordSchema<DischargeProof>("DischargeProof", "DischargeProof", read => {
@@ -239,5 +319,5 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const evidence = read("evidence", () => embeddingProofSchema, value => value.evidence);
     return { fields: [ordinal, rule, evidence], value: () => ({ ordinal: ordinal.value(), rule: rule.value(), evidence: evidence.value() }) };
   });
-  return { embeddingDecisionSchema, identityEmbeddingSchema, conversionEmbeddingSchema, refusedEmbeddingSchema, conversionKindSchema, embeddingRefusalSchema, embeddingProofSchema, correspondenceStepSchema, correspondenceRuleSchema, memberDecisionSchema, applicationDecisionSchema, parameterMappingSchema, argumentMappingSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema, completionEndpointSchema, refinementDecisionSchema, identityRefinementSchema, narrowedRefinementSchema, dischargeProofSchema, dischargeObligationProofSchema };
+  return { embeddingDecisionSchema, identityEmbeddingSchema, conversionEmbeddingSchema, refusedEmbeddingSchema, conversionKindSchema, embeddingRefusalSchema, embeddingProofSchema, correspondenceStepSchema, correspondenceRuleSchema, memberDecisionSchema, applicationDecisionSchema, parameterMappingSchema, argumentMappingSchema, defaultMappingSchema, omittedMappingSchema, restMappingSchema, completionEndpointSchema, refinementDecisionSchema, identityRefinementSchema, narrowedRefinementSchema, dischargeProofSchema, dischargeObligationProofSchema, checkFailureSchema, failureKindSchema, checkRequirementSchema, noCheckSchema, requiredCheckSchema, accessLocationSchema, dataLocationSchema, accessorLocationSchema, receiverAccessSchema, handleActivationSchema };
 }
