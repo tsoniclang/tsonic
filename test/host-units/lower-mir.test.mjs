@@ -8,13 +8,14 @@ import { N } from "./fixtures/lower-mir/names.mjs";
 import { T, TABLE, bodyId, def } from "./fixtures/lower-mir/typed.mjs";
 import {
   at, checkedPlace, checks, chainOf, controlPoints, effects, effectsOn, entriesOf, invert, localOf, nodesOn, placeOf,
-  allPaths, branchesOn, operationName, rootLocalOf, walk, withoutFailureKinds, writesOf,
+  allPaths, branchesOn, edgesOf, operationName, rootLocalOf, walk, withoutFailureKinds, writesOf,
 } from "./fixtures/lower-mir/observe.mjs";
 import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
 import { wt4 } from "./fixtures/lower-mir/programs/wt4.mjs";
 import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
 import { s7 } from "./fixtures/lower-mir/programs/s7.mjs";
 import { s2, s3, s6 } from "./fixtures/lower-mir/programs/cleanup.mjs";
+import { s1, wt5, wt8, wt9, wt10, wt11 } from "./fixtures/lower-mir/programs/more.mjs";
 
 let lowerToMir;
 let deps;
@@ -342,8 +343,8 @@ test("S-2 labels: continue outer and break outer leave through each iteration cl
   const trace = path.events.map(item => item.statement === null && operationName(item.record) === def("iterate.next") ? "next"
     : item.statement === null && operationName(item.record) === def("iterate.finish") ? "finish"
     : item.statement !== null && item.node === program.at("r+=v") ? "add" : null).filter(item => item !== null);
-  assert.deepEqual(squash(trace.map((item, index) => item === "add" ? `add@${trace.slice(0, index).filter(other => other === "next").length}` : item))
-    .map(item => item.startsWith("add") ? "add" : item),
+  // One addition may be several statements of the same occurrence; they count once.
+  assert.deepEqual(trace.filter((item, index) => !(item === "add" && trace[index - 1] === "add")),
     ["next", "next", "add", "next", "finish", "next", "next", "add", "next", "finish", "finish"]);
 });
 
@@ -418,4 +419,158 @@ test("S-6 using: disposal runs once on every exit, after the result is read and 
   // A failure of the construction itself happens before the resource exists: no disposal on that path.
   const unbuilt = walk(mir, { decide: point => point.node === program.at("new Res(log)") ? "unwind" : "normal" });
   assert.equal(unbuilt.events.filter(isDispose).length, 0);
+});
+
+// ---- WT-9 -----------------------------------------------------------------------------------
+
+test("WT-9 all: handle creation and suspension are separate control points; finally runs once on resume and on unwind", () => {
+  const program = wt9().all;
+  const mir = lower(program);
+  // R3: "creation of a handle, … suspension, resumption, each finite exit … " are each explicit. WT-9: "handle creation
+  // distinct from completion". Program text: `out += await load(id)` inside `try … finally { out += "."; }`.
+  const call = at(mir, program.at("load(id)"), "call");
+  const suspension = at(mir, program.at("await"), "await");
+  assert.equal(call.length, 1);
+  assert.equal(suspension.length, 1);
+  assert.notEqual(call[0].block, suspension[0].block);
+  assert.deepEqual(edgesOf(suspension[0].record).map(edge => edge.edge), ["resume", "unwind"]);
+  // One element, then the iteration is complete.
+  let asked = 0;
+  const once = point => point.kind === "switch" && branchesOn(mir, point, ITERATION_DONE) ? (asked++ > 0) : "normal";
+  const finals = path => path.events.filter(item => item.statement !== null && item.node === program.at("out+=.")).length;
+  const resumed = walk(mir, { decide: once });
+  assert.equal(resumed.end, "return");
+  assert.ok(indexOfEvent(resumed, item => item.statement === null && item.node === program.at("load(id)")) <
+    indexOfEvent(resumed, item => item.statement === null && item.kind === "await"));
+  assert.ok(finals(resumed) >= 1);
+  // R6: an unwinding exit at the suspension passes through the enclosing cleanup once and leaves the body.
+  asked = 0;
+  const failed = walk(mir, { decide: point => point.kind === "await" ? "unwind" : once(point) });
+  assert.equal(failed.end, "unwind");
+  assert.ok(finals(failed) >= 1);
+  // Graph law 9: the cleanup's code is emitted once, not once per exit.
+  const emitted = mir.blocks.flatMap(block => block.statements).filter(statement => statement.tir.node === program.at("out+=."));
+  assert.deepEqual(new Set(resumed.events.filter(item => item.statement !== null && item.node === program.at("out+=.")).map(item => item.record)).size, emitted.length);
+});
+
+test("WT-9 take: a yield has the three exits resume, consumer finish and unwind", () => {
+  const program = wt9().take;
+  const mir = lower(program);
+  // COMMON-DATA §4: suspension; resumption; "finite exit … by the consumer finishing it". R3.
+  const suspension = at(mir, program.at("yield i"), "yield");
+  assert.equal(suspension.length, 1);
+  assert.deepEqual(edgesOf(suspension[0].record).map(edge => edge.edge).slice(0, 2), ["resume", "return"]);
+  const finished = walk(mir, { decide: point => point.kind === "switch" ? true : point.kind === "yield" ? "return" : "normal" });
+  assert.equal(finished.end, "return");
+  assert.deepEqual(labelled(program, nodesOn(finished)), ["yield i"]);
+});
+
+test("WT-9 guarded: every exit of a suspension passes through the enclosing cleanup once", () => {
+  const program = wt9().guarded;
+  const mir = lower(program);
+  // Section 7 part 8, WT-9: "consumer-finish through enclosing cleanups". R6.
+  assert.equal(at(mir, program.at("done()"), "call").length, 1);
+  for (const [choice, end] of [["resume", "return"], ["return", "return"], ["unwind", "unwind"]]) {
+    const path = walk(mir, { decide: point => point.kind === "yield" ? choice : "normal" });
+    assert.deepEqual(labelled(program, nodesOn(path)), ["yield 1", "done()"]);
+    assert.equal(path.end, end);
+  }
+});
+
+// ---- WT-10 ----------------------------------------------------------------------------------
+
+for (const policy of POLICIES) {
+  test(`WT-10 read (${policy.absent}): every narrowed use and every index carries its check`, () => {
+    const program = wt10(policy).program;
+    const mir = lower(program);
+    // Section 7 part 8, WT-10: "every narrowed use carries its check whether or not it will be proved". R1: "no check
+    // is absent because it might be proved". The proof is Refinements' fact; lowering reads none.
+    const failing = policy.absent === "abort" ? "abort" : "escape";
+    for (const label of ["a[i]", "o.x#1", "o.x#2"]) {
+      const found = checks(mir, program.at(label));
+      assert.equal(found.length, 1, label);
+      assert.equal(found[0].failure, failing, label);
+    }
+    // One loop iteration, both guards true: authored order of the calls and checks.
+    let loop = 0;
+    const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : point.node === program.at("for") || point.node === program.at("i<a.length") ? (loop++ === 0) : true });
+    assert.deepEqual(labelled(program, nodesOn(path)), ["a[i]", "pure()", "o.x#1", "clear(o)", "o.x#2"]);
+    assert.equal(path.end, "return");
+  });
+}
+
+// ---- WT-11 ----------------------------------------------------------------------------------
+
+test("WT-11 write: pointer operations are the selected operations at their positions; no check is made up for a raw access", () => {
+  const program = wt11({ absent: "unwind" }).program;
+  const mir = lower(program);
+  // Section 7 part 8, WT-11. R2: only an operation that can fail or write existing storage is a control point; R12:
+  // nothing in the graph is selected by lowering.
+  const store = at(mir, program.at("storeptr(pointer,7)"));
+  assert.deepEqual(store.map(point => [point.kind, point.failure]), [["invoke", "none"]]);
+  assert.equal(store[0].record.operation.decision.operation.kind, "pointer-write");
+  for (const label of ["unsafecontext()", "addressof", "torawptr", "reinterpretrawptr"]) assert.deepEqual(at(mir, program.at(label)), [], label);
+  // The only check in the body is the one the narrowed use of `pointer` requires.
+  assert.deepEqual(labelled(program, checks(mir).map(point => point.node)), ["pointer#narrowed"]);
+  const stored = walk(mir, { decide: point => point.kind === "switch" ? true : "normal" });
+  assert.deepEqual(labelled(program, nodesOn(stored)), ["pointer#narrowed", "storeptr(pointer,7)"]);
+  const skipped = walk(mir, { decide: point => point.kind === "switch" ? false : "normal" });
+  assert.deepEqual(nodesOn(skipped), []);
+});
+
+// ---- WT-8 -----------------------------------------------------------------------------------
+
+test("WT-8 runEither: the two closures are created once each, in authored order, before the call", () => {
+  const program = wt8().program;
+  const mir = lower(program);
+  // Section 7 part 8, WT-8: "each … callback registration an explicit execution at its declared position". R5.
+  const path = walk(mir);
+  const first = label => indexOfEvent(path, item => item.node === program.at(label));
+  assert.ok(first("a-closure") !== -1 && first("a-closure") < first("b-closure"));
+  assert.ok(first("b-closure") < indexOfEvent(path, item => item.statement === null && item.kind === "call"));
+  const created = label => path.events.filter(item => item.node === program.at(label) &&
+    (item.statement === null ? item.kind === "invoke" : item.kind === "assign" && item.record.value.kind === "closure")).length;
+  assert.equal(created("a-closure"), 1);
+  assert.equal(created("b-closure"), 1);
+});
+
+// ---- WT-5 -----------------------------------------------------------------------------------
+
+test("WT-5: an erroneous or still-deferred body is a caller defect; an independent body lowers", () => {
+  const programs = wt5();
+  // Section 7 part 7: "a body with a deferred decision, a deferred conversion or an error resolution … Thrown as
+  // defects, never diagnostics". Part 8, WT-5: "graphs of the others are unaffected".
+  assert.throws(() => lowerToMir(deps, programs.broken.tir, []), TypeError);
+  assert.throws(() => lowerToMir(deps, programs.deferred.tir, []), TypeError);
+  const mir = lower(programs.independent);
+  assert.deepEqual(effects(mir), []);
+  assert.equal(walk(mir).end, "return");
+});
+
+// ---- S-1 ------------------------------------------------------------------------------------
+
+test("S-1: the source of a destructuring is evaluated once", () => {
+  const program = s1().program;
+  const mir = lower(program);
+  // S-1 oracle: "`pair` runs once". 8.4 of the parked chapter is not authority; the clause is R5.
+  assert.equal(at(mir, program.at("pair()"), "call").length, 1);
+  assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["pair()"]);
+  // A tuple has a fixed extent: reading its two positions needs no check (R1: "a check the types make unnecessary is absent").
+  assert.deepEqual(checks(mir), []);
+});
+
+// ---- the limit ------------------------------------------------------------------------------
+
+test("the MIR size limit refuses with one diagnostic and returns no graph", () => {
+  const program = wt6(POLICIES[0]).order;
+  // Section 7 part 7: "the size of one MIR graph (its count of control points and records), charged before
+  // allocation"; "Diagnostic originated: one"; "Refusal: that limit only".
+  const size = mir => mir.blocks.length + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+  const full = lower(program);
+  const exact = lowerToMir({ ...deps, limits: { maximumRecords: size(full) } }, program.tir, []);
+  assert.equal(exact.kind, "ok");
+  const refused = lowerToMir({ ...deps, limits: { maximumRecords: size(full) - 1 } }, program.tir, []);
+  assert.equal(refused.kind, "refused");
+  assert.equal(refused.diagnostics.length, 1);
+  assert.equal("value" in refused, false);
 });
