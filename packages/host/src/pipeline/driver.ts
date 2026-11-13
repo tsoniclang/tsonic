@@ -1,6 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
+import { encodeKey } from "../ids/index.js";
 import type { Query, QueryComputation, QueryContext } from "../query/contract.js";
 import type { Step } from "../step/contract.js";
 
@@ -52,6 +53,10 @@ export function projectionRoute<Inputs, Key extends KeyData, Value, Answer, Witn
   return ({ way: "projection", read: reader => reader(query, key, project) });
 }
 
+/**
+ * The application is run again for every request that is routed to it: it has no memo entry. A requester that
+ * needs one application's answer more than once asks once and holds the answer in its own unfinished state.
+ */
 export function nestedRoute<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict>(
   application: Application<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict>,
 ): Route<Inputs, Answer, Witness, Verdict> {
@@ -76,12 +81,12 @@ function mapResult<From, To>(result: Result<From>, map: (value: From) => To): Re
   return result.kind === "ok" ? { kind: "ok", value: map(result.value), diagnostics: result.diagnostics } : result;
 }
 
-function requireStated<Produced>(stated: readonly Diagnostic[], result: Result<Produced>): void {
+function requireStated<Produced>(stated: readonly Diagnostic[], result: Result<Produced>, name: string, key: KeyData): void {
   if (stated.length === 0) return;
   const present = new Set(result.diagnostics);
   stated.forEach(diagnostic => {
     if (!present.has(diagnostic)) {
-      throwInvariant({ owner: "pipeline", query: null, origin: null,
+      throwInvariant({ owner: "pipeline", query: { name, encodedKey: encodeKey(key) }, origin: null,
         message: "A producer's result omits a diagnostic it stated as earned at its last pause." });
     }
   });
@@ -157,7 +162,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
       let stated = last;
       for (let step = initial; ;) {
         if (step.kind === "done") {
-          requireStated(stated, step.value);
+          requireStated(stated, step.value, row.name, key);
           return ({ kind: "now", value: step.value });
         }
         const state = step.paused;

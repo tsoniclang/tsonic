@@ -54,6 +54,11 @@ const unbounded = { maximumRecords: Number.MAX_SAFE_INTEGER };
 const none = { witness: null, earned: [] };
 const noCycle = () => { throw new Error("this case closes no cycle"); };
 const fact = (query, key, encodedKey) => ({ query, key, encodedKey });
+const limitReached = (maximum, name, encodedKey) => ({ code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
+  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "result"],
+  message: "A compiler resource limit was reached.", arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: maximum }], related: [], fix: null });
+const stoppedAt = (maximum, name, encodedKey) => ({ kind: "refused", diagnostics: [limitReached(maximum, name, encodedKey)] });
+
 
 function evaluate(input) {
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
@@ -888,7 +893,7 @@ test("the record bound is charged before allocation: below, at and over, for a c
     compute: context => context.get(self, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
   const leafFact = fact("leaf", null, "N");
   const completed = { kind: "completed", value: 7, diagnostics: [] };
-  const exhausted = (maximumRecords, at) => ({ kind: "exhausted", maximumRecords, at });
+  const exhausted = (maximumRecords, at) => stoppedAt(maximumRecords, at.query, at.encodedKey);
   for (const maximumRecords of [0, 3]) {
     const database = product.createDatabase(null, { maximumRecords }, noCycle, "recorded");
     assert.deepEqual(database.run(leaf, null), exhausted(maximumRecords, leafFact));
@@ -904,10 +909,12 @@ test("the record bound is charged before allocation: below, at and over, for a c
   assert.deepEqual(atWarm.run(leaf, null), exhausted(5, leafFact));
   const belowDependency = product.createDatabase(null, { maximumRecords: 7 }, noCycle, "recorded");
   assert.deepEqual(belowDependency.run(parent, null), exhausted(7, leafFact));
-  assert.deepEqual(belowDependency.diagnostics(), [earned], "the abandoned requester keeps what it had earned");
+  assert.deepEqual(belowDependency.diagnostics(), [earned, limitReached(7, "leaf", "N")], "the abandoned requester keeps what it had earned");
   assert.deepEqual(belowDependency.stats(), [{ name: "leaf", computed: 0, hits: 0 }, { name: "parent", computed: 1, hits: 0 }]);
-  assert.deepEqual(belowDependency.run(parent, null), exhausted(7, fact("parent", null, "N")));
-  assert.deepEqual(belowDependency.diagnostics(), [earned]);
+  const again = belowDependency.run(parent, null);
+  assert.deepEqual(again, exhausted(7, leafFact), "the bound of one database is reported once, at the fact where it was first met");
+  assert.equal(again.diagnostics[0], belowDependency.diagnostics()[1]);
+  assert.deepEqual(belowDependency.diagnostics(), [earned, limitReached(7, "leaf", "N")]);
   const atDependency = product.createDatabase(null, { maximumRecords: 8 }, noCycle, "recorded");
   assert.deepEqual(atDependency.run(parent, null), completed);
   const belowClosing = product.createDatabase(null, { maximumRecords: 4 }, noCycle, "recorded");
@@ -922,7 +929,7 @@ test("records of work that leaves nothing behind are released: a thrown computat
   const original = Error("defect");
   const leaf = { name: "leaf", cycleOutcome: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
   const thrower = { name: "thrower", cycleOutcome: noCycle, compute: () => { throw original; } };
-  for (const [maximumRecords, expected] of [[5, { kind: "exhausted", maximumRecords: 5, at: fact("leaf", null, "N") }],
+  for (const [maximumRecords, expected] of [[5, stoppedAt(5, "leaf", "N")],
     [6, { kind: "completed", value: 7, diagnostics: [] }]]) {
     const database = product.createDatabase(null, { maximumRecords }, noCycle, "recorded");
     assert.throws(() => database.run(thrower, null), error => error === original);
@@ -930,14 +937,14 @@ test("records of work that leaves nothing behind are released: a thrown computat
   }
   const child = { name: "child", cycleOutcome: noCycle, compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
   for (const [earned, maximumRecords, expected] of [
-    [[], 8, "refused"], [[kept], 8, "exhausted"], [[kept], 9, "refused"],
+    [[], 8, "refused"], [[kept], 8, "bound"], [[kept], 9, "refused"],
   ]) {
     const parent = { name: "parent", cycleOutcome: noCycle,
       compute: context => context.get(child, null, { witness: null, earned }, value => ({ kind: "ok", value, diagnostics: [] })) };
     const database = product.createDatabase(null, { maximumRecords }, noCycle, "recorded");
     assert.deepEqual(database.run(parent, null), { kind: "refused", diagnostics: [refusal] });
-    assert.equal(database.run(child, null).kind, expected);
-    assert.deepEqual(database.diagnostics(), earned.length === 0 ? [refusal] : [refusal, kept]);
+    assert.deepEqual(database.run(child, null), expected === "bound" ? stoppedAt(maximumRecords, "child", "N") : { kind: "refused", diagnostics: [refusal] });
+    assert.deepEqual(database.diagnostics(), [refusal, ...earned, ...(expected === "bound" ? [limitReached(maximumRecords, "child", "N")] : [])]);
   }
 });
 
@@ -995,7 +1002,6 @@ function consume(result: RunResult<number>): number {
   switch (result.kind) {
     case "completed": return result.value + result.diagnostics.length;
     case "refused": return result.diagnostics[0].message.length;
-    case "exhausted": return result.maximumRecords + result.at.encodedKey.length;
   }
 }
 function describe(event: TraceEvent): string {
@@ -1008,7 +1014,7 @@ function describe(event: TraceEvent): string {
 const value: number = consume(database.run(count, null));
 consume({ kind: "completed", value: 7, diagnostics: [] });
 consume({ kind: "refused", diagnostics: [refusal] });
-consume({ kind: "exhausted", maximumRecords: 1, at: key });
+void key;
 void inputs; void statistics; void diagnostics; void trace.map(describe); void value;
 `);
   const cases = [
@@ -1029,6 +1035,7 @@ void inputs; void statistics; void diagnostics; void trace.map(describe); void v
     ["wrong-limit", 'const wrong: Port.QueryLimits = { maximumRecords: "2" }; void wrong;', 2322, 3, 35],
     ["wrong-query-key", 'database.run<null, number>(\n  { name: "typed", cycleOutcome: () => ({ kind: "ok", value: 7, diagnostics: [] }), compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) },\n  true,\n);', 2345, 5, 3],
     ["closed-run-outcomes", 'const wrong: Port.RunResult<number> = { kind: "pending" }; void wrong;', 2322, 3, 41],
+    ["removed-exhausted-outcome", 'const wrong: Port.RunResult<number> = { kind: "exhausted", maximumRecords: 1 }; void wrong;', 2322, 3, 41],
     ["removed-depth-outcome", 'const wrong: Port.RunResult<number> = { kind: "depth-exceeded", chain: [] }; void wrong;', 2322, 3, 41],
     ["undeclared-runtime-port", 'import { lookup } from "./query/index.js"; void lookup;', 2305, 3, 10],
     ["private-entry", 'import { leastFact } from "./query/memo.js"; void leastFact;', 2307, 3, 27],
@@ -1129,7 +1136,8 @@ test("R1-a, R1-b: a cycle retains exactly its members' records, under a requeste
   const under = measure(4 + 4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(r, null), { kind: "refused", diagnostics: [refusal] }); });
   assert.equal(under.remaining, 3, "spare 4; R three events and its kept list; A and B four each; the closing request one");
   assert.deepEqual(completionsOf(under.database).slice(1), ["A:cycle-refused", "B:cycle-ok", "R:abandoned"]);
-  assert.deepEqual(under.database.diagnostics(), [earnedA, earnedR, refusal]);
+  assert.deepEqual(under.database.diagnostics(), [earnedA, earnedR, refusal, limitReached(20, "zz-spare", "N")],
+    "the measuring loop ends at the bound, which is reported once");
   const c = { name: "C", cycleOutcome: () => ({ kind: "ok", value: 1, diagnostics: [] }), compute: context => context.get(d, null, none, resume) };
   const d = { name: "D", cycleOutcome: () => ({ kind: "ok", value: 2, diagnostics: [] }), compute: context => context.get(c, null, none, resume) };
   const root = measure(4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(c, null), { kind: "completed", value: 1, diagnostics: [] }); });
@@ -1147,10 +1155,10 @@ test("R1-c: exhaustion at the request that would close a cycle abandons every ac
   const spare = { name: "zz-spare", cycleOutcome: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
   const database = product.createDatabase(null, { maximumRecords: 4 + 16 }, noCycle, "recorded");
   assert.equal(database.run(spare, null).kind, "completed");
-  assert.deepEqual(database.run(r, null), { kind: "exhausted", maximumRecords: 20, at: fact("A", null, "N") });
+  assert.deepEqual(database.run(r, null), stoppedAt(20, "A", "N"));
   assert.deepEqual(completionsOf(database).slice(1), ["C:abandoned", "B:abandoned", "A:abandoned", "R:abandoned"]);
   assert.deepEqual(database.stats().filter(row => row.name !== "zz-spare"), ["A", "B", "C", "R"].map(name => ({ name, computed: 1, hits: 0 })));
-  assert.deepEqual(database.diagnostics(), [earnedA, earnedR]);
+  assert.deepEqual(database.diagnostics(), [earnedA, earnedR, limitReached(20, "A", "N")]);
   let warm = 0;
   while (warm <= 50 && database.run(spare, null).kind === "completed") warm += 1;
   assert.equal(warm, 2, "18 of 20 retained: R and A three events and a kept list each, B and C three events each");
@@ -1194,9 +1202,9 @@ test("K-1: an abandonment at an earlier point than the one already kept for its 
   const bounded = product.createDatabase(null, { maximumRecords: 16 }, noCycle, "recorded");
   assert.deepEqual(bounded.run(x, null), { kind: "refused", diagnostics: [refusesQ] });
   assert.deepEqual(bounded.diagnostics(), [refusesQ, earned]);
-  assert.deepEqual(bounded.run(x, null), { kind: "exhausted", maximumRecords: 16, at: fact("P", null, "N") },
+  assert.deepEqual(bounded.run(x, null), stoppedAt(16, "P", "N"),
     "the second run of X is admitted cold and has no record for its warm request of P");
-  assert.deepEqual(bounded.diagnostics(), [refusesQ, earned], "what the first abandonment kept is still reported");
+  assert.deepEqual(bounded.diagnostics(), [refusesQ, earned, limitReached(16, "P", "N")], "what the first abandonment kept is still reported");
   let mode = "first";
   const y = { name: "Y", cycleOutcome: noCycle, compute: context => mode === "first"
     ? context.get(q, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", value, diagnostics: [] }))
@@ -1229,15 +1237,15 @@ test("with the trace off no event exists and a request allocates no record: a fa
     return { kind: "ok", value: 7, diagnostics: [] };
   } };
   const none0 = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "off");
-  assert.deepEqual(none0.run(leaf, 1), { kind: "exhausted", maximumRecords: 0, at: fact("leaf", 1, "F1:") });
+  assert.deepEqual(none0.run(leaf, 1), stoppedAt(0, "leaf", "F1:"));
   const one = product.createDatabase(null, { maximumRecords: 1 }, noCycle, "off");
   for (let request = 0; request < 1000; request += 1) assert.deepEqual(one.run(leaf, 1), { kind: "completed", value: 1, diagnostics: [] });
-  assert.deepEqual(one.run(leaf, 2), { kind: "exhausted", maximumRecords: 1, at: fact("leaf", 2, "F2:") });
+  assert.deepEqual(one.run(leaf, 2), stoppedAt(1, "leaf", "F2:"));
   assert.deepEqual(one.trace(), []);
   assert.deepEqual(one.stats(), [{ name: "leaf", computed: 1, hits: 999 }]);
   const two = product.createDatabase(null, { maximumRecords: 2 }, noCycle, "off");
   assert.deepEqual(two.run(parent, null), { kind: "completed", value: 2, diagnostics: [] });
-  assert.deepEqual(two.run(leaf, 2), { kind: "exhausted", maximumRecords: 2, at: fact("leaf", 2, "F2:") });
+  assert.deepEqual(two.run(leaf, 2), stoppedAt(2, "leaf", "F2:"));
   const closing = product.createDatabase(null, { maximumRecords: 1 }, () => null, "off");
   assert.deepEqual(closing.run(self, null), { kind: "completed", value: 0, diagnostics: [] });
   assert.deepEqual(closing.trace(), []);

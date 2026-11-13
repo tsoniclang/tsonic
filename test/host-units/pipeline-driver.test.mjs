@@ -17,6 +17,11 @@ const ok = (value, diagnostics = []) => ({ kind: "done", value: { kind: "ok", va
 const refuse = diagnostics => ({ kind: "done", value: { kind: "refused", diagnostics } });
 const pause = (requests, state, earned = []) => ({ kind: "paused", requests, paused: state, earned });
 const fact = (name, key, encodedKey) => ({ query: name, key, encodedKey });
+const limitReached = (maximum, name, encodedKey) => ({ code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
+  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "result"],
+  message: "A compiler resource limit was reached.", arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: maximum }], related: [], fix: null });
+const stoppedAt = (maximum, name, encodedKey) => ({ kind: "refused", diagnostics: [limitReached(maximum, name, encodedKey)] });
+
 const completions = database => database.trace().filter(event => event.kind === "completion").map(event => [event.fact.query, event.outcome]);
 const requests = database => database.trace().filter(event => event.kind === "dependency")
   .map(event => [event.from === null ? null : event.from.query, event.to.query, event.to.key, event.state]);
@@ -172,7 +177,7 @@ test("a producer's result must contain what its last pause stated as earned: pub
   assert.deepEqual(database.run(row(true), null), { kind: "completed", value: 2, diagnostics: [found] });
   assert.deepEqual(database.diagnostics(), [found]);
   assert.throws(() => database.run(row(false), null), error => {
-    assert.deepEqual(error.cause, { owner: "pipeline", query: null, origin: null,
+    assert.deepEqual(error.cause, { owner: "pipeline", query: { name: "omits", encodedKey: "N" }, origin: null,
       message: "A producer's result omits a diagnostic it stated as earned at its last pause." });
     return true;
   });
@@ -253,7 +258,7 @@ test("one pause of one hundred thousand synchronous nested answers, and one hund
   assert.equal(pauses, count);
 });
 
-test("diagnostics of a nested application stay with a requester that then refuses; an exhausted run reports the fact it stopped at", () => {
+test("diagnostics of a nested application stay with a requester that then refuses; a run that meets Query's bound is refused with Query's diagnostic for the fact it stopped at", () => {
   const nestedFound = diagnostic(2, "b.ts", "found by the application");
   const refusal = diagnostic(1, "a.ts", "the requester's own refusal");
   const requester = driver.defineQuery({ name: "requester",
@@ -268,5 +273,6 @@ test("diagnostics of a nested application stay with a requester that then refuse
     producer: { start: () => pause([{}], null), resume: (_, answers) => ok(answers[0]) },
     route: () => driver.factRoute(needed, "k", value => value), witness: () => null, cycleOutcome: noCycle });
   const bounded = query.createDatabase(null, { maximumRecords: 7 }, noCycle, "recorded");
-  assert.deepEqual(bounded.run(needs, null), { kind: "exhausted", maximumRecords: 7, at: fact("needed", "k", "S1:k") });
+  assert.deepEqual(bounded.run(needs, null), stoppedAt(7, "needed", "S1:k"));
+  assert.deepEqual(bounded.diagnostics(), [limitReached(7, "needed", "S1:k")]);
 });

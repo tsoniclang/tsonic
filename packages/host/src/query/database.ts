@@ -1,5 +1,5 @@
 import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
-import { requirePresent } from "../diag/index.js";
+import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ClassifyCycle, CycleMember, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
@@ -21,9 +21,10 @@ interface Frame<Witness, Verdict> {
   steps: number;
 }
 
-type Stop =
-  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] }
-  | { readonly kind: "exhausted"; readonly maximumRecords: number; readonly at: FactKey };
+interface Stop {
+  readonly kind: "refused";
+  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+}
 
 interface Boundary {
   stop: Stop | null;
@@ -51,10 +52,17 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
   const eventUnit = recorded ? 1 : 0;
   let records = 0;
   let running = false;
+  let exhaustion: Stop | undefined;
 
   function admit(units: number, at: FactKey, boundary: Boundary): boolean {
     if (records + units > maximumRecords) {
-      boundary.stop = ({ kind: "exhausted", maximumRecords, at });
+      if (exhaustion === undefined) {
+        const diagnostic = resourceLimitDiagnostic({ owner: "query", limit: "query.maximumRecords", maximum: maximumRecords,
+          site: { kind: "none" }, unit: { request: { query: at.query, key: at.key }, position: { kind: "result" } } });
+        published.push(diagnostic);
+        exhaustion = ({ kind: "refused", diagnostics: [diagnostic] });
+      }
+      boundary.stop = exhaustion;
       return false;
     }
     records += units;
@@ -167,7 +175,7 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
     const complete = (result: Result<Value>, outcome: "ok" | "refused" | "cycle-ok" | "cycle-refused"): void => {
       publish(result.diagnostics);
       entry.results.set(encodedKey, result);
-      entry.facts.set(encodedKey, fact);
+      if (recorded) entry.facts.set(encodedKey, fact);
       forget(fact);
       if (recorded) trace.push({ kind: "completion", fact, outcome });
     };

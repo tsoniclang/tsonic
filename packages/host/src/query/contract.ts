@@ -89,8 +89,7 @@ export interface QueryLimits {
 
 export type RunResult<Value> =
   | { readonly kind: "completed"; readonly value: Value; readonly diagnostics: readonly Diagnostic[] }
-  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] }
-  | { readonly kind: "exhausted"; readonly maximumRecords: number; readonly at: FactKey };
+  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
 
 export interface Database<Inputs, Witness, Verdict> {
   readonly inputs: Inputs;
