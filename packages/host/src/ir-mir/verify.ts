@@ -7,6 +7,7 @@ import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from ".
 import type { MirBody, MirConstantValue, MirRule, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
+import { verifyLaws } from "./verify-laws.js";
 import type { SignatureReference } from "./verify-storage.js";
 import { childPath, createScalarWires, rootPath, showPath } from "./text.js";
 import { createDecisionWires } from "./text-decisions.js";
@@ -328,7 +329,7 @@ export function verifyRows(
       case "static":
         if (declarationOf(place.base.definition) === null) violations.push({ rule: "definition-resolves", site, detail: [] });
         break;
-      case "place":
+      case "place": case "checked":
         if (!densePosition(place.base.place, position)) violations.push({ rule: "place-parent-precedes", site, detail: [] });
         else if (body.places[place.base.place] === undefined) violations.push({ rule: "place-root-resolves", site, detail: [] });
         break;
@@ -469,7 +470,7 @@ function decisionReferences(
     if (value.kind === "definition" || value.kind === "metadata") artifact(value.bindings, value.definition, site);
     if (value.kind === "constant") instance(value.reference.initializer, site);
   }
-  for (const place of body.places) if (place !== undefined && place.base.kind === "place" && place.base.projection.kind === "field")
+  for (const place of body.places) if (place !== undefined && (place.base.kind === "place" || place.base.kind === "checked") && place.base.projection.kind === "field")
     member(place.base.projection.member, { kind: "place", body: body.body, place: place.id });
   for (const [blockPosition, block] of body.blocks.entries()) {
     if (block === undefined) continue;
@@ -485,7 +486,10 @@ function decisionReferences(
       if (value.kind === "closure") instance(value.instance, site);
     }
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
-    if (block.terminator.kind === "call") callee(block.terminator.callee.resolution, site);
+    if (block.terminator.kind === "call") {
+      if (block.terminator.callee.kind === "body") instance(block.terminator.callee.instance, site);
+      else callee(block.terminator.callee.resolution, site);
+    }
     if (block.terminator.kind === "invoke") operation(block.terminator.operation, site, childPath(blockPath, ".terminator.operation"));
   }
   return violations;
@@ -519,6 +523,6 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
   const decisions = decisionReferences(body, input, types, signatures);
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, wires), verifyStorage(body, places),
-    decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
+    verifyLaws(body, input, nodes, wires), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
   return violations;
 }

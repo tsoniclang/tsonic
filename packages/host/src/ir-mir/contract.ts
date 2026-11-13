@@ -58,12 +58,14 @@ export type MirProjection =
   | { readonly kind: "index"; readonly operand: MirOperand }
   | { readonly kind: "element"; readonly index: number }
   | { readonly kind: "deref" }
-  | { readonly kind: "capture"; readonly index: number };
+  | { readonly kind: "capture"; readonly index: number }
+  | { readonly kind: "refined" };
 
 export type MirPlaceBase =
   | { readonly kind: "local"; readonly local: LocalId }
   | { readonly kind: "static"; readonly definition: DefId }
-  | { readonly kind: "place"; readonly place: PlaceId; readonly projection: MirProjection };
+  | { readonly kind: "place"; readonly place: PlaceId; readonly projection: MirProjection; readonly tir: NodeRef }
+  | { readonly kind: "checked"; readonly place: PlaceId; readonly projection: MirProjection; readonly tir: NodeRef };
 
 export interface MirPlace {
   readonly id: PlaceId;
@@ -91,20 +93,26 @@ export type MirRvalue =
   | { readonly kind: "unary"; readonly operation: TypedOperation; readonly operand: MirOperand }
   | { readonly kind: "binary"; readonly operation: TypedOperation; readonly left: MirOperand; readonly right: MirOperand }
   | { readonly kind: "convert"; readonly operation: TypedOperation; readonly operand: MirOperand; readonly to: TyId }
-  | { readonly kind: "refine"; readonly operand: MirOperand; readonly to: TyId }
   | { readonly kind: "aggregate"; readonly type: TyId; readonly aggregate: MirAggregate }
   | { readonly kind: "address-of"; readonly place: PlaceId; readonly type: TyId }
   | { readonly kind: "closure"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
+export interface MirStepRef {
+  readonly protocol: number;
+  readonly step: number;
+}
+
 export type MirStatement = MirSite & (
-  | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue }
+  | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }
   | { readonly kind: "storage-dead"; readonly local: LocalId }
 );
 
 export type MirUnwind =
   | { readonly kind: "handler"; readonly exception: PlaceId; readonly target: BlockId }
-  | { readonly kind: "escape" };
+  | { readonly kind: "escape" }
+  | { readonly kind: "abort" }
+  | { readonly kind: "none" };
 
 export interface MirSuspensionReturn {
   readonly destination: PlaceId;
@@ -118,27 +126,30 @@ export interface MirSwitchTarget {
 
 export type MirCallArgument =
   | { readonly kind: "value"; readonly passing: "by-value" | "move"; readonly operand: MirOperand }
-  | { readonly kind: "place"; readonly passing: PlacePassingMode; readonly place: PlaceId };
+  | { readonly kind: "place"; readonly passing: PlacePassingMode; readonly place: PlaceId }
+  | { readonly kind: "omitted" };
 
 export type MirCallee =
   | { readonly kind: "direct"; readonly resolution: ResolvedCallee }
-  | { readonly kind: "indirect"; readonly operand: MirOperand; readonly resolution: ResolvedCallee };
+  | { readonly kind: "indirect"; readonly operand: MirOperand; readonly resolution: ResolvedCallee }
+  | { readonly kind: "body"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
 export type MirTerminator = MirSite & (
   | { readonly kind: "goto"; readonly target: BlockId }
   | { readonly kind: "switch"; readonly operand: MirOperand;
-      readonly targets: readonly MirSwitchTarget[]; readonly otherwise: BlockId }
+      readonly targets: readonly MirSwitchTarget[]; readonly otherwise: BlockId; readonly step: MirStepRef | null }
+  | { readonly kind: "check"; readonly place: PlaceId; readonly next: BlockId; readonly unwind: MirUnwind }
   | { readonly kind: "call"; readonly callee: MirCallee; readonly receiver: MirOperand | null;
       readonly arguments: readonly MirCallArgument[]; readonly destination: PlaceId | null;
-      readonly next: BlockId; readonly unwind: MirUnwind }
+      readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "invoke"; readonly operation: TypedOperation; readonly operands: readonly MirOperand[];
-      readonly destination: PlaceId | null; readonly next: BlockId; readonly unwind: MirUnwind }
+      readonly destination: PlaceId | null; readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "await"; readonly operand: MirOperand; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "yield"; readonly operand: MirOperand | null; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "delegate"; readonly iterator: MirOperand; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "throw"; readonly operand: MirOperand; readonly unwind: MirUnwind }
   | { readonly kind: "return"; readonly value: MirOperand | null }
   | { readonly kind: "unreachable" }
@@ -150,9 +161,15 @@ export interface MirBlock extends MirSite {
   readonly terminator: MirTerminator;
 }
 
+export interface MirEntry {
+  readonly provided: number;
+  readonly block: BlockId;
+}
+
 export interface MirBody {
   readonly body: BodyId;
   readonly bindings: ArtifactBindings;
+  readonly entries: readonly MirEntry[];
   readonly locals: readonly MirLocal[];
   readonly constants: readonly MirConstant[];
   readonly places: readonly MirPlace[];
@@ -196,7 +213,18 @@ export type MirRule =
   | "storage-live-before-use"
   | "capture-location-exact"
   | "constants-order"
-  | "switch-targets-order";
+  | "switch-targets-order"
+  | "failure-kind-exact"
+  | "check-place-exact"
+  | "refined-under-check"
+  | "statement-pure"
+  | "index-operand-stable"
+  | "protocol-step-exact"
+  | "completion-branch-canonical"
+  | "entries-exact"
+  | "omission-admitted"
+  | "storage-marker-exact"
+  | "effect-site-unique";
 
 export type MirViolationSite =
   | { readonly kind: "body"; readonly body: BodyId }

@@ -7,7 +7,7 @@ import type { ControlVertex, SourceNode } from "./verify-control.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
   switch (value.kind) {
-    case "use": case "unary": case "convert": case "refine": return [value.operand];
+    case "use": case "unary": case "convert": return [value.operand];
     case "binary": return [value.left, value.right];
     case "aggregate":
       switch (value.aggregate.kind) {
@@ -28,14 +28,18 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
     case "call":
       if (terminator.callee.kind === "indirect") operands.push(terminator.callee.operand);
       if (terminator.receiver !== null) operands.push(terminator.receiver);
-      for (const argument of terminator.arguments) operands.push(argument.kind === "value"
-        ? argument.operand : { kind: "place", place: argument.place });
+      if (terminator.callee.kind === "body") for (const capture of terminator.callee.captures) operands.push({ kind: "place", place: capture.place });
+      for (const argument of terminator.arguments) {
+        if (argument.kind === "value") operands.push(argument.operand);
+        else if (argument.kind === "place") operands.push({ kind: "place", place: argument.place });
+      }
       if (terminator.destination !== null) operands.push({ kind: "place", place: terminator.destination });
       break;
     case "invoke":
       for (const operand of terminator.operands) operands.push(operand);
       if (terminator.destination !== null) operands.push({ kind: "place", place: terminator.destination });
       break;
+    case "check": operands.push({ kind: "place", place: terminator.place }); break;
     case "await": operands.push(terminator.operand, { kind: "place", place: terminator.destination }); break;
     case "yield":
       if (terminator.operand !== null) operands.push(terminator.operand);
@@ -72,7 +76,7 @@ export function placeLocations(body: MirBody): ReadonlyMap<PlaceId, PlaceLocatio
         locations.set(place.id, { root: local, indices: null });
         break;
       }
-      case "place": {
+      case "place": case "checked": {
         if (!densePosition(place.base.place, position)) continue;
         const parent = locations.get(place.base.place);
         if (parent === undefined) continue;
@@ -171,6 +175,8 @@ export function verifyStorage(body: MirBody, places: ReadonlyMap<PlaceId, PlaceL
       entries.set(vertex.id, live);
     }
   }
+  // An execution starts at block 0 or at the block of any entry.
+  const starts = new Set<number>([0, ...body.entries.map(entry => entry.block)]);
   const memo = new Map<LocalId, Map<number, boolean>>();
   for (const requirement of requirements) {
     const local = requirement.local;
@@ -191,7 +197,7 @@ export function verifyStorage(body: MirBody, places: ReadonlyMap<PlaceId, PlaceL
     for (const current of pending) {
       if (seen.has(current.id)) continue;
       seen.add(current.id);
-      if (current.id === 0 && !initialized) { live = false; break; }
+      if (starts.has(current.id) && !initialized) { live = false; break; }
       for (const predecessor of current.predecessors) {
         if (!graph.reachable.has(predecessor.id)) continue;
         const selected = changes.get(local.id)?.get(predecessor.id);
@@ -283,13 +289,6 @@ export function verifyValues(
     switch (value.kind) {
       case "use": return operandType(value.operand, site);
       case "unary": case "binary": case "convert": return operationResult(value, site);
-      case "refine": {
-        operandType(value.operand, site);
-        types.push({ type: value.to, site });
-        const expected = selectedType(node);
-        if (expected !== null) match(value.to, expected, "operation-selected", site);
-        return value.to;
-      }
       case "aggregate": {
         const expected = selectedType(node);
         if (expected !== null) match(value.type, expected, "operation-selected", site);
@@ -381,7 +380,7 @@ export function verifyValues(
     if (place === undefined) continue;
     const site: MirViolationSite = { kind: "place", body: body.body, place: place.id };
     types.push({ type: place.storage, site });
-    if (place.base.kind !== "place" || !densePosition(place.base.place, position)) continue;
+    if (place.base.kind !== "place" && place.base.kind !== "checked" || !densePosition(place.base.place, position)) continue;
     const parent = body.places[place.base.place];
     if (parent === undefined || !Object.is(parent.id, place.base.place)) continue;
     const parentTerm = term(parent.storage);
@@ -417,7 +416,7 @@ export function verifyValues(
       case "capture":
         if (!densePosition(projection.index, context.source.captures.length)) report("capture-location-exact", site);
         break;
-      case "deref": break;
+      case "deref": case "refined": break;
     }
     if (projected !== null) match(place.storage, projected, "projection-type", site);
   }
@@ -451,7 +450,16 @@ export function verifyValues(
           if (result !== null && !(result.kind === "intrinsic" && (result.intrinsic === "void" || result.intrinsic === "absence"))) report("assignment-type", site);
         }
         break;
+      case "check": placeType(terminator.place, site); break;
       case "call": {
+        if (terminator.callee.kind === "body") {
+          // The signature of an internal body is not a record of this context; operands and the destination resolve.
+          for (const capture of terminator.callee.captures) placeType(capture.place, site);
+          if (terminator.receiver !== null) operandType(terminator.receiver, site);
+          if (terminator.arguments.length !== 0) report("call-arguments-total", site);
+          if (terminator.destination !== null) placeType(terminator.destination, site);
+          break;
+        }
         const decision = terminator.callee.resolution.decision;
         signatures.push({ signature: decision.api.signature, site });
         signatures.push({ signature: decision.advertised.signature, site });
@@ -478,8 +486,13 @@ export function verifyValues(
           else match(operandType(terminator.receiver, site), signature.receiver, "call-receiver-exact", site);
           if (signature.parameters.length !== terminator.arguments.length) report("call-arguments-total", site);
           for (const [position, argument] of terminator.arguments.entries()) {
-            const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             const parameter = signature.parameters[position];
+            if (argument.kind === "omitted") {
+              // A call may omit only what the callee's signature lets be omitted.
+              if (parameter === undefined || parameter.kind !== "optional" && parameter.kind !== "default") report("omission-admitted", site);
+              continue;
+            }
+            const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             if (parameter !== undefined) {
               if (argument.passing !== parameter.passing || actual !== null && !Object.is(actual, parameter.type))
                 violations.push({ rule: "argument-passing-exact", site, detail: [{ kind: "number", value: position }] });
@@ -487,7 +500,10 @@ export function verifyValues(
           }
         } else {
           if (terminator.receiver !== null) operandType(terminator.receiver, site);
-          for (const argument of terminator.arguments) operandType(argument.kind === "value" ? argument.operand : { kind: "place", place: argument.place }, site);
+          for (const argument of terminator.arguments) {
+            if (argument.kind === "value") operandType(argument.operand, site);
+            else if (argument.kind === "place") placeType(argument.place, site);
+          }
         }
         types.push({ type: decision.result, site });
         if (terminator.destination !== null) match(placeType(terminator.destination, site), decision.result, "call-destination-type", site);
