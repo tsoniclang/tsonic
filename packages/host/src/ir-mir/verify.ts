@@ -284,7 +284,7 @@ export function verifyRows(
     if (!validOrigin(local.origin)) violations.push({ rule: "origin-valid", site, detail: [] });
     if (local.role.kind === "capture") {
       const captured = densePosition(local.role.index, source.captures.length) ? source.captures[local.role.index] : undefined;
-      if (captured === undefined || local.source === null || !sameLocal(local.source, captured))
+      if (captured === undefined || local.source === null || !sameLocal(local.source, captured.local))
         violations.push({ rule: "capture-location-exact", site, detail: [] });
     } else if (local.source !== null) {
       const selected = densePosition(local.source.local, source.locals.length) ? source.locals[local.source.local] : undefined;

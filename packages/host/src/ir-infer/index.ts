@@ -1,10 +1,15 @@
 import type {
+  CaptureRequiresLocation, SameCaptureSource,
   ParseConstraints, ParseContributions, ParseInferenceGroup, ParseSolution,
   PrintConstraints, PrintContributions, PrintInferenceGroup, PrintSolution, VerifyInference,
 } from "./contract.js";
 import { printDocument } from "./print.js";
 import { readConstraints, readContributions, readGroup, readSolution } from "./parse.js";
 import { verifyInput } from "./verify.js";
+import { requiresLocation, sameSource } from "./capture-law.js";
+
+export const captureRequiresLocation: CaptureRequiresLocation = requiresLocation;
+export const sameCaptureSource: SameCaptureSource = sameSource;
 
 export const printConstraints: PrintConstraints = constraints => printDocument({ kind: "ConstraintSet", value: constraints });
 export const parseConstraints: ParseConstraints = readConstraints;

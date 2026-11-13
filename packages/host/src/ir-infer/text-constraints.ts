@@ -1,4 +1,4 @@
-import type { ApplicationArgument, ApplicationConstraintData, ClosureCapture, Constraint, ConstraintRef, ConstraintSet, InferenceGroup, InferenceVariable, InferredPart, InferredSignaturePart, LiteralPart } from "./contract.js";
+import type { ApplicationArgument, ApplicationConstraintData, CaptureSource, ClosureCapture, Constraint, ConstraintRef, ConstraintSet, InferenceGroup, InferenceVariable, InferredPart, InferredSignaturePart, LiteralPart, LogicalCapture } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { CapturesSchemas } from "./text-captures.js";
 import type { ContributionsSchemas } from "./text-contributions.js";
@@ -6,7 +6,7 @@ import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } fr
 import type { DataSchemas } from "./text-data.js";
 import type { EvidenceSchemas } from "./text-evidence.js";
 import type { BodyId, LocalRef, NodeRef, TyId } from "../ids/contract.js";
-import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeParameterIdentity } from "../ir-types/contract.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
 
@@ -209,6 +209,20 @@ export interface DefaultConstraintRecord {
   readonly type: TyId | null;
 }
 
+export interface BindingSourceRecord {
+  readonly kind: "binding";
+}
+
+export interface ParameterSourceRecord {
+  readonly kind: "parameter";
+  readonly passing: PassingMode;
+}
+
+export interface EnclosingCaptureSourceRecord {
+  readonly kind: "capture";
+  readonly capture: LogicalCapture;
+}
+
 export interface ClosureConstraintRecord {
   readonly kind: "closure";
   readonly occurrence: NodeRef;
@@ -263,6 +277,8 @@ export interface ConstraintsSchemas {
   readonly defaultConstraintSchema: RecordSchema<DefaultConstraintRecord>;
   readonly closureConstraintSchema: RecordSchema<ClosureConstraintRecord>;
   readonly closureCaptureSchema: RecordSchema<ClosureCapture>;
+  readonly logicalCaptureSchema: Schema<LogicalCapture>;
+  readonly captureSourceSchema: RecordSchema<CaptureSource>;
   readonly defaultRuleSchema: Schema<"binder-declared-default" | "literal-native-default" | "local-producers" | "refuse-unseeded" | "signature-producers">;
   readonly operatorSchema: Schema<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">;
 }
@@ -271,7 +287,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const { hirCandidateListSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { constraintRefSchema } = contributions;
-  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, tSchema, typeParameterIdentitySchema } = data;
+  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema, typeParameterIdentitySchema } = data;
   const { typeEvidenceSchema } = evidence;
   const constraintSetSchema = recordSchema<ConstraintSet>("ConstraintSet", "ConstraintSet", read => {
     const group = read("group", () => groupSchema, value => value.group);
@@ -573,11 +589,37 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
     return { fields: [occurrence, variable, rule, type], value: () => ({ kind: "default", occurrence: occurrence.value(), variable: variable.value(), rule: rule.value(), type: type.value() }) };
   });
 
+  const logicalCaptureSchema = enumSchema<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"]);
+
+  const captureSourceSchema: RecordSchema<CaptureSource> = unionSchema<CaptureSource>("CaptureSource",
+    () => [bindingSourceSchema, parameterSourceSchema, enclosingCaptureSourceSchema], value => {
+    switch (value.kind) {
+      case "binding": return bindingSourceSchema.stage(value);
+      case "parameter": return parameterSourceSchema.stage(value);
+      case "capture": return enclosingCaptureSourceSchema.stage(value);
+    }
+  });
+
+  const bindingSourceSchema = recordSchema<BindingSourceRecord>("BindingSource", "binding", () => {
+    return { fields: [], value: () => ({ kind: "binding" }) };
+  });
+
+  const parameterSourceSchema = recordSchema<ParameterSourceRecord>("ParameterSource", "parameter", read => {
+    const passing = read("passing", () => passingModeSchema, value => value.passing);
+    return { fields: [passing], value: () => ({ kind: "parameter", passing: passing.value() }) };
+  });
+
+  const enclosingCaptureSourceSchema = recordSchema<EnclosingCaptureSourceRecord>("EnclosingCaptureSource", "capture", read => {
+    const capture = read("capture", () => logicalCaptureSchema, value => value.capture);
+    return { fields: [capture], value: () => ({ kind: "capture", capture: capture.value() }) };
+  });
+
   const closureCaptureSchema = recordSchema<ClosureCapture>("ClosureCapture", "ClosureCapture", read => {
     const local = read("local", () => localRefSchema, value => value.local);
     const type = read("type", () => tSchema, value => value.type);
     const reassignable = read("reassignable", () => booleanSchema, value => value.reassignable);
-    return { fields: [local, type, reassignable], value: () => ({ local: local.value(), type: type.value(), reassignable: reassignable.value() }) };
+    const incoming = read("incoming", () => captureSourceSchema, value => value.incoming);
+    return { fields: [local, type, reassignable, incoming], value: () => ({ local: local.value(), type: type.value(), reassignable: reassignable.value(), incoming: incoming.value() }) };
   });
 
   const closureConstraintSchema = recordSchema<ClosureConstraintRecord>("ClosureConstraint", "closure", read => {
@@ -592,5 +634,5 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const defaultRuleSchema = enumSchema("DefaultRule", ["signature-producers","local-producers","binder-declared-default","literal-native-default","refuse-unseeded"]);
 
   const operatorSchema = enumSchema("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]);
-  return { closureCaptureSchema, closureConstraintSchema, constraintSetSchema, inferenceGroupSchema, inferredSignaturePartSchema, inferredPartSchema, returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, inferenceVariableSchema, signatureVariableSchema, localVariableSchema, binderVariableSchema, literalVariableSchema, binderFamilySchema, flowRoleSchema, accessRoleSchema, protocolKindSchema, ruleIdentitySchema, constraintSchema, equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, applicationConstraintDataSchema, applicationArgumentSchema, valueArgumentSchema, spreadArgumentSchema, literalConstructionConstraintSchema, constructionKindSchema, literalPartSchema, elementPartSchema, propertyPartSchema, spreadPartSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, defaultRuleSchema, operatorSchema };
+  return { logicalCaptureSchema, captureSourceSchema, closureCaptureSchema, closureConstraintSchema, constraintSetSchema, inferenceGroupSchema, inferredSignaturePartSchema, inferredPartSchema, returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, inferenceVariableSchema, signatureVariableSchema, localVariableSchema, binderVariableSchema, literalVariableSchema, binderFamilySchema, flowRoleSchema, accessRoleSchema, protocolKindSchema, ruleIdentitySchema, constraintSchema, equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, applicationConstraintDataSchema, applicationArgumentSchema, valueArgumentSchema, spreadArgumentSchema, literalConstructionConstraintSchema, constructionKindSchema, literalPartSchema, elementPartSchema, propertyPartSchema, spreadPartSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, defaultRuleSchema, operatorSchema };
 }

@@ -19,7 +19,7 @@ const owner = "packages/host/src/ir-infer";
 const emitted = resolve(repository, "packages/host/dist/ir-infer");
 const runtimeNames = ["index", "print", "parse", "text-data", "text-decisions", "text-evidence", "text-capture-values", "text-pointers",
   "text-captures", "text-constraints", "text-contributions", "text-decision-values", "text-rule-inputs", "text-invocations", "text-operations",
-  "verify", "verify-contributions", "verify-solution"];
+  "verify", "verify-contributions", "verify-solution", "capture-law"];
 const runtimeFiles = runtimeNames.map(name => resolve(emitted, `${name}.js`));
 const ownedSources = ["contract", ...runtimeNames].map(name => `${owner}/${name}.ts`).sort();
 const dependencies = ["ids", "diag", "ir-types", "ir-hir"];
@@ -72,10 +72,10 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(inputs, null, 2)}\n`);
     console.log(`F.ir-infer actual product coverage: ${evidenceDirectory}`);
-    assert.equal(result.length, 18, "all eighteen actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.equal(result.length, 19, "all nineteen actual runtime owners have nonempty source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings));
     deepEqual(report.findings, []);
-    assert.equal(report.files.length, 18);
+    assert.equal(report.files.length, 19);
     for (const file of report.files) {
       assert.equal(file.status, "covered", file.path);
       assert.equal(file.lines, 100, file.path);
@@ -1691,18 +1691,27 @@ function applicationGolden(parameters = [], activation = nullGolden) {
       completion: typeGolden, yielded: nullGolden, sent: nullGolden }), result: typeGolden, activation });
 }
 
-function closureGolden(modes, execution = pureGolden) {
-  return recordGolden("ClosureDecision", { carrier: typeGolden, captures: arrayGolden(modes.map(mode => scalarGolden(mode))), execution });
-}
-
 function localGolden(local) {
   return recordGolden("LocalRef", { body: bodyGolden, local: scalarGolden(local, "l") });
 }
 
-function closureConstraintGolden(reassignable) {
+// One row per captured local: the local of that position and its logical capture.
+function closureGolden(modes, execution = pureGolden) {
+  return recordGolden("ClosureDecision", { carrier: typeGolden, captures: arrayGolden(modes.map((mode, local) =>
+    recordGolden("CaptureRow", { local: localGolden(local), capture: scalarGolden(mode) }))), execution });
+}
+
+const bindingSourceGolden = recordGolden("binding", {}, "binding");
+const parameterSourceGolden = passing => recordGolden("parameter", { passing: scalarGolden(passing) }, "parameter");
+const captureSourceGolden = capture => recordGolden("capture", { capture: scalarGolden(capture) }, "capture");
+const passingModes = ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"];
+const captureSourceGoldens = [bindingSourceGolden, ...passingModes.map(parameterSourceGolden),
+  captureSourceGolden("captured-value"), captureSourceGolden("captured-location")];
+
+function closureConstraintGolden(reassignable, incoming = reassignable.map(() => bindingSourceGolden)) {
   return recordGolden("closure", { occurrence: nodeGolden, created: bodyGolden,
     captures: arrayGolden(reassignable.map((value, local) => recordGolden("ClosureCapture",
-      { local: localGolden(local), type: typeGolden, reassignable: scalarGolden(value) }))), result: typeGolden, bindings: bindingGolden }, "closure");
+      { local: localGolden(local), type: typeGolden, reassignable: scalarGolden(value), incoming: incoming[local] }))), result: typeGolden, bindings: bindingGolden }, "closure");
 }
 
 function operationGolden(operation, execution = pureGolden) {
@@ -2188,8 +2197,8 @@ test("every saved rule invocation retains its actual closed input rather than on
     deferredGolden("core", recordGolden("CoreInput", { context: contextGolden, captured: captureGolden, declaration: definitionGolden,
       operands: arrayGolden([evidenceGolden]), result: evidenceGolden, permissionScope: nodeGolden })),
     deferredGolden("closure", recordGolden("ClosureInput", { context: contextGolden, callable: evidenceGolden,
-      captures: arrayGolden([true, false].map((reassignable, local) => recordGolden("ClosureCaptureEvidence",
-        { local: localGolden(local), value: evidenceGolden, reassignable: scalarGolden(reassignable) }))) })),
+      captures: arrayGolden(captureSourceGoldens.map((incoming, local) => recordGolden("ClosureCaptureEvidence",
+        { local: localGolden(local), value: evidenceGolden, reassignable: scalarGolden(local % 2 === 0), incoming }))) })),
   ];
   const golden = solutionGolden(invocations.map(deferred => recordGolden("deferred", { deferred }, "deferred")));
   assertRoundTrip("Solution", golden.value, golden.text, "all fourteen rule input families and candidate/protocol subarms");
@@ -2950,10 +2959,15 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
     const golden = constraintsGolden([closureConstraintGolden(reassignable)]);
     assertRoundTrip("Constraints", golden.value, golden.text, `closure constraint with ${reassignable.length} captures`);
   }
+  {
+    const golden = constraintsGolden([closureConstraintGolden(captureSourceGoldens.map((_source, local) => local % 2 === 0), captureSourceGoldens)]);
+    assertRoundTrip("Constraints", golden.value, golden.text, "closure constraint with every incoming storage of a captured binding");
+  }
   const constraints = constraintsGolden([closureConstraintGolden([true])]);
   for (const [slot, replacement, expected, found] of [
     ["reassignable=true", '"let"', ["boolean"], '"let"'],
     ["local=LocalRef(", "t:0", ["LocalRef"], "t:0"],
+    ["incoming=binding(", "outer()", ["binding", "parameter", "capture"], "outer"],
   ]) {
     const start = constraints.text.indexOf(slot);
     assert.equal(start >= 0 && constraints.text.indexOf(slot, start + 1) < 0, true, "the authored slot occurs exactly once");
@@ -2964,11 +2978,25 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
   }
   const withoutEvidence = constraints.text.replace(", reassignable=true", "");
   const evidenceAt = constraints.text.indexOf(", reassignable=true");
-  fullEqual(product.parseConstraints(withoutEvidence), { kind: "invalid-text", offset: evidenceAt, line: 1, column: evidenceAt + 1,
-    expected: ["reassignable"], found: ")" }, "a captured local without its binding evidence is not accepted");
+  fullEqual(product.parseConstraints(withoutEvidence), { kind: "invalid-text", offset: evidenceAt + 2, line: 1, column: evidenceAt + 3,
+    expected: ["reassignable"], found: "incoming" }, "a captured local without its binding evidence is not accepted");
+  const withoutIncoming = constraints.text.replace(", incoming=binding()", "");
+  const incomingAt = constraints.text.indexOf(", incoming=binding()");
+  fullEqual(product.parseConstraints(withoutIncoming), { kind: "invalid-text", offset: incomingAt, line: 1, column: incomingAt + 1,
+    expected: ["incoming"], found: ")" }, "a captured local without its incoming storage is not accepted");
+  for (const [text, at, expected, found] of [
+    ['incoming=parameter(passing="by-copy")', 'incoming=parameter(passing='.length, passingModes.map(mode => JSON.stringify(mode)), '"by-copy"'],
+    ['incoming=capture(capture="copied")', 'incoming=capture(capture='.length, ['"captured-value"', '"captured-location"'], '"copied"'],
+    ["incoming=parameter()", "incoming=parameter(".length, ["passing"], ")"],
+  ]) {
+    const changed = constraints.text.replace("incoming=binding()", text);
+    const offset = constraints.text.indexOf("incoming=binding()") + at;
+    fullEqual(product.parseConstraints(changed), { kind: "invalid-text", offset, line: 1, column: offset + 1, expected, found }, `closure capture: ${text}`);
+  }
   const decided = solutionGolden([recordGolden("closure", { closure: closureGolden(["captured-value", "captured-location"]) }, "closure")]);
   for (const [slot, replacement, expected, found] of [
-    ['captures=["captured-value", "captured-location"]', '["copied"]', ['"captured-value"', '"captured-location"'], '"copied"'],
+    ['capture="captured-value"', '"copied"', ['"captured-value"', '"captured-location"'], '"copied"'],
+    ["captures=[CaptureRow(", '["captured-value"]', ["CaptureRow"], '"captured-value"'],
     ["execution=pure()", "proved()", ["pure", "invocation"], "proved"],
     ["carrier=t:0", "sig:0", ["t"], "sig:0"],
   ]) {
@@ -2984,35 +3012,55 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
     { kind: "invalid-text", offset: removedAt, line: 1, column: removedAt + 1, expected: ["execution"], found: ")" },
     "a closure decision without its execution is not accepted");
   const pure = { kind: "pure" };
-  // function make(p: int32) { let x = 0; let n = 0; const c = 5; const o = { count: 0 }; return () => { x += 1; o.count += 1; return x + n + c + p; }; }
+  // function make(p: int32, in r: int32, <moved> m: Box) { let x = 0; let n = 0; const c = 5; const o = { count: 0 };
+  //   return () => { x += 1; o.count += 1; return () => x + n + c + p + r + o.count; }; }
+  // The inner closure is created in the outer closure's body, where x and c are that body's own captures.
+  const binding = { kind: "binding" };
   const bindings = [
-    ["x, a let that the closure reassigns", true], ["n, a let that is never reassigned", true], ["c, a const holding a primitive", false],
-    ["o, a const holding an object reference whose referent is written", false], ["p, a parameter", true]];
-  const captures = bindings.map(([, reassignable], local) => ({ local: { body, local }, type: 0, reassignable }));
-  const logical = bindings.map(([, reassignable]) => reassignable ? "captured-location" : "captured-value");
+    ["x, a let that the closure reassigns", true, binding, true],
+    ["n, a let that is never reassigned", true, binding, true],
+    ["c, a const holding a primitive", false, binding, false],
+    ["o, a const holding an object reference whose referent is written", false, binding, false],
+    ["p, a by-value parameter", true, { kind: "parameter", passing: "by-value" }, true],
+    ["a by-value parameter that cannot be reassigned", false, { kind: "parameter", passing: "by-value" }, false],
+    ["m, a moved parameter that cannot be reassigned", false, { kind: "parameter", passing: "move" }, false],
+    ...["byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut"].map(passing =>
+      [`a ${passing} parameter that cannot be reassigned`, false, { kind: "parameter", passing }, true]),
+    ["a captured location of the creating body that cannot be reassigned", false, { kind: "capture", capture: "captured-location" }, true],
+    ["a captured value of the creating body that cannot be reassigned", false, { kind: "capture", capture: "captured-value" }, false],
+  ];
+  const captures = bindings.map(([, reassignable, incoming], local) => ({ local: { body, local }, type: 0, reassignable, incoming }));
+  const logical = bindings.map(([, , , location]) => location ? "captured-location" : "captured-value");
   const locals = [{ body, ids: bindings.map((_binding, local) => local) }];
   const constraint = { kind: "closure", occurrence, created: body, captures, result: 0, bindings: emptyBindings };
   const solved = decision => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision }] });
-  const closure = modes => ({ kind: "closure", closure: { carrier: 0, captures: modes, execution: pure } });
+  const rowsOf = modes => modes.map((capture, local) => ({ local: { body, local }, capture }));
+  const closure = (modes, rows = rowsOf(modes)) => ({ kind: "closure", closure: { carrier: 0, captures: rows, execution: pure } });
   const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope], locals, solution: solved(closure(logical)) };
-  deepEqual(logical, ["captured-location", "captured-location", "captured-value", "captured-value", "captured-location"]);
-  // A binding that can be reassigned is a captured location. For one that cannot, this evidence alone forces neither value:
-  // a binding that is not reassignable may still alias by-reference storage (K-3271), which the incoming passing mode and
-  // the enclosing capture row decide.
-  for (const [position, [name, reassignable]] of bindings.entries()) {
+  // Storage another party can still write is a captured location: a binding that can be reassigned, a parameter that
+  // denotes its argument's storage, a captured location of the creating body. For the others this evidence forces
+  // neither value. A captured value of o is the reference o holds: the object's contents stay shared through it.
+  for (const [position, [name, , , location]] of bindings.entries()) {
     const opposite = logical.map((capture, index) => index !== position ? capture
       : capture === "captured-location" ? "captured-value" : "captured-location");
-    if (reassignable) ruleCase("closure-capture-binding", input, { ...input, solution: solved(closure(opposite)) },
-      [violation("closure-capture-binding", constraintSite(0), "captures")], `${name}: a reassignable binding is a captured location`);
+    if (location) ruleCase("closure-capture-binding", input, { ...input, solution: solved(closure(opposite)) },
+      [violation("closure-capture-binding", constraintSite(0), "captures")], `${name}: a captured location`);
     else fullEqual(product.verifyInference(verificationInput({ ...input, solution: solved(closure(opposite)) })), [],
-      `${name}: not reassignable; a captured location is not refused on this evidence`);
+      `${name}: the body's own storage; a captured location is not refused`);
   }
-  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical.slice(1))) },
-    [violation("closure-capture-total", constraintSite(0), "captures")], "one logical capture per captured local");
-  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure([...logical, "captured-value"])) },
-    [violation("closure-capture-total", constraintSite(0), "captures")], "no logical capture without a captured local");
-  ruleCase("qualified-reference", input, { ...input, locals: [{ body, ids: [0, 1, 2, 3] }] },
-    [violation("qualified-reference", constraintSite(0), "locals")], "captured evidence names a real local");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical.slice(1), rowsOf(logical).slice(1))) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "one row per captured local");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical, [...rowsOf(logical), { local: { body, local: 0 }, capture: "captured-location" }])) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "no row without a captured local");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical, [rowsOf(logical)[1], rowsOf(logical)[0], ...rowsOf(logical).slice(2)])) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "the rows keep the order of the captured locals");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical, rowsOf(logical).map((row, index) => index === 2 ? { ...row, local: { body: `B[${definition};function;1]`, local: 2 } } : row))) },
+    [violation("closure-capture-total", constraintSite(0), "captures"), violation("qualified-reference", constraintSite(0), "locals")],
+    "a row names the captured local of its position");
+  // the missing local is named twice: by the constraint's evidence and by the decision's row
+  ruleCase("qualified-reference", input, { ...input, locals: [{ body, ids: bindings.map((_binding, local) => local).slice(0, -1) }] },
+    [violation("qualified-reference", constraintSite(0), "locals"), violation("qualified-reference", constraintSite(0), "locals")],
+    "captured evidence and the decision's rows name a real local");
   ruleCase("decision-kind", input, { ...input, solution: solved({ kind: "default", type: 0 }) },
     [violation("decision-kind", constraintSite(0), "decision")], "a closure constraint is not answered by another decision kind");
   const flow = { kind: "flow", occurrence, from: 0, to: 0, role: "initialization", bindings: emptyBindings };
@@ -3024,7 +3072,7 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
       [violation("contribution-role", { kind: "contribution", key }, "role")], `a closure constraint has no ${role.kind} contribution`);
   }
   const evidenceValue = evidence();
-  const saved = captures.map(capture => ({ local: capture.local, value: evidenceValue, reassignable: capture.reassignable }));
+  const saved = captures.map(capture => ({ local: capture.local, value: evidenceValue, reassignable: capture.reassignable, incoming: capture.incoming }));
   const deferred = captured => ({ kind: "deferred", deferred: { invocation: { rule: "closure", input: {
     context: { occurrence, origin: originGolden.value, bindings: emptyBindings }, callable: evidenceValue, captures: captured } }, result: 0 } });
   const deferredInput = { ...input, bindingScopes: [emptyScope, emptyScope], solution: solved(deferred(saved)) };
@@ -3033,6 +3081,12 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
     [[saved[1], saved[0], ...saved.slice(2)], "the saved evidence keeps the order of the captured locals"],
     [saved.map((capture, index) => index === 2 ? { ...capture, local: { body, local: 0 } } : capture), "the saved evidence names the same local"],
     [saved.map((capture, index) => index === 3 ? { ...capture, reassignable: true } : capture), "the saved evidence keeps the binding's reassignment fact"],
+    [saved.map((capture, index) => index === 3 ? { ...capture, incoming: { kind: "parameter", passing: "by-value" } } : capture), "the saved evidence keeps the kind of the incoming storage"],
+    [saved.map((capture, index) => index === 4 ? { ...capture, incoming: { kind: "parameter", passing: "move" } } : capture), "the saved evidence keeps the passing mode"],
+    [saved.map((capture, index) => index === 13 ? { ...capture, incoming: { kind: "capture", capture: "captured-location" } } : capture), "the saved evidence keeps the enclosing logical capture"],
+    [saved.map((capture, index) => index === 4 ? { ...capture, incoming: binding } : capture), "a parameter is not saved as the body's own binding"],
+    [saved.map((capture, index) => index === 12 ? { ...capture, incoming: binding } : capture), "an enclosing capture is not saved as the body's own binding"],
+    [saved.map((capture, index) => index === 3 ? { ...capture, incoming: { kind: "capture", capture: "captured-value" } } : capture), "the body's own binding is not saved as an enclosing capture"],
   ]) ruleCase("deferred-invocation", deferredInput, { ...deferredInput, solution: solved(deferred(changed)) },
     [violation("deferred-invocation", constraintSite(0), "input")], label);
   ruleCase("deferred-invocation", deferredInput, { ...deferredInput, constraints: [constraintSet([flow])] },
@@ -3241,9 +3295,9 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
   deepEqual(actual, negatives.map(([name, , code]) => [name, code]).sort(([left], [right]) => left.localeCompare(right)), refused.text);
 });
 
-test("the public runtime index contains exactly the nine approved own-contract ports", () => {
-  deepEqual(Object.keys(product).sort(), ["parseConstraints", "parseContributions", "parseInferenceGroup", "parseSolution",
-    "printConstraints", "printContributions", "printInferenceGroup", "printSolution", "verifyInference"].sort());
+test("the public runtime index contains exactly the eleven own-contract ports", () => {
+  deepEqual(Object.keys(product).sort(), ["captureRequiresLocation", "parseConstraints", "parseContributions", "parseInferenceGroup", "parseSolution",
+    "printConstraints", "printContributions", "printInferenceGroup", "printSolution", "sameCaptureSource", "verifyInference"].sort());
   deepEqual(readdirSync(resolve(repository, owner)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", ...runtimeNames.map(name => `${name}.ts`)].sort());
 });

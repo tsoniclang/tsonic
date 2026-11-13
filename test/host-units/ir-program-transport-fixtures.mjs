@@ -127,7 +127,7 @@ export function syntaxTransportModule(input, value, family) {
       const expression = { ...wrapper, kind: "ArrowFunction", modifiers: null, typeParameters: null, parameters: list([]),
         type: null, fullSignature: null, asteriskToken: null, body: node,
         equalsGreaterThanToken: { ...header(maximum + 2), parent: wrapper.id, kind: "EqualsGreaterThanToken", tsonic: null },
-        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] }, captures: [],
+        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] },
           closure: { kind: "decided", decision: { carrier: 0, captures: [], execution: { kind: "pure" } } } } };
       statement = { ...header(maximum + 3), kind: "ExpressionStatement", expression, tsonic: null };
       expression.parent = statement.id;
@@ -205,7 +205,7 @@ function syntaxParentCarrier(node, family, definition, first) {
   const advertised = { declaration: definition, role: "advertised", signature: 0, body: null };
   const application = { callee: { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" },
     bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-    activation: null, captures: [] }, receiver: null, arguments: [] };
+    activation: null }, receiver: null, arguments: [] };
   switch (family) {
     case "LeftHandSideExpression": return { ...own, kind: "Decorator", expression: node, tsonic: { application: { kind: "decided", decision: application } } };
     case "NodeBody": case "ModuleName": return { ...own, kind: "ModuleDeclaration", modifiers: null, asteriskToken: null,
@@ -351,7 +351,7 @@ export function relationalTransportFacts(fixture) {
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const application = { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
     implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
-  const resolution = { decision: application, activation: fixture.instance, captures: [] };
+  const resolution = { decision: application, activation: fixture.instance };
   const argument = owner => ({ authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
     passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null });
   facts.arena = {
@@ -393,7 +393,7 @@ export function mirTransportCases(fixture) {
   const endpoint = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const selected = { decision: { candidate: 0, advertised: endpoint, api: { ...endpoint, role: "api-signature" },
     bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-    activation: instance, captures: [] };
+    activation: instance };
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [0], result: 0, execution: { kind: "pure" } } };
   const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
     read: 0, write: 0, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };

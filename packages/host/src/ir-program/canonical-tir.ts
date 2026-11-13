@@ -22,7 +22,6 @@ export function rewriteCallee(rewrite: TypeRewrite, callee: ResolvedCallee): Res
   return {
     decision: rewriteApplication(rewrite, callee.decision),
     activation: callee.activation === null ? null : rewriteInstance(rewrite, callee.activation),
-    captures: callee.captures,
   };
 }
 

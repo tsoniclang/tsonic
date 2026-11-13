@@ -2,7 +2,7 @@ import type { DefId, BodyId, TyId, SigId, LocalRef, NodeRef, Origin } from "../i
 import type { Diagnostic } from "../diag/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
-import type { AccessLocation, LogicalCapture, CheckFailure, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, HandleActivation, OperationExecution, ReceiverAccess, FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
+import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckFailure, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, HandleActivation, OperationExecution, ReceiverAccess, FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readTypeComponentText, readMemberKeyText, readMemberOriginText, readLiteralValueText, readBindings } from "./parse-types.js";
@@ -544,14 +544,51 @@ export function readClosureCaptureEvidenceText<Root>(cursor: Cursor, finish: (va
     fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
     fieldText<TypeEvidence, Root>(cursor, fields, "value", readTypeEvidenceText, valueValue =>
       fieldText<boolean, Root>(cursor, fields, "reassignable", (next, done) => atomicText(next, readBoolean, done), reassignableValue =>
+        fieldText<CaptureSource, Root>(cursor, fields, "incoming", readCaptureSourceText, incomingValue =>
+          atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ local: localValue, value: valueValue, reassignable: reassignableValue, incoming: incomingValue }, finish)))))));
+}
+
+export function readCaptureSourceText<Root>(cursor: Cursor, finish: (value: CaptureSource) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["binding","parameter","capture"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      switch (label) {
+        case "binding":
+          return atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ kind: label }, finish));
+        case "parameter":
+          return fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, passing: passingValue }, finish)));
+        case "capture":
+          return fieldText<LogicalCapture, Root>(cursor, fields, "capture", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), captureValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, capture: captureValue }, finish)));
+      }
+    }));
+}
+
+export function readCaptureRowText<Root>(cursor: Cursor, finish: (value: CaptureRow) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "CaptureRow"), fields =>
+    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+      fieldText<LogicalCapture, Root>(cursor, fields, "capture", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), captureValue =>
         atomicText(cursor, next => closeRecord(next, fields), () =>
-            acceptText({ local: localValue, value: valueValue, reassignable: reassignableValue }, finish))))));
+          acceptText({ local: localValue, capture: captureValue }, finish)))));
+}
+
+export function readBodyCaptureRowText<Root>(cursor: Cursor, finish: (value: BodyCaptureRow) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "CaptureRow"), fields =>
+    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+      fieldText<LogicalCapture | null, Root>(cursor, fields, "capture", (next, done) => nullableText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), done), captureValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ local: localValue, capture: captureValue }, finish)))));
 }
 
 export function readClosureDecisionText<Root>(cursor: Cursor, finish: (value: ClosureDecision) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "ClosureDecision"), fields =>
     fieldText<TyId, Root>(cursor, fields, "carrier", (next, done) => atomicText(next, readTypeId, done), carrierValue =>
-    fieldText<readonly (LogicalCapture)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), done), capturesValue =>
+    fieldText<readonly (CaptureRow)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, readCaptureRowText, done), capturesValue =>
       fieldText<OperationExecution, Root>(cursor, fields, "execution", readOperationExecutionText, executionValue =>
         atomicText(cursor, next => closeRecord(next, fields), () =>
             acceptText({ carrier: carrierValue, captures: capturesValue, execution: executionValue }, finish))))));

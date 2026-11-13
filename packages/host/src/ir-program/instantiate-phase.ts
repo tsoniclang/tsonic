@@ -171,7 +171,7 @@ function invocation(scan: ProjectionInventory, value: DeferredInvocation): Insta
       inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
       return inventoryRecord(scan, 6) ?? inventoryCoreCapture(scan, value.input.captured) ?? inventoryEvidence(scan, value.input.result);
     case "closure":
-      inventoryEach(scan, value.input.captures, capture => inventoryRecord(scan, 3) ?? inventoryEvidence(scan, capture.value));
+      inventoryEach(scan, value.input.captures, capture => inventoryRecord(scan, 4) ?? inventoryEvidence(scan, capture.value));
       return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.callable);
   }
 }
@@ -464,9 +464,9 @@ export function inventoryCallable(scan: ProjectionInventory, value: TypedCallabl
 }
 
 export function inventoryClosure(scan: ProjectionInventory, value: TypedClosure): InstantiationStop | null {
-  return inventoryRecord(scan, 9) ?? inventoryValue(scan, value) ?? inventoryCallable(scan, value.callable)
+  return inventoryRecord(scan, 8) ?? inventoryValue(scan, value) ?? inventoryCallable(scan, value.callable)
     ?? inventoryOutcome(scan, value.closure, decision =>
-      inventoryRecord(scan, 3) ?? inventoryFields(scan, decision.captures.length) ?? inventoryType(scan, decision.carrier));
+      inventoryRecord(scan, 3) ?? inventoryEach(scan, decision.captures, () => inventoryRecord(scan, 2)) ?? inventoryType(scan, decision.carrier));
 }
 
 export function inventoryClass(scan: ProjectionInventory, value: TypedClass): InstantiationStop | null {

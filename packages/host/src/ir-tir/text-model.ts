@@ -18,6 +18,7 @@ export const createTirLayouts = (): TirLayouts => {
   const kernel = createTirTextKernel();
   const body = createBodyText(kernel, {
     work_ApplicationDecision: lazyRecord(() => rule_decisions.work_ApplicationDecision),
+    work_BodyCaptureRow: lazyRecord(() => rule_decisions.work_BodyCaptureRow),
     work_ArtifactBindings: lazyRecord(() => type_values.work_ArtifactBindings),
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
     work_BodyInstance: lazyRecord(() => type_values.work_BodyInstance),
@@ -98,6 +99,7 @@ export const createTirLayouts = (): TirLayouts => {
   const type_values = createTypeValuesText(kernel);
   const rule_decisions = createRuleDecisionsText(kernel, {
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
+    work_LocalRef: lazyRecord(() => type_values.work_LocalRef),
     work_CorrespondenceStep: lazyRecord(() => rule_inputs.work_CorrespondenceStep),
     work_HirCallableEndpoint: lazyRecord(() => type_values.work_HirCallableEndpoint),
     work_MemberKey: lazyRecord(() => type_values.work_MemberKey),

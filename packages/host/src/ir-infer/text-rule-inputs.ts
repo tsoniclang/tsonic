@@ -220,7 +220,7 @@ export interface RuleInputsSchemas {
 export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, constraints: ConstraintsSchemas, data: DataSchemas, evidence: EvidenceSchemas): RuleInputsSchemas {
   const { diagnosticSchema, hirCallableEndpointSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
-  const { accessRoleSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
+  const { accessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
   const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema } = data;
   const { typeEvidenceSchema } = evidence;
   const ruleContextSchema = recordSchema<RuleContext>("RuleContext", "RuleContext", read => {
@@ -541,7 +541,8 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const local = read("local", () => localRefSchema, value => value.local);
     const value = read("value", () => typeEvidenceSchema, record => record.value);
     const reassignable = read("reassignable", () => booleanSchema, record => record.reassignable);
-    return { fields: [local, value, reassignable], value: () => ({ local: local.value(), value: value.value(), reassignable: reassignable.value() }) };
+    const incoming = read("incoming", () => captureSourceSchema, record => record.incoming);
+    return { fields: [local, value, reassignable, incoming], value: () => ({ local: local.value(), value: value.value(), reassignable: reassignable.value(), incoming: incoming.value() }) };
   });
   const closureInputSchema = recordSchema<ClosureInput>("ClosureInput", "ClosureInput", read => {
     const context = read("context", () => ruleContextSchema, value => value.context);

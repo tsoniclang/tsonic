@@ -1763,7 +1763,7 @@ test("canonical member paths compare complete actual values rather than authored
       { kind: "default", parameter: 1, initializer: body }, { kind: "omitted", parameter: 2, type: tyId(0) },
       { kind: "rest", parameter: 3, arguments: [1, 2], passing: "by-value" }],
     completion: { signature: sigId(0), completion: tyId(0), yielded: null, sent: null }, result: tyId(0), activation: null },
-  activation: { body, bindings: { kind: "parametric" } }, captures: [{ body, local: localId(0) }] };
+  activation: { body, bindings: { kind: "parametric" } } };
   const base = selectedMember();
   const decisionChanges = [
     { key: { kind: "text", value: "other" } },
@@ -1797,9 +1797,7 @@ test("canonical member paths compare complete actual values rather than authored
       { completion: { ...callee.decision.completion, sent: tyId(0) } }, { result: tyId(1) },
       { activation: "at-creation" }, { activation: "when-first-driven" },
     ].map(change => ({ one: selectedMember({ getter: callee }),
-      two: selectedMember({ getter: { ...callee, decision: { ...callee.decision, ...change } } }), different: true })),
-    { one: selectedMember({ getter: callee }),
-      two: selectedMember({ getter: { ...callee, captures: [{ body, local: localId(1) }] } }), different: true }];
+      two: selectedMember({ getter: { ...callee, decision: { ...callee.decision, ...change } } }), different: true }))];
   for (const kind of ["field", "method-value"]) {
     for (const comparison of comparisons) {
       const { different } = comparison;
