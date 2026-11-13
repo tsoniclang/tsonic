@@ -339,7 +339,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-rule-inputs.ts", "verify-contributions.ts", "verify-solution.ts", "verify.ts"].map(name => `${host}/ir-infer/${name}`),
     ...["index.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts", "verify-laws.ts",
       "verify-storage.ts", "verify.ts"].map(name => `${host}/ir-mir/${name}`),
-    ...["state.ts"].map(name => `${host}/lower-mir/${name}`),
+    ...["index.ts", "lower.ts", "state.ts"].map(name => `${host}/lower-mir/${name}`),
     ...["canonical-facts.ts", "canonical-inference.ts", "canonical-phase.ts", "canonical-syntax.ts",
       "canonical-tir.ts", "canonical-types.ts", "canonical.ts", "index.ts", "instantiate-facts.ts",
       "instantiate-phase.ts", "instantiate-syntax.ts", "instantiate-tir.ts", "instantiate-types.ts",
