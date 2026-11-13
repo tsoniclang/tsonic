@@ -1,4 +1,4 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
+import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -12,44 +12,44 @@ export interface Producer<Inputs, Key, Value, Request, Answer, State> {
   readonly resume: (state: State, answers: readonly Answer[]) => Pause<Value, Request, State>;
 }
 
-export interface Application<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict> {
+export interface Application<Inputs, Value, Request, Inner, State, Answer, Witness> {
   readonly start: (inputs: Inputs) => Pause<Value, Request, State>;
   readonly resume: (state: State, answers: readonly Inner[]) => Pause<Value, Request, State>;
-  readonly route: (request: Request) => Route<Inputs, Inner, Witness, Verdict>;
+  readonly route: (request: Request) => Route<Inputs, Inner, Witness>;
   readonly witness: (request: Request) => Witness;
   readonly answer: (value: Value) => Answer;
 }
 
-export type ReadRoute<Inputs, Answer, Witness, Verdict> = <Out>(
-  reader: <Key extends KeyData, Value>(query: Query<Inputs, Key, Value, Witness, Verdict>, key: Key, answer: (value: Value) => Answer) => Out,
+export type ReadRoute<Inputs, Answer, Witness> = <Out>(
+  reader: <Key extends KeyData, Value>(query: Query<Inputs, Key, Value, Witness>, key: Key, answer: (value: Value) => Answer) => Out,
 ) => Out;
 
-export type ApplyRoute<Inputs, Answer, Witness, Verdict> = <Out>(
-  reader: <Value, Request, Inner, State>(application: Application<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict>) => Out,
+export type ApplyRoute<Inputs, Answer, Witness> = <Out>(
+  reader: <Value, Request, Inner, State>(application: Application<Inputs, Value, Request, Inner, State, Answer, Witness>) => Out,
 ) => Out;
 
-export type Route<Inputs, Answer, Witness, Verdict> =
-  | { readonly way: "fact"; readonly read: ReadRoute<Inputs, Answer, Witness, Verdict> }
-  | { readonly way: "projection"; readonly read: ReadRoute<Inputs, Answer, Witness, Verdict> }
-  | { readonly way: "nested"; readonly apply: ApplyRoute<Inputs, Answer, Witness, Verdict> };
+export type Route<Inputs, Answer, Witness> =
+  | { readonly way: "fact"; readonly read: ReadRoute<Inputs, Answer, Witness> }
+  | { readonly way: "projection"; readonly read: ReadRoute<Inputs, Answer, Witness> }
+  | { readonly way: "nested"; readonly apply: ApplyRoute<Inputs, Answer, Witness> };
 
-export interface Row<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness, Verdict> {
+export interface Row<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness> {
   readonly name: string;
   readonly producer: Producer<Inputs, Key, Value, Request, Answer, State>;
-  readonly route: (request: Request) => Route<Inputs, Answer, Witness, Verdict>;
+  readonly route: (request: Request) => Route<Inputs, Answer, Witness>;
   readonly witness: (request: Request) => Witness;
-  readonly cycleOutcome: (key: Key, verdict: Verdict) => Result<Value>;
+  readonly errorValue: (key: Key, cause: Cause) => Value;
 }
 
-export function factRoute<Inputs, Key extends KeyData, Value, Answer, Witness, Verdict>(
-  query: Query<Inputs, Key, Value, Witness, Verdict>, key: Key, answer: (value: Value) => Answer,
-): Route<Inputs, Answer, Witness, Verdict> {
+export function factRoute<Inputs, Key extends KeyData, Value, Answer, Witness>(
+  query: Query<Inputs, Key, Value, Witness>, key: Key, answer: (value: Value) => Answer,
+): Route<Inputs, Answer, Witness> {
   return ({ way: "fact", read: reader => reader(query, key, answer) });
 }
 
-export function projectionRoute<Inputs, Key extends KeyData, Value, Answer, Witness, Verdict>(
-  query: Query<Inputs, Key, Value, Witness, Verdict>, key: Key, project: (value: Value) => Answer,
-): Route<Inputs, Answer, Witness, Verdict> {
+export function projectionRoute<Inputs, Key extends KeyData, Value, Answer, Witness>(
+  query: Query<Inputs, Key, Value, Witness>, key: Key, project: (value: Value) => Answer,
+): Route<Inputs, Answer, Witness> {
   return ({ way: "projection", read: reader => reader(query, key, project) });
 }
 
@@ -59,19 +59,19 @@ export function projectionRoute<Inputs, Key extends KeyData, Value, Answer, Witn
  * Its diagnostics travel with each requester's result. That each is reported once in a run holds only through
  * uniqueness by diagnostic identity where the run's diagnostics are collected.
  */
-export function nestedRoute<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict>(
-  application: Application<Inputs, Value, Request, Inner, State, Answer, Witness, Verdict>,
-): Route<Inputs, Answer, Witness, Verdict> {
+export function nestedRoute<Inputs, Value, Request, Inner, State, Answer, Witness>(
+  application: Application<Inputs, Value, Request, Inner, State, Answer, Witness>,
+): Route<Inputs, Answer, Witness> {
   return ({ way: "nested", apply: reader => reader(application) });
 }
 
-type Progress<Inputs, Now, Value, Witness, Verdict> =
+type Progress<Inputs, Now, Value, Witness> =
   | { readonly kind: "now"; readonly value: Now }
-  | { readonly kind: "later"; readonly computation: QueryComputation<Inputs, Value, Witness, Verdict> };
+  | { readonly kind: "later"; readonly computation: QueryComputation<Inputs, Value, Witness> };
 
-interface Operations<Inputs, Request, Answer, State, Produced, Witness, Verdict> {
+interface Operations<Inputs, Request, Answer, State, Produced, Witness> {
   readonly resume: (state: State, answers: readonly Answer[]) => Pause<Produced, Request, State>;
-  readonly route: (request: Request) => Route<Inputs, Answer, Witness, Verdict>;
+  readonly route: (request: Request) => Route<Inputs, Answer, Witness>;
   readonly witness: (request: Request) => Witness;
 }
 
@@ -101,22 +101,22 @@ function joined(first: readonly Diagnostic[], second: readonly Diagnostic[]): Di
   return all;
 }
 
-export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness, Verdict>(
-  row: Row<Inputs, Key, Value, Request, Answer, State, Witness, Verdict>,
-): Query<Inputs, Key, Value, Witness, Verdict> {
-  type Computation = QueryComputation<Inputs, Value, Witness, Verdict>;
-  const compute = (context: QueryContext<Inputs, Witness, Verdict>, key: Key): Computation => {
+export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness>(
+  row: Row<Inputs, Key, Value, Request, Answer, State, Witness>,
+): Query<Inputs, Key, Value, Witness> {
+  type Computation = QueryComputation<Inputs, Value, Witness>;
+  const compute = (context: QueryContext<Inputs, Witness>, key: Key): Computation => {
     const carried: Diagnostic[] = [];
 
-    function settle<Now>(progress: Progress<Inputs, Now, Value, Witness, Verdict>, then: (value: Now) => Computation): Computation {
+    function settle<Now>(progress: Progress<Inputs, Now, Value, Witness>, then: (value: Now) => Computation): Computation {
       return progress.kind === "now" ? then(progress.value) : progress.computation;
     }
 
     function answerFrom<Request, Answer, State, Produced>(
       requests: Iterator<Request>, earned: readonly Diagnostic[],
-      operations: Operations<Inputs, Request, Answer, State, Produced, Witness, Verdict>,
+      operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
       answers: Answer[], then: (answers: readonly Answer[]) => Computation,
-    ): Progress<Inputs, readonly Answer[], Value, Witness, Verdict> {
+    ): Progress<Inputs, readonly Answer[], Value, Witness> {
       const proceed = (): Computation => settle(answerFrom(requests, earned, operations, answers, then), then);
       let stated = earned;
       let counted = 0;
@@ -139,7 +139,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
         }
         const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation =>
           ({ kind: "abandoned", diagnostics, earned: current() });
-        const nested = selected.apply((application): Progress<Inputs, Result<Answer>, Value, Witness, Verdict> => {
+        const nested = selected.apply((application): Progress<Inputs, Result<Answer>, Value, Witness> => {
           const progress = runSteps(application.start(context.inputs), application, earned, result => {
             const outcome = mapResult(result, application.answer);
             if (outcome.kind === "refused") return refused(outcome.diagnostics);
@@ -158,9 +158,9 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
     }
 
     function runSteps<Request, Answer, State, Produced>(
-      initial: Pause<Produced, Request, State>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness, Verdict>,
+      initial: Pause<Produced, Request, State>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
       enclosing: readonly Diagnostic[], then: (result: Result<Produced>) => Computation, last: readonly Diagnostic[],
-    ): Progress<Inputs, Result<Produced>, Value, Witness, Verdict> {
+    ): Progress<Inputs, Result<Produced>, Value, Witness> {
       let stated = last;
       for (let step = initial; ;) {
         if (step.kind === "done") {
@@ -191,5 +191,5 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
     const operations = { resume: row.producer.resume, route: row.route, witness: row.witness };
     return settle(runSteps(row.producer.start(context.inputs, key), operations, [], finish, []), finish);
   };
-  return ({ name: row.name, compute, cycleOutcome: row.cycleOutcome });
+  return ({ name: row.name, compute, errorValue: row.errorValue });
 }

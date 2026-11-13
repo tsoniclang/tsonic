@@ -22,14 +22,14 @@ export interface Kept {
   readonly earned: readonly Diagnostic[];
 }
 
-function belongsTo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
-  memo: Memo<unknown>, query: Query<Inputs, Key, Value, Witness, Verdict>,
+function belongsTo<Inputs, Key extends KeyData, Value, Witness>(
+  memo: Memo<unknown>, query: Query<Inputs, Key, Value, Witness>,
 ): memo is Memo<Value> {
   return memo.definition === query;
 }
 
-export function queryMemo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
-  table: MemoTable, query: Query<Inputs, Key, Value, Witness, Verdict>, encodedKey: string,
+export function queryMemo<Inputs, Key extends KeyData, Value, Witness>(
+  table: MemoTable, query: Query<Inputs, Key, Value, Witness>, encodedKey: string,
 ): Memo<Value> {
   const existing = table.get(query.name);
   if (existing === undefined) {

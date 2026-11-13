@@ -81,7 +81,7 @@ function diagnostic(number, path, message) {
 
 function leaf(name, produce) {
   return driver.defineQuery({ name, producer: { start: (_, key) => produce(key), resume: never },
-    route: never, witness: never, cycleOutcome: noCycle });
+    route: never, witness: never, errorValue: noCycle });
 }
 
 test("a pause of three requests is three kernel steps in request order and one resume of the same state with the matching answers", () => {
@@ -100,7 +100,7 @@ test("a pause of three requests is three kernel steps in request order and one r
       resume: (received, answers) => { resumes.push([received, answers.slice()]); return ok(answers.map(answer => answer.value).join("+")); },
     },
     route: request => driver.factRoute(signature, request.name, value => ({ kind: "signature", value })),
-    witness: request => `constraints needs ${request.name}`, cycleOutcome: noCycle });
+    witness: request => `constraints needs ${request.name}`, errorValue: noCycle });
   const database = query.createDatabase("session", unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(constraints, "body"), { kind: "completed", value: "sig:g+sig:h+sig:i", diagnostics: [] });
   assert.equal(starts, 1);
@@ -124,7 +124,7 @@ test("a fact and a projection answer alike; a projection is a part of a complete
     route: request => request.kind === "whole"
       ? driver.factRoute(solution, "group", value => ({ kind: "answer", value }))
       : driver.projectionRoute(solution, "group", value => ({ kind: "answer", value: value.parts[request.part] })),
-    witness: request => request, cycleOutcome: noCycle });
+    witness: request => request, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   const result = database.run(reader, null);
   assert.deepEqual(result.value, [{ kind: "answer", value: "int32" }, { kind: "answer", value: { parts: { a: "int32", b: "bool" } } },
@@ -160,7 +160,7 @@ test("a nested application runs inside its requester, on values only the request
       start: (_, key) => pause([{ kind: "place", definition: "f", parts: [`${key}:int32`] }], "outer state"),
       resume: (state, answers) => { assert.equal(state, "outer state"); return ok(answers[0]); },
     },
-    route: place, witness: never, cycleOutcome: noCycle });
+    route: place, witness: never, errorValue: noCycle });
   assert.equal(place({ definition: "f", parts: [] }).way, "nested");
   const database = query.createDatabase("session", unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(solve, "g1"), { kind: "completed", value: { kind: "placed", value: "shape:f with g1:int32" }, diagnostics: [found] });
@@ -185,7 +185,7 @@ test("a refused answer abandons the requester: no memo entry, and what it had ea
         resume: () => { resumed += 1; return ok(0); } },
       route: () => way === "fact" ? driver.factRoute(big, null, value => value)
         : driver.nestedRoute({ start: () => refuse([limit]), resume: never, route: never, witness: never, answer: value => value }),
-      witness: () => "f needs big", cycleOutcome: noCycle });
+      witness: () => "f needs big", errorValue: noCycle });
     const database = query.createDatabase(null, unbounded, noCycle, "recorded");
     for (let request = 1; request <= 2; request += 1) {
       assert.deepEqual(database.run(f, null), { kind: "refused", diagnostics: [limit] });
@@ -204,7 +204,7 @@ test("an error-valued answer is delivered unchanged; the driver adds, drops and 
   const broken = leaf("broken", () => ok(errorValue, [detected]));
   const caller = driver.defineQuery({ name: "caller",
     producer: { start: () => pause([{}], null), resume: (_, answers) => ok(answers[0], [own]) },
-    route: () => driver.factRoute(broken, null, value => value), witness: () => null, cycleOutcome: noCycle });
+    route: () => driver.factRoute(broken, null, value => value), witness: () => null, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   const result = database.run(caller, null);
   assert.equal(result.value, errorValue);
@@ -219,7 +219,7 @@ test("a producer's result must contain what its last pause stated as earned: pub
   const answer = leaf("answer", () => ok(1));
   const row = complete => driver.defineQuery({ name: complete ? "complete" : "omits",
     producer: { start: () => pause([{}], null, [found]), resume: () => ok(2, complete ? [found] : []) },
-    route: () => driver.factRoute(answer, null, value => value), witness: () => null, cycleOutcome: noCycle });
+    route: () => driver.factRoute(answer, null, value => value), witness: () => null, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(row(true), null), { kind: "completed", value: 2, diagnostics: [found] });
   assert.deepEqual(database.diagnostics(), [found]);
@@ -240,7 +240,7 @@ test("D-1: each pause states at least what the pause before it stated; a shorter
   const producer = (name, later) => driver.defineQuery({ name,
     producer: { start: () => pause(["a"], 1, [first]), resume: state => state === 1 ? pause(["b"], 2, later) : ok(0) },
     route: request => request === "a" ? driver.factRoute(base, "a", value => value) : driver.factRoute(big, null, value => value),
-    witness: () => null, cycleOutcome: noCycle });
+    witness: () => null, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.throws(() => database.run(producer("shrinks", []), null), error => {
     assert.deepEqual(error.cause, { owner: "pipeline", query: { name: "shrinks", encodedKey: "N" }, origin: null,
@@ -258,7 +258,7 @@ test("R1: a requested fact that itself pauses; a projection of a fact that pause
   const base = leaf("base", key => ok(`base:${key}`));
   const middle = driver.defineQuery({ name: "middle",
     producer: { start: (_, key) => pause([key], key), resume: (state, answers) => ok({ whole: answers[0], part: `part of ${state}` }) },
-    route: request => driver.factRoute(base, request, value => value), witness: () => "middle needs base", cycleOutcome: noCycle });
+    route: request => driver.factRoute(base, request, value => value), witness: () => "middle needs base", errorValue: noCycle });
   const big = leaf("big", () => refuse([limit]));
   let starts = 0;
   const reader = way => driver.defineQuery({ name: `reader-${way}`,
@@ -266,7 +266,7 @@ test("R1: a requested fact that itself pauses; a projection of a fact that pause
     route: () => way === "fact" ? driver.factRoute(middle, "k", value => value.whole)
       : way === "projection" ? driver.projectionRoute(middle, "k", value => value.part)
         : driver.projectionRoute(big, null, value => value),
-    witness: () => way, cycleOutcome: noCycle });
+    witness: () => way, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(reader("fact"), null), { kind: "completed", value: "base:k", diagnostics: [found] });
   assert.deepEqual(database.run(reader("projection"), null), { kind: "completed", value: "part of k", diagnostics: [found] });
@@ -300,7 +300,7 @@ test("R1: a nested application that refuses after its own pause; one whose own d
     let starts = 0;
     const requester = driver.defineQuery({ name: "requester",
       producer: { start: () => { starts += 1; return pause([{}], null, [outer]); }, resume: never },
-      route: () => application(kind), witness: () => "requester", cycleOutcome: noCycle });
+      route: () => application(kind), witness: () => "requester", errorValue: noCycle });
     const database = query.createDatabase(null, unbounded, noCycle, "recorded");
     for (let request = 1; request <= 2; request += 1) {
       assert.deepEqual(database.run(requester, null), { kind: "refused", diagnostics: expectedRefusal }, kind);
@@ -312,7 +312,7 @@ test("R1: a nested application that refuses after its own pause; one whose own d
   const wrapping = driver.nestedRoute({ start: () => pause([{}], null), resume: (_, answers) => ok(answers[0] + 1),
     route: () => innermost, witness: never, answer: value => `wrapped ${value}` });
   const top = driver.defineQuery({ name: "top", producer: { start: () => pause([{}], null), resume: (_, answers) => ok(answers[0]) },
-    route: () => wrapping, witness: never, cycleOutcome: noCycle });
+    route: () => wrapping, witness: never, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(top, null), { kind: "completed", value: "wrapped 21", diagnostics: [inner] });
 });
@@ -327,7 +327,7 @@ test("what a nested application found within a pause is stated with the next ker
     route: request => request === "nested"
       ? driver.nestedRoute({ start: () => ok(1, [found]), resume: never, route: never, witness: never, answer: value => value })
       : driver.factRoute(big, null, value => value),
-    witness: () => null, cycleOutcome: noCycle });
+    witness: () => null, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(requester, null), { kind: "refused", diagnostics: [limit] });
   assert.deepEqual(database.diagnostics(), [limit, own, found], "the abandoned requester keeps its own and the application's diagnostics");
@@ -356,7 +356,7 @@ test("MR-1: a paused rule's needs are relayed by its invoker in one batch; the s
     },
     route: request => request.kind === "signature" ? driver.factRoute(signature, request.definition, value => value)
       : driver.factRoute(members, request.type, value => value),
-    witness: request => request.kind, cycleOutcome: noCycle });
+    witness: request => request.kind, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(invoker, null), { kind: "completed",
     value: ["signature:g", "embeds given members:Node and members:Leaf"], diagnostics: [] });
@@ -368,17 +368,18 @@ test("MR-1: a paused rule's needs are relayed by its invoker in one batch; the s
     ["solve", "members", "Leaf", "cold"]]);
 });
 
-test("rows in a cycle: Query hands over the whole cycle with each row's witness; each row states its own outcome for the one verdict", () => {
+test("rows in a cycle: Query hands over the whole cycle with each row's witness; a row only names its error value for the classified cause", () => {
   const classified = [];
+  const cause = { kind: "unit", unit: { request: { query: "classified", key: "ungrounded" }, position: { kind: "result" } } };
   const row = (name, other, value) => driver.defineQuery({ name,
     producer: { start: () => pause([{ needs: other().name }], null), resume: never },
     route: () => driver.factRoute(other(), "k", answer => answer),
     witness: request => `${name} needs ${request.needs}`,
-    cycleOutcome: (key, verdict) => ({ kind: "ok", value: { error: value, cause: verdict.cause, key }, diagnostics: [] }) });
+    errorValue: (key, received) => ({ error: value, cause: received.unit.request.key, key }) });
   for (const first of ["constant", "type"]) {
     const constant = row("constant", () => type, "no constant");
     const type = row("type", () => constant, "no type");
-    const database = query.createDatabase(null, unbounded, cycle => { classified.push(cycle); return { cause: "ungrounded" }; }, "recorded");
+    const database = query.createDatabase(null, unbounded, cycle => { classified.push(cycle); return cycle.members.map(() => ({ kind: "error", cause })); }, "recorded");
     const rows = { constant, type };
     assert.deepEqual(database.run(rows[first], "k").value, { error: first === "constant" ? "no constant" : "no type", cause: "ungrounded", key: "k" });
     assert.deepEqual(database.run(constant, "k").value.error, "no constant");
@@ -396,11 +397,11 @@ test("one pause of one hundred thousand synchronous nested answers, and one hund
   const wide = driver.defineQuery({ name: "wide",
     producer: { start: () => pause(Array.from({ length: count }, (_, index) => index), null),
       resume: (_, answers) => ok(answers.length + answers[count - 1]) },
-    route: nested, witness: never, cycleOutcome: noCycle });
+    route: nested, witness: never, errorValue: noCycle });
   const long = driver.defineQuery({ name: "long",
     producer: { start: () => pause([0], 0),
       resume: (state, answers) => { pauses += 1; return state + 1 === count ? ok(answers[0]) : pause([state + 1], state + 1); } },
-    route: nested, witness: never, cycleOutcome: noCycle });
+    route: nested, witness: never, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(wide, null), { kind: "completed", value: count + (count - 1) * 2, diagnostics: [] });
   assert.deepEqual(database.run(long, null), { kind: "completed", value: (count - 1) * 2, diagnostics: [] });
@@ -413,14 +414,14 @@ test("diagnostics of a nested application stay with a requester that then refuse
   const requester = driver.defineQuery({ name: "requester",
     producer: { start: () => pause([{}], null), resume: () => refuse([refusal]) },
     route: () => driver.nestedRoute({ start: () => ok(1, [nestedFound]), resume: never, route: never, witness: never, answer: value => value }),
-    witness: never, cycleOutcome: noCycle });
+    witness: never, errorValue: noCycle });
   const database = query.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(requester, null), { kind: "refused", diagnostics: [refusal, nestedFound] });
   assert.deepEqual(database.diagnostics(), [refusal, nestedFound]);
   const needed = leaf("needed", () => ok(1));
   const needs = driver.defineQuery({ name: "needs",
     producer: { start: () => pause([{}], null), resume: (_, answers) => ok(answers[0]) },
-    route: () => driver.factRoute(needed, "k", value => value), witness: () => null, cycleOutcome: noCycle });
+    route: () => driver.factRoute(needed, "k", value => value), witness: () => null, errorValue: noCycle });
   const bounded = query.createDatabase(null, { maximumRecords: 7 }, noCycle, "recorded");
   assert.deepEqual(bounded.run(needs, null), stoppedAt(7, "needed", "S1:k"));
   assert.deepEqual(bounded.diagnostics(), [limitReached(7, "needed", "S1:k")]);
