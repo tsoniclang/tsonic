@@ -3,7 +3,7 @@ import { requirePresent } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ClassifyCycle, CycleMember, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
-import type { MemoTable } from "./memo.js";
+import type { Kept, MemoTable } from "./memo.js";
 import { joinDiagnostics, leastFact, queryMemo, retainDiagnostics, retainRefusal, retainResult, snapshotDiagnostics, snapshotStatistics, snapshotTrace } from "./memo.js";
 
 interface Settlement {
@@ -18,6 +18,7 @@ interface Frame<Witness, Verdict> {
   readonly settle: (verdict: Verdict) => Settlement;
   pending: { readonly witness: Witness } | undefined;
   earned: readonly Diagnostic[];
+  steps: number;
 }
 
 type Stop =
@@ -44,7 +45,7 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
   const frames: Frame<Witness, Verdict>[] = [];
   const activeKeys = new Map<string, Set<string>>();
   const published: Diagnostic[] = [];
-  const abandoned = new Map<string, Map<string, readonly Diagnostic[]>>();
+  const abandoned = new Map<string, Map<string, Kept>>();
   const trace: TraceEvent[] = [];
   const recorded = recording === "recorded";
   const eventUnit = recorded ? 1 : 0;
@@ -78,12 +79,19 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
   function abandon(frame: Frame<Witness, Verdict>): void {
     const earned = frame.earned;
     leave(frame);
-    forget(frame.fact);
-    if (earned.length === 0) records -= 1;
+    const kept = abandoned.get(frame.fact.query) ?? new Map<string, Kept>();
+    const previous = kept.get(frame.fact.encodedKey);
+    if (previous !== undefined && previous.progress > frame.steps) records -= 1;
     else {
-      const kept = abandoned.get(frame.fact.query) ?? new Map<string, readonly Diagnostic[]>();
-      abandoned.set(frame.fact.query, kept);
-      kept.set(frame.fact.encodedKey, retainDiagnostics(earned));
+      if (previous !== undefined) {
+        kept.delete(frame.fact.encodedKey);
+        records -= 1;
+      }
+      if (earned.length === 0) records -= 1;
+      else {
+        abandoned.set(frame.fact.query, kept);
+        kept.set(frame.fact.encodedKey, { progress: frame.steps, earned: retainDiagnostics(earned) });
+      }
     }
     if (recorded) trace.push({ kind: "completion", fact: frame.fact, outcome: "abandoned" });
   }
@@ -168,6 +176,7 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
       keys: entered,
       pending: undefined,
       earned: [],
+      steps: 0,
       settle: verdict => {
         const cycleOutcome = query.cycleOutcome;
         const result = retainResult(cycleOutcome(key, verdict));
@@ -180,6 +189,7 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
         });
       },
       advance: () => {
+        frame.steps += 1;
         const step = next();
         if (step.kind === "dependency") {
           let requested = false;
@@ -219,8 +229,6 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
       ({ kind: "dependency", schedule: (scheduler: QueryScheduler<Inputs, Value, Witness, Verdict>) => {
         scheduler.request(query, key, request, resume);
       } }),
-    diagnostics: () => snapshotDiagnostics(published, abandoned),
-    stats: () => snapshotStatistics(memo),
   });
 
   function run<Key extends KeyData, Value>(query: Query<Inputs, Key, Value, Witness, Verdict>, key: Key): RunResult<Value> {
@@ -245,5 +253,6 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
     }
   }
 
-  return ({ inputs, run, diagnostics: context.diagnostics, stats: context.stats, trace: () => snapshotTrace(trace) });
+  return ({ inputs, run, diagnostics: () => snapshotDiagnostics(published, abandoned), stats: () => snapshotStatistics(memo),
+    trace: () => snapshotTrace(trace) });
 }

@@ -17,6 +17,11 @@ interface Memo<Value> {
 
 export type MemoTable = Map<string, Memo<unknown>>;
 
+export interface Kept {
+  readonly progress: number;
+  readonly earned: readonly Diagnostic[];
+}
+
 function belongsTo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
   memo: Memo<unknown>, query: Query<Inputs, Key, Value, Witness, Verdict>,
 ): memo is Memo<Value> {
@@ -82,10 +87,10 @@ export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): re
 }
 
 export function snapshotDiagnostics(
-  published: readonly Diagnostic[], abandoned: ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>,
+  published: readonly Diagnostic[], abandoned: ReadonlyMap<string, ReadonlyMap<string, Kept>>,
 ): readonly Diagnostic[] {
   const all = published.slice();
-  abandoned.forEach(keys => { keys.forEach(earned => { earned.forEach(diagnostic => { all.push(diagnostic); }); }); });
+  abandoned.forEach(keys => { keys.forEach(kept => { kept.earned.forEach(diagnostic => { all.push(diagnostic); }); }); });
   return (orderDiagnostics(all).slice());
 }
 

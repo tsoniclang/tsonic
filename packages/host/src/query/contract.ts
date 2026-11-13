@@ -47,6 +47,11 @@ export interface QueryDependency<Inputs, Value, Witness, Verdict> {
 
 export interface QueryRequest<Witness> {
   readonly witness: Witness;
+  /**
+   * Everything the requesting computation has earned so far. It is kept if the computation is abandoned.
+   * A completed result replaces what was kept for its fact, so the result of a computation must contain
+   * every diagnostic it stated here; the kernel cannot check that.
+   */
   readonly earned: readonly Diagnostic[];
 }
 
@@ -63,8 +68,6 @@ export interface QueryContext<Inputs, Witness, Verdict> {
     query: Query<Inputs, Key, Dependency, Witness, Verdict>, key: Key, request: QueryRequest<Witness>,
     resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness, Verdict>,
   ) => QueryDependency<Inputs, Value, Witness, Verdict>;
-  readonly diagnostics: () => readonly Diagnostic[];
-  readonly stats: () => readonly QueryStat[];
 }
 
 export interface QueryStat {
