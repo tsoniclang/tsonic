@@ -1,7 +1,7 @@
 import type { Violation } from "../diag/contract.js";
 import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
-  MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlace, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
+  MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlace, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
 import { controlEdges, densePosition, findSourceNode } from "./verify-control.js";
 import { chargeWork } from "./verify-control.js";
@@ -138,7 +138,7 @@ export function verifyLaws(
     if (place.base.kind === "checked" && Object.is(place.id, position)) {
       if (place.base.tir.body === context.source.body) {
         // One node can carry checks of several kinds (an element that is also narrowed); each kind has one view.
-        const key = place.base.tir.node * VIEW_KINDS.length + VIEW_KINDS.indexOf(place.base.projection.kind);
+        const key = place.base.tir.node * 6 + viewKind(place.base.projection);
         const first = checkedAt.get(key);
         if (first === undefined) checkedAt.set(key, place);
         else if (!sameView(first, place)) reportPlace("check-place-single", place.id);
@@ -567,9 +567,18 @@ export function verifyLaws(
         // Law 5: a suspension stands only in a body that can suspend.
         if (!context.source.asynchronous) reportAt("suspension-admitted", block.id, null);
         if (source === undefined) break;
-        // An await at a node whose protocols list an await step is that step.
-        if (terminator.step === null ? hasRole(source, "await") : named(terminator.step, source)?.role !== "await")
-          reportAt("protocol-step-exact", block.id, null);
+        // An await at a node whose protocols list an await step is that step; where the node's await protocol lists
+        // no step, the await names the protocol.
+        const reference = terminator.step;
+        if (reference === null) {
+          if (hasRole(source, "await") || source.protocols.some(protocol => protocol.kind === "await")) reportAt("protocol-step-exact", block.id, null);
+          break;
+        }
+        const selected = named(reference, source);
+        const protocol = densePosition(reference.protocol, source.protocols.length) ? source.protocols[reference.protocol] : undefined;
+        const agrees = selected !== undefined ? selected.role === "await"
+          : protocol !== undefined && protocol.kind === "await" && protocol.steps.length === 0 && reference.step === 0;
+        if (!agrees) reportAt("protocol-step-exact", block.id, null);
         break;
       }
       case "yield": case "delegate": {
@@ -624,7 +633,17 @@ interface StableSet {
   readonly count: number;
 }
 
-const VIEW_KINDS = ["field", "index", "element", "deref", "capture", "refined"] as const;
+/** The position of a projection kind among the six kinds. */
+function viewKind(projection: MirProjection): number {
+  switch (projection.kind) {
+    case "field": return 0;
+    case "index": return 1;
+    case "element": return 2;
+    case "deref": return 3;
+    case "capture": return 4;
+    case "refined": return 5;
+  }
+}
 
 /** Whether two checked places of one node and one kind are the same view: one parent and, for an element, one index. */
 function sameView(first: MirPlace, second: MirPlace): boolean {

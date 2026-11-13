@@ -165,8 +165,8 @@ export interface WireTexts {
 }
 
 export function createWireTexts(wires: DecisionWires): WireTexts {
-  const callees = new WeakMap<ResolvedCallee, string>();
-  const operations = new WeakMap<TypedOperation, string>();
+  const callees = new Map<ResolvedCallee, string>();
+  const operations = new Map<TypedOperation, string>();
   return {
     callee: selected => {
       let text = callees.get(selected);

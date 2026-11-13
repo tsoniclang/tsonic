@@ -12,11 +12,6 @@ import type { LowerMirLimits } from "./contract.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "lower-mir", query: null, origin: null, message });
 
-/** Thrown when the next record would pass the size limit; caught once, where the refusal is built. */
-export class RecordLimitReached extends Error {
-  constructor() { super("lower-mir record limit reached"); }
-}
-
 interface OpenBlock {
   readonly id: BlockId;
   readonly site: MirSite;
@@ -44,29 +39,39 @@ export interface LowerState {
   readonly blocks: OpenBlock[];
   readonly entries: MirEntry[];
   records: number;
+  /** The next record would have passed the size limit. Nothing is recorded after that; the caller stops and builds the refusal. */
+  refused: boolean;
   current: OpenBlock | null;
 }
 
 export function createState(body: BodyId, bindings: ArtifactBindings, result: TyId, limits: LowerMirLimits): LowerState {
   return { body, bindings, result, limits, locals: [], places: [], localPlaces: new Map(), constants: new Map(), blocks: [],
-    entries: [], records: 0, current: null };
+    entries: [], records: 0, refused: false, current: null };
 }
 
-/** One record of the graph, charged before it is allocated. */
-function charge(state: LowerState): void {
-  if (state.records >= state.limits.maximumRecords) throw new RecordLimitReached();
+/**
+ * One record of the graph, charged before it is allocated. False when the limit is reached: the record is not made,
+ * the identity returned in its place names nothing, and the lowering stops at its next step because `refused` is set.
+ */
+function charge(state: LowerState): boolean {
+  if (state.refused) return false;
+  if (state.records >= state.limits.maximumRecords) {
+    state.refused = true;
+    return false;
+  }
   state.records += 1;
+  return true;
 }
 
 export function newLocal(state: LowerState, storage: TyId, role: MirLocalRole, source: LocalRef | null, origin: Origin): LocalId {
-  charge(state);
+  if (!charge(state)) return localId(0);
   const id = localId(state.locals.length);
   state.locals.push({ id, storage, role, source, origin });
   return id;
 }
 
 export function newPlace(state: LowerState, base: MirPlaceBase, storage: TyId, origin: Origin): PlaceId {
-  charge(state);
+  if (!charge(state)) return placeId(0);
   const id = placeId(state.places.length);
   state.places.push({ id, base, storage, origin });
   return id;
@@ -89,7 +94,7 @@ export function constantOperand(state: LowerState, type: TyId, value: MirConstan
   if (key === null) return throwInvariant(invariant("a constant's bindings are not complete"));
   const known = state.constants.get(key);
   if (known !== undefined) return { kind: "constant", constant: known.provisional };
-  charge(state);
+  if (!charge(state)) return { kind: "constant", constant: constId(0) };
   const provisional = constId(state.constants.size);
   state.constants.set(key, { provisional, key, type, value });
   return { kind: "constant", constant: provisional };
@@ -97,7 +102,7 @@ export function constantOperand(state: LowerState, type: TyId, value: MirConstan
 
 /** A new block that nothing has entered yet. */
 export function newBlock(state: LowerState, site: MirSite): BlockId {
-  charge(state);
+  if (!charge(state)) return blockId(0);
   const id = blockId(state.blocks.length);
   state.blocks.push({ id, site, statements: [], terminator: null });
   return id;
@@ -113,7 +118,7 @@ export function enterBlock(state: LowerState, block: BlockId): void {
 
 export function emitStatement(state: LowerState, statement: MirStatement): void {
   if (state.current === null) return throwInvariant(invariant("a statement was emitted with no open block"));
-  charge(state);
+  if (!charge(state)) return;
   state.current.statements.push(statement);
 }
 

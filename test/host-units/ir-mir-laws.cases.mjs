@@ -1,3 +1,5 @@
+// The cases of the graph laws of a lowered body. This file is a case module of the MIR bank: test/host-units/ir-mir.test.mjs
+// imports it, and its cases run and are counted there. It is not a test entry of its own.
 // Cases for the graph laws of a lowered body (COMPONENTS section 7 part 9, laws 1 and 4 to 10; S2-18).
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
 // Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11). Law 3 is cased as
