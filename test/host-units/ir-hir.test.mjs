@@ -187,8 +187,8 @@ const unavailable = (reason = "not-provided") => ({ kind: "unavailable", reason 
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const absentCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
-  pointerType: available(null), pointerOperation: available(null), attribute: available(null), safety: available(null),
-  argumentPassing: available(null), flowState: available(null) });
+  pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
+  attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) });
 const emptyViews = () => ({ read: unavailable(), declared: available(null), contextual: available(null) });
 const emptyValue = () => ({ views: emptyViews(), place: available(null), memory: available(null), observation: available(null) });
 const expressionMetadata = () => ({ ...emptyValue(), core: absentCore() });
@@ -1786,6 +1786,158 @@ for (const operation of ["size", "field-offset"]) test(`HIR ${operation} refuses
   ]);
 });
 
+// Binding captures (SCHEMA-MIGRATION.md 5.1 and 5.6). The local module has two call expressions: the first carries a
+// field binding of the foreign field descriptor, the second a record binding of the foreign value layout whose one
+// field entry names the first.
+function bindingFixture() {
+  const { foreign, references } = foreignMemoryFixture();
+  const first = callExpression();
+  const second = callExpression();
+  const value = moduleWith([syntax("ExpressionStatement", 0, { expression: first }), syntax("ExpressionStatement", 0, { expression: second })]);
+  first.tsonic.core.fieldBinding = available(fieldBindingCapture(first.id, first.expression.id, available(references[1])));
+  second.tsonic.core.recordBinding = available(recordBindingCapture(second.id, second.expression.id, available(references[0]),
+    [{ expression: bodyNode(second.expression.id), binding: bodyNode(first.id) }]));
+  return { value, foreign, references, first, second, statements: value.tree.statements.nodes };
+}
+const bindingOwnerMessage = "binding capture must retain its exact owning occurrence";
+const bindingBodyMessage = "binding capture expressions must belong to the body of their occurrence";
+const existingNodeMessage = "qualified body node must exist in its named owner";
+const coreReferenceMessage = "Core capture reference must retain an existing qualified source node";
+
+test("HIR field and record binding captures round-trip and verify against genuine foreign descriptors", () => {
+  const { value, foreign } = bindingFixture();
+  const decoded = roundtrip((value), "field and record binding captures");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign)])), []);
+});
+
+test("HIR record binding accepts an array layout descriptor and a local descriptor node", () => {
+  const { value, foreign, first, second } = bindingFixture();
+  const array = layoutCapture("array", bodySource(first.id));
+  array.element = available(referenceIn(foreign, foreign.tree.statements.nodes[0].expression));
+  first.tsonic.memory = available(array);
+  second.tsonic.core.recordBinding.value.layout = available(bodySource(first.id));
+  const decoded = roundtrip((value), "record binding over an array layout");
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign)])), []);
+});
+
+test("HIR binding capture opposites have their complete violation vectors", () => {
+  const cases = [
+    ["HB6 a field binding names another occurrence", ({ first, second }) => { first.tsonic.core.fieldBinding.value.occurrence = bodyNode(second.id); },
+      ({ first }) => [violation("binding-capture-owner", nodeSite(first.id), bindingOwnerMessage)]],
+    ["HB13 a record binding names another occurrence", ({ first, second }) => { second.tsonic.core.recordBinding.value.occurrence = bodyNode(first.id); },
+      ({ second }) => [violation("binding-capture-owner", nodeSite(second.id), bindingOwnerMessage)]],
+    ["HB7 a field expression that is not a node of the body", ({ first }) => { first.tsonic.core.fieldBinding.value.fieldExpression = bodyNode(99); },
+      ({ first }) => [violation("cross-owner-qualified", nodeSite(first.id), existingNodeMessage)]],
+    ["HB8 a pointer expression of another body", ({ first, references }) => { first.tsonic.core.fieldBinding.value.pointerExpression = references[2].value; },
+      ({ first }) => [violation("cross-owner-qualified", nodeSite(first.id), bindingBodyMessage)]],
+    ["HB8 a record layout expression of another body", ({ second, references }) => { second.tsonic.core.recordBinding.value.layoutExpression = references[2].value; },
+      ({ second }) => [violation("cross-owner-qualified", nodeSite(second.id), bindingBodyMessage)]],
+    ["HB9 a field descriptor reference that does not exist", ({ first }) => { first.tsonic.core.fieldBinding.value.field = available(bodySource(99)); },
+      ({ first }) => [violation("cross-owner-qualified", nodeSite(first.id), existingNodeMessage),
+        violation("core-capture-reference", nodeSite(first.id), coreReferenceMessage),
+        violation("memory-capture-reference", nodeSite(first.id), "field binding must name a field descriptor")]],
+    ["HB10 a field reference to a layout descriptor", ({ first, references }) => { first.tsonic.core.fieldBinding.value.field = available(references[0]); },
+      ({ first }) => [violation("memory-capture-reference", nodeSite(first.id), "field binding must name a field descriptor")]],
+    ["HB11 a layout reference to a field descriptor", ({ second, references }) => { second.tsonic.core.recordBinding.value.layout = available(references[1]); },
+      ({ second }) => [violation("memory-capture-reference", nodeSite(second.id), "record binding layout must name a value or array descriptor")]],
+    ["HB11 a layout descriptor reference that does not exist", ({ second }) => { second.tsonic.core.recordBinding.value.layout = available(bodySource(99)); },
+      ({ second }) => [violation("cross-owner-qualified", nodeSite(second.id), existingNodeMessage),
+        violation("core-capture-reference", nodeSite(second.id), coreReferenceMessage),
+        violation("memory-capture-reference", nodeSite(second.id), "record binding layout must name a value or array descriptor")]],
+    ["HB12 a record field naming a node without metadata", ({ second, statements }) => { second.tsonic.core.recordBinding.value.fields[0].binding = bodyNode(statements[0].id); },
+      ({ second }) => [violation("core-capture-reference", nodeSite(second.id), "record binding field must name a field-binding occurrence")]],
+    ["HB12 a record field naming a node that is no field binding", ({ second }) => { second.tsonic.core.recordBinding.value.fields[0].binding = bodyNode(second.expression.id); },
+      ({ second }) => [violation("core-capture-reference", nodeSite(second.id), "record binding field must name a field-binding occurrence")]],
+    ["HB12 a record field naming an occurrence whose field binding is unavailable", ({ first }) => { first.tsonic.core.fieldBinding = unavailable(); },
+      ({ second }) => [violation("core-capture-reference", nodeSite(second.id), "record binding field must name a field-binding occurrence")]],
+    ["HB12 a record field naming a node that does not exist", ({ second }) => { second.tsonic.core.recordBinding.value.fields[0].binding = bodyNode(99); },
+      ({ second }) => [violation("cross-owner-qualified", nodeSite(second.id), existingNodeMessage),
+        violation("core-capture-reference", nodeSite(second.id), "record binding field must name a field-binding occurrence")]],
+    ["HB14 an owner type outside the table", ({ first }) => { first.tsonic.core.fieldBinding.value.owner = available(99); },
+      ({ first }) => [violation("type-reference", nodeSite(first.id), "type must exist in the supplied table")]],
+    ["HB14 a source type outside the table", ({ second }) => { second.tsonic.core.recordBinding.value.source = available(99); },
+      ({ second }) => [violation("type-reference", nodeSite(second.id), "type must exist in the supplied table")]],
+  ];
+  for (const [name, mutate, expected] of cases) {
+    const fixture = bindingFixture();
+    assert.deepStrictEqual(product.verifyHir(fixture.value, contextFor(fixture.value, {}, [(fixture.foreign)])), [], `${name}: valid fixture`);
+    mutate(fixture);
+    assert.deepStrictEqual(product.verifyHir(fixture.value, contextFor(fixture.value, {}, [(fixture.foreign)])), expected(fixture), name);
+  }
+});
+
+for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} binding scope is requested at its own occurrence`, () => {
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  expression.tsonic.core[field] = available(field === "fieldBinding" ? fieldBindingCapture(2, 3, unavailable())
+    : recordBindingCapture(2, 3, unavailable(), []));
+  const decoded = roundtrip((value), `${field}/lexical bindings`);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: reference => {
+    assert.deepStrictEqual(reference, bodySource(2), "scope is requested at the binding occurrence");
+    return emptyScope();
+  } })), []);
+  assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value, { bindingScopeAt: () => null })), [
+    { rule: "binding-vector-complete", site: nodeSite(2), detail: [{ kind: "text", value: "bindingScopeAt" },
+      { kind: "text", value: "body" }, { kind: "text", value: bodyIdentity }, { kind: "number", value: 2 }] },
+  ]);
+});
+
+// HB15b (SCHEMA-MIGRATION.md 5.7): the vector of a binding capture is verified against the generic scope of its occurrence.
+for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} bindings vector must fit the generic scope of its occurrence`, () => {
+  const owners = ["Class", "method", "captured"].map(name => `D[${moduleIdentity};${name}]`);
+  const identities = owners.map(owner => ({ owner, index: 0 }));
+  const scope = { classParameters: [identities[0]], methodParameters: [identities[1]], capturedParameters: [identities[2]], selfOwners: [owners[0]] };
+  const fitting = () => ({ classBindings: [{ kind: "bound", parameter: identities[0], type: 0 }],
+    methodBindings: [{ kind: "rigid", parameter: identities[1] }], capturedBindings: [{ kind: "bound", parameter: identities[2], type: 0 }],
+    selfBindings: [{ kind: "rigid", owner: owners[0] }] });
+  const forwarded = detail => [{ rule: "binding-vector-complete", site: nodeSite(2), detail }];
+  const missing = fitting();
+  missing.methodBindings = [];
+  const renumbered = fitting();
+  renumbered.methodBindings[0].parameter = { owner: owners[1], index: 1 };
+  for (const [name, vector, expected] of [
+    ["fitting", fitting(), []],
+    ["method family missing", missing, forwarded([{ kind: "text", value: "methodBindings" }, { kind: "text", value: "complete" },
+      { kind: "text", value: "length" }, { kind: "number", value: 0 }])],
+    ["method parameter of another index", renumbered, forwarded([{ kind: "text", value: "methodBindings" }, { kind: "text", value: "0" },
+      { kind: "text", value: "parameter" }])],
+  ]) {
+    const expression = callExpression();
+    const value = expressionModule(expression);
+    const capture = field === "fieldBinding" ? fieldBindingCapture(2, 3, unavailable()) : recordBindingCapture(2, 3, unavailable(), []);
+    capture.bindings = available(vector);
+    expression.tsonic.core[field] = available(capture);
+    const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()])]);
+    const context = contextFor(value, {
+      bindingScopeOf: definition => declarations.get(definition) ?? null,
+      bindingScopeAt: reference => {
+        assert.deepStrictEqual(reference, bodySource(2), "scope is requested at the binding occurrence");
+        return scope;
+      },
+    });
+    const decoded = roundtrip((value), `${field}/generic scope/${name}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, context), expected, name);
+  }
+});
+
+test("HIR binding capture text refuses a missing, repeated or unknown field and the former eight-field core capture", () => {
+  const expression = callExpression();
+  const value = expressionModule(expression);
+  expression.tsonic.core.fieldBinding = available(fieldBindingCapture(2, 3, unavailable()));
+  const text = product.printHir(value);
+  const record = text.slice(text.indexOf("HirFieldBindingCapture("));
+  assert.equal(record.startsWith("HirFieldBindingCapture(occurrence=NodeRef("), true, "the record is written under its own name with occurrence first");
+  const renamedField = text.replace("HirFieldBindingCapture(occurrence=", "HirFieldBindingCapture(occurence=");
+  // The reader reports the first code unit at which the field name leaves the expected name: "occur" is common.
+  assertInvalidText(renamedField, renamedField.indexOf("occurence=") + "occur".length, ["occurrence"]);
+  const renamedRecord = text.replace("HirFieldBindingCapture(", "HirFieldBinding(");
+  assertInvalidText(renamedRecord, renamedRecord.indexOf("HirFieldBinding("), ["declared record"]);
+  const former = text.replace(/, fieldBinding=available\(value=HirFieldBindingCapture\(.*?pointerExpression=NodeRef\([^)]*\)\)\), recordBinding=available\(value=null\)/su, "");
+  assert.notEqual(former, text, "the two binding facts were removed from one core capture");
+  const prefix = text.slice(0, text.indexOf(", fieldBinding=available(value=HirFieldBindingCapture("));
+  assertInvalidText(former, prefix.length + 2, ["fieldBinding"]);
+});
+
 test("HIR observation-capture-owner rejects a mismatched occurrence and illegal non-field selector as full vectors", () => {
   for (const [mutate, expected] of [
     [capture => { capture.occurrence.node = 3; }, "observation must retain its exact owning occurrence"],
@@ -2799,6 +2951,11 @@ for (const kind of ["body", "item"]) test(`HIR missing foreign ${kind} data has 
   ]);
 });
 
+const bodyNode = node => ({ body: bodyIdentity, node });
+const fieldBindingCapture = (occurrence, expression, field) => ({ occurrence: bodyNode(occurrence), bindings: available(emptyBindings()),
+  owner: available(0), pointee: available(0), fieldExpression: bodyNode(expression), field, pointerExpression: bodyNode(expression) });
+const recordBindingCapture = (occurrence, expression, layout, fields) => ({ occurrence: bodyNode(occurrence), bindings: available(emptyBindings()),
+  source: available(0), layoutExpression: bodyNode(expression), layout, fields });
 const capturedType = () => ({ type: available(0), component: { root: bodySource(6), path: [] } });
 const markerField = (name = "field", readonly = true) => ({ name, typeNode: bodySource(5), type: available(0), readonly });
 
@@ -2855,9 +3012,16 @@ function coreArmInputs() {
     family: "safety", operation: "apply", predecessor: bodySource(6), contract });
   for (const value of [null, "moved", "borrowed-shared", "borrowed-mut"]) add("flowState", String(value), value);
   add("provider", "actual provider definition", definitionIdentity);
-  for (const field of ["provider", "markers", "pointerType", "pointerOperation", "attribute", "safety", "argumentPassing", "flowState"])
+  for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"])
     for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
       rows.push({ field, name: `${field}/${reason}`, captured: unavailable(reason) });
+  // Binding captures whose descriptor references are unavailable: the record is complete and needs no descriptor node.
+  for (const [name, change] of [["complete", {}], ["bindings unavailable", { bindings: unavailable("parameter-dependent") }],
+    ["owner unavailable", { owner: unavailable("checker-error") }], ["pointee unavailable", { pointee: unavailable() }]])
+    add("fieldBinding", name, { ...fieldBindingCapture(2, 6, unavailable()), ...change });
+  for (const [name, change] of [["complete", {}], ["bindings unavailable", { bindings: unavailable("parameter-dependent") }],
+    ["source unavailable", { source: unavailable("checker-error") }]])
+    add("recordBinding", name, { ...recordBindingCapture(2, 6, unavailable(), []), ...change });
   for (const kind of ["builder-state", "application"]) add("attribute", `${kind}/no selection`, { occurrence: bodySource(2), applicationTarget: bodySource(6),
     selectedMember: null, applicationMemberKind: null, applicationPlacement: null, applicationParameterName: null, applicationTargetSpecifier: null,
     kind, ...(kind === "application" ? { invocation: bodySource(2) } : {}) });

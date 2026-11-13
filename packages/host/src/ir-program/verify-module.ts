@@ -233,6 +233,7 @@ function verifyReferenceRoots(
   }
   for (const [position, callback] of facts.origins.callbacks.entries()) transport(callback.argument, "facts.origins.callbacks[" + position + "].argument");
   for (const [position, activation] of facts.origins.activations.entries()) {
+    instance(activation.activation, "facts.origins.activations[" + position + "].activation");
     if (activation.entry !== null) transport(activation.entry, "facts.origins.activations[" + position + "].entry");
   }
   for (const [position, construction] of facts.origins.constructions.entries()) {

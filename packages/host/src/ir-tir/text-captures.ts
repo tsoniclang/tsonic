@@ -2,18 +2,20 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  TypeComponent
+  BindingVector, TypeComponent
 } from "../ir-types/contract.js";
 import type {
-  DefId, SourceNodeRef, TyId
+  DefId, NodeRef, SourceNodeRef, TyId
 } from "../ids/contract.js";
 import type {
-  CapturedFact, HirArgumentPassingCapture, HirAttributeCapture, HirCapturedType, HirCoreCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirSafetyCapture, HirSafetySelectionCapture
+  CapturedFact, HirArgumentPassingCapture, HirAttributeCapture, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture
 } from "../ir-hir/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface CapturesTextReads {
+  readonly work_BindingVector: TirRecordCodec<BindingVector>;
+  readonly work_NodeRef: TirRecordCodec<NodeRef>;
   readonly work_C__HirPointerOperationCapture_: TirRecordCodec<CapturedFact<HirPointerOperationCapture | null>>;
   readonly work_C__HirPointerTypeCapture_: TirRecordCodec<CapturedFact<HirPointerTypeCapture | null>>;
   readonly work_SourceNodeRef: TirRecordCodec<SourceNodeRef>;
@@ -22,6 +24,21 @@ export interface CapturesTextReads {
 
 export interface CapturesTextModel {
   readonly work_HirCoreCapture: TirRecordCodec<HirCoreCapture>;
+  readonly work_HirFieldBindingCapture: TirRecordCodec<HirFieldBindingCapture>;
+  readonly work_HirRecordFieldBindingCapture: TirRecordCodec<HirRecordFieldBindingCapture>;
+  readonly work_HirRecordBindingCapture: TirRecordCodec<HirRecordBindingCapture>;
+  readonly work_C__HirFieldBindingCapture__available: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "available" }>;
+  readonly work_C__HirFieldBindingCapture__unavailable: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "unavailable" }>;
+  readonly work_C__HirFieldBindingCapture_: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null>>;
+  readonly work_C__HirRecordBindingCapture__available: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "available" }>;
+  readonly work_C__HirRecordBindingCapture__unavailable: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "unavailable" }>;
+  readonly work_C__HirRecordBindingCapture_: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null>>;
+  readonly work_C_BindingVector__available: TirRecordCodec<CapturedFact<BindingVector> & { readonly kind: "available" }>;
+  readonly work_C_BindingVector__unavailable: TirRecordCodec<CapturedFact<BindingVector> & { readonly kind: "unavailable" }>;
+  readonly work_C_BindingVector_: TirRecordCodec<CapturedFact<BindingVector>>;
+  readonly work_C_SourceNodeRef__available: TirRecordCodec<CapturedFact<SourceNodeRef> & { readonly kind: "available" }>;
+  readonly work_C_SourceNodeRef__unavailable: TirRecordCodec<CapturedFact<SourceNodeRef> & { readonly kind: "unavailable" }>;
+  readonly work_C_SourceNodeRef_: TirRecordCodec<CapturedFact<SourceNodeRef>>;
   readonly work_HirMarkersCapture: TirRecordCodec<HirMarkersCapture>;
   readonly work_Record_structMarker: TirRecordCodec<NonNullable<HirMarkersCapture["struct"]>>;
   readonly work_Record_defaultValue: TirRecordCodec<NonNullable<HirMarkersCapture["defaultValue"]>>;
@@ -77,13 +94,43 @@ export const createCapturesText = (kernel: TirTextKernel, read: CapturesTextRead
     .field("markers", "C<HirMarkersCapture>", value => work_C_HirMarkersCapture_.write(value.markers), lazyReader(() => work_C_HirMarkersCapture_.reader))
     .field("pointerType", "C<?HirPointerTypeCapture>", value => read.work_C__HirPointerTypeCapture_.write(value.pointerType), lazyReader(() => read.work_C__HirPointerTypeCapture_.reader))
     .field("pointerOperation", "C<?HirPointerOperationCapture>", value => read.work_C__HirPointerOperationCapture_.write(value.pointerOperation), lazyReader(() => read.work_C__HirPointerOperationCapture_.reader))
+    .field("fieldBinding", "C<?HirFieldBindingCapture>", value => work_C__HirFieldBindingCapture_.write(value.fieldBinding), lazyReader(() => work_C__HirFieldBindingCapture_.reader))
+    .field("recordBinding", "C<?HirRecordBindingCapture>", value => work_C__HirRecordBindingCapture_.write(value.recordBinding), lazyReader(() => work_C__HirRecordBindingCapture_.reader))
     .field("attribute", "C<?HirAttributeCapture>", value => work_C__HirAttributeCapture_.write(value.attribute), lazyReader(() => work_C__HirAttributeCapture_.reader))
     .field("safety", "C<?HirSafetyCapture>", value => work_C__HirSafetyCapture_.write(value.safety), lazyReader(() => work_C__HirSafetyCapture_.reader))
     .field("argumentPassing", "C<?HirArgumentPassingCapture>", value => work_C__HirArgumentPassingCapture_.write(value.argumentPassing), lazyReader(() => work_C__HirArgumentPassingCapture_.reader))
     .field("flowState", "C<?FlowState>", value => work_C__FlowState_.write(value.flowState), lazyReader(() => work_C__FlowState_.reader))
-    .finish((field_provider, field_markers, field_pointerType, field_pointerOperation, field_attribute, field_safety, field_argumentPassing, field_flowState) => ({
+    .finish((field_provider, field_markers, field_pointerType, field_pointerOperation, field_fieldBinding, field_recordBinding, field_attribute, field_safety, field_argumentPassing, field_flowState) => ({
       provider: field_provider, markers: field_markers, pointerType: field_pointerType, pointerOperation: field_pointerOperation,
+      fieldBinding: field_fieldBinding, recordBinding: field_recordBinding,
       attribute: field_attribute, safety: field_safety, argumentPassing: field_argumentPassing, flowState: field_flowState,
+    })));
+  const work_HirFieldBindingCapture: TirRecordCodec<HirFieldBindingCapture> = defineRecord<HirFieldBindingCapture>("HirFieldBindingCapture", "HirFieldBindingCapture", null, "HirFieldBindingCapture", null, null, fields => fields
+    .field("occurrence", "NodeRef", value => read.work_NodeRef.write(value.occurrence), lazyReader(() => read.work_NodeRef.reader))
+    .field("bindings", "C<BindingVector>", value => work_C_BindingVector_.write(value.bindings), lazyReader(() => work_C_BindingVector_.reader))
+    .field("owner", "C<t>", value => work_C_t_.write(value.owner), lazyReader(() => work_C_t_.reader))
+    .field("pointee", "C<t>", value => work_C_t_.write(value.pointee), lazyReader(() => work_C_t_.reader))
+    .field("fieldExpression", "NodeRef", value => read.work_NodeRef.write(value.fieldExpression), lazyReader(() => read.work_NodeRef.reader))
+    .field("field", "C<SourceNodeRef>", value => work_C_SourceNodeRef_.write(value.field), lazyReader(() => work_C_SourceNodeRef_.reader))
+    .field("pointerExpression", "NodeRef", value => read.work_NodeRef.write(value.pointerExpression), lazyReader(() => read.work_NodeRef.reader))
+    .finish((field_occurrence, field_bindings, field_owner, field_pointee, field_fieldExpression, field_field, field_pointerExpression) => ({
+      occurrence: field_occurrence, bindings: field_bindings, owner: field_owner, pointee: field_pointee,
+      fieldExpression: field_fieldExpression, field: field_field, pointerExpression: field_pointerExpression,
+    })));
+  const work_HirRecordFieldBindingCapture: TirRecordCodec<HirRecordFieldBindingCapture> = defineRecord<HirRecordFieldBindingCapture>("HirRecordFieldBindingCapture", "HirRecordFieldBindingCapture", null, "HirRecordFieldBindingCapture", null, null, fields => fields
+    .field("expression", "NodeRef", value => read.work_NodeRef.write(value.expression), lazyReader(() => read.work_NodeRef.reader))
+    .field("binding", "NodeRef", value => read.work_NodeRef.write(value.binding), lazyReader(() => read.work_NodeRef.reader))
+    .finish((field_expression, field_binding) => ({ expression: field_expression, binding: field_binding })));
+  const work_HirRecordBindingCapture: TirRecordCodec<HirRecordBindingCapture> = defineRecord<HirRecordBindingCapture>("HirRecordBindingCapture", "HirRecordBindingCapture", null, "HirRecordBindingCapture", null, null, fields => fields
+    .field("occurrence", "NodeRef", value => read.work_NodeRef.write(value.occurrence), lazyReader(() => read.work_NodeRef.reader))
+    .field("bindings", "C<BindingVector>", value => work_C_BindingVector_.write(value.bindings), lazyReader(() => work_C_BindingVector_.reader))
+    .field("source", "C<t>", value => work_C_t_.write(value.source), lazyReader(() => work_C_t_.reader))
+    .field("layoutExpression", "NodeRef", value => read.work_NodeRef.write(value.layoutExpression), lazyReader(() => read.work_NodeRef.reader))
+    .field("layout", "C<SourceNodeRef>", value => work_C_SourceNodeRef_.write(value.layout), lazyReader(() => work_C_SourceNodeRef_.reader))
+    .field("fields", "[HirRecordFieldBindingCapture]", value => sequenceWork("[HirRecordFieldBindingCapture]", value.fields, actual => work_HirRecordFieldBindingCapture.write(actual)), sequenceReader("[HirRecordFieldBindingCapture]", lazyReader(() => work_HirRecordFieldBindingCapture.reader)))
+    .finish((field_occurrence, field_bindings, field_source, field_layoutExpression, field_layout, field_fields) => ({
+      occurrence: field_occurrence, bindings: field_bindings, source: field_source, layoutExpression: field_layoutExpression,
+      layout: field_layout, fields: field_fields,
     })));
   const work_HirMarkersCapture: TirRecordCodec<HirMarkersCapture> = defineRecord<HirMarkersCapture>("HirMarkersCapture", "HirMarkersCapture", null, "HirMarkersCapture", null, null, fields => fields
     .field("struct", "?Record.structMarker", value => nullableWork(value.struct, actual => work_Record_structMarker.write(actual)), nullableReader(lazyReader(() => work_Record_structMarker.reader)))
@@ -348,5 +395,53 @@ export const createCapturesText = (kernel: TirTextKernel, read: CapturesTextRead
       case "unavailable": return work_C_t__unavailable.write(value);
     }
   }, () => [work_C_t__available.reader, work_C_t__unavailable.reader]);
-  return { work_HirCoreCapture, work_HirMarkersCapture, work_Record_structMarker, work_Record_defaultValue, work_HirFieldMarkerCapture, work_HirCapturedType, work_HirAttributeCapture_builder_state, work_HirAttributeCapture_application, work_Record_selectedMember, work_HirSafetySelectionCapture_selected, work_HirSafetySelectionCapture_unavailable, work_HirSafetyCapture_operation_expression, work_HirSafetyCapture_operation_remaining_block, work_HirSafetyCapture_operation_root, work_HirSafetyCapture_operation_select_member, work_HirSafetyCapture_operation_placement, work_HirSafetyCapture_operation_apply, work_HirArgumentPassingCapture_role_declaration, work_HirArgumentPassingCapture_role_argument, work_HirAttributeCapture, work_HirSafetySelectionCapture, work_HirSafetyCapture, work_HirArgumentPassingCapture, work_C__def__available, work_C__def__unavailable, work_C__def_, work_C_HirMarkersCapture__available, work_C_HirMarkersCapture__unavailable, work_C_HirMarkersCapture_, work_C__HirAttributeCapture__available, work_C__HirAttributeCapture__unavailable, work_C__HirAttributeCapture_, work_C__HirSafetyCapture__available, work_C__HirSafetyCapture__unavailable, work_C__HirSafetyCapture_, work_C__HirArgumentPassingCapture__available, work_C__HirArgumentPassingCapture__unavailable, work_C__HirArgumentPassingCapture_, work_C__FlowState__available, work_C__FlowState__unavailable, work_C__FlowState_, work_C__HirFieldMarkerCapture___available, work_C__HirFieldMarkerCapture___unavailable, work_C__HirFieldMarkerCapture__, work_C_t__available, work_C_t__unavailable, work_C_t_ };
+  const work_C__HirFieldBindingCapture__available: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "available" }> = defineRecord<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "available" }>("C<?HirFieldBindingCapture>#available", "C<?HirFieldBindingCapture>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+    .field("value", "?HirFieldBindingCapture", value => nullableWork(value.value, actual => work_HirFieldBindingCapture.write(actual)), nullableReader(lazyReader(() => work_HirFieldBindingCapture.reader)))
+    .finish((field_value) => ({ kind: "available", value: field_value })));
+  const work_C__HirFieldBindingCapture__unavailable: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "unavailable" }>("C<?HirFieldBindingCapture>#unavailable", "C<?HirFieldBindingCapture>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirFieldBindingCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
+    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+  const work_C__HirFieldBindingCapture_: TirRecordCodec<CapturedFact<HirFieldBindingCapture | null>> = unionRecord<CapturedFact<HirFieldBindingCapture | null>>("C<?HirFieldBindingCapture>", (value: CapturedFact<HirFieldBindingCapture | null>): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "available": return work_C__HirFieldBindingCapture__available.write(value);
+      case "unavailable": return work_C__HirFieldBindingCapture__unavailable.write(value);
+    }
+  }, () => [work_C__HirFieldBindingCapture__available.reader, work_C__HirFieldBindingCapture__unavailable.reader]);
+  const work_C__HirRecordBindingCapture__available: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "available" }> = defineRecord<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "available" }>("C<?HirRecordBindingCapture>#available", "C<?HirRecordBindingCapture>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+    .field("value", "?HirRecordBindingCapture", value => nullableWork(value.value, actual => work_HirRecordBindingCapture.write(actual)), nullableReader(lazyReader(() => work_HirRecordBindingCapture.reader)))
+    .finish((field_value) => ({ kind: "available", value: field_value })));
+  const work_C__HirRecordBindingCapture__unavailable: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "unavailable" }>("C<?HirRecordBindingCapture>#unavailable", "C<?HirRecordBindingCapture>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirRecordBindingCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
+    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+  const work_C__HirRecordBindingCapture_: TirRecordCodec<CapturedFact<HirRecordBindingCapture | null>> = unionRecord<CapturedFact<HirRecordBindingCapture | null>>("C<?HirRecordBindingCapture>", (value: CapturedFact<HirRecordBindingCapture | null>): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "available": return work_C__HirRecordBindingCapture__available.write(value);
+      case "unavailable": return work_C__HirRecordBindingCapture__unavailable.write(value);
+    }
+  }, () => [work_C__HirRecordBindingCapture__available.reader, work_C__HirRecordBindingCapture__unavailable.reader]);
+  const work_C_BindingVector__available: TirRecordCodec<CapturedFact<BindingVector> & { readonly kind: "available" }> = defineRecord<CapturedFact<BindingVector> & { readonly kind: "available" }>("C<BindingVector>#available", "C<BindingVector>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+    .field("value", "BindingVector", value => read.work_BindingVector.write(value.value), lazyReader(() => read.work_BindingVector.reader))
+    .finish((field_value) => ({ kind: "available", value: field_value })));
+  const work_C_BindingVector__unavailable: TirRecordCodec<CapturedFact<BindingVector> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<BindingVector> & { readonly kind: "unavailable" }>("C<BindingVector>#unavailable", "C<BindingVector>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<BindingVector> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
+    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+  const work_C_BindingVector_: TirRecordCodec<CapturedFact<BindingVector>> = unionRecord<CapturedFact<BindingVector>>("C<BindingVector>", (value: CapturedFact<BindingVector>): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "available": return work_C_BindingVector__available.write(value);
+      case "unavailable": return work_C_BindingVector__unavailable.write(value);
+    }
+  }, () => [work_C_BindingVector__available.reader, work_C_BindingVector__unavailable.reader]);
+  const work_C_SourceNodeRef__available: TirRecordCodec<CapturedFact<SourceNodeRef> & { readonly kind: "available" }> = defineRecord<CapturedFact<SourceNodeRef> & { readonly kind: "available" }>("C<SourceNodeRef>#available", "C<SourceNodeRef>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+    .field("value", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.value), lazyReader(() => read.work_SourceNodeRef.reader))
+    .finish((field_value) => ({ kind: "available", value: field_value })));
+  const work_C_SourceNodeRef__unavailable: TirRecordCodec<CapturedFact<SourceNodeRef> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<SourceNodeRef> & { readonly kind: "unavailable" }>("C<SourceNodeRef>#unavailable", "C<SourceNodeRef>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<SourceNodeRef> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
+    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+  const work_C_SourceNodeRef_: TirRecordCodec<CapturedFact<SourceNodeRef>> = unionRecord<CapturedFact<SourceNodeRef>>("C<SourceNodeRef>", (value: CapturedFact<SourceNodeRef>): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "available": return work_C_SourceNodeRef__available.write(value);
+      case "unavailable": return work_C_SourceNodeRef__unavailable.write(value);
+    }
+  }, () => [work_C_SourceNodeRef__available.reader, work_C_SourceNodeRef__unavailable.reader]);
+  return { work_HirCoreCapture, work_HirFieldBindingCapture, work_HirRecordFieldBindingCapture, work_HirRecordBindingCapture, work_C__HirFieldBindingCapture__available, work_C__HirFieldBindingCapture__unavailable, work_C__HirFieldBindingCapture_, work_C__HirRecordBindingCapture__available, work_C__HirRecordBindingCapture__unavailable, work_C__HirRecordBindingCapture_, work_C_BindingVector__available, work_C_BindingVector__unavailable, work_C_BindingVector_, work_C_SourceNodeRef__available, work_C_SourceNodeRef__unavailable, work_C_SourceNodeRef_, work_HirMarkersCapture, work_Record_structMarker, work_Record_defaultValue, work_HirFieldMarkerCapture, work_HirCapturedType, work_HirAttributeCapture_builder_state, work_HirAttributeCapture_application, work_Record_selectedMember, work_HirSafetySelectionCapture_selected, work_HirSafetySelectionCapture_unavailable, work_HirSafetyCapture_operation_expression, work_HirSafetyCapture_operation_remaining_block, work_HirSafetyCapture_operation_root, work_HirSafetyCapture_operation_select_member, work_HirSafetyCapture_operation_placement, work_HirSafetyCapture_operation_apply, work_HirArgumentPassingCapture_role_declaration, work_HirArgumentPassingCapture_role_argument, work_HirAttributeCapture, work_HirSafetySelectionCapture, work_HirSafetyCapture, work_HirArgumentPassingCapture, work_C__def__available, work_C__def__unavailable, work_C__def_, work_C_HirMarkersCapture__available, work_C_HirMarkersCapture__unavailable, work_C_HirMarkersCapture_, work_C__HirAttributeCapture__available, work_C__HirAttributeCapture__unavailable, work_C__HirAttributeCapture_, work_C__HirSafetyCapture__available, work_C__HirSafetyCapture__unavailable, work_C__HirSafetyCapture_, work_C__HirArgumentPassingCapture__available, work_C__HirArgumentPassingCapture__unavailable, work_C__HirArgumentPassingCapture_, work_C__FlowState__available, work_C__FlowState__unavailable, work_C__FlowState_, work_C__HirFieldMarkerCapture___available, work_C__HirFieldMarkerCapture___unavailable, work_C__HirFieldMarkerCapture__, work_C_t__available, work_C_t__unavailable, work_C_t_ };
 };

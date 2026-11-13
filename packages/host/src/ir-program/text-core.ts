@@ -1,7 +1,7 @@
-import type { HirCallableEndpoint, HirCoreCapture, HirAttribute, HirLexicalScope, CapturedFact, HirMarkersCapture, HirPointerTypeCapture, HirPointerOperationCapture, HirAttributeCapture, HirSafetyCapture, HirArgumentPassingCapture, DeclarationTarget, ImportTarget, HirFieldMarkerCapture, HirCapturedType, HirIntegerOperandCapture, HirAddressIntegerCapture, HirSafetySelectionCapture } from "../ir-hir/contract.js";
+import type { HirCallableEndpoint, HirCoreCapture, HirAttribute, HirLexicalScope, CapturedFact, HirMarkersCapture, HirPointerTypeCapture, HirPointerOperationCapture, HirAttributeCapture, HirSafetyCapture, HirArgumentPassingCapture, DeclarationTarget, ImportTarget, HirFieldMarkerCapture, HirCapturedType, HirIntegerOperandCapture, HirAddressIntegerCapture, HirSafetySelectionCapture, HirFieldBindingCapture, HirRecordBindingCapture } from "../ir-hir/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textSourceNodeRef, textLocalRef, textLibraryModuleIdentity } from "./text-values.js";
-import { textTypeComponent } from "./text-types.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textSourceNodeRef, textLocalRef, textLibraryModuleIdentity } from "./text-values.js";
+import { textBindingVector, textTypeComponent } from "./text-types.js";
 
 export function textHirCallableEndpoint(value: HirCallableEndpoint): TextWork {
   return deferred(value, () => {
@@ -21,10 +21,42 @@ export function textHirCoreCapture(value: HirCoreCapture): TextWork {
       field("markers", textCapturedFact(value.markers, entry0 => textHirMarkersCapture(entry0))),
       field("pointerType", textCapturedFact(value.pointerType, entry0 => (entry0 === null ? token("null") : textHirPointerTypeCapture(entry0)))),
       field("pointerOperation", textCapturedFact(value.pointerOperation, entry0 => (entry0 === null ? token("null") : textHirPointerOperationCapture(entry0)))),
+      field("fieldBinding", textCapturedFact(value.fieldBinding, entry0 => (entry0 === null ? token("null") : textHirFieldBindingCapture(entry0)))),
+      field("recordBinding", textCapturedFact(value.recordBinding, entry0 => (entry0 === null ? token("null") : textHirRecordBindingCapture(entry0)))),
       field("attribute", textCapturedFact(value.attribute, entry0 => (entry0 === null ? token("null") : textHirAttributeCapture(entry0)))),
       field("safety", textCapturedFact(value.safety, entry0 => (entry0 === null ? token("null") : textHirSafetyCapture(entry0)))),
       field("argumentPassing", textCapturedFact(value.argumentPassing, entry0 => (entry0 === null ? token("null") : textHirArgumentPassingCapture(entry0)))),
       field("flowState", textCapturedFact(value.flowState, entry0 => (entry0 === null ? token("null") : text(entry0)))),
+    ]);
+  });
+}
+
+export function textHirFieldBindingCapture(value: HirFieldBindingCapture): TextWork {
+  return deferred(value, () => {
+    return record("HirFieldBindingCapture", [
+      field("occurrence", textNodeRef(value.occurrence)),
+      field("bindings", textCapturedFact(value.bindings, entry0 => textBindingVector(entry0))),
+      field("owner", textCapturedFact(value.owner, entry0 => numericIdentity("t", entry0))),
+      field("pointee", textCapturedFact(value.pointee, entry0 => numericIdentity("t", entry0))),
+      field("fieldExpression", textNodeRef(value.fieldExpression)),
+      field("field", textCapturedFact(value.field, entry0 => textSourceNodeRef(entry0))),
+      field("pointerExpression", textNodeRef(value.pointerExpression)),
+    ]);
+  });
+}
+
+export function textHirRecordBindingCapture(value: HirRecordBindingCapture): TextWork {
+  return deferred(value, () => {
+    return record("HirRecordBindingCapture", [
+      field("occurrence", textNodeRef(value.occurrence)),
+      field("bindings", textCapturedFact(value.bindings, entry0 => textBindingVector(entry0))),
+      field("source", textCapturedFact(value.source, entry0 => numericIdentity("t", entry0))),
+      field("layoutExpression", textNodeRef(value.layoutExpression)),
+      field("layout", textCapturedFact(value.layout, entry0 => textSourceNodeRef(entry0))),
+      field("fields", sequence(value.fields, entry0 => record("HirRecordFieldBindingCapture", [
+        field("expression", textNodeRef(entry0.expression)),
+        field("binding", textNodeRef(entry0.binding)),
+      ]))),
     ]);
   });
 }

@@ -1,1 +1,1 @@
-{"kind":"accepted","value":{"kind":"invalid-text","offset":2144,"line":4,"column":1205,"expected":["\"declaration\"","\"constructor\""],"found":"\""},"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"invalid-text","offset":2217,"line":4,"column":1278,"expected":["\"declaration\"","\"constructor\""],"found":"\""},"diagnostics":[]}

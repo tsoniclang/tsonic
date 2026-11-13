@@ -318,6 +318,11 @@ export interface HirReadGroup9 {
   readonly record_292: HirReader<Hir.CheckedTypeParameter>;
   readonly record_293: HirReader<Hir.NodeList<Hir.VariableDeclaration<Hir.CheckedPhase>>>;
   readonly record_294: HirReader<Hir.CheckedBindingList>;
+  readonly record_295: HirReader<Hir.HirFieldBindingCapture>;
+  readonly record_296: HirReader<{ readonly kind: "available"; readonly value: Hir.HirFieldBindingCapture | null; }>;
+  readonly record_297: HirReader<Hir.HirRecordFieldBindingCapture>;
+  readonly record_298: HirReader<Hir.HirRecordBindingCapture>;
+  readonly record_299: HirReader<{ readonly kind: "available"; readonly value: Hir.HirRecordBindingCapture | null; }>;
 }
 export interface HirTextReaders extends HirScalarReaders, HirReadGroup0, HirReadGroup1, HirReadGroup2, HirReadGroup3, HirReadGroup4, HirReadGroup5, HirReadGroup6, HirReadGroup7, HirReadGroup8, HirReadGroup9 {
   readonly syntax_0: HirReader<Hir.SourceFile<Hir.CheckedPhase>>;

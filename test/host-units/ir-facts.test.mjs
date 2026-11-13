@@ -806,7 +806,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["invocations-order", ["origins", "invocations"], node => ({ node, kind: "call", alternatives: [], boundaries: [] })],
     ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
-    ["activations-order", ["origins", "activations"], node => ({ node, definition: definitions.f, context: 0, caller: null, entry: null })],
+    ["activations-order", ["origins", "activations"], node => ({ node, activation: instance(), context: 0, caller: null, entry: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
+      repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null } })],
     ["frontiers-order", ["origins", "frontiers"], node => ({ node, kind: "origin", subject: 0, context: 0 })],
     ["constructions-order", ["origins", "constructions"], node => ({ node, root: nodeRef(node), allocation: nodeRef(node), implementation: null, body: null, regions: [] })],
     ["errors-order", ["errorStorage", "errors"], node => ({ node, origins: 1, writes: [], retention: [], invalidations: [] })],
@@ -821,7 +822,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [rule, path, row] of simpleOrders) await factOpposite(rule, (input, supplied) => {
     put(input, path, [row(1), row(2)]);
     if (["observations-order", "raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
-    if (rule === "callbacks-order") supplied.canonicalArenas.set(ownerKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
+    if (rule === "callbacks-order" || rule === "activations-order") supplied.canonicalArenas.set(ownerKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
     if (rule === "memory-bindings-order") input.recordBindings = [{ node: 3, result: 0, layoutExpression: nodeRef(3),
       layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] }];
     if (rule === "memory-bindings-order") supplied.scopeRows.body.push(emptyScope());
@@ -1829,7 +1830,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   [violation("error-invalidation-outcome-exact", nodeSite(1), "An incomplete-domain reason must retain an actually open origin domain.")]);
   await suite.test("actual callback activation retains its qualified formal entry and caller context", () => {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
-    input.origins.activations = [{ node: 2, definition: definitions.callee, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
+    input.origins.activations = [{ node: 2, activation: { body: otherBody, bindings: parametric() }, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
     supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
     supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual callback activation vector");
@@ -2134,7 +2135,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   [violation(kind === "open-origin-domain" ? "origins-resolves" : "node-resolves", nodeSite(1), kind === "open-origin-domain"
     ? "Origins resolve in this exact relational arena." : "Every fact retains an actual source occurrence in its declared body domain.")]);
   for (const field of ["references", "literals"]) await factOpposite(`closed-array ${field} retain qualified actual occurrences`, (input, supplied) => {
-    input.closedArrays = [{ node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [member()] }];
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [{ kind: "definition", definition: definitions.field }], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [member()] }];
     supplied.scopeRows.body.push(emptyScope());
   }, input => { input.closedArrays[0][field][0].body = otherBody; },
     [violation("cross-owner-qualified", nodeSite(1), "A local fact cannot borrow the same numeric node index from another body.")]);
@@ -2373,10 +2374,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     actualDependentActivation(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0]; const argument = alternative.arguments[0];
     input.origins.callbacks = [{ node: 2, argument: clone(argument), timing: "synchronous", rejection: null, inputs: [] }];
-    input.origins.activations = [{ node: 3, definition: definitions.callee, context: 0, caller: 0, entry: clone(argument) }];
+    input.origins.activations = [{ node: 3, activation: clone(alternative.resolution.activation), context: 0, caller: 0, entry: clone(argument) }];
     input.origins.constructions = [{ node: 4, root: nodeRef(4), allocation: nodeRef(3), implementation: definitions.callee,
       body: clone(alternative.resolution.activation), regions: [] }];
-    const scope = supplied.scopeRows.body[3]; supplied.scopeRows.body.push(scope, scope, scope);
+    const scope = supplied.scopeRows.body[3]; supplied.scopeRows.body.push(scope, scope, scope, scope);
   }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body.slice(0, -1)); },
   [violation("bindings-complete", nodeSite(4), missingScopeMessage)]);
   await metadataOpposite("the selected field root has its own complete scope inventory", (input, supplied) => {
@@ -2705,12 +2706,35 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "argument-element(parameterIndex=0, sourceParameterIndex=1)", "receiver-element(parameterIndex=1)", "receiver-rejection(parameterIndex=2)",
       ])})`);
   }
-  await factTransport("complete bound activation transport", ["origins", "activations"], "activations=[]", { node: 1, definition: definitions.f, context: 0, caller: 1, entry: null },
-    `BoundActivation(node=n:1, definition=def:"${definitions.f}", context=context:0, caller=context:1, entry=null)`);
+  await factTransport("complete bound activation transport", ["origins", "activations"], "activations=[]", { node: 1, activation: instance(), context: 0, caller: 1, entry: null },
+    `BoundActivation(node=n:1, activation=${instanceText}, context=context:0, caller=context:1, entry=null)`);
+  await suite.test("CD13 a declaration target text needs a declared arm and its one field", () => {
+    const closed = target => emptyFactsText.replace("closedArrays=[]",
+      `closedArrays=${arrayText([`closed(node=n:1, declarations=${arrayText([target])}, references=[], literals=[], elements=[])`])}`);
+    const at = (text, offset) => [text.slice(0, offset).split("\n").length, offset - text.lastIndexOf("\n", offset)];
+    const unknown = closed(`binding(local=LocalRef(body=body:"${body}", local=l:0))`);
+    const unknownOffset = unknown.indexOf("binding(");
+    malformed(product.parseFacts, unknown, unknownOffset, ["local", "definition"], "binding", "an undeclared arm label is refused at the label with both declared arms",
+      ...at(unknown, unknownOffset));
+    const missing = closed("local()");
+    const missingOffset = missing.indexOf("local()") + "local(".length;
+    malformed(product.parseFacts, missing, missingOffset, ["local"], ")", "an arm without its field is refused at the closing parenthesis",
+      ...at(missing, missingOffset));
+    const former = closed(`def:"${definitions.field}"`);
+    const formerOffset = former.indexOf(`def:"${definitions.field}"`, former.indexOf("declarations="));
+    malformed(product.parseFacts, former, formerOffset, ["local", "definition"], "def", "the former bare definition identity is not read as a declaration target",
+      ...at(former, formerOffset));
+  });
+  await suite.test("the removed activation definition field is not read", () => {
+    const text = emptyFactsText.replace("activations=[]", `activations=${arrayText([`BoundActivation(node=n:1, definition=def:"${definitions.f}", context=context:0, caller=context:1, entry=null)`])}`);
+    const offset = text.indexOf("definition=def:");
+    malformed(product.parseFacts, text, offset, ["activation"], "definition", "an activation text with the former definition field is refused at that field",
+      2, offset - text.lastIndexOf("\n", offset));
+  });
   {
     const input = bodyFacts(); invocationFixture(input, setup()); const entry = input.origins.invocations[0].alternatives[0].arguments[0];
-    await factTransport("complete bound activation formal entry transport", ["origins", "activations"], "activations=[]", { node: 1, definition: definitions.f, context: 0, caller: null, entry },
-      `BoundActivation(node=n:1, definition=def:"${definitions.f}", context=context:0, caller=null, entry=${argumentText(0, definitions.parameter)})`);
+    await factTransport("complete bound activation formal entry transport", ["origins", "activations"], "activations=[]", { node: 1, activation: instance(), context: 0, caller: null, entry },
+      `BoundActivation(node=n:1, activation=${instanceText}, context=context:0, caller=null, entry=${argumentText(0, definitions.parameter)})`);
     for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
       const argument = { ...entry, passing };
       await factTransport(`actual transport passing mode ${passing}`, ["origins", "callbacks"], "callbacks=[]", { node: 1, argument, timing: "unknown", rejection: null, inputs: [] },
@@ -2790,8 +2814,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`]);
     await arenaTextCase(`full field member key transport ${key.kind}`, "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
-    await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [definitions.field], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },
-      `closed(node=n:1, declarations=${arrayText([`def:"${definitions.field}"`])}, references=${arrayText([nodeText(2)])}, literals=${arrayText([nodeText(3)])}, elements=${arrayText([expected])})`);
+    await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [{ kind: "local", local: { body, local: 0 } }, { kind: "definition", definition: definitions.field }], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },
+      `closed(node=n:1, declarations=${arrayText([`local(local=LocalRef(body=body:"${body}", local=l:0))`, `definition(definition=def:"${definitions.field}")`])}, references=${arrayText([nodeText(2)])}, literals=${arrayText([nodeText(3)])}, elements=${arrayText([expected])})`);
   }
   {
     const selected = member();
@@ -3663,9 +3687,35 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, input => { input.selectedMemoryDeclarations = [definitions.missing]; },
   [violation("cross-owner-qualified", bodySite(), "Every selected memory declaration retains its actual declaration identity.")]);
   await factOpposite("original raw closed array retains its actual checked declaration", input => {
-    input.closedArrays = [{ node: 1, kind: "closed", declarations: [definitions.field], references: [], literals: [], elements: [] }];
-  }, input => { input.closedArrays[0].declarations = [definitions.missing]; },
+    input.closedArrays = [{ node: 1, kind: "closed", declarations: [{ kind: "definition", definition: definitions.field }], references: [], literals: [], elements: [] }];
+  }, input => { input.closedArrays[0].declarations = [{ kind: "definition", definition: definitions.missing }]; },
   [violation("cross-owner-qualified", nodeSite(1), "A closed array retains actual checked declaration identities.")]);
+  // Closed-array declaration targets (SCHEMA-MIGRATION.md 5.3, vectors 5.5). The body has two block-local bindings.
+  const closedLocal = (local, owner = body) => ({ kind: "local", local: { body: owner, local } });
+  const closedDefinition = definition => ({ kind: "definition", definition });
+  const closedLocalMessage = "A closed array's local declaration is a local of this actual checked body.";
+  const closedDefinitionMessage = "A closed array retains actual checked declaration identities.";
+  const closedDeclarations = declarations => (input, supplied) => {
+    supplied.tir.locals = [0, 1].map(id => ({ id, declaration: { kind: "body", value: nodeRef(id + 2) }, name: `binding${id}`,
+      role: "binding", capturedFrom: null, mutable: false, storage: 0 }));
+    input.closedArrays = [{ node: 1, kind: "closed", declarations, references: [], literals: [], elements: [] }];
+  };
+  const closedOrder = violation("closed-array-declarations-order", nodeSite(1), orderMessage);
+  for (const [name, valid, invalid, expected] of [
+    ["CD5 locals in descending index", [closedLocal(0), closedLocal(1)], [closedLocal(1), closedLocal(0)], [closedOrder]],
+    ["CD5b a local of a later body before a local of this body", [closedLocal(0)], [closedLocal(0, otherBody), closedLocal(0)],
+      body < otherBody ? [closedOrder, violation("cross-owner-qualified", nodeSite(1), closedLocalMessage)] : [violation("cross-owner-qualified", nodeSite(1), closedLocalMessage)]],
+    ["CD6 a repeated local", [closedLocal(0)], [closedLocal(0), closedLocal(0)], [closedOrder]],
+    ["CD7 a definition before a local", [closedLocal(0), closedDefinition(definitions.field)], [closedDefinition(definitions.field), closedLocal(0)], [closedOrder]],
+    ["CD8 definitions in descending identity", [definitions.field, definitions.layout].sort().map(closedDefinition),
+      [definitions.field, definitions.layout].sort().reverse().map(closedDefinition), [closedOrder]],
+    ["CD8 a repeated definition", [closedDefinition(definitions.field)], [closedDefinition(definitions.field), closedDefinition(definitions.field)], [closedOrder]],
+    ["CD9 a local index outside the checked body", [closedLocal(1)], [closedLocal(7)], [violation("cross-owner-qualified", nodeSite(1), closedLocalMessage)]],
+    ["CD10 a local of another body", [closedLocal(0)], [closedLocal(0, otherBody)], [violation("cross-owner-qualified", nodeSite(1), closedLocalMessage)]],
+    ["CD11 a definition outside the inventory", [closedDefinition(definitions.field)], [closedDefinition(definitions.missing)],
+      [violation("cross-owner-qualified", nodeSite(1), closedDefinitionMessage)]],
+  ]) await factOpposite(`closed-array declarations: ${name}`, closedDeclarations(valid),
+    input => { input.closedArrays[0].declarations = invalid; }, expected);
 
   const callbackFixture = (input, supplied) => {
     const foreign = { kind: "summary", definition: definitions.callee, bindings: parametric() };
@@ -3705,10 +3755,131 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.scopeRows.body.push(emptyScope());
   }, (input, supplied) => { supplied.canonicalArenas.delete(ownerKey(input.origins.callbacks[0].argument.formal.owner)); },
   [violation("cross-owner-qualified", nodeSite(1), "A formal producer retains a resolving qualified relational owner.")]);
-  await factOpposite("original raw activation execution declaration must exist", input => {
-    input.origins.activations = [{ node: 1, definition: definitions.callee, context: 0, caller: null, entry: null }];
-  }, input => { input.origins.activations[0].definition = definitions.missing; },
-  [violation("producer-resolves", nodeSite(1), "An activation retains its actual execution declaration.")]);
+  // Activations carry the complete instantiated body (SCHEMA-MIGRATION.md 5.4, vectors 5.5).
+  const activationOwnerMessage = "An activation retains its actual executed body and its existing owner declaration.";
+  const activationSelectedMessage = "A direct activation is the complete selected instance of an invocation alternative at its node and value context.";
+  const callbackActivation = (node, overrides = {}) => (input, supplied) => {
+    invocationFixture(input, supplied);
+    input.origins.activations = [{ node, activation: { body: otherBody, bindings: parametric() }, context: 0, caller: null,
+      entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]), ...overrides }];
+  };
+  await factOpposite("AC7a an activated body without an owner in the inventory", callbackActivation(2),
+    (input, supplied) => { supplied.bodyOwners.set(otherBody, null); },
+    [violation("producer-resolves", nodeSite(2), activationOwnerMessage)]);
+  await factOpposite("AC7b an activated body whose owner is not an existing definition", callbackActivation(2),
+    (input, supplied) => { supplied.bodyOwners.set(otherBody, definitions.missing); },
+    [violation("producer-resolves", nodeSite(2), activationOwnerMessage)]);
+  await factOpposite("AC9a an activation caller context must resolve", callbackActivation(2, { caller: 0 }),
+    input => { input.origins.activations[0].caller = 99; },
+    [violation("context-resolves", nodeSite(2), "A value context resolves in this exact arena.")]);
+  await factOpposite("AC9b an activation entry formal producer must resolve", callbackActivation(2),
+    input => { input.origins.activations[0].entry.formal.producer = 99; },
+    [violation("producer-resolves", nodeSite(2), "The actual formal producer resolves in its declared foreign arena.")]);
+  // A direct activation: the invocation alternative at node 1 selects the instantiated callee body.
+  const directActivation = (input, supplied) => {
+    actualDependentActivation(input, supplied);
+    const alternative = input.origins.invocations[0].alternatives[0];
+    input.origins.activations = [{ node: 1, activation: clone(alternative.resolution.activation), context: 0, caller: null, entry: null }];
+    supplied.scopeRows.body.push(supplied.scopeRows.body[3]);
+  };
+  await factOpposite("AC4 an identical complete activation is refused", callbackActivation(2),
+    input => { input.origins.activations.push(clone(input.origins.activations[0])); },
+    [violation("activations-order", nodeSite(2), orderMessage)]);
+  await factOpposite("AC4 an identical instantiated activation is refused and its repeated vector has no scope", directActivation,
+    input => { input.origins.activations.push(clone(input.origins.activations[0])); },
+    [violation("activations-order", nodeSite(1), orderMessage), violation("bindings-complete", nodeSite(1), missingScopeMessage)]);
+  await factOpposite("AC7a' a direct activation of a body that no alternative selects and that has no owner", directActivation,
+    (input, supplied) => { input.origins.activations[0].activation = { body: otherBody, bindings: parametric() }; supplied.bodyOwners.set(otherBody, null); },
+    [violation("producer-resolves", nodeSite(1), activationOwnerMessage), violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage),
+      violation("bindings-complete", bodySite(), "The canonical binding-scope inventory has no extra inline vector occurrence.")]);
+  await factOpposite("a direct activation at a node without an invocation is not a selected instance", directActivation,
+    input => { input.origins.activations[0].node = 2; },
+    [violation("cross-owner-qualified", nodeSite(2), activationSelectedMessage)]);
+  await factOpposite("a direct activation under another value context is not the selected instance", (input, supplied) => {
+    directActivation(input, supplied);
+    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [0, 0], captures: [] });
+  }, input => { input.origins.activations[0].context = input.arena.contexts.length - 1; },
+    [violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  await factOpposite("a direct activation is not selected by a bodyless alternative", (input, supplied) => {
+    invocationFixture(input, supplied);
+    input.origins.activations = [{ node: 2, activation: { body: otherBody, bindings: parametric() }, context: 0, caller: null,
+      entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
+  }, input => { input.origins.activations[0].node = 1; input.origins.activations[0].entry = null; },
+    [violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  // The selected-instance membership (K-3177) keeps the earlier predicate on malformed numbers and repeated rows.
+  await factOpposite("a direct activation under a context that is not a number is never the selected instance", directActivation,
+    input => { input.origins.activations[0].context = NaN; },
+    [violation("context-resolves", nodeSite(1), "A value context resolves in this exact arena."),
+      violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  await factOpposite("an alternative and an activation whose contexts are both not numbers do not select one another", directActivation,
+    input => { input.origins.invocations[0].alternatives[0].context = NaN; input.origins.activations[0].context = NaN; },
+    [violation("context-resolves", nodeSite(1), "A value context resolves in this exact arena."),
+      violation("context-resolves", nodeSite(1), "A value context resolves in this exact arena."),
+      violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  await factOpposite("a direct activation at node negative zero is not selected by the invocation at another node", directActivation,
+    input => { input.origins.activations[0].node = -0; },
+    [violation("node-resolves", nodeSite(-0), nodeMessage), violation("cross-owner-qualified", nodeSite(-0), activationSelectedMessage)]);
+  await factOpposite("the invocation at node zero is not a repeat of the row at node negative zero and selects its direct activation", directActivation,
+    input => {
+      input.origins.invocations[0].node = 0;
+      input.origins.invocations.unshift({ node: -0, kind: "call", alternatives: [], boundaries: [] });
+      input.origins.activations[0].node = 0;
+    },
+    [violation("node-resolves", nodeSite(-0), nodeMessage), violation("node-resolves", nodeSite(0), nodeMessage), violation("node-resolves", nodeSite(0), nodeMessage)]);
+  await factOpposite("only the first invocation row of a node selects its direct activations", directActivation,
+    input => { input.origins.invocations.unshift({ node: 1, kind: "call", alternatives: [], boundaries: [] }); },
+    [violation("invocations-order", nodeSite(1), orderMessage), violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  // AC2, AC5, AC6: one declaration, one value context, two complete instances that differ only in implementation bindings.
+  const twoInstances = (input, supplied) => {
+    actualDependentActivation(input, supplied);
+    const first = input.origins.invocations[0].alternatives[0];
+    const second = clone(first);
+    second.resolution.decision.implementationBindings.methodBindings[0].type = 2;
+    second.summary.bindings.bindings.methodBindings[0].type = 2;
+    second.resolution.activation.bindings.bindings.methodBindings[0].type = 2;
+    const secondOwner = summaryOwner(second.summary);
+    for (const transport of second.arguments) transport.formal.owner = clone(secondOwner);
+    supplied.canonicalArenas.set(ownerKey(secondOwner), clone(supplied.canonicalArenas.get(ownerKey(summaryOwner(first.summary)))));
+    input.origins.invocations[0].alternatives.push(second);
+    const rows = new Map([first, second].map(alternative => {
+      const actual = clone(supplied.bodyRows.get(alternative.resolution.activation.body));
+      actual.bindings = clone(alternative.resolution.activation.bindings); actual.lexicalBindings = clone(alternative.resolution.decision.implementationBindings);
+      return [ids.encodeKey([alternative.resolution.activation.body, alternative.resolution.activation.bindings.bindings.methodBindings[0].type]), actual];
+    }));
+    const base = supplied.context.tirBody;
+    supplied.context.tirBody = selected => selected.bindings.kind === "instantiated"
+      ? rows.get(ids.encodeKey([selected.body, selected.bindings.bindings.methodBindings[0].type])) : base(selected);
+    const scope = supplied.scopeRows.body[3];
+    supplied.scopeRows.body.push(emptyScope(), scope, scope, scope, scope, scope);
+    input.origins.activations = [first, second].map(alternative => ({ node: 1, activation: clone(alternative.resolution.activation), context: 0, caller: null, entry: null }));
+    supplied.scopeRows.body.push(scope, scope);
+  };
+  await factOpposite("AC2/AC5 two instances of one declaration under one value context are distinct ordered activations", twoInstances,
+    input => { input.origins.activations.reverse(); },
+    [violation("activations-order", nodeSite(1), orderMessage)]);
+  await factOpposite("AC6 an activation whose complete instance no alternative selects", twoInstances,
+    input => { input.origins.activations[1].activation.bindings.bindings.methodBindings[0].type = 3; },
+    [violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage)]);
+  await factOpposite("AC7c an activation instance whose vector does not fit its owner scope", directActivation,
+    input => { input.origins.activations[0].activation.bindings.bindings.methodBindings = []; },
+    [violation("cross-owner-qualified", nodeSite(1), activationSelectedMessage), violation("bindings-complete", nodeSite(1), bindingMessage)]);
+  // AC3, AC8: same node and instance; contexts, callers and entries order the rows.
+  await factOpposite("AC3/AC8 contexts, callers and entries complete the activation order", (input, supplied) => {
+    invocationFixture(input, supplied);
+    input.arena.contexts.push({ id: input.arena.contexts.length, receiver: null, arguments: [0, 0], captures: [] });
+    const entries = input.origins.invocations[0].alternatives[0].arguments.map(clone);
+    const row = (context, caller, entry) => ({ node: 2, activation: { body: otherBody, bindings: parametric() }, context, caller, entry });
+    input.origins.activations = [row(0, null, entries[0]), row(0, null, entries[1]), row(0, 0, entries[0]), row(0, 1, entries[0]), row(1, null, entries[0])];
+  }, input => { const rows = input.origins.activations; input.origins.activations = [rows[1], rows[0], rows[3], rows[2], rows[4]]; },
+    [violation("activations-order", nodeSite(2), orderMessage), violation("activations-order", nodeSite(2), orderMessage)]);
+  await factOpposite("AC10 two bodies of one definition are two activations", (input, supplied) => {
+    invocationFixture(input, supplied);
+    const initializer = ids.encodeBodyId({ owner: definitions.other, role: "initializer", ordinal: 0 });
+    supplied.bodyOwners.set(initializer, definitions.other);
+    const entry = clone(input.origins.invocations[0].alternatives[0].arguments[0]);
+    input.origins.activations = [otherBody, initializer].sort().map(selected => ({ node: 2, activation: { body: selected, bindings: parametric() }, context: 0, caller: null, entry: clone(entry) }));
+  }, input => { input.origins.activations.reverse(); },
+    [violation("activations-order", nodeSite(2), orderMessage)]);
   await factOpposite("original raw construction implementation must exist", input => {
     input.origins.constructions = [{ node: 1, root: nodeRef(1), allocation: nodeRef(2), implementation: definitions.callee, body: null, regions: [] }];
   }, input => { input.origins.constructions[0].implementation = definitions.missing; },

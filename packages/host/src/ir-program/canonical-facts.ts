@@ -72,7 +72,7 @@ function rewriteOrigins(rewrite: TypeRewrite, origins: OriginFacts): OriginFacts
       rejection: callback.rejection, inputs: callback.inputs,
     })),
     activations: origins.activations.map(activation => ({
-      node: activation.node, definition: activation.definition, context: activation.context, caller: activation.caller,
+      node: activation.node, activation: rewriteInstance(rewrite, activation.activation), context: activation.context, caller: activation.caller,
       entry: activation.entry === null ? null : rewriteTransport(rewrite, activation.entry),
     })), frontiers: origins.frontiers,
     constructions: origins.constructions.map(construction => ({

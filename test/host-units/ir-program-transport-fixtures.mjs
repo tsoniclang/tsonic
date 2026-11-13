@@ -369,8 +369,8 @@ export function relationalTransportFacts(fixture) {
   facts.origins.invocations = [{ node: 0, kind: "call", alternatives: [{ resolution, context: 0,
     arguments: [argument(bodyOwner), argument(summaryOwner)], result: 0, thrown: 0, summary }], boundaries: [] }];
   facts.origins.callbacks = [{ node: 0, argument: argument(bodyOwner), timing: "synchronous", rejection: null, inputs: [] }];
-  facts.origins.activations = [{ node: 0, definition: fixture.definition, context: 0, caller: null, entry: null },
-    { node: 0, definition: fixture.definition, context: 0, caller: 0, entry: argument(summaryOwner) }];
+  facts.origins.activations = [{ node: 0, activation: fixture.instance, context: 0, caller: null, entry: null },
+    { node: 0, activation: fixture.instance, context: 0, caller: 0, entry: argument(summaryOwner) }];
   facts.origins.constructions = [{ node: 0, root: at, allocation: at, implementation: fixture.definition, body: null, regions: [] },
     { node: 0, root: at, allocation: at, implementation: fixture.definition, body: fixture.instance, regions: [] }];
   facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1,
@@ -380,7 +380,8 @@ export function relationalTransportFacts(fixture) {
     layout: { metadata: fixture.index.metadata[0].key, layout: 0 }, field, result: 0, value: 0n, context: 0, bindings,
   }));
   facts.closedArrays = [{ node: 0, kind: "unproven", reason: { kind: "no-local-allocation", at } },
-    { node: 0, kind: "closed", declarations: [fixture.definition], references: [at], literals: [at], elements: [member] }];
+    { node: 0, kind: "closed", declarations: [{ kind: "local", local: { body: fixture.instance.body, local: 0 } },
+      { kind: "definition", definition: fixture.definition }], references: [at], literals: [at], elements: [member] }];
   return facts;
 }
 

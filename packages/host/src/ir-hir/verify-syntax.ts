@@ -122,7 +122,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "HirProtocolFact" | "HirStoragePlace" | "HirMemoryGeometryCapture" | "HirMemoryLayoutCapture"
   | "HirMemoryFieldCapture" | "HirObservationCapture" | "HirCapturedType" | "HirFieldMarkerCapture"
   | "HirMarkersCapture" | "HirPointerTypeCapture" | "HirIntegerOperandCapture" | "HirAddressIntegerCapture"
-  | "HirPointerOperationCapture" | "HirAttributeCapture" | "HirSafetySelectionCapture" | "HirSafetyCapture"
+  | "HirPointerOperationCapture" | "HirFieldBindingCapture" | "HirRecordFieldBindingCapture" | "HirRecordBindingCapture" | "HirAttributeCapture" | "HirSafetySelectionCapture" | "HirSafetyCapture"
   | "HirArgumentPassingCapture" | "HirCoreCapture" | "CheckedValue" | "CheckedExpression" | "CheckedLiteral"
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
@@ -595,6 +595,9 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirIntegerOperandCapture: HirShapeBody;
   readonly HirAddressIntegerCapture: HirShapeBody;
   readonly HirPointerOperationCapture: HirShapeBody;
+  readonly HirFieldBindingCapture: HirShapeBody;
+  readonly HirRecordFieldBindingCapture: HirShapeBody;
+  readonly HirRecordBindingCapture: HirShapeBody;
   readonly HirAttributeCapture: HirShapeBody;
   readonly HirSafetySelectionCapture: HirShapeBody;
   readonly HirSafetyCapture: HirShapeBody;

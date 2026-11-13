@@ -865,7 +865,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const bodyRef = { body, node: 2 };
   const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const unavailable = { kind: "unavailable", reason: "not-provided" };
-  const captured = Object.fromEntries(["provider", "markers", "pointerType", "pointerOperation", "attribute", "safety", "argumentPassing", "flowState"].map(name => [name, unavailable]));
+  const captured = Object.fromEntries(["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"].map(name => [name, unavailable]));
   captured.pointerOperation = { kind: "available", value: { family: "raw-memory", operation: "raw-to-address-integer", raw: ref,
     integer: { width: 32, runtimeBase: "number", signedness: "unsigned" }, dataLayout: ref } };
   const evidence = { type: 0, component: { kind: "body", value: bodyRef }, category: { kind: "known", category: "number" },
@@ -877,7 +877,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const nodeRef = `NodeRef(body=body:${JSON.stringify(body)}, node=n:2)`;
   const origin = `Origin(module=mod:${JSON.stringify(node.origin.module)}, start=0, length=0, derived=[])`;
   const pointer = `available(value=HirPointerOperationCapture(family="raw-memory", operation="raw-to-address-integer", raw=${sourceRef}, integer=HirAddressIntegerCapture(width=32, runtimeBase="number", signedness="unsigned"), dataLayout=${sourceRef}))`;
-  const core = `HirCoreCapture(provider=unavailable(reason="not-provided"), markers=unavailable(reason="not-provided"), pointerType=unavailable(reason="not-provided"), pointerOperation=${pointer}, attribute=unavailable(reason="not-provided"), safety=unavailable(reason="not-provided"), argumentPassing=unavailable(reason="not-provided"), flowState=unavailable(reason="not-provided"))`;
+  const core = `HirCoreCapture(provider=unavailable(reason="not-provided"), markers=unavailable(reason="not-provided"), pointerType=unavailable(reason="not-provided"), pointerOperation=${pointer}, fieldBinding=unavailable(reason="not-provided"), recordBinding=unavailable(reason="not-provided"), attribute=unavailable(reason="not-provided"), safety=unavailable(reason="not-provided"), argumentPassing=unavailable(reason="not-provided"), flowState=unavailable(reason="not-provided"))`;
   const result = `TypeEvidence(type=t:0, component=body(value=${nodeRef}), category=known(category="number"), numeric=null, sum=null, nominal=null, pointer=null)`;
   const decision = `DeferredDecision(invocation=DeferredInvocation(rule="core", input=CoreInput(context=RuleContext(occurrence=${nodeRef}, origin=${origin}, bindings=${parameterless}), captured=${core}, declaration=def:${JSON.stringify(definition)}, operands=[], result=${result}, permissionScope=${nodeRef})), result=t:0)`;
   const phase = `TypedNumber(type=t:0, convertedType=t:0, conversion=deferred(deferred=${decision}), narrowing=null, evidenceIndex=null, demand=always(), role="value", value=ExactRational(numerator=1n, denominator=1n, negativeZero=false))`;
@@ -1304,6 +1304,210 @@ for (const capture of ["attribute", "application-attribute", "root", "placement"
   completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"), input.index.types);
 });
 
+// Binding captures (SCHEMA-MIGRATION.md 5.2, PB1-PB5): each record through the canonical copy, the text and Instantiate.
+const bindingUnavailable = reason => ({ kind: "unavailable", reason });
+for (const [name, select] of [
+  ["complete field binding", records => ({ fieldBinding: records.field })],
+  ["field binding with every inner fact unavailable", records => ({ fieldBinding: { ...records.field, bindings: bindingUnavailable("parameter-dependent"),
+    owner: bindingUnavailable("checker-error"), pointee: bindingUnavailable("not-provided"), field: bindingUnavailable("not-provided") } })],
+  ["complete record binding", records => ({ recordBinding: records.record })],
+  ["record binding without field entries", records => ({ recordBinding: { ...records.record, fields: [] } })],
+  ["record binding with every inner fact unavailable", records => ({ recordBinding: { ...records.record, bindings: bindingUnavailable("parameter-dependent"),
+    source: bindingUnavailable("checker-error"), layout: bindingUnavailable("not-provided") } })],
+  ["field and record binding together", records => ({ fieldBinding: records.field, recordBinding: records.record })],
+]) test(`ir-program ${name} capture survives the canonical copy, the text and Instantiate unchanged`, () => {
+  const fixture = moduleFixture();
+  const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
+  const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+  const value = node.tsonic.conversion.deferred.invocation.input;
+  const reference = { kind: "item", value: { owner: fixture.definition, node: 0 } };
+  const occurrence = { body: fixture.bodyId, node: 0 };
+  const bindings = { kind: "available", value: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } };
+  value.permissionScope = occurrence;
+  const records = {
+    field: { occurrence, bindings, owner: { kind: "available", value: 0 }, pointee: { kind: "available", value: 0 },
+      fieldExpression: occurrence, field: { kind: "available", value: reference }, pointerExpression: occurrence },
+    record: { occurrence, bindings, source: { kind: "available", value: 0 }, layoutExpression: occurrence,
+      layout: { kind: "available", value: reference }, fields: [{ expression: occurrence, binding: occurrence }] },
+  };
+  for (const [field, record] of Object.entries(select(records))) value.captured[field] = { kind: "available", value: record };
+  const module = syntaxTransportModule({ module: fixture.module }, node, "Expression");
+  completeSyntaxTransport(fixture, module, input.index.types);
+  // PB6: the inventory of the binding records is charged to the work and created-record budgets like every other record:
+  // every insufficient budget is a resource-limit refusal of its own dimension, every sufficient one the same artifact.
+  const index = { ...fixture.index, types: input.index.types };
+  const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const limits = { maximumWork: 1000000, maximumCreatedRecords: 1000000, maximumBindingVectorsPerArtifact: 8,
+    typeExpansion: { maximumDepth: 256, maximumVisits: 100000, maximumUnionMembers: 256, maximumIntersectionMembers: 256 } };
+  const expected = product.instantiate(index, module, { kind: "tir", body: fixture.bodyId }, empty, limits);
+  assert.equal(expected.kind, "instantiated");
+  for (const [field, dimension, last] of [["maximumWork", "work", 400], ["maximumCreatedRecords", "created-records", 60]]) {
+    let complete = false;
+    for (let maximum = 0; maximum <= last; maximum += 1) {
+      const actual = product.instantiate(index, module, { kind: "tir", body: fixture.bodyId }, empty, { ...limits, [field]: maximum });
+      if (actual.kind === "instantiated") {
+        complete = true;
+        completeProgramValue(actual, expected, "every sufficient budget gives the same complete artifact");
+      } else {
+        assert.equal(complete, false, "a budget that sufficed is never refused at a larger value");
+        completeProgramValue({ kind: actual.kind, dimension: actual.dimension }, { kind: "resource-limit", dimension }, "the refusal names its own dimension");
+      }
+    }
+    assert.equal(complete, true, `${field}: the sweep reaches a sufficient budget`);
+  }
+});
+
+// PB5 (SCHEMA-MIGRATION.md 5.7): a parametric template whose binding captures mention a type parameter, instantiated under a
+// binding of that parameter. The expected artifact is built from the capture values of the second table of 5.7, not from the product.
+test("ir-program Instantiate substitutes the owner, pointee, source and both vectors of binding captures under a real binding; nodes are not changed", () => {
+  const fixture = moduleFixture();
+  const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
+  completeProgramValue(input.index.types.terms, [{ kind: "intrinsic", intrinsic: "void" }, { kind: "string" }], "the fixture table has the two closed terms 0 and 1");
+  const first = { owner: fixture.definition, index: 0 };
+  const second = { owner: fixture.definition, index: 1 };
+  const types = { terms: [...input.index.types.terms, { kind: "param", parameter: first }, { kind: "primitive", primitive: "int32" },
+    { kind: "array", element: 2, readonly: false }], signatures: input.index.types.signatures };
+  const available = value => ({ kind: "available", value });
+  const vector = classBindings => ({ classBindings, methodBindings: [], capturedBindings: [], selfBindings: [] });
+  const rigid = parameter => ({ kind: "rigid", parameter });
+  const bound = (parameter, type) => ({ kind: "bound", parameter, type });
+  const reference = { kind: "item", value: { owner: fixture.definition, node: 0 } };
+  const occurrence = { body: fixture.bodyId, node: 0 };
+  const moduleOf = (fieldVector, owner, pointee, recordVector, source) => {
+    const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+    const value = node.tsonic.conversion.deferred.invocation.input;
+    value.permissionScope = occurrence;
+    value.captured.fieldBinding = available({ occurrence, bindings: available(fieldVector), owner: available(owner), pointee: available(pointee),
+      fieldExpression: occurrence, field: available(reference), pointerExpression: occurrence });
+    value.captured.recordBinding = available({ occurrence, bindings: available(recordVector), source: available(source), layoutExpression: occurrence,
+      layout: available(reference), fields: [{ expression: occurrence, binding: occurrence }] });
+    return syntaxTransportModule({ module: fixture.module }, node, "Expression");
+  };
+  const template = moduleOf(vector([rigid(first), bound(second, 2)]), 4, 2, vector([bound(first, 4), rigid(second)]), 4);
+  completeSyntaxTransport(fixture, template, types);
+  const index = { ...fixture.index, types };
+  const limits = { maximumWork: 1000000, maximumCreatedRecords: 1000000, maximumBindingVectorsPerArtifact: 8,
+    typeExpansion: { maximumDepth: 256, maximumVisits: 100000, maximumUnionMembers: 256, maximumIntersectionMembers: 256 } };
+  const requested = vector([bound(first, 3)]);
+  const substituted = moduleOf(vector([bound(first, 3), bound(second, 3)]), 5, 3, vector([bound(first, 5), rigid(second)]), 5);
+  completeProgramValue(product.instantiate(index, template, { kind: "tir", body: fixture.bodyId }, requested, limits),
+    { kind: "instantiated", artifact: { kind: "tir", body: { ...substituted.bodies[0].tir, bindings: { kind: "instantiated", bindings: requested } } },
+      types: { terms: [...types.terms, { kind: "array", element: 3, readonly: false }], signatures: types.signatures } },
+    "T becomes int32 and T[] the one appended int32[]; a rigid entry of the bound parameter takes the requested binding, a bound entry keeps its parameter");
+  const unrelated = vector([bound({ owner: fixture.definition, index: 2 }, 3)]);
+  completeProgramValue(product.instantiate(index, template, { kind: "tir", body: fixture.bodyId }, unrelated, limits),
+    { kind: "instantiated", artifact: { kind: "tir", body: { ...template.bodies[0].tir, bindings: { kind: "instantiated", bindings: unrelated } } }, types },
+    "a binding of a parameter that the captures do not mention changes no capture type or vector and appends no type");
+});
+
+// SCHEMA-MIGRATION.md 5.8: the exact inventory charges of the binding captures. The baseline threshold of each dimension is found
+// by a sweep; the variant's threshold is the baseline's plus the charge derived from instantiate-phase.ts and program-values.ts,
+// and is asserted one below, at and one above. The refusal one below is the record the forwarding law gives: Program's own meter
+// with the outer limit for work, the type export with its unchanged remaining allowance for created records.
+test("ir-program binding capture records move the Instantiate work and created-record thresholds by exactly their inventory charges", () => {
+  const fixture = moduleFixture();
+  const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
+  const available = value => ({ kind: "available", value });
+  const unavailable = { kind: "unavailable", reason: "not-provided" };
+  const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const occurrence = { body: fixture.bodyId, node: 0 };
+  const moduleOf = (fieldBinding, recordBinding) => {
+    const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+    const value = node.tsonic.conversion.deferred.invocation.input;
+    value.permissionScope = occurrence;
+    value.captured.fieldBinding = available(fieldBinding);
+    value.captured.recordBinding = available(recordBinding);
+    return syntaxTransportModule({ module: fixture.module }, node, "Expression");
+  };
+  const fieldHolder = { occurrence, bindings: available(empty), owner: available(0), pointee: available(0),
+    fieldExpression: occurrence, field: unavailable, pointerExpression: occurrence };
+  const recordHolder = fields => ({ occurrence, bindings: available(empty), source: available(0), layoutExpression: occurrence, layout: unavailable, fields });
+  const index = { ...fixture.index, types: input.index.types };
+  const limits = { maximumWork: 1000000, maximumCreatedRecords: 1000000, maximumBindingVectorsPerArtifact: 8,
+    typeExpansion: { maximumDepth: 256, maximumVisits: 100000, maximumUnionMembers: 256, maximumIntersectionMembers: 256 } };
+  const artifact = { kind: "tir", body: fixture.bodyId };
+  const expected = module => ({ kind: "instantiated", artifact: { kind: "tir", body: { ...module.bodies[0].tir,
+    bindings: { kind: "instantiated", bindings: empty } } }, types: index.types });
+  const measure = (module, field, dimension, last) => {
+    let below = null;
+    for (let maximum = 0; maximum <= last; maximum += 1) {
+      const actual = product.instantiate(index, module, artifact, empty, { ...limits, [field]: maximum });
+      if (actual.kind === "instantiated") {
+        completeProgramValue(actual, expected(module), `${field}: the baseline completes with the independently supplied artifact`);
+        assert.notEqual(below, null, `${field}: the baseline has a refusal one below its threshold`);
+        return { threshold: maximum, below };
+      }
+      completeProgramValue({ kind: actual.kind, dimension: actual.dimension }, { kind: "resource-limit", dimension }, `${field}: a refusal names its own dimension`);
+      below = actual;
+    }
+    return assert.fail(`${field}: the baseline sweep reaches a sufficient budget`);
+  };
+  for (const [name, baseline, variant, charge] of [
+    ["field binding holder", moduleOf(null, null), moduleOf(fieldHolder, null), { maximumWork: 24, maximumCreatedRecords: 5 }],
+    ["record binding holder", moduleOf(null, null), moduleOf(null, recordHolder([])), { maximumWork: 19, maximumCreatedRecords: 4 }],
+    // The projection shares the unchanged fields vector and its pairs: it neither visits nor creates them (K-3185), so one entry moves no threshold.
+    ["one shared record field entry", moduleOf(null, recordHolder([])), moduleOf(null, recordHolder([{ expression: occurrence, binding: occurrence }])),
+      { maximumWork: 0, maximumCreatedRecords: 0 }],
+  ]) for (const [field, dimension, last] of [["maximumWork", "work", 400], ["maximumCreatedRecords", "created-records", 60]]) {
+    const base = measure(baseline, field, dimension, last);
+    if (dimension === "work") completeProgramValue(base.below, { kind: "resource-limit", dimension, maximum: base.threshold - 1 },
+      `${name}: one below the baseline work threshold Program's own meter refuses with the outer limit`);
+    else {
+      completeProgramValue(Object.keys(base.below).sort(), ["dimension", "kind", "maximum"], `${name}: the closed refusal record`);
+      assert.equal(Number.isSafeInteger(base.below.maximum) && base.below.maximum >= 0 && base.below.maximum < base.threshold - 1, true,
+        `${name}: one below the baseline created-record threshold the type export refuses with its remaining allowance`);
+    }
+    const threshold = base.threshold + charge[field];
+    const below = { kind: "resource-limit", dimension, maximum: dimension === "work" ? threshold - 1 : base.below.maximum };
+    for (const maximum of [threshold - 1, threshold, threshold + 1]) {
+      completeProgramValue(product.instantiate(index, variant, artifact, empty, { ...limits, [field]: maximum }),
+        maximum < threshold ? below : expected(variant), `${name}: ${field} ${maximum} against the derived threshold ${threshold}`);
+    }
+  }
+});
+
+test("ir-program binding capture types and bound types are renumbered by an independent publication; nodes are not", () => {
+  const read = name => decodeFixtureJson(readFileSync(resolve(repository, `test/host-cases/ir-program/function/six-core-pointerOperation-null.${name}.json`), "utf8"));
+  const input = read("input");
+  const expected = read("expected").value.canonical;
+  assert.deepStrictEqual(input.publication.types, [1, 0], "the fixture publication exchanges types 0 and 1");
+  const captureOf = root => {
+    const pending = [root];
+    for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
+      if (value === null || typeof value !== "object") continue;
+      if (!Array.isArray(value) && "pointerOperation" in value) return value;
+      pending.push(...Object.values(value));
+    }
+    throw new Error("the fixture has one core capture");
+  };
+  const original = captureOf(input.module);
+  // The occurrence and the binder owner are taken from records the fixture already holds: the rule context of the
+  // core input that carries the capture, and the declaration of the one signature.
+  const inputOf = root => {
+    const pending = [root];
+    for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
+      if (value === null || typeof value !== "object") continue;
+      if (!Array.isArray(value) && "captured" in value && "context" in value) return value;
+      pending.push(...Object.values(value));
+    }
+    throw new Error("the fixture has one core rule input");
+  };
+  const occurrence = structuredClone(inputOf(input.module).context.occurrence);
+  const reference = { kind: "body", value: occurrence };
+  const owner = input.index.types.signatures[0].declaration;
+  const vector = type => ({ classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type }], methodBindings: [], capturedBindings: [], selfBindings: [] });
+  const records = (first, second) => ({
+    fieldBinding: { kind: "available", value: { occurrence, bindings: { kind: "available", value: vector(first) }, owner: { kind: "available", value: first },
+      pointee: { kind: "available", value: second }, fieldExpression: occurrence, field: { kind: "available", value: reference }, pointerExpression: occurrence } },
+    recordBinding: { kind: "available", value: { occurrence, bindings: { kind: "available", value: vector(second) }, source: { kind: "available", value: second },
+      layoutExpression: occurrence, layout: { kind: "available", value: reference }, fields: [{ expression: occurrence, binding: occurrence }] } },
+  });
+  Object.assign(original, records(0, 1));
+  Object.assign(captureOf(expected.modules), records(1, 0));
+  completeProgramValue(product.canonicalizeProgram({ index: input.index, modules: [input.module] }, input.publication), expected,
+    "owner, pointee, source and every bound type follow the publication; occurrence, expressions and descriptor references are copied");
+});
+
 test("ir-program complete write-only member origins retain null read identity in every transport", () => {
   const fixture = moduleFixture();
   const example = syntaxExamples.get("PropertyAccessExpression");
@@ -1484,7 +1688,7 @@ for (const kind of ["callback", "activation"]) for (const ownerKind of ["body", 
     const argument = { authoredIndex: null, parameter: first.definition, parameterIndex: 0, repeated: false,
       passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null };
     if (kind === "callback") facts.origins.callbacks = [{ node: 0, argument, timing: "synchronous", rejection: null, inputs: [] }];
-    else facts.origins.activations = [{ node: 0, definition: first.definition, context: 0, caller: null, entry: argument }];
+    else facts.origins.activations = [{ node: 0, activation: first.instance, context: 0, caller: null, entry: argument }];
     if (ownerKind === "missing-body") first.index.bodies = [first.index.bodies[0]];
     if (ownerKind === "summary") first.answers.set(encodeContextKey(["arenaOf", owner]), null);
     if (ownerKind === "duplicate-summary") {

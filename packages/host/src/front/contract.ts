@@ -688,6 +688,7 @@ export type RawMemoryLayout = {
 
 export interface RawMemoryField {
   readonly id: RawMemoryFieldId;
+  readonly occurrence: RawNodeRef;
   readonly owner: RawMemorySource;
   readonly value: RawMemorySource;
   readonly selector: RawNodeRef;

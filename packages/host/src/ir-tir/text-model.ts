@@ -119,6 +119,8 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypeEvidence: lazyRecord(() => type_values.work_TypeEvidence)
   });
   const captures = createCapturesText(kernel, {
+    work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
+    work_NodeRef: lazyRecord(() => type_values.work_NodeRef),
     work_C__HirPointerOperationCapture_: lazyRecord(() => memory.work_C__HirPointerOperationCapture_),
     work_C__HirPointerTypeCapture_: lazyRecord(() => memory.work_C__HirPointerTypeCapture_),
     work_SourceNodeRef: lazyRecord(() => type_values.work_SourceNodeRef),

@@ -396,6 +396,25 @@ function pointerOperationData(value: Hir.HirPointerOperationCapture): HirDataWor
     fieldData("operation", scalarData(value.operation)), ...pointerOperationFields(value)]);
 }
 
+function fieldBindingData(value: Hir.HirFieldBindingCapture): HirDataWork {
+  return recordData("HirFieldBindingCapture", value, () => [fieldData("occurrence", nodeRefData(value.occurrence)),
+    fieldData("bindings", capturedData(value.bindings, bindingsData)), fieldData("owner", capturedData(value.owner, typeData)),
+    fieldData("pointee", capturedData(value.pointee, typeData)), fieldData("fieldExpression", nodeRefData(value.fieldExpression)),
+    fieldData("field", capturedData(value.field, sourceRefData)), fieldData("pointerExpression", nodeRefData(value.pointerExpression))]);
+}
+
+function recordFieldBindingData(value: Hir.HirRecordFieldBindingCapture): HirDataWork {
+  return recordData("HirRecordFieldBindingCapture", value, () => [fieldData("expression", nodeRefData(value.expression)),
+    fieldData("binding", nodeRefData(value.binding))]);
+}
+
+function recordBindingData(value: Hir.HirRecordBindingCapture): HirDataWork {
+  return recordData("HirRecordBindingCapture", value, () => [fieldData("occurrence", nodeRefData(value.occurrence)),
+    fieldData("bindings", capturedData(value.bindings, bindingsData)), fieldData("source", capturedData(value.source, typeData)),
+    fieldData("layoutExpression", nodeRefData(value.layoutExpression)), fieldData("layout", capturedData(value.layout, sourceRefData)),
+    fieldData("fields", arrayData(value.fields, recordFieldBindingData))]);
+}
+
 function attributeCaptureData(value: Hir.HirAttributeCapture): HirDataWork {
   return recordData(value.kind, value, () => [
     fieldData("occurrence", sourceRefData(value.occurrence)), fieldData("applicationTarget", sourceRefData(value.applicationTarget)),
@@ -453,6 +472,8 @@ export function hirCoreData(value: Hir.HirCoreCapture): HirDataWork {
     fieldData("markers", capturedData(value.markers, markersData)),
     fieldData("pointerType", capturedData(value.pointerType, pointer => nullableData(pointer, pointerTypeData))),
     fieldData("pointerOperation", capturedData(value.pointerOperation, operation => nullableData(operation, pointerOperationData))),
+    fieldData("fieldBinding", capturedData(value.fieldBinding, binding => nullableData(binding, fieldBindingData))),
+    fieldData("recordBinding", capturedData(value.recordBinding, binding => nullableData(binding, recordBindingData))),
     fieldData("attribute", capturedData(value.attribute, attribute => nullableData(attribute, attributeCaptureData))),
     fieldData("safety", capturedData(value.safety, safety => nullableData(safety, safetyData))),
     fieldData("argumentPassing", capturedData(value.argumentPassing, passing => nullableData(passing, argumentPassingData))),

@@ -4,6 +4,7 @@ import type {
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, NominalDefinition, PassingMode, TypeTable } from "../ir-types/contract.js";
+import type { DeclarationTarget } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
@@ -305,7 +306,7 @@ export interface CallbackEntry {
 
 export interface BoundActivation {
   readonly node: NodeId;
-  readonly definition: DefId;
+  readonly activation: BodyInstance;
   readonly context: ValueContextId;
   readonly caller: ValueContextId | null;
   readonly entry: ArgumentTransport | null;
@@ -546,7 +547,7 @@ export type ClosedArrayReason =
 
 export type ClosedArrayFact = { readonly node: NodeId } & (
   | { readonly kind: "unproven"; readonly reason: ClosedArrayReason }
-  | { readonly kind: "closed"; readonly declarations: readonly DefId[];
+  | { readonly kind: "closed"; readonly declarations: readonly DeclarationTarget[];
       readonly references: readonly NodeRef[]; readonly literals: readonly NodeRef[];
       readonly elements: readonly MemberSelection[] }
 );
@@ -661,7 +662,7 @@ export type FactsRule =
   | "regions-order" | "suspensions-order" | "errors-order" | "error-invalidations-order"
   | "error-invalidation-origins-resolve" | "error-invalidation-outcome-exact" | "pointers-order" | "observations-order"
   | "raw-locations-order" | "field-bindings-order" | "record-bindings-order" | "memory-bindings-order"
-  | "selected-declarations-order" | "closed-arrays-order" | "argument-transports-total" | "argument-transports-authored-order"
+  | "selected-declarations-order" | "closed-arrays-order" | "closed-array-declarations-order" | "argument-transports-total" | "argument-transports-authored-order"
   | "invocation-contexts-correlated" | "summary-reference-exact" | "suspension-continuations-exact" | "suspension-input-site"
   | "pointer-backing-family-exact" | "observation-exact-value" | "observation-field-exact" | "metadata-reference-resolves"
   | "memory-binding-error-diagnostic" | "analysis-limits-respected";

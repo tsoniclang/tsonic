@@ -1,1 +1,1 @@
-{"kind":"accepted","value":{"kind":"invalid-text","offset":2113,"line":4,"column":1174,"expected":["\"property\"","\"method\""],"found":"\""},"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"invalid-text","offset":2186,"line":4,"column":1247,"expected":["\"property\"","\"method\""],"found":"\""},"diagnostics":[]}
