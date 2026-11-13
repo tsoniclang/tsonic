@@ -255,8 +255,18 @@ export interface ExtensionReferenceEntry {
   readonly reference: ExtensionReference;
 }
 
+/**
+ * One declaration library bundled with the checker, carried with its text. A checked program is opened on exactly
+ * these texts, never on what an installed checker happens to bundle. `name` is the library's file name; the
+ * libraries are in ascending order of name, each name once.
+ */
+export interface BundledLibrary {
+  readonly name: string;
+  readonly text: string;
+}
+
 export interface SourceDeclarationPolicy {
-  readonly bundledLibraries: readonly string[];
+  readonly bundledLibraries: readonly BundledLibrary[];
   readonly installedDeclarations: "none" | "package-contract";
 }
 
@@ -347,6 +357,9 @@ export type SnapshotRule =
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
   | "contribution-files-resolve"
+  | "bundled-library-named"
+  | "bundled-library-unique"
+  | "bundled-libraries-order"
   | "virtual-file-owner-resolves"
   | "contribution-layouts-exact"
   | "provider-module-prefixes-disjoint"

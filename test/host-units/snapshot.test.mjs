@@ -532,6 +532,25 @@ test("contribution-files-resolve and virtual-file-owner-resolves retain their ac
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
 });
+test("S2-5: bundled declaration libraries are carried with their texts, each name once, in ascending order of name", () => {
+  const library = (name, text = `// ${name}\n`) => ({ name, text });
+  const carried = snapshot();
+  carried.contributions.declarationPolicy.bundledLibraries = [library("lib.es2021.d.ts"), library("lib.es2022.d.ts", "")];
+  verify(carried, []);
+  assert.equal(carried.contributions.declarationPolicy.bundledLibraries[0].text, "// lib.es2021.d.ts\n", "the text is the snapshot's own");
+  const repeated = snapshot();
+  repeated.contributions.declarationPolicy.bundledLibraries = [library("lib.a.d.ts"), library("lib.a.d.ts", "different text")];
+  verify(repeated, [issue("bundled-library-unique", { kind: "snapshot" }, "lib.a.d.ts")]);
+  const unordered = snapshot();
+  unordered.contributions.declarationPolicy.bundledLibraries = [library("lib.b.d.ts"), library("lib.a.d.ts"), library("lib.c.d.ts")];
+  verify(unordered, [issue("bundled-libraries-order", { kind: "snapshot" }, "bundledLibraries")]);
+  const unnamed = snapshot();
+  unnamed.contributions.declarationPolicy.bundledLibraries = [library(""), library("lib.a.d.ts")];
+  verify(unnamed, [issue("bundled-library-named", { kind: "snapshot" }, "name")]);
+  const sparse = snapshot();
+  sparse.contributions.declarationPolicy.bundledLibraries = new Array(1);
+  verify(sparse, [sparseIssue({ kind: "snapshot" }, "bundledLibraries")]);
+});
 for (const byteOrder of ["little", "big"]) for (const addressWidth of [32, 64]) {
   test(`platform inputs preserve the explicit ${byteOrder}/${addressWidth} native ABI without a host guess`, () => {
     const value = snapshot();

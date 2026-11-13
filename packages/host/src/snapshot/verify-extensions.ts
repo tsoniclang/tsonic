@@ -78,6 +78,17 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   for (const path of files) {
     if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
   }
+  const libraryNames = new Set<string>();
+  let previousLibrary: string | null = null;
+  let unorderedLibraries = false;
+  for (const library of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+    if (library.name.length === 0) add("bundled-library-named", snapshotSite, "name");
+    if (libraryNames.has(library.name)) add("bundled-library-unique", snapshotSite, library.name);
+    libraryNames.add(library.name);
+    if (previousLibrary !== null && library.name < previousLibrary) unorderedLibraries = true;
+    previousLibrary = library.name;
+  }
+  if (unorderedLibraries) add("bundled-libraries-order", snapshotSite, "bundledLibraries");
   const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);
   const layoutKeys = new Set<string>();
   let previousLayout: string | null = null;
