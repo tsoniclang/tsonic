@@ -846,3 +846,56 @@ test("K-3313.2 a positive declaration passing fact is consumed as captured: a by
   assert.deepEqual(lowered.value.bodies.find(body => body.body === callable.body).params.map(parameter => parameter.passing), ["byref-readwrite", "by-value"]);
   assert.deepEqual(nodes.filter(node => node.kind === "Parameter").map(node => node.tsonic.core.argumentPassing), [{ kind: "available", value: declared }, { kind: "available", value: null }]);
 });
+
+// K-3268: the identity inputs through the real producer. Each case's files are opened as one snapshot (the project files in the
+// project package, the external declaration file in a package of its own, rooted), captured by captureModule and lowered by
+// lowerModuleDefinitions. Every file either gives exactly the authored rows, or is refused by name at a development frontier:
+// the keyword token of a module declaration (the SDK names kinds only for nodes) or a checker type whose captured form is not
+// written. The split is stated exactly so that each frontier closed moves files into agreement. Expectations written before the
+// run: the earlier measurement through the same operations (6 agree, 6 keyword, 30 type), with the change since that
+// measurement applied by reading the inputs: an authored annotation is now typed from its type node, so `new (a: number): I`
+// in unnamed-signatures is refused at the interface type `I`.
+test("the identity inputs through the real producer: captureModule and lowerModuleDefinitions give exactly the authored rows, or a named frontier refusal, in a stated split", () => {
+  const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
+  const libraries = bundled();
+  const keyword = "front: the keyword of a KindModuleDeclaration node needs a public name of the checker's kind numbers, which the SDK does not export";
+  const keywordFiles = ["function-with-namespace /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts", "augmentation-before-original /project/src/0aug.ts",
+    "same-kind-merges /project/src/a.ts", "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
+  const agreeingFiles = ["augmentation-and-reexport /project/src/a.ts", "augmentation-and-reexport /project/src/b.ts", "default-expression /project/src/u.ts",
+    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts"];
+  const typeFrontier = /^front: the captured form of the checker type .+ is not implemented$/u;
+  const outcomes = { agreed: [], keyword: [], type: [] };
+  for (const entry of cases) {
+    const sourceFiles = {};
+    const library = { root: "/library", name: "library", modules: {} };
+    for (const [path, text] of Object.entries(entry.files)) {
+      if (path.startsWith("/project/src/")) sourceFiles[path.slice("/project/src/".length)] = text;
+      else if (path.startsWith("/library/")) library.modules[path.slice("/library/".length)] = ["declaration", text, true];
+      else assert.fail(`${entry.name}: ${path} is under neither root`);
+    }
+    const otherPackages = Object.keys(library.modules).length === 0 ? [] : [library];
+    // A snapshot has a source entry point; an input made only of the external file gets an empty entry module, whose rows are not judged.
+    if (Object.keys(sourceFiles).length === 0) sourceFiles["main.ts"] = "export {};\n";
+    const { deps, program } = openAndCapture(projectSnapshot({ sourceFiles, libraries, otherPackages }));
+    for (const [path, expected] of Object.entries(entry.definitions ?? {})) {
+      const module = path.startsWith("/library/") ? moduleOf(packageOf("/library"), path.slice("/library/".length)) : moduleOf(packageOf("/project"), `src/${path.slice("/project/src/".length)}`);
+      const label = `${entry.name} ${path}`;
+      let raw;
+      try { raw = front.captureModule(deps, program, module); } catch (error) {
+        assert.equal(error instanceof TypeError, true, label);
+        if (error.message === keyword) outcomes.keyword.push(label);
+        else if (typeFrontier.test(error.message)) outcomes.type.push(label);
+        else assert.fail(`${label}: refused outside the named frontiers: ${error.message}`);
+        continue;
+      }
+      assert.equal(raw.kind, "ok", label);
+      const definitions = front.lowerModuleDefinitions(raw.value);
+      assert.equal(definitions.kind, "ok", label);
+      assert.deepEqual(definitions.value.rows.map(row => ({ kind: row.kind, path: row.segments.map(segment => [segment.name, segment.ordinal]) })), expected, label);
+      outcomes.agreed.push(label);
+    }
+  }
+  assert.deepEqual(outcomes.agreed.sort(), [...agreeingFiles].sort());
+  assert.deepEqual(outcomes.keyword.sort(), [...keywordFiles].sort());
+  assert.equal(outcomes.type.length, 31, "every other file of the 42 is refused at the checker-type frontier");
+});
