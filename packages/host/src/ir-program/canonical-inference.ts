@@ -292,7 +292,7 @@ function rewriteInvocation(rewrite: TypeRewrite, invocation: DeferredInvocation,
       return { rule: "closure", input: {
         context, callable: rewriteEvidence(rewrite, invocation.input.callable),
         captures: invocation.input.captures.map(capture => ({ local: capture.local, value: rewriteEvidence(rewrite, capture.value),
-          reassignable: capture.reassignable })),
+          reassignable: capture.reassignable, incoming: capture.incoming })),
       } };
   }
 }

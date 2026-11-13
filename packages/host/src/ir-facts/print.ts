@@ -197,7 +197,6 @@ const memberDecision = (writer: Writer, value: MemberDecision): void => record(w
 const resolved = (writer: Writer, value: ResolvedCallee): void => record(writer, "ResolvedCallee", [
   ["decision", () => application(writer, value.decision)],
   ["activation", () => nullable(writer, value.activation, item => bodyInstance(writer, item))],
-  ["captures", () => sequence(writer, value.captures, item => localRef(writer, item))],
 ]);
 const memberSelection = (writer: Writer, value: MemberSelection): void => record(writer, "MemberSelection", [
   ["decision", () => memberDecision(writer, value.decision)], ["getter", () => nullable(writer, value.getter, item => resolved(writer, item))],

@@ -7,6 +7,7 @@ import type {
   InferVerificationInput, MemberDecision, OperationDecision, SolvedConstraint,
 } from "./contract.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
+import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
 import type { Inventory, OwnedConstraint } from "./verify-contributions.js";
@@ -195,7 +196,7 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
       invocation.input.captures.every((capture, index) => {
         const original = value.captures[index];
         return original !== undefined && capture.local.body === original.local.body && Object.is(capture.local.local, original.local.local) &&
-          capture.reassignable === original.reassignable;
+          capture.reassignable === original.reassignable && sameSource(capture.incoming, original.incoming);
       }); break;
     case "library": case "core": {
       matches = true;
@@ -248,9 +249,15 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
     case "closure":
       if (constraint?.value.kind === "closure") {
         const captures = constraint.value.captures;
-        if (decision.closure.captures.length !== captures.length) emit(output, "closure-capture-total", site, "captures");
-        else if (decision.closure.captures.some((capture, index) => capture === "captured-value" && captures[index]?.reassignable === true))
-          emit(output, "closure-capture-binding", site, "captures");
+        const rows = decision.closure.captures;
+        if (rows.length !== captures.length || rows.some((row, index) => {
+          const captured = captures[index];
+          return captured === undefined || row.local.body !== captured.local.body || !Object.is(row.local.local, captured.local.local);
+        })) emit(output, "closure-capture-total", site, "captures");
+        else if (rows.some((row, index) => {
+          const captured = captures[index];
+          return row.capture === "captured-value" && captured !== undefined && requiresLocation(captured.reassignable, captured.incoming);
+        })) emit(output, "closure-capture-binding", site, "captures");
       }
       break;
     case "deferred": deferredReferences(context, decision.deferred, constraint, site, output); break;

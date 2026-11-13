@@ -327,7 +327,7 @@ test("first producer: the frontier is one check that names what it met", () => {
   refused(shaped("frontier.root", [["a", "required", T.int32]], T.int32, a), "a body whose root is Identifier");
   refused(returning("frontier.async", a, undefined, undefined, { extra: { asynchronous: true } }), "an asynchronous body or a generator");
   refused(returning("frontier.generator", a, undefined, undefined, { extra: { generator: true } }), "an asynchronous body or a generator");
-  refused(returning("frontier.captures", a, undefined, undefined, { extra: { captures: [{ body: bodyId("frontier.outer"), local: 0 }] } }), "a body that captures");
+  refused(returning("frontier.captures", a, undefined, undefined, { extra: { captures: [{ local: { body: bodyId("frontier.outer"), local: 0 }, capture: "captured-value" }] } }), "a body that captures");
   for (const role of ["optional", "default", "rest"]) refused(returning(`frontier.${role}`, a, [["a", role, T.int32]]), `a parameter of role ${role}`);
   // Statements and expressions.
   refused(shaped("frontier.statement", [["a", "required", T.int32]], T.int32, b => b.block(b.expressionStatement(a(b)), b.returns(a(b)))),

@@ -143,10 +143,19 @@ export interface RefinementConstraint {
   readonly result: TyId;
 }
 
+// Where the storage of a captured binding comes from in the body that creates the closure: a binding of that body's own,
+// one of its parameters with the passing mode of the declaration, or one of its own captures with the logical capture its
+// row states. A by-reference parameter and a captured location denote storage that exists outside the body.
+export type CaptureSource =
+  | { readonly kind: "binding" }
+  | { readonly kind: "parameter"; readonly passing: PassingMode }
+  | { readonly kind: "capture"; readonly capture: LogicalCapture };
+
 export interface ClosureCapture {
   readonly local: LocalRef;
   readonly type: TyId;
   readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
 }
 
 export interface ClosureConstraint {
@@ -369,14 +378,30 @@ export type AccessLocation =
 
 export type HandleActivation = "at-creation" | "when-first-driven";
 
-// The logical captured values and locations of a closure, one per captured local in order. A captured location preserves
-// its source location identity. Neither value selects a physical copy: Origins' and PointerBacking's facts and the native
+// The logical capture of one captured local. A captured location preserves its source location identity: the closure and
+// the creating body denote the same storage. A captured value is the value the binding holds at creation; when that value
+// is an object reference, the object's contents stay shared and writable through it, so a captured value says nothing
+// about immutability of contents. Neither selects a physical copy: Origins' and PointerBacking's facts and the native
 // compiler justify any later representation.
 export type LogicalCapture = "captured-value" | "captured-location";
 
+// One capture: the captured source local and its logical capture. The creator's decision and the created body state the
+// same rows in the same order.
+export interface CaptureRowOf<Capture extends LogicalCapture | null> {
+  readonly local: LocalRef;
+  readonly capture: Capture;
+}
+
+// A row of a closure decision: the capture is decided.
+export type CaptureRow = CaptureRowOf<LogicalCapture>;
+
+// A row of a created body. Its capture is the creator's decided row; it is null only in the parametric template of a body
+// whose creator saved the closure rule for instantiation, and then on every row: each instance carries the decided rows.
+export type BodyCaptureRow = CaptureRowOf<LogicalCapture | null>;
+
 export interface ClosureDecision {
   readonly carrier: TyId;
-  readonly captures: readonly LogicalCapture[];
+  readonly captures: readonly CaptureRow[];
   readonly execution: OperationExecution;
 }
 
@@ -387,6 +412,7 @@ export interface ClosureCaptureEvidence {
   readonly local: LocalRef;
   readonly value: TypeEvidence;
   readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
 }
 
 export interface ClosureInput {
@@ -731,3 +757,7 @@ export type ParseInferenceGroup = (text: string) => TextParseResult<InferenceGro
 export type PrintSolution = (solution: Solution) => string;
 export type ParseSolution = (text: string) => TextParseResult<Solution>;
 export type VerifyInference = (input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];
+// Whether a captured binding with this evidence can only be a captured location. False decides nothing: a binding that
+// cannot be reassigned and whose storage is the creating body's own may be either.
+export type CaptureRequiresLocation = (reassignable: boolean, incoming: CaptureSource) => boolean;
+export type SameCaptureSource = (left: CaptureSource, right: CaptureSource) => boolean;

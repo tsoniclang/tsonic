@@ -164,11 +164,10 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
     .field("callable", "TypedCallable", value => work_TypedCallable.write(value.callable), lazyReader(() => work_TypedCallable.reader))
-    .field("captures", "[LocalRef]", value => sequenceWork("[LocalRef]", value.captures, actual => read.work_LocalRef.write(actual)), sequenceReader("[LocalRef]", lazyReader(() => read.work_LocalRef.reader)))
     .field("closure", "O<ClosureDecision>", value => work_O_ClosureDecision_.write(value.closure), lazyReader(() => work_O_ClosureDecision_.reader))
-    .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_callable, field_captures, field_closure) => ({
+    .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_callable, field_closure) => ({
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
-      evidenceIndex: field_evidenceIndex, demand: field_demand, callable: field_callable, captures: field_captures, closure: field_closure,
+      evidenceIndex: field_evidenceIndex, demand: field_demand, callable: field_callable, closure: field_closure,
     })));
   const work_TypedClass: TirRecordCodec<TypedClass> = defineRecord<TypedClass>("TypedClass", "TypedClass", null, "TypedClass", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)

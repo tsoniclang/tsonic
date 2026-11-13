@@ -55,7 +55,6 @@ const calleeKey = (callee: ResolvedCallee | null): KeyData => {
     decision.result, decision.activation,
     activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
       ? [activation.bindings.kind] : [activation.bindings.kind, bindingsKey(activation.bindings.bindings)]],
-    each(callee.captures, capture => [capture.body, capture.local]),
   ];
 };
 

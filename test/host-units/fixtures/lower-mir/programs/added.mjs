@@ -85,7 +85,7 @@ export function handles() {
     step("finish", library("Generator.return", [T.unknown], T.unknown, invoking("unwind", true)), callee("Generator.return", SIG_GENERATOR_RETURN, [], T.unknown)),
   ], T.int32);
   const create = label => ({ $: label, ...b.call(b.global("gen", "gen", T.unknown), [], T.unknown,
-    () => ({ callee: callee("gen", SIG_GEN, [], T.unknown, [], { activation: "when-first-driven" }), receiver: null, arguments: [] })) });
+    () => ({ callee: callee("gen", SIG_GEN, [], T.unknown, { activation: "when-first-driven" }), receiver: null, arguments: [] })) });
   const program = typedBody("handles", { signature: SIG_HANDLES, completion: T.int32,
     locals: [["n", "parameter", T.int32], ["s", "binding", T.int32, true], ["i", "binding", T.int32, true], ["v", "binding", T.int32], ["idle", "binding", T.unknown]],
     params: [[0, "required", T.int32]],

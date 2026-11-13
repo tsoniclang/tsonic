@@ -32,7 +32,7 @@ const callI = (b, local, label) => ({ $: label, ...b.call(b.id("i", local, T.fnV
   callee: { decision: { ...callee("()=>int32", SIG["()=>int32"], [], T.int32).decision,
     advertised: endpoint("()=>int32", "advertised", SIG["()=>int32"], false),
     api: endpoint("()=>int32", "api-signature", SIG["()=>int32"], false) },
-    activation: null, captures: [] }, receiver: null, arguments: [] })) });
+    activation: null }, receiver: null, arguments: [] })) });
 const callF = (b, label) => ({ $: label, ...b.call(b.global("f", "wt6.f", T.unknown), [], T.int32,
   () => ({ callee: callee("wt6.f", SIG_F, [], T.int32), receiver: null, arguments: [] })) });
 

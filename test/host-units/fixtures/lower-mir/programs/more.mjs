@@ -163,7 +163,7 @@ export function wt8() {
   const arrow = (label, name) => ({ $: label, kind: "ArrowFunction", modifiers: null, typeParameters: null, parameters: { $list: true, nodes: [] },
     type: null, fullSignature: null, asteriskToken: null, body: null, equalsGreaterThanToken: { kind: "EqualsGreaterThanToken", tsonic: null },
     tsonic: { ...value(T.fnVoidToVoid), callable: { definition: def(name), parameters: [], signatures: [], attributes: [],
-      template: { body: bodyId(name), lexicalBindings: EMPTY_BINDINGS, dependence: "parametric" } }, captures: [],
+      template: { body: bodyId(name), lexicalBindings: EMPTY_BINDINGS, dependence: "parametric" } },
       closure: decided({ carrier: T.fnVoidToVoid, captures: [], execution: PURE }) } });
   const program = typedBody("runEither", { signature: SIG_RUN_EITHER, completion: T.int32,
     locals: [["c", "parameter", T.bool]], params: [[0, "required", T.bool]], nestedBodies: [bodyId("runEither.a"), bodyId("runEither.b")],

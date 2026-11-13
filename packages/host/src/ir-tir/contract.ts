@@ -2,7 +2,7 @@ import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeR
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -15,10 +15,10 @@ export type TirResolution =
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
+// The captured locals of an activated callee are the rows of its activation body; a call site states no list of its own.
 export interface ResolvedCallee {
   readonly decision: ApplicationDecision;
   readonly activation: BodyInstance | null;
-  readonly captures: readonly LocalRef[];
 }
 
 export interface MemberSelection {
@@ -267,9 +267,10 @@ export interface TypedCallable {
   readonly attributes: readonly HirAttribute[];
 }
 
+// The captured locals of a closure are named by its outcome: the rows of the decision, or the saved evidence of the
+// deferred closure rule. The typed closure states no list of its own.
 export interface TypedClosure extends TypedValue {
   readonly callable: TypedCallable;
-  readonly captures: readonly LocalRef[];
   readonly closure: RuleOutcome<ClosureDecision>;
 }
 
@@ -615,7 +616,7 @@ export interface TirBody {
   readonly locals: readonly TirLocal[];
   readonly root: BodyRoot<TypedPhase>;
   readonly nestedBodies: readonly BodyId[];
-  readonly captures: readonly LocalRef[];
+  readonly captures: readonly BodyCaptureRow[];
   readonly scopes: readonly HirLexicalScope[];
   readonly evidence: readonly TypeEvidence[];
   readonly asynchronous: boolean;
@@ -653,7 +654,7 @@ export interface TirVerifierInput {
 
 export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
-  | "capture-qualified" | "cross-owner-qualified" | "parameter-order"
+  | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"

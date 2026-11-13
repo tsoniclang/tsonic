@@ -69,8 +69,8 @@ const apiText = endpointText.replace('role="advertised"', 'role="api-signature"'
 const application = { candidate: 0, advertised: endpoint, api: apiEndpoint, bindings: bindingVector,
   implementationBindings: bindingVector, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
 const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[], completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=null, sent=null), result=t:0, activation=null)`;
-const callee = { decision: application, activation: instance, captures: [{ body: bodyIdentity, local: 0 }] };
-const calleeText = `ResolvedCallee(decision=${applicationText}, activation=${instanceText}, captures=[LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0)])`;
+const callee = { decision: application, activation: instance };
+const calleeText = `ResolvedCallee(decision=${applicationText}, activation=${instanceText})`;
 const member = { decision: { key: { kind: "text", value: "x" }, origins: [], selectedDeclarations: [], primary: null,
   read: 0, write: 0, getter: null, setter: null, bindings: bindingVector, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
 const memberText = `MemberSelection(decision=MemberDecision(key=text(value="x"), origins=[], selectedDeclarations=[], primary=null, read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingText}, location=data(check=none(), receiver="in-place")), getter=null, setter=null)`;
@@ -461,6 +461,19 @@ for (const passing of ["by-value", "move", "byref-readonly", "byref-readwrite", 
     });
   }
 }
+
+test("MIR refuses a resolved callee that states its own list of captured locals", () => {
+  const terminator = { ...site, kind: "call", step: null, callee: { kind: "direct", resolution: callee }, receiver: null,
+    arguments: [], destination: null, next: 1, unwind: { kind: "escape" } };
+  const text = document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[], terminator=call(${siteText}, callee=direct(resolution=${calleeText}), ` +
+    "receiver=null, arguments=[], destination=null, next=b:1, unwind=escape(), step=null))");
+  roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] }, text, "resolved callee without a list");
+  const at = text.indexOf(calleeText) + calleeText.length - 1;
+  const earlier = `${text.slice(0, at)}, captures=[LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0)]${text.slice(at)}`;
+  const field = at + ", ".length;
+  const lines = earlier.slice(0, field).split("\n");
+  invalidText(earlier, field, ["end of record"], "c", lines.length, lines.at(-1).length + 1);
+});
 
 for (const [identity, text] of [
   [{ kind: "native-operator", operator: "/", carrier: "uint128" }, 'native-operator(operator="/", carrier="uint128")'],
@@ -871,7 +884,7 @@ test("MIR projection types use only declared local, array and tuple storage with
         [expectedViolation("projection-type", { kind: "place", place: 1 })], `actual ${term.kind} index storage opposite`);
     }
   }
-  const input = { ...context, source: { ...context.source, captures: [{ body: body.body, local: identities.localId(3) }] },
+  const input = { ...context, source: { ...context.source, captures: [{ local: { body: body.body, local: identities.localId(3) }, capture: "captured-location" }] },
     types: { ...context.types, terms: [...context.types.terms, { kind: "array", element: identities.tyId(1), readonly: false }] } };
   const field = { ...member, decision: { ...member.decision, read: identities.tyId(1), write: identities.tyId(2) } };
   for (const projection of [{ kind: "field", member: field }, { kind: "deref" }, { kind: "capture", index: 0 }]) {
@@ -1238,7 +1251,7 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
     api: endpointFor(selectedDefinition, selectedSignature, "api-signature"), bindings: bindingVector, implementationBindings: bindingVector,
     parameters: write ? [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }] : [],
     completion: { signature: identities.sigId(selectedSignature), completion: identities.tyId(result), yielded: null, sent: null },
-    result: identities.tyId(result) }, activation: null, captures: [] };
+    result: identities.tyId(result) }, activation: null };
   const selection = { decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: propertyDefinition }],
     selectedDeclarations: [propertyDefinition], primary: propertyDefinition, read: identities.tyId(1), write: identities.tyId(1),
     getter: getterEndpoint, setter: setterEndpoint, bindings: bindingVector, location: { kind: "accessor" } }, getter: write ? null : activation, setter: write ? activation : null };
@@ -1856,7 +1869,7 @@ function callSetup(passing = "by-value", result = 0, receiver = null) {
   const api = { ...advertised, role: "api-signature" };
   const selected = { decision: { candidate: 0, advertised, api, bindings: bindingVector, implementationBindings: bindingVector,
     parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing }],
-    completion: { signature: identities.sigId(1), completion: identities.tyId(result), yielded: null, sent: null }, result: identities.tyId(result), activation: null }, activation: null, captures: [] };
+    completion: { signature: identities.sigId(1), completion: identities.tyId(result), yielded: null, sent: null }, result: identities.tyId(result), activation: null }, activation: null };
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: base.blocks[0].origin,
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const value = type => ({ type: identities.tyId(type), convertedType: identities.tyId(type), conversion: { kind: "identity" },
@@ -2337,12 +2350,12 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     body: nestedRoot,
     tsonic: { type: identities.tyId(5), convertedType: identities.tyId(5), conversion: { kind: "identity" }, narrowing: null,
       evidenceIndex: null, demand: { kind: "always" }, callable: { definition, parameters: [], signatures: [],
-        template: { body: nested, lexicalBindings: bindingVector, dependence: "parametric" }, attributes: [] }, captures: [captured],
-      closure: { kind: "decided", decision: { carrier: identities.tyId(5), captures: ["captured-location"], execution: { kind: "pure" } } } } };
+        template: { body: nested, lexicalBindings: bindingVector, dependence: "parametric" }, attributes: [] },
+      closure: { kind: "decided", decision: { carrier: identities.tyId(5), captures: [{ local: captured, capture: "captured-location" }], execution: { kind: "pure" } } } } };
   const arrow = closureKind === "ArrowFunction"
     ? { ...callable, kind: closureKind, equalsGreaterThanToken: { ...header(7, 2), kind: "EqualsGreaterThanToken", tsonic: null } }
     : { ...callable, kind: closureKind, name: null };
-  const source = { ...context.source, captures: [captured], nestedBodies: [nested], locals: [{ id: identities.localId(0),
+  const source = { ...context.source, captures: [{ local: captured, capture: "captured-location" }], nestedBodies: [nested], locals: [{ id: identities.localId(0),
     declaration: { kind: "body", value: { body: base.body, node: identities.nodeId(2) } }, name: "captured", role: "capture",
     capturedFrom: captured, mutable: true, storage: identities.tyId(1) }], root: { ...context.source.root,
     statements: { loc: { pos: 0, end: 0 }, nodes: [{ ...header(1, 0), kind: "ExpressionStatement", expression: arrow, tsonic: null },
@@ -2363,6 +2376,21 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     parameterCount: 0, endpoints: [{ declaration: definition, role: "api-body", signature: identities.sigId(1), body: nested }] });
   context.bodyOwners.set(nested, definition);
   same(verified(body, input), [], "complete exact qualified closure capture vector");
+  // The captured locals are the ones the typed closure's outcome names: the saved evidence of a deferred closure rule
+  // names them as the decision's rows do; a closure that saved another rule names none.
+  const withClosure = closure => ({ ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements,
+    nodes: [{ ...source.root.statements.nodes[0], expression: { ...arrow, tsonic: { ...arrow.tsonic, closure } } }, source.root.statements.nodes[1]] } } } });
+  const savedContext = { occurrence: { body: base.body, node: identities.nodeId(2) }, origin: base.blocks[0].origin, bindings: bindingVector };
+  const savedEvidence = { type: identities.tyId(5), component: { kind: "body", value: savedContext.occurrence }, category: { kind: "known", category: "callable" },
+    numeric: null, sum: null, nominal: null, pointer: null };
+  same(verified(body, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "closure", input: {
+    context: savedContext, callable: savedEvidence, captures: [{ local: captured, value: savedEvidence, reassignable: true, incoming: { kind: "binding" } }] } } } })),
+  [], "a deferred closure rule names the captured locals by its saved evidence");
+  same(verified(body, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "refinement", input: {
+    context: savedContext, source: savedEvidence, checked: savedEvidence } } } })),
+  [expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 }),
+    expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 })],
+  "a closure that saved another rule names no captured local");
   const noCaptures = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
     ...body.blocks[0].statements[1], value: { ...value, captures: [] },
   }] }] };
@@ -2726,8 +2754,8 @@ test("MIR application parameter mappings preserve expanded, default, omitted and
   const text = `argument(parameter=0, argument=1, component=null, passing="by-value"), argument(parameter=1, argument=0, component=2, passing="borrow-mut"), default(parameter=2, initializer=body:${JSON.stringify(bodyIdentity)}), omitted(parameter=3, type=t:4), rest(parameter=4, arguments=[], passing="move"), rest(parameter=5, arguments=[1, 0], passing="byref-readonly")`;
   const decision = { ...application, parameters, completion: { signature: 0, completion: 1, yielded: 2, sent: 3 } };
   const decisionText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[${text}], completion=CompletionEndpoint(signature=sig:0, completion=t:1, yielded=t:2, sent=t:3), result=t:0, activation=null)`;
-  const selected = { decision, activation: null, captures: [] };
-  const selectedText = `ResolvedCallee(decision=${decisionText}, activation=null, captures=[])`;
+  const selected = { decision, activation: null };
+  const selectedText = `ResolvedCallee(decision=${decisionText}, activation=null)`;
   const terminator = { ...site, kind: "call", step: null, callee: { kind: "direct", resolution: selected }, receiver: null,
     arguments: [], destination: null, next: 0, unwind: { kind: "escape" } };
   roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] }, document("", "", "",
@@ -2764,8 +2792,8 @@ test("MIR decision check, location, execution and activation fields retain every
       `invocation execution ${writesStorage} ${failure}`);
   }
   for (const activation of ["at-creation", "when-first-driven"]) {
-    const selected = { decision: { ...application, activation }, activation: null, captures: [] };
-    const selectedText = `ResolvedCallee(decision=${applicationText.replace("result=t:0, activation=null", `result=t:0, activation="${activation}"`)}, activation=null, captures=[])`;
+    const selected = { decision: { ...application, activation }, activation: null };
+    const selectedText = `ResolvedCallee(decision=${applicationText.replace("result=t:0, activation=null", `result=t:0, activation="${activation}"`)}, activation=null)`;
     const call = { ...site, kind: "call", step: null, callee: { kind: "direct", resolution: selected }, receiver: null,
       arguments: [], destination: null, next: 0, unwind: { kind: "escape" } };
     roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator: call }] }, document("", "", "",

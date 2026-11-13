@@ -27,11 +27,11 @@ const endpoint = (name, role, sig) => ({ declaration: def(name), role, signature
 const USE_CALLEE = { decision: { candidate: 0, advertised: endpoint("laws.use", "advertised", SIG_USE), api: endpoint("laws.use", "api-body", SIG_USE),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
   completion: { signature: SIG_USE, completion: T.void, yielded: null, sent: null }, result: T.void, activation: null },
-  activation: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures: [] };
+  activation: { body: bodyId("laws.use"), bindings: PARAMETRIC } };
 const callee = (name, sig, parameters) => ({ decision: { candidate: 0, advertised: endpoint(name, "advertised", sig), api: endpoint(name, "api-body", sig),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters,
   completion: { signature: sig, completion: T.void, yielded: null, sent: null }, result: T.void, activation: null },
-  activation: { body: bodyId(name), bindings: PARAMETRIC }, captures: [] });
+  activation: { body: bodyId(name), bindings: PARAMETRIC } });
 const BUMP_CALLEE = callee("laws.bump", SIG_BUMP, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "byref-readwrite" }]);
 const TWO_CALLEE = callee("laws.two", SIG_TWO, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" },
   { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }]);

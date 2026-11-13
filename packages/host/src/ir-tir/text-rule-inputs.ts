@@ -11,7 +11,7 @@ import type {
   HirCallableEndpoint, HirCoreCapture
 } from "../ir-hir/contract.js";
 import type {
-  CandidateArgument, CandidateEndpoint, CandidateInput, ClosureCaptureEvidence, ClosureInput, ConstructionPartDecision, CoreInput, CorrespondenceStep, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperationIdentity, OperatorInput, ProtocolInput, ProtocolStepDecision, RefinementInput, RuleContext
+  CandidateArgument, CandidateEndpoint, CandidateInput, CaptureSource, ClosureCaptureEvidence, ClosureInput, ConstructionPartDecision, CoreInput, CorrespondenceStep, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperationIdentity, OperatorInput, ProtocolInput, ProtocolStepDecision, RefinementInput, RuleContext
 } from "../ir-infer/contract.js";
 import type {
   Diagnostic
@@ -316,11 +316,27 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
     .field("rule", "'closure", value => scalarWork("'closure", value.rule), literalReader<(DeferredInvocation & { readonly rule: "closure" })["rule"]>("'closure", ["closure"]))
     .field("input", "ClosureInput", value => work_ClosureInput.write(value.input), lazyReader(() => work_ClosureInput.reader))
     .finish((field_rule, field_input) => ({ rule: field_rule, input: field_input })));
+  const work_CaptureSource_binding: TirRecordCodec<CaptureSource & { readonly kind: "binding" }> = defineRecord<CaptureSource & { readonly kind: "binding" }>("CaptureSource#binding", "CaptureSource", { field: "kind", value: "binding" }, "binding", null, null, fields => fields
+    .finish(() => ({ kind: "binding" })));
+  const work_CaptureSource_parameter: TirRecordCodec<CaptureSource & { readonly kind: "parameter" }> = defineRecord<CaptureSource & { readonly kind: "parameter" }>("CaptureSource#parameter", "CaptureSource", { field: "kind", value: "parameter" }, "parameter", null, null, fields => fields
+    .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(CaptureSource & { readonly kind: "parameter" })["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
+    .finish((field_passing) => ({ kind: "parameter", passing: field_passing })));
+  const work_CaptureSource_capture: TirRecordCodec<CaptureSource & { readonly kind: "capture" }> = defineRecord<CaptureSource & { readonly kind: "capture" }>("CaptureSource#capture", "CaptureSource", { field: "kind", value: "capture" }, "capture", null, null, fields => fields
+    .field("capture", "LogicalCapture", value => scalarWork("LogicalCapture", value.capture), literalReader<(CaptureSource & { readonly kind: "capture" })["capture"]>("LogicalCapture", ["captured-value","captured-location"]))
+    .finish((field_capture) => ({ kind: "capture", capture: field_capture })));
+  const work_CaptureSource: TirRecordCodec<CaptureSource> = unionRecord<CaptureSource>("CaptureSource", (value: CaptureSource): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "binding": return work_CaptureSource_binding.write(value);
+      case "parameter": return work_CaptureSource_parameter.write(value);
+      case "capture": return work_CaptureSource_capture.write(value);
+    }
+  }, () => [work_CaptureSource_binding.reader, work_CaptureSource_parameter.reader, work_CaptureSource_capture.reader]);
   const work_ClosureCaptureEvidence: TirRecordCodec<ClosureCaptureEvidence> = defineRecord<ClosureCaptureEvidence>("ClosureCaptureEvidence", "ClosureCaptureEvidence", null, "ClosureCaptureEvidence", null, null, fields => fields
     .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
     .field("value", "TypeEvidence", value => read.work_TypeEvidence.write(value.value), lazyReader(() => read.work_TypeEvidence.reader))
     .field("reassignable", "boolean", value => scalarWork("boolean", value.reassignable), booleanReader)
-    .finish((field_local, field_value, field_reassignable) => ({ local: field_local, value: field_value, reassignable: field_reassignable })));
+    .field("incoming", "CaptureSource", value => work_CaptureSource.write(value.incoming), lazyReader(() => work_CaptureSource.reader))
+    .finish((field_local, field_value, field_reassignable, field_incoming) => ({ local: field_local, value: field_value, reassignable: field_reassignable, incoming: field_incoming })));
   const work_ClosureInput: TirRecordCodec<ClosureInput> = defineRecord<ClosureInput>("ClosureInput", "ClosureInput", null, "ClosureInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("callable", "TypeEvidence", value => read.work_TypeEvidence.write(value.callable), lazyReader(() => read.work_TypeEvidence.reader))

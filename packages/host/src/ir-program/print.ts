@@ -6,6 +6,7 @@ import { printMir } from "../ir-mir/index.js";
 import { printTypes } from "../ir-types/index.js";
 import { textArtifactBindings, textBindingVector, textBodyInstance, textConstValue, textTypeEvidence } from "./text-types.js";
 import { textHirLexicalScope } from "./text-core.js";
+import { textBodyCaptureRow } from "./text-inference.js";
 import { createSyntaxText, syntaxText } from "./print-syntax.js";
 import { boolean, deferred, emitText, field, identity, nullable, numeric, numericIdentity, record, sequence, text, textDiagnostic, textLocalRef, textSourceNodeRef, token } from "./text-values.js";
 
@@ -97,7 +98,7 @@ function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
     ])))),
     field("root", context.reference(value.root)),
     field("nestedBodies", sequence(value.nestedBodies, body => identity("body", body))),
-    field("captures", sequence(value.captures, textLocalRef)),
+    field("captures", sequence(value.captures, textBodyCaptureRow)),
     field("scopes", sequence(value.scopes, textHirLexicalScope)),
     field("evidence", sequence(value.evidence, textTypeEvidence)),
     field("asynchronous", boolean(value.asynchronous)), field("generator", boolean(value.generator)),

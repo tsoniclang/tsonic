@@ -1150,8 +1150,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       equalsGreaterThanToken: { ...header(6, 2), kind: "EqualsGreaterThanToken", tsonic: null }, body: value(7, 2),
       tsonic: { ...typedValue(3), callable: { definition: definitions.callee, parameters: [], signatures: [
         { declaration: definitions.callee, role: "api-signature", signature: 1, body: callableBody },
-      ], template: { body: callableBody, lexicalBindings: emptyBindings(), dependence: "parametric" }, attributes: [] }, captures: [{ body, local: 0 }],
-        closure: { kind: "decided", decision: { carrier: 3, captures: ["captured-location"], execution: { kind: "pure" } } } },
+      ], template: { body: callableBody, lexicalBindings: emptyBindings(), dependence: "parametric" }, attributes: [] },
+        closure: { kind: "decided", decision: { carrier: 3, captures: [{ local: { body, local: 0 }, capture: "captured-location" }], execution: { kind: "pure" } } } },
     } }];
     supplied.tir.nestedBodies = [callableBody, defaultBody];
     input.refinements.integers = [{ node: 2, range: null, nonnegative: false }];
@@ -1371,7 +1371,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
     const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: emptyBindings(),
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
-      completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1, activation: null }, activation: null, captures: [] };
+      completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1, activation: null }, activation: null };
     supplied.tir.root = { ...header(1), kind: "CallExpression", questionDotToken: null, typeArguments: null,
       expression: { ...header(2, 1), kind: "Identifier", text: "callee", tsonic: { ...typedValue(3), role: "value",
         resolution: { kind: "definition", definition: definitions.callee, aliases: [] } } },
@@ -1538,8 +1538,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "Every non-rest selected formal has its complete actual or explicit omitted transport."],
     ["argument-transports-authored-order", input => { input.origins.invocations[0].alternatives[0].arguments.reverse(); },
       "Transports retain authored actual evaluation order without inventing a flattened runtime slot."],
-    ["invocation-contexts-correlated", input => { input.origins.invocations[0].alternatives[0].resolution.captures = [{ body: otherBody, local: 0 }]; },
-      "Each invocation alternative retains its own complete actual captured-location vector."],
     ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
       "An invocation names the actual selected declaration and exact instantiated summary environment."],
   ];
@@ -1644,7 +1642,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       supplied.tir.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
       input.arena.contexts[0].arguments = [1];
     } else if (kind === "capture") {
-      supplied.tir.captures = [{ body: otherBody, local: 0 }];
+      supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }];
       supplied.tir.locals = [{ id: 0, declaration: { kind: "body", value: { body: otherBody, node: 1 } }, name: "captured", role: "capture",
         capturedFrom: { body: otherBody, local: 0 }, mutable: true, storage: 0 }];
       input.arena.contexts[0].captures = [{ index: 0, location: 0 }];
@@ -1726,7 +1724,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       if (isSummary) input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
     }
     if (kind === "capture") {
-      supplied.tir.captures = [{ body: otherBody, local: 0 }];
+      supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }];
       if (isSummary) {
         input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }];
         supplied.context.captureCount = selected => (assert.equal(selected.definition, definitions.f, "actual retention captured-location inventory"), supplied.tir.captures.length);
@@ -2255,12 +2253,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const selected = member(); selected.decision.getter = endpoint("api-signature"); selected.decision.location = { kind: "accessor" };
     selected.getter = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"),
       bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [{ kind: "omitted", parameter: 0, type: 0 }],
-      completion: { signature: 1, completion: 1, yielded: null, sent: 0 }, result: 0, activation: null }, activation: null, captures: [{ body: otherBody, local: 0 }] };
+      completion: { signature: 1, completion: 1, yielded: null, sent: 0 }, result: 0, activation: null }, activation: null };
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "method-value", member: selected } });
     supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
   };
   for (const [name, amend, rule, message] of [
-    ["capture", resolved => { resolved.captures[0].local = 99; }, "capture-locations-exact", "A selected accessor retains its actual captured storage locations."],
     ["completion signature", resolved => { resolved.decision.completion.signature = 99; }, "signature-resolves", "A selected member completion retains its actual signature."],
     ["omitted type", resolved => { resolved.decision.parameters[0].type = 99; }, "type-resolves", "A selected member type resolves in the actual supplied type table."],
     ["sent type", resolved => { resolved.decision.completion.sent = 99; }, "type-resolves", "A selected member type resolves in the actual supplied type table."],
@@ -2647,7 +2644,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
   ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1, activation=null)`;
-  const resolvedText = `ResolvedCallee(decision=${applicationText}, activation=null, captures=[])`;
+  const resolvedText = `ResolvedCallee(decision=${applicationText}, activation=null)`;
   for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
     const input = bodyFacts(); invocationFixture(input, setup());
     const row = input.origins.invocations[0];
@@ -2689,6 +2686,15 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const offset = invalid.indexOf("implementationBindings=null") + "implementationBindings=".length;
     const before = invalid.slice(0, offset).split("\n");
     malformed(product.parseFacts, invalid, offset, ["BindingVector"], "null", "null API environment", before.length, before.at(-1).length + 1);
+  });
+  await suite.test("a resolved callee that states its own list of captured locals is rejected at that field", () => {
+    const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=none(), receiver="in-place")), getter=${resolvedText}, setter=null)`;
+    const text = emptyFactsText.replace("projections=[]", `projections=${arrayText([`ProjectionPath(id=path:0, parent=null, projection=field(member=${decision}))`])}`);
+    const end = text.indexOf(resolvedText) + resolvedText.length - 1;
+    const earlier = `${text.slice(0, end)}, captures=[]${text.slice(end)}`;
+    const offset = end + 2;
+    const before = earlier.slice(0, offset).split("\n");
+    malformed(product.parseFacts, earlier, offset, ["end of record"], "captures", "a resolved callee with its own list", before.length, before.at(-1).length + 1);
   });
   await suite.test("an unknown value and a missing last field of the location and activation fields are rejected at the field's own position", () => {
     const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=required(failure="unwind"), receiver="by-reference")), getter=${resolvedText.replace("result=t:1, activation=null", 'result=t:1, activation="when-first-driven"')}, setter=null)`;
@@ -2738,13 +2744,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const row = input.origins.invocations[0].alternatives[0].resolution;
     row.decision.parameters = [mapping]; row.decision.implementationBindings = fullBindings;
     row.decision.completion.yielded = 0; row.decision.completion.sent = 1;
-    row.activation = { body, bindings: { kind: "instantiated", bindings: fullBindings } }; row.captures = [{ body: otherBody, local: 0 }];
+    row.activation = { body, bindings: { kind: "instantiated", bindings: fullBindings } };
     const selected = member(); selected.getter = row; selected.setter = clone(row);
     const decision = `MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=none(), receiver="in-place"))`;
     const application = applicationText.replace(`implementationBindings=${bindingsText}`, `implementationBindings=${fullBindingsText}`)
       .replace(`parameters=${arrayText(['argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")'])}`, `parameters=${arrayText([authored])}`)
       .replace("yielded=null, sent=null", "yielded=t:0, sent=t:1");
-    const resolved = `ResolvedCallee(decision=${application}, activation=BodyInstance(body=body:"${body}", bindings=instantiated(bindings=${fullBindingsText})), captures=${arrayText([`LocalRef(body=body:"${otherBody}", local=l:0)`])})`;
+    const resolved = `ResolvedCallee(decision=${application}, activation=BodyInstance(body=body:"${body}", bindings=instantiated(bindings=${fullBindingsText})))`;
     await arenaTextCase(`selected accessor full transport mapping ${mapping.kind}`, "projections", [{ id: 0, parent: null, projection: { kind: "method-value", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=method-value(member=MemberSelection(decision=${decision}, getter=${resolved}, setter=${resolved})))`]);
   }
@@ -2969,7 +2975,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.signatures[1].parameters = [parameter(definitions.parameter), parameter(definitions.capture), parameter(definitions.other)];
     input.parameters.unshift({ slot: { kind: "receiver" }, reads: { kind: "open", paths: [0], boundaries: [0] }, writes: completePaths() });
     input.captures = [{ index: 0, reads: completePaths(), writes: { kind: "complete", paths: [1] } }];
-    supplied.tir.captures = [{ body: otherBody, local: 0 }]; supplied.context.captureCount = () => supplied.tir.captures.length;
+    supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }]; supplied.context.captureCount = () => supplied.tir.captures.length;
     input.callbacks[0] = { parameterIndex: 0, timing, rejection: 2, inputs: [{ kind: "receiver-element", parameterIndex: 0 }, { kind: "receiver-rejection", parameterIndex: 1 },
       { kind: "argument-element", parameterIndex: 2, sourceParameterIndex: 0 }] };
     input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: nodeRef(1) } } }];
@@ -3374,13 +3380,15 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }, [violation("cross-owner-qualified", metadataSite(), fieldIdentityMessage),
     violation("bindings-complete", metadataSite(), missingScopeMessage)]);
 
+  // The captured locations of a call are the rows of its activation body (K-3283): the call site states no list of its own.
   const captureLocations = () => [{ body: otherBody, local: 0 }, { body, local: 0 }, { body, local: 1 }];
+  const rowsOf = locals => locals.map(local => ({ local: clone(local), capture: "captured-location" }));
   const capturedActivation = (input, supplied, reversed = false) => {
     actualDependentActivation(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0];
     const actual = supplied.bodyRows.get(alternative.resolution.activation.body);
     const locations = captureLocations(); const selected = reversed ? [locations[1], locations[0]] : [locations[0], locations[1]];
-    actual.captures = clone(selected); alternative.resolution.captures = clone(selected);
+    actual.captures = rowsOf(selected);
     for (const [index, capturedFrom] of selected.entries()) actual.locals.push({ id: index + 2, declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } },
       name: `capture${index}`, role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 });
     supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
@@ -3390,32 +3398,36 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.scopeRows.body.splice(1, 0, emptyScope());
   };
   const invocationCaptureMessage = "Each invocation alternative retains its own complete actual captured-location vector.";
-  for (const reversed of [false, true]) for (const mode of ["permutation", "replacement", "missing", "sparse-body", "sparse-resolution", "negative-zero"]) {
-    await factOpposite(`selected invocation capture ${mode} in actual ${reversed ? "reverse" : "forward"} order`,
+  const invocationLocationMessage = "An invocation capture retains its actual qualified local location.";
+  for (const reversed of [false, true]) for (const [mode, expected] of [
+    ["context one capture short", [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]],
+    ["body row twice", [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]],
+    ["body row missing", [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]],
+    ["body row hole", [violation("capture-locations-exact", nodeSite(1), invocationLocationMessage),
+      violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]],
+    ["body row naming no local", [violation("capture-locations-exact", nodeSite(1), invocationLocationMessage),
+      violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]],
+  ]) {
+    await factOpposite(`selected invocation capture: ${mode}, in actual ${reversed ? "reverse" : "forward"} order`,
       (input, supplied) => capturedActivation(input, supplied, reversed), (input, supplied) => {
-        const resolution = input.origins.invocations[0].alternatives[0].resolution;
-        if (mode === "permutation") resolution.captures.reverse();
-        if (mode === "replacement") resolution.captures[1] = captureLocations()[2];
-        if (mode === "missing") resolution.captures.pop();
-        if (mode === "sparse-body") supplied.bodyRows.get(resolution.activation.body).captures = new Array(2);
-        if (mode === "sparse-resolution") resolution.captures = new Array(2);
-        if (mode === "negative-zero") resolution.captures[1].local = -0;
-      }, [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage),
-        ...(mode === "sparse-resolution" ? [
-          violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location."),
-          violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location."),
-        ] : mode === "negative-zero" ? [violation("capture-locations-exact", nodeSite(1), "An invocation capture retains its actual qualified local location.")] : []),
-      ]);
+        const rows = supplied.bodyRows.get(input.origins.invocations[0].alternatives[0].resolution.activation.body).captures;
+        // the canonical arena changes with the input, so only the correlation with the body's rows is judged
+        if (mode === "context one capture short") for (const arena of [input.arena, supplied.canonicalArenas.get(ownerKey(owner()))]) arena.contexts[0].captures.pop();
+        if (mode === "body row twice") rows[1] = clone(rows[0]);
+        if (mode === "body row missing") rows.pop();
+        if (mode === "body row hole") delete rows[1];
+        if (mode === "body row naming no local") rows[1].local = { body: otherBody, local: 9 };
+      }, expected);
   }
-  await suite.test("bodyless alternatives retain supplied captures without inventing an activation environment", () => {
-    const input = bodyFacts(); const supplied = setup(input); capturedActivation(input, supplied);
+  await factOpposite("a bodyless alternative captures nothing: its context states no captured location", (input, supplied) => {
+    capturedActivation(input, supplied);
     const resolution = input.origins.invocations[0].alternatives[0].resolution;
     resolution.activation = null; resolution.decision.api.body = null; supplied.scopeRows.body.splice(5, 1);
-    supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
-    equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete bodyless actual-capture vector");
-  });
-  await factOpposite("each dynamic alternative retains its own selected body's capture order rather than the syntax candidate's", (input, supplied) => {
+    input.arena.contexts[0].captures = [];
+  }, (input, supplied) => {
+    for (const arena of [input.arena, supplied.canonicalArenas.get(ownerKey(owner()))]) arena.contexts[0].captures = [{ index: 0, location: 0 }];
+  }, [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]);
+  await factOpposite("each dynamic alternative is held to its own selected body's rows rather than the syntax candidate's", (input, supplied) => {
     invocationFixture(input, supplied);
     const locations = captureLocations(); const first = input.origins.invocations[0].alternatives[0];
     const selectedBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
@@ -3423,24 +3435,23 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.arena.producers.push({ id: 1, path: null, kind: "shared", definition: definitions.other });
     input.arena.boundProducers.push({ id: 1, producer: 1, bindings: emptyBindings(), context: 0 });
     input.arena.contexts[0].captures = [{ index: 0, location: 0 }, { index: 1, location: 1 }];
-    input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1 }, { index: 1, location: 0 }] });
+    input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1 }] });
     first.resolution.activation = { body: selectedBody, bindings: parametric() }; first.resolution.decision.api.body = selectedBody;
-    first.resolution.captures = [clone(locations[0]), clone(locations[1])];
     const second = clone(first); second.context = 1; second.summary.definition = definitions.other;
     second.resolution.activation.body = otherBody; second.resolution.decision.advertised.declaration = definitions.other;
     second.resolution.decision.advertised.signature = 2; second.resolution.decision.api.declaration = definitions.other;
     second.resolution.decision.api.signature = 2; second.resolution.decision.api.body = otherBody;
-    second.resolution.decision.completion.signature = 2; second.resolution.captures.reverse();
+    second.resolution.decision.completion.signature = 2;
     for (const argument of second.arguments) argument.formal.owner.definition = definitions.other;
     input.origins.invocations[0].alternatives.push(second);
-    for (const [selected, bodyId, definitionId, signatureId] of [[first, selectedBody, definitions.callee, 1], [second, otherBody, definitions.other, 2]]) {
+    for (const [bodyId, definitionId, signatureId, captured] of [[selectedBody, definitions.callee, 1, [locations[0], locations[1]]], [otherBody, definitions.other, 2, [locations[1]]]]) {
       const actual = tir(); actual.body = bodyId; actual.owner = definitionId; actual.signature = signatureId;
       actual.params = [definitions.parameter, definitions.capture].map((declaration, local) => ({ local, declaration,
         role: "required", passing: "by-value", initializer: null, storage: 0 }));
-      actual.captures = clone(selected.resolution.captures);
+      actual.captures = rowsOf(captured);
       actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
         name: `parameter${parameter.local}`, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
-      for (const [index, capturedFrom] of actual.captures.entries()) actual.locals.push({ id: index + 2,
+      for (const [index, capturedFrom] of captured.entries()) actual.locals.push({ id: index + 2,
         declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } }, name: `capture${index}`,
         role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 });
       supplied.bodyRows.set(bodyId, actual); supplied.bodyOwners.set(bodyId, definitionId);
@@ -3450,8 +3461,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       producers: [{ id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 }],
       contexts: [], boundProducers: [], origins: [], boundaries: [] });
     supplied.scopeRows.body = [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()];
-  }, input => { input.origins.invocations[0].alternatives[1].resolution.captures.reverse(); },
-  [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]);
+  }, (input, supplied) => {
+    for (const arena of [input.arena, supplied.canonicalArenas.get(ownerKey(owner()))]) arena.contexts[1].captures.push({ index: 1, location: 0 });
+  }, [violation("invocation-contexts-correlated", nodeSite(1), invocationCaptureMessage)]);
   const capturedAccessor = (kind, reversed, input, supplied) => {
     accessorSelection(input, supplied);
     const selected = input.arena.projections[2].projection.member;
@@ -3467,58 +3479,20 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 },
       ...captures.map((capturedFrom, index) => ({ id: index + 1, declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } },
         name: `capture${index}`, role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 }))];
-    actual.captures = clone(captures); supplied.bodyRows.set(selectedBody, actual); supplied.bodyOwners.set(selectedBody, definitions.callee);
+    actual.captures = rowsOf(captures); supplied.bodyRows.set(selectedBody, actual); supplied.bodyOwners.set(selectedBody, definitions.callee);
     resolution.activation = { body: selectedBody, bindings: parametric() }; resolution.decision.api.body = selectedBody;
-    resolution.captures = clone(captures);
     supplied.context.localExists = selected => locations.some(actual => actual.body === selected.body && Object.is(actual.local, selected.local));
   };
-  const accessorCaptureMessage = "A selected accessor retains its actual ordered captured-location vector.";
+  const accessorLocationMessage = "A selected accessor retains its actual captured storage locations.";
   for (const kind of ["getter", "setter"]) for (const reversed of [false, true]) {
-    for (const mode of ["permutation", "replacement", "missing", "sparse-body", "sparse-resolution", "negative-zero"]) {
-      await factOpposite(`selected ${kind} capture ${mode} in actual ${reversed ? "reverse" : "forward"} order`,
+    for (const mode of ["body row hole", "body row naming no local"]) {
+      await factOpposite(`selected ${kind} capture: ${mode}, in actual ${reversed ? "reverse" : "forward"} order`,
         (input, supplied) => capturedAccessor(kind, reversed, input, supplied), (input, supplied) => {
-          const resolution = input.arena.projections[2].projection.member[kind];
-          if (mode === "permutation") resolution.captures.reverse();
-          if (mode === "replacement") resolution.captures[1] = captureLocations()[2];
-          if (mode === "missing") resolution.captures.pop();
-          if (mode === "sparse-body") supplied.bodyRows.get(resolution.activation.body).captures = new Array(2);
-          if (mode === "sparse-resolution") resolution.captures = new Array(2);
-          if (mode === "negative-zero") resolution.captures[1].local = -0;
-        }, [...(mode === "sparse-resolution" ? [
-          violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
-          violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
-        ] : mode === "negative-zero" ? [violation("capture-locations-exact", arenaSite("projection", "projection", 2),
-          "A selected accessor retains its actual captured storage locations.")] : []),
-          violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage)]);
+          const rows = supplied.bodyRows.get(input.arena.projections[2].projection.member[kind].activation.body).captures;
+          if (mode === "body row hole") delete rows[1];
+          if (mode === "body row naming no local") rows[1].local = { body: otherBody, local: 9 };
+        }, [violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorLocationMessage)]);
     }
-    for (const missing of [0, 1]) await factOpposite(`selected ${kind} missing capture slot${missing} in actual ${reversed ? "reverse" : "forward"} order`,
-      (input, supplied) => capturedAccessor(kind, reversed, input, supplied), input => {
-        delete input.arena.projections[2].projection.member[kind].captures[missing];
-      }, [violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
-        violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage)]);
-    await factOpposite(`selected field ${kind} missing capture vector in actual ${reversed ? "reverse" : "forward"} order`,
-      (input, supplied) => {
-        capturedAccessor(kind, reversed, input, supplied); input.arena.projections[2].projection.kind = "field";
-      }, input => { input.arena.projections[2].projection.member[kind].captures = new Array(2); }, [
-        violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
-        violation("capture-locations-exact", arenaSite("projection", "projection", 2), "A selected accessor retains its actual captured storage locations."),
-        violation("capture-locations-exact", arenaSite("projection", "projection", 2), accessorCaptureMessage),
-      ]);
-    for (const target of ["input", "canonical"]) await metadataOpposite(`selected field ${kind} missing ${target} capture vector in actual ${reversed ? "reverse" : "forward"} order`,
-      (input, supplied) => {
-        withField(input, supplied); const selected = bodyFacts(); capturedAccessor(kind, reversed, selected, supplied);
-        input.fields[0].member = clone(selected.arena.projections[2].projection.member);
-        supplied.scopeRows.metadata = [emptyScope(), emptyScope(), emptyScope()];
-      }, (input, supplied) => {
-        const selected = target === "input" ? input : supplied.metadataRows.get(definitions.layout);
-        selected.fields[0].member[kind].captures = new Array(2);
-      }, [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
-        ...(target === "input" ? [
-          violation("member-correspondence-exact", metadataSite(), "A selected accessor retains its actual captured storage locations."),
-          violation("member-correspondence-exact", metadataSite(), "A selected accessor retains its actual captured storage locations."),
-          violation("member-correspondence-exact", metadataSite(), accessorCaptureMessage),
-        ] : []),
-      ]);
   }
 
   await suite.test("every numeric identity decoder rejects a different prefix, string payload and bare scalar at its actual field", () => {
@@ -4284,7 +4258,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "verifyFacts(facts, mir, { ...context, types: { ...context.types, signatures: [suppliedSignature] } });",
       ].join("\n"), []], ["sparse-verifier-peer-rows", [
         'import type { TypeTerm, Signature } from "./packages/host/src/ir-types/contract.js";',
-        'import type { LocalRef } from "./packages/host/src/ids/contract.js";',
+        'import type { BodyCaptureRow } from "./packages/host/src/ir-infer/contract.js";',
         'import type { TirBody, TirParam } from "./packages/host/src/ir-tir/contract.js";',
         'import type { MirBlock, MirLocal, MirStatement } from "./packages/host/src/ir-mir/contract.js";',
         "declare const actualBlock: MirBlock; declare const actualTir: TirBody;",
@@ -4294,7 +4268,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "const locals: readonly MirLocal[] = new Array<MirLocal>(1);",
         "const statements: readonly MirStatement[] = new Array<MirStatement>(1);",
         "const peerBlock: MirBlock = { ...actualBlock, statements };",
-        "const peerTir: TirBody = { ...actualTir, params: new Array<TirParam>(1), captures: new Array<LocalRef>(2) };",
+        "const peerTir: TirBody = { ...actualTir, params: new Array<TirParam>(1), captures: new Array<BodyCaptureRow>(2) };",
         "verifyFacts(facts, { ...mir, blocks: [peerBlock], locals }, { ...context, types: { ...context.types, terms, signatures }, tirBody: () => peerTir });",
         "verifyFacts(facts, { ...mir, blocks }, context);",
       ].join("\n"), []], ["facts-readonly", "facts.instance.body = facts.instance.body;", [2540]],

@@ -335,7 +335,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-syntax-statements.ts", "text-syntax-types.ts", "text-syntax-jsx.ts", "text-syntax-docs.ts",
       "verify.ts", "verify-occurrences.ts", "verify-applications.ts", "verify-instances.ts", "selection-key.ts", "syntax-compare.ts",
       ...["common", "docs", "jsx", "statements", "types", "values"].map(name => `syntax-compare-${name}.ts`)].map(name => `${host}/ir-tir/${name}`),
-    ...["index.ts", "parse.ts", "print.ts", "text-capture-values.ts", "text-captures.ts",
+    ...["capture-law.ts", "index.ts", "parse.ts", "print.ts", "text-capture-values.ts", "text-captures.ts",
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",
       "text-decisions.ts", "text-evidence.ts", "text-invocations.ts", "text-operations.ts", "text-pointers.ts",
       "text-rule-inputs.ts", "verify-contributions.ts", "verify-solution.ts", "verify.ts"].map(name => `${host}/ir-infer/${name}`),

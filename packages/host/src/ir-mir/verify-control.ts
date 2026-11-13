@@ -369,11 +369,16 @@ export function verifySelections(
       if (value.kind === "closure" && source !== undefined) {
         if (source.node.kind !== "ArrowFunction" && source.node.kind !== "FunctionExpression") report("operation-selected", site);
         else {
+          // The captured locals of the typed closure are the ones its outcome names: the rows of its decision, or the saved
+          // evidence of the deferred closure rule. They are read where they stand, by position.
           const selected = source.node.tsonic;
+          const outcome = selected.closure;
+          const named = outcome.kind === "decided" ? outcome.decision.captures
+            : outcome.deferred.invocation.rule === "closure" ? outcome.deferred.invocation.input.captures : null;
           if (selected.callable.template === null || value.instance.body !== selected.callable.template.body
-            || selected.captures.length !== value.captures.length) report("capture-location-exact", site);
+            || named === null || named.length !== value.captures.length) report("capture-location-exact", site);
           for (const [index, capture] of value.captures.entries()) {
-            const expected = selected.captures[index];
+            const expected = named?.[index]?.local;
             if (expected === undefined || expected.body !== capture.local.body || !Object.is(expected.local, capture.local.local)) report("capture-location-exact", site);
           }
         }

@@ -5,13 +5,13 @@ import type {
   BindingVector, MemberKey, MemberOrigin, TypeComponent, TypeEvidence
 } from "../ir-types/contract.js";
 import type {
-  NodeRef
+  LocalRef, NodeRef
 } from "../ids/contract.js";
 import type {
   HirCallableEndpoint
 } from "../ir-hir/contract.js";
 import type {
-  AccessLocation, ApplicationDecision, LogicalCapture, CheckRequirement, ClosureDecision, CompletionEndpoint, ConstructionPartDecision, OperationExecution, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
+  AccessLocation, ApplicationDecision, BodyCaptureRow, CaptureRow, LogicalCapture, CheckRequirement, ClosureDecision, CompletionEndpoint, ConstructionPartDecision, OperationExecution, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
 } from "../ir-infer/contract.js";
 import type { BackedConversionIdentity, ConversionIdentity } from "./contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
@@ -19,6 +19,7 @@ import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner
 
 export interface RuleDecisionsTextReads {
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
+  readonly work_LocalRef: TirRecordCodec<LocalRef>;
   readonly work_CorrespondenceStep: TirRecordCodec<CorrespondenceStep>;
   readonly work_HirCallableEndpoint: TirRecordCodec<HirCallableEndpoint>;
   readonly work_MemberKey: TirRecordCodec<MemberKey>;
@@ -36,6 +37,8 @@ export interface RuleDecisionsTextModel {
   readonly work_OperationDecision_conversion: TirRecordCodec<OperationDecision & { readonly operation: ConversionIdentity }>;
   readonly work_OperationDecision_backed: TirRecordCodec<OperationDecision & { readonly operation: BackedConversionIdentity }>;
   readonly work_ClosureDecision: TirRecordCodec<ClosureDecision>;
+  readonly work_CaptureRow: TirRecordCodec<CaptureRow>;
+  readonly work_BodyCaptureRow: TirRecordCodec<BodyCaptureRow>;
   readonly work_OperationDecision: TirRecordCodec<OperationDecision>;
   readonly work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision>;
   readonly work_ProtocolStepDecision: TirRecordCodec<ProtocolStepDecision>;
@@ -237,9 +240,17 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("occurrence", "NodeRef", value => read.work_NodeRef.write(value.occurrence), lazyReader(() => read.work_NodeRef.reader))
     .field("value", "TypeEvidence", value => read.work_TypeEvidence.write(value.value), lazyReader(() => read.work_TypeEvidence.reader))
     .finish((field_occurrence, field_value) => ({ kind: "spread", occurrence: field_occurrence, value: field_value })));
+  const work_CaptureRow: TirRecordCodec<CaptureRow> = defineRecord<CaptureRow>("CaptureRow", "CaptureRow", null, "CaptureRow", null, null, fields => fields
+    .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
+    .field("capture", "LogicalCapture", value => scalarWork("LogicalCapture", value.capture), literalReader<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"]))
+    .finish((field_local, field_capture) => ({ local: field_local, capture: field_capture })));
+  const work_BodyCaptureRow: TirRecordCodec<BodyCaptureRow> = defineRecord<BodyCaptureRow>("BodyCaptureRow", "CaptureRow", null, "CaptureRow", null, null, fields => fields
+    .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
+    .field("capture", "?LogicalCapture", value => nullableWork(value.capture, actual => scalarWork("LogicalCapture", actual)), nullableReader(literalReader<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"])))
+    .finish((field_local, field_capture) => ({ local: field_local, capture: field_capture })));
   const work_ClosureDecision: TirRecordCodec<ClosureDecision> = defineRecord<ClosureDecision>("ClosureDecision", "ClosureDecision", null, "ClosureDecision", null, null, fields => fields
     .field("carrier", "t", value => referenceWork("t", value.carrier), typeReader)
-    .field("captures", "[LogicalCapture]", value => sequenceWork("[LogicalCapture]", value.captures, actual => scalarWork("LogicalCapture", actual)), sequenceReader("[LogicalCapture]", literalReader<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"])))
+    .field("captures", "[CaptureRow]", value => sequenceWork("[CaptureRow]", value.captures, actual => work_CaptureRow.write(actual)), sequenceReader("[CaptureRow]", lazyReader(() => work_CaptureRow.reader)))
     .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
     .finish((field_carrier, field_captures, field_execution) => ({ carrier: field_carrier, captures: field_captures, execution: field_execution })));
   const work_ProtocolStepOperation: TirRecordCodec<ProtocolStepOperation> = unionRecord<ProtocolStepOperation>("ProtocolStepOperation", (value: ProtocolStepOperation): TirTypedRecordWork => {
@@ -277,5 +288,5 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
       case "spread": return work_LiteralConstructionPart_spread.write(value);
     }
   }, () => [work_LiteralConstructionPart_element.reader, work_LiteralConstructionPart_property.reader, work_LiteralConstructionPart_spread.reader]);
-  return { work_OperationDecision_conversion, work_OperationDecision_backed, work_ClosureDecision, work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
+  return { work_OperationDecision_conversion, work_OperationDecision_backed, work_CaptureRow, work_BodyCaptureRow, work_ClosureDecision, work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
 };

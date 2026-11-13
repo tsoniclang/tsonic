@@ -203,7 +203,7 @@ export function rewriteCallable(rewrite: TypeRewrite, value: TypedCallable): Typ
 }
 
 export function rewriteClosure(rewrite: TypeRewrite, value: TypedClosure, at: string): TypedClosure {
-  return { ...rewriteValue(rewrite, value, at), callable: rewriteCallable(rewrite, value.callable), captures: value.captures,
+  return { ...rewriteValue(rewrite, value, at), callable: rewriteCallable(rewrite, value.callable),
     closure: rewriteOutcome(rewrite, value.closure, decision => rewriteClosureDecision(rewrite, decision), `${at}.closure`) };
 }
 

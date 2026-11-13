@@ -111,8 +111,8 @@ export const application = (name, signatureId, parameters, result, extra = {}) =
   candidate: 0, advertised: endpoint(name, "advertised", signatureId), api: endpoint(name, "api-body", signatureId),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters,
   completion: { signature: signatureId, completion: result, yielded: null, sent: null }, result, activation: null, ...extra });
-export const callee = (name, signatureId, parameters, result, captures = [], extra = {}) =>
-  ({ decision: application(name, signatureId, parameters, result, extra), activation: instanceOf(name), captures });
+export const callee = (name, signatureId, parameters, result, extra = {}) =>
+  ({ decision: application(name, signatureId, parameters, result, extra), activation: instanceOf(name) });
 
 // ---- typed payloads -----------------------------------------------------------------------
 export const value = (type, extra = {}) => ({ type, convertedType: type, conversion: { kind: "identity" }, narrowing: null,

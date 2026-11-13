@@ -3,6 +3,8 @@ import { encodeKey } from "../ids/index.js";
 import type { BindingScope, BindingVector, BodyInstance, TypeBinding } from "../ir-types/contract.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
+import type { CaptureSource } from "../ir-infer/contract.js";
+import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
 import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
@@ -268,6 +270,20 @@ export const verifyBindingSlots = (
     for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
     return null;
   };
+  // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
+  // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
+  // no parameter record: its storage is the body's own. A local that is itself a capture of the creating body has its
+  // logical capture in the creating body's typed rows, which the verification of the created body does not hold: no
+  // evidence here; Infer judges it against the constraint's evidence.
+  const incomingOf = (reference: LocalRef): CaptureSource | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) {
+      const local = source.locals[reference.local];
+      if (local === undefined || local.role === "capture") return null;
+      const parameter = local.role === "parameter" ? source.params.find(candidate => candidate.local === reference.local) : undefined;
+      return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
+    }
+    return null;
+  };
   const parameters = new Map(body.params.map(parameter => [parameter.declaration, parameter]));
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
     const local = body.locals[reference.local];
@@ -294,40 +310,33 @@ export const verifyBindingSlots = (
       node.tsonic.role === "declaration-name" && node.tsonic.declaration.kind === "local") {
       storage(node.tsonic.declaration.local, node.tsonic.storage, node);
     } else if (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") {
-      const actual = node.tsonic.callable.template;
-      if (actual !== null && node.tsonic.captures.some(capture => capture !== undefined && capture.body === actual.body)) {
-        emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
-      }
-      const original = originals.get(node.id);
-      if (original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") {
-        let captures = node.tsonic.captures.length === original.tsonic.captures.length;
-        for (let position = 0; position < node.tsonic.captures.length; position++) {
-          const captured = node.tsonic.captures[position];
-          const expected = original.tsonic.captures[position];
-          if (captured === undefined || expected === undefined || !sameLocalReference(captured, expected)) captures = false;
-        }
-        if (!captures) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
-      }
+      // The captured locals of a closure are the ones its outcome names: the rows of the decision, or the saved evidence of
+      // the deferred closure rule, read where they stand. A closure that defers another rule names none.
       const closure = node.tsonic.closure;
-      const captured = node.tsonic.captures;
+      const named: readonly { readonly local: LocalRef }[] | null = closure.kind === "decided" ? closure.decision.captures
+        : closure.deferred.invocation.rule === "closure" ? closure.deferred.invocation.input.captures : null;
+      const actual = node.tsonic.callable.template;
+      const original = originals.get(node.id);
+      if (named === null) emit("closure-capture-total", node, "a deferred closure does not save the closure rule's evidence of its captured locals");
+      else {
+        if (actual !== null && named.some(capture => capture.local.body === actual.body))
+          emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
+        if ((original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") &&
+          (named.length !== original.tsonic.captures.length || named.some((capture, position) => {
+            const expected = original.tsonic.captures[position];
+            return expected === undefined || !sameLocalReference(capture.local, expected);
+          }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+      }
       if (closure.kind === "decided") {
-        if (closure.decision.captures.length !== captured.length)
-          emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
-        else if (closure.decision.captures.some((capture, position) => {
-          const local = captured[position];
-          return capture === "captured-value" && local !== undefined && reassignable(local) === true;
-        }))
-          emit("closure-capture-binding", node, "a binding that can be reassigned is a captured location");
+        if (closure.decision.captures.some(row => row.capture === "captured-value" &&
+          captureRequiresLocation(reassignable(row.local) === true, incomingOf(row.local) ?? { kind: "binding" })))
+          emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
       } else if (closure.deferred.invocation.rule === "closure") {
-        const saved = closure.deferred.invocation.input.captures;
-        if (saved.length !== captured.length)
-          emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
-        else if (saved.some((capture, position) => {
-          const local = captured[position];
-          if (local === undefined || !sameLocalReference(capture.local, local)) return true;
-          const evidence = reassignable(local);
-          return evidence !== null && capture.reassignable !== evidence;
-        })) emit("closure-capture-binding", node, "saved capture evidence does not name the captured locals in order with their binding evidence");
+        if (closure.deferred.invocation.input.captures.some(capture => {
+          const evidence = reassignable(capture.local);
+          const incoming = incomingOf(capture.local);
+          return evidence !== null && capture.reassignable !== evidence || incoming !== null && !sameCaptureSource(capture.incoming, incoming);
+        })) emit("closure-capture-binding", node, "saved capture evidence does not state the binding evidence of its captured locals");
       }
     }
   }

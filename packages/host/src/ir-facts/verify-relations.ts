@@ -1,5 +1,5 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, LocalRef, NodeId, NodeRef } from "../ids/contract.js";
+import type { DefId, KeyData, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
@@ -66,14 +66,6 @@ export const artifactData = (bindings: ArtifactBindings): KeyData =>
 export const sameBindings = (left: ArtifactBindings, right: ArtifactBindings): boolean =>
   encodeKey(artifactData(left)) === encodeKey(artifactData(right));
 
-export const sameCaptures = (left: readonly LocalRef[], right: readonly LocalRef[]): boolean => {
-  if (left.length !== right.length) return false;
-  for (const [index, capture] of left.entries()) {
-    const selected = right[index];
-    if (capture === undefined || selected === undefined || capture.body !== selected.body || !Object.is(capture.local, selected.local)) return false;
-  }
-  return true;
-};
 
 export const instanceKey = (instance: BodyInstance): string => encodeKey([instance.body, artifactData(instance.bindings)]);
 
@@ -279,11 +271,8 @@ export const collectSelectionChecks = (
       report("signature-resolves", "A selected member completion retains its actual signature.");
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    for (const capture of callee.captures) if (capture === undefined || !context.localExists(capture)) {
+    if (callee.activation !== null) for (const row of context.tirBody(callee.activation).captures) if (row === undefined || !context.localExists(row.local)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
-    }
-    if (callee.activation !== null && !sameCaptures(context.tirBody(callee.activation).captures, callee.captures)) {
-      report("capture-locations-exact", "A selected accessor retains its actual ordered captured-location vector.");
     }
     for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
   }

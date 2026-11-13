@@ -181,8 +181,8 @@ export const verifyBodyRecords = (body: TirBody, original: HirBody | undefined, 
   let stable = original === undefined || body.captures.length === original.captures.length && body.nestedBodies.length === original.nestedBodies.length;
   for (const [position, capture] of body.captures.entries()) {
     const checked = original?.captures[position];
-    if (capture.body === body.body) emit("capture-qualified", null, "capture inventory does not name a real qualified outer local");
-    if (original !== undefined && (checked === undefined || !sameLocalReference(capture, checked))) stable = false;
+    if (capture.local.body === body.body) emit("capture-qualified", null, "capture inventory does not name a real qualified outer local");
+    if (original !== undefined && (checked === undefined || !sameLocalReference(capture.local, checked))) stable = false;
   }
   for (const [position, nested] of body.nestedBodies.entries()) {
     if (original !== undefined && nested !== original.nestedBodies[position]) stable = false;
@@ -190,6 +190,19 @@ export const verifyBodyRecords = (body: TirBody, original: HirBody | undefined, 
   if (!stable) {
     emit("stable-order", null, "capture and nested-body inventories do not retain actual source order");
   }
+  // A body created by a closure states the rows of the closure's outcome at its root: the decided rows, local, order and
+  // logical capture; or, while the closure rule is saved for instantiation, the saved locals in order with no capture yet.
+  // A body that no closure creates has no undecided row.
+  const root = body.root;
+  const outcome = root.kind === "ArrowFunction" || root.kind === "FunctionExpression" ? root.tsonic.closure : null;
+  const decided = outcome?.kind === "decided" ? outcome.decision.captures : null;
+  const saved = outcome?.kind === "deferred" && outcome.deferred.invocation.rule === "closure" ? outcome.deferred.invocation.input.captures : null;
+  const named = decided ?? saved;
+  if (named === null ? body.captures.some(row => row.capture === null)
+    : body.captures.some((row, position) => {
+      const stated = named[position];
+      return stated === undefined || !sameLocalReference(row.local, stated.local) || row.capture !== ("capture" in stated ? stated.capture : null);
+    }) || body.captures.length !== named.length) emit("capture-rows-agree", null, "body capture rows do not state the outcome of the closure that creates the body");
 };
 
 const validIndex = (value: number, length: number): boolean =>
@@ -482,15 +495,6 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
       if (published !== null && (completion.signature !== published.signature || completion.completion !== published.completion ||
         completion.yielded !== published.yielded || completion.sent !== published.sent)) {
         emit("completion-endpoint", callee.node, "selected completion does not retain the actual activated body's signature and channels");
-      }
-      let captures = published !== null && callee.value.captures.length === published.captures.length;
-      if (published !== null) for (let position = 0; position < callee.value.captures.length; position++) {
-        const capture = callee.value.captures[position];
-        const actual = published.captures[position];
-        if (capture === undefined || actual === undefined || !sameLocalReference(capture, actual)) captures = false;
-      }
-      if (published !== null && !captures) {
-        emit("capture-qualified", callee.node, "activated callee does not retain the actual canonical body's capture vector");
       }
       verifyPublishedInstance(published, callee.node, emit);
     }

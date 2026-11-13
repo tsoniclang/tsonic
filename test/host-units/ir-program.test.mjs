@@ -1026,6 +1026,62 @@ test("ir-program refuses an unknown value and a missing last field of each check
   ]) completeTextFault(location.index, text.replace(data, changed), text.indexOf(data) + at, expected, false);
 });
 
+test("ir-program refuses the earlier capture forms at their own position: a typed closure's list, bare logical captures, saved evidence without its incoming storage, a resolved callee's list", () => {
+  const load = name => decodeFixtureJson(readFileSync(resolve(repository, `test/host-cases/ir-program/function/${name}.input.json`), "utf8"));
+  const decided = load("s2-9-closure-capture-value");
+  const decidedText = product.printModuleBodies(decided.index, decided.module);
+  const row = decidedText.match(/CaptureRow\(local=LocalRef\([^)]*\), capture="captured-value"\)/u)[0];
+  const closureAt = decidedText.indexOf(", closure=decided(");
+  assert.equal(closureAt > 0 && decidedText.indexOf(", closure=decided(", closureAt + 1) === -1, true, "one decided closure");
+  const local = row.slice("CaptureRow(local=".length, row.indexOf("), capture=") + 1);
+  // the field name is read against the expected one character by character: the fault is at the first that differs
+  completeTextFault(decided.index, `${decidedText.slice(0, closureAt)}, captures=[${local}]${decidedText.slice(closureAt)}`, closureAt + 3, ["closure"], false);
+  const bare = decidedText.replace(row, '"captured-value"');
+  completeTextFault(decided.index, bare, bare.indexOf('"captured-value"'), ["CaptureRow"], false);
+  const deferredCase = load("s2-9-closure-deferred");
+  const deferredText = product.printModuleBodies(deferredCase.index, deferredCase.module);
+  const incoming = ", incoming=binding()";
+  const incomingAt = deferredText.indexOf(incoming);
+  assert.equal(incomingAt > 0, true, "the saved evidence states its incoming storage");
+  completeTextFault(deferredCase.index, deferredText.slice(0, incomingAt) + deferredText.slice(incomingAt + incoming.length), incomingAt, [","], false);
+  const callee = /ResolvedCallee\(decision=/u;
+  const calleeInput = load("s2-11-application-activation-at-creation");
+  const calleeText = product.printModuleBodies(calleeInput.index, calleeInput.module);
+  assert.equal(callee.test(calleeText), true, "the case prints a resolved callee");
+  const start = calleeText.search(callee);
+  let depth = 0; let end = start;
+  for (; end < calleeText.length; end += 1) { if (calleeText[end] === "(") depth += 1; if (calleeText[end] === ")") { depth -= 1; if (depth === 0) break; } }
+  completeTextFault(calleeInput.index, `${calleeText.slice(0, end)}, captures=[]${calleeText.slice(end)}`, end + 2, ["end of record"], false);
+});
+
+test("ir-program carries every incoming storage of a saved captured binding and every capture of a body row through its text", () => {
+  const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/s2-9-closure-deferred.input.json"), "utf8"));
+  const sources = [{ kind: "binding" },
+    ...["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"].map(passing => ({ kind: "parameter", passing })),
+    { kind: "capture", capture: "captured-value" }, { kind: "capture", capture: "captured-location" }];
+  const pending = [input.module];
+  let saved = null;
+  for (let value = pending.pop(); value !== undefined && saved === null; value = pending.pop()) {
+    if (value === null || typeof value !== "object") continue;
+    if (!Array.isArray(value) && value.rule === "closure" && value.input !== undefined) saved = value.input;
+    else for (const child of Object.values(value)) pending.push(child);
+  }
+  assert.notEqual(saved, null, "the case saves the closure rule's input");
+  const [first] = saved.captures;
+  saved.captures = sources.map(incoming => ({ ...first, incoming }));
+  const text = product.printModuleBodies(input.index, input.module);
+  for (const source of sources) assert.equal(text.includes(source.kind === "binding" ? "incoming=binding()" : source.kind === "parameter"
+    ? `incoming=parameter(passing="${source.passing}")` : `incoming=capture(capture="${source.capture}")`), true, JSON.stringify(source));
+  completeProgramValue(product.parseModuleBodies(input.index, text), { kind: "parsed", value: input.module }, "every incoming storage parses back");
+  const fixture = moduleFixture();
+  const body = fixture.module.bodies[0].tir;
+  const local = { body: fixture.bodyId, local: 0 };
+  body.captures = [{ local, capture: null }, { local, capture: "captured-value" }, { local, capture: "captured-location" }];
+  const rows = product.printModuleBodies(fixture.index, fixture.module);
+  assert.equal(rows.includes("capture=null)") && rows.includes('capture="captured-value")') && rows.includes('capture="captured-location")'), true);
+  completeProgramValue(product.parseModuleBodies(fixture.index, rows), { kind: "parsed", value: fixture.module }, "a body row's capture, null included, parses back");
+});
+
 test("ir-program all native source newline forms retain the same complete first-fault coordinates", () => {
   for (const newline of ["\n", "\r", "\r\n"]) {
     const text = `${newline}ProgramIndex(schema=@)`;
@@ -1614,7 +1670,7 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
     } else if (kind === "field-accessors") {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const callee = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings,
-        parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: first.instance, captures: [] };
+        parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: first.instance };
       const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null, read: 2, write: 2,
         getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: callee, setter: callee };
       mir.places.push({ id: 1, base: { kind: "place", place: 0, projection: { kind: "field", member }, tir: mir.blocks[0].tir }, storage: 2, origin: mir.places[0].origin });
@@ -1727,7 +1783,7 @@ test("ir-program complete relational member references retain field, method and 
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const getter = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
     implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-  activation: fixture.instance, captures: [] };
+  activation: fixture.instance };
   const member = { decision: { key: { kind: "text", value: "selected" }, origins: [], selectedDeclarations: [], primary: null,
     read: 0, write: null, getter: advertised, setter: null, bindings, location: { kind: "accessor" } }, getter, setter: null };
   facts.arena.projections = [{ id: 0, parent: null, projection: { kind: "field", member } },
@@ -1748,7 +1804,7 @@ for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-pr
   facts.arena.origins = [{ id: 0, kind: "complete", producers: [], includesAbsence: false }];
   facts.origins.invocations = [{ node: 0, kind: "call", boundaries: [], alternatives: [{ resolution: { decision: { candidate: 0, advertised,
     api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings, parameters: [],
-    completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: null, captures: [] },
+    completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: null },
   context: 0, arguments: [], result: 0, thrown: 0, summary: key }] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope, fixture.scope]);
   if (change !== "absent") {
@@ -1959,7 +2015,7 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const resolution = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings: empty,
         implementationBindings: empty, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-      activation: null, captures: [] };
+      activation: null };
       terminator = { kind: "call", callee: kind === "call" ? { kind: "direct", resolution } : { kind: "indirect", operand, resolution },
         receiver: kind === "call" ? null : operand, arguments: kind === "call" ? [] : [{ kind: "value", passing: "by-value", operand }],
         destination: null, next: 0, unwind, step: null };
@@ -1997,7 +2053,7 @@ test("ir-program complete local, parameter, yield and lexical-environment record
   body.params = [{ local: 0, declaration: fixture.definition, role: "default", passing: "by-value", initializer: fixture.bodyId, storage: 0 }];
   body.locals = [{ id: 0, declaration: { kind: "body", value: { body: fixture.bodyId, node: 0 } }, name: "value",
     role: "capture", capturedFrom: { body: fixture.bodyId, local: 0 }, mutable: false, storage: 0 }];
-  body.captures = [{ body: fixture.bodyId, local: 0 }];
+  body.captures = [{ local: { body: fixture.bodyId, local: 0 }, capture: "captured-location" }];
   body.nestedBodies = [fixture.bodyId];
   body.scopes[0].attributes = [{ declaration: fixture.definition, occurrence: body.locals[0].declaration,
     arguments: [body.locals[0].declaration, { kind: "item", value: { owner: fixture.definition, node: 0 } }] }];
