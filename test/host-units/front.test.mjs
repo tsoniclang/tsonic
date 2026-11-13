@@ -181,8 +181,8 @@ const reference = (root, exportId = "provider") => ({ package: packageOf(root), 
 const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider, roles: [] } });
 
 function openAndCapture(snapshot, registrations = []) {
-  const deps = { extensions: checkerModule.createExtensionTable(registrations), navigationCapture };
-  assert.deepEqual(snapshots.verifySnapshot(snapshot, checkerModule.extensionReferences(deps.extensions)), [], "the case's snapshot is one the snapshot verifier accepts");
+  const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
+  assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), [], "the case's snapshot is one the snapshot verifier accepts");
   const opened = front.openCheckedProgram(deps, snapshot, preparation);
   assert.equal(opened.kind, "ok");
   return { deps, program: opened.value, set: front.captureProgramModules(deps, opened.value) };
@@ -203,7 +203,7 @@ test("the module set is the modules of the opened program: the snapshot's source
   assert.equal(libraryModules.length, libraries.length, "each bundled library is a module of the package the snapshot gives it");
   assert.deepEqual(JSON.parse(JSON.stringify(set)), set, "the module set is plain data");
   assert.deepEqual(front.captureProgramModules(deps, program), set, "a repeated capture of one program gives the same set");
-  assert.throws(() => front.captureProgramModules({ extensions: checkerModule.createExtensionTable([]), navigationCapture }, program),
+  assert.throws(() => front.captureProgramModules({ extensions: front.createCheckerExtensions([]), navigationCapture }, program),
     { name: "TypeError", message: "front: the extension table is not the one the program was opened with" });
   assert.deepEqual(openAndCapture(projectSnapshot({ sourceFiles: plainSources, libraries })).set, set, "and so does a second program opened on equal inputs");
 });
@@ -242,7 +242,7 @@ test("provenance that is not a loaded declaration-provider registration is an in
   const sourceFiles = { "main.mts": "import { Value } from \"native:thing\";\nexport const v: number = Value;\n" };
   const provider = declarationProvider("test.provider", "native:thing", "native.thing");
   const capture = (snapshot, registrations) => {
-    const deps = { extensions: checkerModule.createExtensionTable(registrations), navigationCapture };
+    const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
     const opened = front.openCheckedProgram(deps, snapshot, preparation);
     return () => front.captureProgramModules(deps, opened.value);
   };
@@ -261,7 +261,7 @@ test("a program file that is no module of the snapshot is an invariant failure; 
   const stray = projectSnapshot({ sourceFiles: { "main.mts": "import { helper } from \"./helper.mjs\";\nexport const h: number = helper;\n" }, libraries });
   stray.packages.files.push({ kind: "physical", path: "/project/src/helper.mts", realPath: "/project/src/helper.mts", text: "export const helper: number = 1;\n" });
   stray.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
-  const deps = { extensions: checkerModule.createExtensionTable([]), navigationCapture };
+  const deps = { extensions: front.createCheckerExtensions([]), navigationCapture };
   const openedStray = front.openCheckedProgram(deps, stray, preparation);
   assert.throws(() => front.captureProgramModules(deps, openedStray.value),
     error => { assert.deepEqual(error.cause, failure("A file of the opened program is neither a module of the snapshot nor a session document.")); return true; });
@@ -326,7 +326,7 @@ test("libraries, transitive: the checker follows no library reference; the modul
   assert.deepEqual(snapshots.verifySnapshot(onlyTop, []), []);
   assert.deepEqual([...new Set(sessionDiagnostics(onlyTop))], ["TS2318 (no file)", "TS2583 /project/src/main.mts"],
     "captured but unlisted libraries are not reached through the listed one's references: its chain of references is not followed");
-  assert.throws(() => front.openCheckedProgram({ extensions: checkerModule.createExtensionTable([]), navigationCapture }, onlyTop, preparation),
+  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, onlyTop, preparation),
     { name: "TypeError", message: "front: the session reported diagnostics that name no file (TS2318); the refusal that carries them waits for the checker's message accessor" });
 });
 
@@ -343,14 +343,14 @@ test("libraries, captured text differing from the installed text: a declaration 
 test("caller defects of the extension table and of opening are refused as defects: a registration given twice, a root that names no module, a root package that is absent", () => {
   const libraries = bundled();
   const provider = declarationProvider("test.provider", "native:thing", "native.thing");
-  assert.throws(() => checkerModule.createExtensionTable([providerRegistration("/provider-one", provider), providerRegistration("/provider-one", provider)]),
+  assert.throws(() => front.createCheckerExtensions([providerRegistration("/provider-one", provider), providerRegistration("/provider-one", provider)]),
     { name: "TypeError", message: "front: a registration was given twice" });
   const semantics = moduleSpecifier => ({ reference: { package: packageOf("/semantics"), moduleSpecifier, exportId: "semantics", version: "1" },
     value: { kind: "semantics-module", value: { moduleSpecifier, exports: [] } } });
-  const mixed = checkerModule.createExtensionTable([semantics("@test/one"), providerRegistration("/provider-one", provider), semantics("@test/two")]);
-  assert.deepEqual(checkerModule.extensionReferences(mixed).map(entry => entry.kind), ["semantics-module", "declaration-provider", "semantics-module"],
+  const mixed = front.createCheckerExtensions([semantics("@test/one"), providerRegistration("/provider-one", provider), semantics("@test/two")]);
+  assert.deepEqual(front.extensionReferencesOf(mixed).map(entry => entry.kind), ["semantics-module", "declaration-provider", "semantics-module"],
     "the reference view is the registrations in their order");
-  const table = checkerModule.createExtensionTable([]);
+  const table = front.createCheckerExtensions([]);
   const noModule = projectSnapshot({ sourceFiles: plainSources, libraries });
   noModule.roots = [moduleOf(packageOf("/project"), "src/absent.mts")];
   assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noModule, preparation),
@@ -366,21 +366,21 @@ test("caller defects of the extension table and of opening are refused as defect
 
 test("PENDING the checker's message accessor: a session-level diagnostic stops the open as a defect that names the codes, not yet as a refusal with the diagnostic converted", () => {
   const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries: [] });
-  assert.throws(() => front.openCheckedProgram({ extensions: checkerModule.createExtensionTable([]), navigationCapture }, snapshot, preparation),
+  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, snapshot, preparation),
     { name: "TypeError", message: "front: the session reported diagnostics that name no file (TS2318); the refusal that carries them waits for the checker's message accessor" });
   const sourceFiles = { "main.mts": "import { Value } from \"native:thing\";\nexport const v: number = Value;\n" };
   const overlapping = [providerRegistration("/provider-one", declarationProvider("test.provider.one", "native:thing", "native.thing")),
     providerRegistration("/provider-two", declarationProvider("test.provider.two", "native:other", "native.other"))];
   const withProviders = projectSnapshot({ sourceFiles, libraries: bundled(), providerPackages: [{ root: "/provider-one", name: "one" }, { root: "/provider-two", name: "two" }],
     declarationProviders: overlapping.map(entry => entry.reference) });
-  assert.throws(() => front.openCheckedProgram({ extensions: checkerModule.createExtensionTable(overlapping), navigationCapture }, withProviders, preparation),
+  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions(overlapping), navigationCapture }, withProviders, preparation),
     { name: "TypeError", message: "front: the session reported diagnostics that name no file (tsts.extension-host:DIAGNOSTIC_RANGE_INVALID); the refusal that carries them waits for the checker's message accessor" },
     "an extension-host diagnostic with no site (two providers with one diagnostic range) is session-level in the same way");
   const twice = [providerRegistration("/provider-one", declarationProvider("test.provider", "native:thing", "native.thing")),
     providerRegistration("/provider-two", declarationProvider("test.provider", "native:elsewhere", "native.elsewhere", 9_900_100))];
   const sameProvider = projectSnapshot({ sourceFiles, libraries: bundled(), providerPackages: [{ root: "/provider-one", name: "one" }, { root: "/provider-two", name: "two" }],
     declarationProviders: twice.map(entry => entry.reference) });
-  assert.throws(() => front.openCheckedProgram({ extensions: checkerModule.createExtensionTable(twice), navigationCapture }, sameProvider, preparation),
+  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions(twice), navigationCapture }, sameProvider, preparation),
     { name: "TypeError", message: "front: the session reported diagnostics that name no file (tsts.extension-host:DUPLICATE_EXTENSION_ID); the refusal that carries them waits for the checker's message accessor" },
     "two registrations of one provider identity do not open a program, so a session document never has two candidate registrations");
 });
