@@ -19,17 +19,17 @@ const data = "export interface Data { readonly value: number; }";
 const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"];
 const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
-  ["ir-infer", first.slice(0, 4)], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
+  ["ir-infer", [...first.slice(0, 4), "step"]], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag"]],
   ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]], ["step", []],
-  ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer"]],
-  ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer"]],
-  ["elaborate", [...first.slice(0, 5), "ir-infer"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
-  ["lower-mir", [...first.slice(0, 6), "ir-infer"]], ["evaluate", [...first.slice(0, 6), "libraries", "ir-infer"]],
-  ["metadata", [...first.slice(0, 4), "ir-facts"]],
+  ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer", "step"]],
+  ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer", "step"]],
+  ["elaborate", [...first.slice(0, 5), "ir-infer", "step"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
+  ["lower-mir", [...first.slice(0, 6), "ir-infer"]], ["evaluate", [...first.slice(0, 6), "libraries", "ir-infer", "step"]],
+  ["metadata", [...first.slice(0, 4), "ir-facts", "step"]],
   ...["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"].map(name => [`analyses/${name}`, [...first, "dataflow", ...(["refinements", "origins", "pointerBacking"].includes(name) ? ["ir-infer"] : [])]]),
   ["summaries", [...first, "dataflow", "ir-infer"]],
-  ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
+  ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
     "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
   ...["project", "packages", "plugins", "artifacts"].map(name => [name, ["ids", "diag", "snapshot"]]),
   ["orchestration", ["ids", "diag", "snapshot", "ir-program", "pipeline", "project", "packages", "plugins", "artifacts"]],
@@ -106,6 +106,22 @@ for (const [name, imports] of expectedImports) {
     expect([[sourcePath, `import type { Data } from "${relative}"; export type Read = Data;`], [targetPath, data]], [at("forbidden-import", sourcePath)]);
   });
 }
+
+test("step is the one pause carrier: only the pausing operations, their rule contracts and Pipeline import it", () => {
+  const importers = ["ir-infer", "decls", "infer", "elaborate", "evaluate", "metadata", "pipeline"];
+  assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("step")).map(module => module.name).sort(), [...importers].sort());
+  const requestFree = hostCatalogue.filter(module => module.name.startsWith("analyses/") || module.name === "summaries");
+  assert.equal(requestFree.length, 8);
+  assert.equal(requestFree.some(module => module.imports.includes("step")), false, "request-free analysis and convergence have no pause path");
+  const step = hostCatalogue.find(module => module.name === "step");
+  assert.deepEqual(step.imports, []);
+  for (const module of hostCatalogue.filter(candidate => candidate.name !== "step")) {
+    const sourcePath = `${module.directory}/unit.ts`;
+    const relative = posix.relative(module.directory, step.contract).replace(/\.ts$/u, ".js");
+    expect([[sourcePath, `import type { Data } from "${relative.startsWith(".") ? relative : `./${relative}`}"; export type Read = Data;`], [step.contract, data]],
+      importers.includes(module.name) ? [] : [at("forbidden-import", sourcePath)]);
+  }
+});
 
 test("the decision vocabulary stays in ir-infer: the readers partition the catalogue, and a reader reaches no module outside its row", () => {
   const readers = ["ir-tir", "ir-mir", "ir-facts", "ir-program", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate",
