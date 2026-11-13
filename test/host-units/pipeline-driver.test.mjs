@@ -162,6 +162,23 @@ test("an error-valued answer is delivered unchanged; the driver adds, drops and 
   assert.deepEqual(database.diagnostics(), [detected, own]);
 });
 
+test("a producer's result must contain what its last pause stated as earned: published once when it does, a compiler defect when it does not", () => {
+  const found = diagnostic(1, "a.ts", "found before the pause");
+  const answer = leaf("answer", () => ok(1));
+  const row = complete => driver.defineQuery({ name: complete ? "complete" : "omits",
+    producer: { start: () => pause([{}], null, [found]), resume: () => ok(2, complete ? [found] : []) },
+    route: () => driver.factRoute(answer, null, value => value), witness: () => null, cycleOutcome: noCycle });
+  const database = query.createDatabase(null, unbounded, noCycle, "recorded");
+  assert.deepEqual(database.run(row(true), null), { kind: "completed", value: 2, diagnostics: [found] });
+  assert.deepEqual(database.diagnostics(), [found]);
+  assert.throws(() => database.run(row(false), null), error => {
+    assert.deepEqual(error.cause, { owner: "pipeline", query: null, origin: null,
+      message: "A producer's result omits a diagnostic it stated as earned at its last pause." });
+    return true;
+  });
+  assert.deepEqual(database.diagnostics(), [found]);
+});
+
 test("MR-1: a paused rule's needs are relayed by its invoker in one batch; the same rule state is resumed with its own slice, never restarted", () => {
   const members = leaf("members", key => ok(`members:${key}`));
   const signature = leaf("signature", key => ok(`signature:${key}`));

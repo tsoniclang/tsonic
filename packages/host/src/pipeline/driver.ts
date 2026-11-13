@@ -1,4 +1,5 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
+import { throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Query, QueryComputation, QueryContext } from "../query/contract.js";
 import type { Step } from "../step/contract.js";
@@ -75,6 +76,17 @@ function mapResult<From, To>(result: Result<From>, map: (value: From) => To): Re
   return result.kind === "ok" ? { kind: "ok", value: map(result.value), diagnostics: result.diagnostics } : result;
 }
 
+function requireStated<Produced>(stated: readonly Diagnostic[], result: Result<Produced>): void {
+  if (stated.length === 0) return;
+  const present = new Set(result.diagnostics);
+  stated.forEach(diagnostic => {
+    if (!present.has(diagnostic)) {
+      throwInvariant({ owner: "pipeline", query: null, origin: null,
+        message: "A producer's result omits a diagnostic it stated as earned at its last pause." });
+    }
+  });
+}
+
 function joined(first: readonly Diagnostic[], second: readonly Diagnostic[]): Diagnostic[] {
   const all: Diagnostic[] = [];
   append(all, first);
@@ -127,7 +139,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
             append(carried, outcome.diagnostics);
             answers.push(outcome.value);
             return proceed();
-          });
+          }, []);
           return progress.kind === "now" ? { kind: "now", value: mapResult(progress.value, application.answer) } : progress;
         });
         if (nested.kind === "later") return nested;
@@ -140,13 +152,19 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
 
     function runSteps<Request, Answer, State, Produced>(
       initial: Pause<Produced, Request, State>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness, Verdict>,
-      enclosing: readonly Diagnostic[], then: (result: Result<Produced>) => Computation,
+      enclosing: readonly Diagnostic[], then: (result: Result<Produced>) => Computation, last: readonly Diagnostic[],
     ): Progress<Inputs, Result<Produced>, Value, Witness, Verdict> {
+      let stated = last;
       for (let step = initial; ;) {
-        if (step.kind === "done") return ({ kind: "now", value: step.value });
+        if (step.kind === "done") {
+          requireStated(stated, step.value);
+          return ({ kind: "now", value: step.value });
+        }
         const state = step.paused;
+        const pausedWith = step.earned;
+        stated = pausedWith;
         const resumed = (answers: readonly Answer[]): Computation =>
-          settle(runSteps(operations.resume(state, answers), operations, enclosing, then), then);
+          settle(runSteps(operations.resume(state, answers), operations, enclosing, then, pausedWith), then);
         const earned = enclosing.length === 0 ? step.earned : joined(enclosing, step.earned);
         const progress = answerFrom(step.requests[Symbol.iterator](), earned, operations, [], resumed);
         if (progress.kind === "later") return progress;
@@ -163,7 +181,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
       return ({ kind: "refused", diagnostics });
     };
     const operations = { resume: row.producer.resume, route: row.route, witness: row.witness };
-    return settle(runSteps(row.producer.start(context.inputs, key), operations, [], finish), finish);
+    return settle(runSteps(row.producer.start(context.inputs, key), operations, [], finish, []), finish);
   };
   return ({ name: row.name, compute, cycleOutcome: row.cycleOutcome });
 }
