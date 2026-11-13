@@ -143,7 +143,7 @@ test("the resource-limit diagnostic names its owner, the one limit field, its ma
   const diagnostic = product.resourceLimitDiagnostic(report);
   assert.deepEqual(diagnostic, { code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
     severity: "error", site: { kind: "none" }, source: "query",
-    evidence: ["query.maximumRecords", "signature", "O2:S1:aF1:S1:bF2:", "result"],
+    evidence: ["query.maximumRecords", "signature", "O2:S1:aF1:S1:bF2:", "A1:S6:result"],
     message: "A compiler resource limit was reached.",
     arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: 16 }], related: [], fix: null });
   assert.equal(diagnostic.site, report.site);
@@ -151,7 +151,12 @@ test("the resource-limit diagnostic names its owner, the one limit field, its ma
   const located = product.resourceLimitDiagnostic({ owner: "lower-mir", limit: "lowering.maximumRecords", maximum: 2,
     site: { kind: "source", origin }, unit: { request: { query: "mirBody", key: "b" },
       position: { kind: "source-node", node: { kind: "body", value: { body: "b", node: 7 } } } } });
-  assert.deepEqual(located.evidence, ["lowering.maximumRecords", "mirBody", "S1:b", "source-node"]);
+  assert.deepEqual(located.evidence, ["lowering.maximumRecords", "mirBody", "S1:b", "A4:S11:source-nodeS4:bodyS1:bF7:"],
+    "the unit's whole position, in the same canonical form as a diagnostic identity's");
+  const atNode = position => product.resourceLimitDiagnostic({ ...report, unit: { request: report.unit.request, position } }).evidence[3];
+  assert.equal(atNode({ kind: "module-node", module: "m.ts", node: 4 }), "A3:S11:module-nodeS4:m.tsF4:");
+  assert.notEqual(atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 7 } } }),
+    atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 8 } } }), "two nodes of one body are two positions");
   assert.equal(located.site.origin, origin);
   assert.equal(located.source, "lower-mir");
   assert.notEqual(product.resourceLimitDiagnostic(report), diagnostic, "each call builds its own record");

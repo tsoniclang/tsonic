@@ -55,7 +55,7 @@ const none = { witness: null, earned: [] };
 const noCycle = () => { throw new Error("this case closes no cycle"); };
 const fact = (query, key, encodedKey) => ({ query, key, encodedKey });
 const limitReached = (maximum, name, encodedKey) => ({ code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
-  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "result"],
+  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "A1:S6:result"],
   message: "A compiler resource limit was reached.", arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: maximum }], related: [], fix: null });
 const stoppedAt = (maximum, name, encodedKey) => ({ kind: "refused", diagnostics: [limitReached(maximum, name, encodedKey)] });
 
@@ -921,6 +921,18 @@ test("the record bound is charged before allocation: below, at and over, for a c
   assert.deepEqual(belowClosing.run(self, null), exhausted(4, fact("self", null, "N")));
   const atClosing = product.createDatabase(null, { maximumRecords: 5 }, () => null, "recorded");
   assert.deepEqual(atClosing.run(self, null), { kind: "completed", value: 0, diagnostics: [] });
+});
+
+test("G-3: a database reports its bound once; a later run that stops at another fact is refused with the diagnostic naming the first", () => {
+  const first = { name: "first", cycleOutcome: noCycle, compute: () => ({ kind: "ok", value: 1, diagnostics: [] }) };
+  const other = { name: "other", cycleOutcome: noCycle, compute: () => ({ kind: "ok", value: 2, diagnostics: [] }) };
+  const database = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "off");
+  const stopped = database.run(first, "a");
+  assert.deepEqual(stopped, stoppedAt(0, "first", "S1:a"));
+  const later = database.run(other, "b");
+  assert.deepEqual(later, stoppedAt(0, "first", "S1:a"), "the later stop was at other[b]; the diagnostic still names first[a]");
+  assert.equal(later.diagnostics[0], stopped.diagnostics[0]);
+  assert.deepEqual(database.diagnostics(), [limitReached(0, "first", "S1:a")]);
 });
 
 test("records of work that leaves nothing behind are released: a thrown computation, and an abandonment with nothing earned", () => {

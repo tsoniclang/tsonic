@@ -65,7 +65,7 @@ const refuse = diagnostics => ({ kind: "done", value: { kind: "refused", diagnos
 const pause = (requests, state, earned = []) => ({ kind: "paused", requests, paused: state, earned });
 const fact = (name, key, encodedKey) => ({ query: name, key, encodedKey });
 const limitReached = (maximum, name, encodedKey) => ({ code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
-  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "result"],
+  severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "A1:S6:result"],
   message: "A compiler resource limit was reached.", arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: maximum }], related: [], fix: null });
 const stoppedAt = (maximum, name, encodedKey) => ({ kind: "refused", diagnostics: [limitReached(maximum, name, encodedKey)] });
 

@@ -84,6 +84,11 @@ export type TraceEvent =
       readonly outcome: "ok" | "refused" | "abandoned" | "cycle-ok" | "cycle-refused" };
 
 export interface QueryLimits {
+  /**
+   * The bound on the records one database retains. A request that does not fit ends its run as refused with one
+   * resource-limit diagnostic. A database reports its bound once: the diagnostic names the first fact that met it,
+   * and every later run that meets the bound, at whatever fact, is refused with that same diagnostic.
+   */
   readonly maximumRecords: number;
 }
 

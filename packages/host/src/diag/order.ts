@@ -26,7 +26,7 @@ export function limitDiagnostic(code: HostDiagnosticCode, report: ResourceLimitR
     severity: "error",
     site: report.site,
     source: report.owner,
-    evidence: [report.limit, unit.request.query, encodeKey(unit.request.key), unit.position.kind],
+    evidence: [report.limit, unit.request.query, encodeKey(unit.request.key), encodeKey(positionKey(unit.position))],
     message: "A compiler resource limit was reached.",
     arguments: [{ kind: "text", value: report.limit }, { kind: "number", value: report.maximum }],
     related: [],
