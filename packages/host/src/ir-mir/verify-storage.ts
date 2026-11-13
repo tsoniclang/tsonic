@@ -243,6 +243,8 @@ interface StorageReading {
   /** The start set the block still has to be read with; null when it is not waiting. */
   waiting: LiveSet | null;
   read: boolean;
+  /** The next block in the order of reading; null for the last. A sweep that begins later walks from here, copying nothing. */
+  next: StorageReading | null;
 }
 
 /**
@@ -271,6 +273,7 @@ export function verifyStorage(
   const liveAfter = new Uint8Array(body.locals.length);
   const usedIn = new Int32Array(body.locals.length);
   let record = 0;
+  let last: StorageReading | null = null;
   for (const ordered of reversePostorder(body, starts)) {
     const block = ordered.block;
     if (!Object.is(block.id, ordered.position)) continue;
@@ -309,8 +312,11 @@ export function verifyStorage(
     }
     use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null });
     rankOf[ordered.position] = readings.length;
-    readings.push({ rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
-      decided, awaiting, start: null, waiting: null, read: false });
+    const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
+      decided, awaiting, start: null, waiting: null, read: false, next: null };
+    if (last !== null) last.next = reading;
+    last = reading;
+    readings.push(reading);
   }
   // The empty set of the body's width (one node for each level, made once like the arrays above and not charged), and
   // the locals present where an execution starts.
@@ -334,10 +340,10 @@ export function verifyStorage(
     reading.start = entry;
     reading.waiting = entry;
   }
-  for (let from = 0; from < readings.length;) {
+  for (let from = readings[0] ?? null; from !== null;) {
     // The lowest block made to wait at or behind its reader: where the next sweep begins.
-    let again = readings.length;
-    for (const reading of from === 0 ? readings : readings.slice(from)) {
+    let again: StorageReading | null = null;
+    for (let reading: StorageReading | null = from; reading !== null; reading = reading.next) {
       const arrived = reading.waiting;
       if (arrived === null) continue;
       reading.waiting = null;
@@ -362,11 +368,11 @@ export function verifyStorage(
         if (met === before) continue;
         target.start = met;
         target.waiting = met;
-        if (target.rank <= reading.rank) again = Math.min(again, target.rank);
+        if (target.rank <= reading.rank && (again === null || target.rank < again.rank)) again = target;
       }
     }
-    if (again < readings.length) {
-      chargeWork(meter, readings.length - again);
+    if (again !== null) {
+      chargeWork(meter, readings.length - again.rank);
       if (meter.exhausted) return [];
     }
     from = again;
