@@ -1,39 +1,54 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { KeyData } from "../ids/contract.js";
 
-export interface ActiveKey {
+export interface FactKey {
   readonly query: string;
+  readonly key: KeyData;
   readonly encodedKey: string;
 }
 
-export interface Query<Inputs, Key extends KeyData, Value> {
+export interface CycleMember<Witness> {
+  readonly fact: FactKey;
+  readonly witness: Witness;
+}
+
+export interface ClosedCycle<Witness> {
+  readonly members: readonly [CycleMember<Witness>, ...CycleMember<Witness>[]];
+}
+
+export type ClassifyCycle<Witness, Verdict> = (cycle: ClosedCycle<Witness>) => Verdict;
+
+export interface Query<Inputs, Key extends KeyData, Value, Witness, Verdict> {
   readonly name: string;
-  readonly compute: (context: QueryContext<Inputs>, key: Key) => QueryComputation<Inputs, Value>;
-  readonly cycle:
-    | "invariant"
-    | { readonly completeCycle: (key: Key, chain: readonly ActiveKey[]) => Result<Value> };
+  readonly compute: (context: QueryContext<Inputs, Witness, Verdict>, key: Key) => QueryComputation<Inputs, Value, Witness, Verdict>;
+  readonly cycleOutcome: (key: Key, verdict: Verdict) => Result<Value>;
 }
 
-export type QueryComputation<Inputs, Value> = Result<Value> | QueryDependency<Inputs, Value>;
+export type QueryComputation<Inputs, Value, Witness, Verdict> = Result<Value> | QueryDependency<Inputs, Value, Witness, Verdict>;
 
-export interface QueryDependency<Inputs, Value> {
+export interface QueryDependency<Inputs, Value, Witness, Verdict> {
   readonly kind: "dependency";
-  readonly schedule: (scheduler: QueryScheduler<Inputs, Value>) => void;
+  readonly schedule: (scheduler: QueryScheduler<Inputs, Value, Witness, Verdict>) => void;
 }
 
-export interface QueryScheduler<Inputs, Value> {
+export interface QueryRequest<Witness> {
+  readonly witness: Witness;
+  readonly earned: readonly Diagnostic[];
+}
+
+export interface QueryScheduler<Inputs, Value, Witness, Verdict> {
   readonly request: <Key extends KeyData, Dependency>(
-    query: Query<Inputs, Key, Dependency>, key: Key,
-    resume: (value: Dependency) => QueryComputation<Inputs, Value>,
+    query: Query<Inputs, Key, Dependency, Witness, Verdict>, key: Key, request: QueryRequest<Witness>,
+    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness, Verdict>,
   ) => void;
 }
 
-export interface QueryContext<Inputs> {
+export interface QueryContext<Inputs, Witness, Verdict> {
   readonly inputs: Inputs;
   readonly get: <Key extends KeyData, Dependency, Value>(
-    query: Query<Inputs, Key, Dependency>, key: Key,
-    resume: (value: Dependency) => QueryComputation<Inputs, Value>,
-  ) => QueryDependency<Inputs, Value>;
+    query: Query<Inputs, Key, Dependency, Witness, Verdict>, key: Key, request: QueryRequest<Witness>,
+    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness, Verdict>,
+  ) => QueryDependency<Inputs, Value, Witness, Verdict>;
   readonly diagnostics: () => readonly Diagnostic[];
   readonly stats: () => readonly QueryStat[];
 }
@@ -44,20 +59,30 @@ export interface QueryStat {
   readonly hits: number;
 }
 
+export type TraceEvent =
+  | { readonly kind: "dependency"; readonly from: FactKey | null; readonly to: FactKey;
+      readonly state: "cold" | "warm" | "active" }
+  | { readonly kind: "start"; readonly fact: FactKey }
+  | { readonly kind: "completion"; readonly fact: FactKey;
+      readonly outcome: "ok" | "refused" | "abandoned" | "cycle-ok" | "cycle-refused" };
+
 export interface QueryLimits {
-  readonly maxActiveDepth: number;
+  readonly maximumRecords: number;
 }
 
 export type RunResult<Value> =
   | { readonly kind: "completed"; readonly value: Value; readonly diagnostics: readonly Diagnostic[] }
   | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] }
-  | { readonly kind: "depth-exceeded"; readonly chain: readonly ActiveKey[] };
+  | { readonly kind: "exhausted"; readonly maximumRecords: number; readonly at: FactKey };
 
-export interface Database<Inputs> {
+export interface Database<Inputs, Witness, Verdict> {
   readonly inputs: Inputs;
-  readonly run: <Key extends KeyData, Value>(query: Query<Inputs, Key, Value>, key: Key) => RunResult<Value>;
+  readonly run: <Key extends KeyData, Value>(query: Query<Inputs, Key, Value, Witness, Verdict>, key: Key) => RunResult<Value>;
   readonly diagnostics: () => readonly Diagnostic[];
   readonly stats: () => readonly QueryStat[];
+  readonly trace: () => readonly TraceEvent[];
 }
 
-export type CreateDatabase = <Inputs>(inputs: Inputs, limits: QueryLimits) => Database<Inputs>;
+export type CreateDatabase = <Inputs, Witness, Verdict>(
+  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, Verdict>,
+) => Database<Inputs, Witness, Verdict>;

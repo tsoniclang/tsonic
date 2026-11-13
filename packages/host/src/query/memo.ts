@@ -1,7 +1,7 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { orderDiagnostics, throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
-import type { ActiveKey, Query, QueryStat } from "./contract.js";
+import type { FactKey, Query, QueryStat, TraceEvent } from "./contract.js";
 
 export interface Counter {
   computed: number;
@@ -16,14 +16,14 @@ interface Memo<Value> {
 
 export type MemoTable = Map<string, Memo<unknown>>;
 
-function belongsTo<Inputs, Key extends KeyData, Value>(
-  memo: Memo<unknown>, query: Query<Inputs, Key, Value>,
+function belongsTo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
+  memo: Memo<unknown>, query: Query<Inputs, Key, Value, Witness, Verdict>,
 ): memo is Memo<Value> {
   return memo.definition === query;
 }
 
-export function queryMemo<Inputs, Key extends KeyData, Value>(
-  table: MemoTable, query: Query<Inputs, Key, Value>, encodedKey: string,
+export function queryMemo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
+  table: MemoTable, query: Query<Inputs, Key, Value, Witness, Verdict>, encodedKey: string,
 ): Memo<Value> {
   const existing = table.get(query.name);
   if (existing === undefined) {
@@ -44,10 +44,14 @@ export function queryMemo<Inputs, Key extends KeyData, Value>(
   });
 }
 
+export function retainDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
+  return (diagnostics.slice());
+}
+
 export function retainResult<Value>(result: Result<Value>): Result<Value> {
   switch (result.kind) {
     case "ok":
-      return ({ kind: "ok", value: result.value, diagnostics: (result.diagnostics.slice()) });
+      return ({ kind: "ok", value: result.value, diagnostics: retainDiagnostics(result.diagnostics) });
     case "refused": {
       const diagnostics: [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0]];
       diagnostics.length = result.diagnostics.length;
@@ -65,10 +69,26 @@ export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): re
   })).sort((left, right) => Number(left.name > right.name) - Number(left.name < right.name)));
 }
 
-export function snapshotDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
-  return (orderDiagnostics(diagnostics).slice());
+export function snapshotDiagnostics(
+  published: readonly Diagnostic[], abandoned: ReadonlyMap<string, ReadonlyMap<string, readonly Diagnostic[]>>,
+): readonly Diagnostic[] {
+  const all = published.slice();
+  abandoned.forEach(keys => { keys.forEach(earned => { earned.forEach(diagnostic => { all.push(diagnostic); }); }); });
+  return (orderDiagnostics(all).slice());
 }
 
-export function snapshotChain(active: readonly ActiveKey[], attempted: ActiveKey): readonly ActiveKey[] {
-  return ([...active, attempted]);
+export function snapshotTrace(trace: readonly TraceEvent[]): readonly TraceEvent[] {
+  return (trace.slice());
+}
+
+export function leastFact(facts: readonly FactKey[]): number {
+  let offset = 0;
+  let least: FactKey | undefined;
+  facts.forEach((fact, index) => {
+    if (least === undefined || fact.query < least.query || (fact.query === least.query && fact.encodedKey < least.encodedKey)) {
+      least = fact;
+      offset = index;
+    }
+  });
+  return offset;
 }
