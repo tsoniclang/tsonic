@@ -1,14 +1,14 @@
 import type { DefId, TyId, NodeRef, LocalRef } from "../ids/contract.js";
 import type { BindingVector, ExactRational, MemberKey } from "../ir-types/contract.js";
 import type { ImportTarget, DeclarationTarget } from "../ir-hir/contract.js";
-import type { ApplicationDecision, ConstructionPartDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
+import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { TypedOperation, TirResolution, MemberSelection, TirApplication, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedName, TypedPropertyKey, TypedString, TypedNumber, TypedBigInt, TypedKeyword, TypedBinary, TypedUnary, TypedPrefix, TypedUpdate, TypedConditional, TargetAccess, TypedMember, TypedApplication, TypedProtocolValue, TypedSpread, TypedObjectSpread, TypedConstruction, TypedTemplate, TypedInstantiation, TypedProperty, TypedShorthand, TypedOmission, TypedIteration, TypedControlTransfer, TypedDecorator, TypedVariableList, TypedCallable, TypedClosure, TypedClass, TypedClassValue } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
 import { delimiter, readString, readNumber, readBigInt, choice, readBoolean, readStringChoice, openRecord, startFieldChoice, closeRecord, readDefinitionId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readMemberKeyText, readExactRational, readBindings } from "./parse-types.js";
 import { readLocalRef, readNodeRef } from "./parse-diagnostics.js";
 import { readDeclarationTargetText, readImportTargetText } from "./parse-core.js";
-import { readApplicationDecisionText, readConstructionPartDecisionText, readRefinementDecisionText, readRuleOutcomeText } from "./parse-inference.js";
+import { readApplicationDecisionText, readClosureDecisionText, readConstructionPartDecisionText, readRefinementDecisionText, readRuleOutcomeText } from "./parse-inference.js";
 import { readConversionDecisionText, readTirDemandText, readTirResolutionText, readTargetAccessText, readTirApplicationText, readTirProtocolText, readTypedOperationText, readTirSelectionText, readMemberSelectionText } from "./parse-tir.js";
 import { readTypedCallableText, readTypedClassText } from "./parse-phase-declarations.js";
 
@@ -378,8 +378,9 @@ export function readTypedClosureText<Root>(cursor: Cursor, finish: (value: Typed
             fieldText<TirDemand, Root>(cursor, fields, "demand", readTirDemandText, demandValue =>
               fieldText<TypedCallable, Root>(cursor, fields, "callable", readTypedCallableText, callableValue =>
                 fieldText<readonly (LocalRef)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, (next, done) => atomicText(next, readLocalRef, done), done), capturesValue =>
-                  atomicText(cursor, next => closeRecord(next, fields), () =>
-                      acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, callable: callableValue, captures: capturesValue }, finish)))))))))));
+                  fieldText<RuleOutcome<ClosureDecision>, Root>(cursor, fields, "closure", (next, done) => readRuleOutcomeText(next, readClosureDecisionText, done), closureValue =>
+                    atomicText(cursor, next => closeRecord(next, fields), () =>
+                        acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue, callable: callableValue, captures: capturesValue, closure: closureValue }, finish))))))))))));
 }
 
 export function readTypedConditionalText<Root>(cursor: Cursor, finish: (value: TypedConditional) => TextStep<Root>): TextStep<Root> {

@@ -165,7 +165,7 @@ function exportBinding(definition, changes = {}) {
 function selectedMember(changes = {}) {
   return { decision: { key: { kind: "text", value: "not-an-identity-or-name-oracle" }, origins: [],
     selectedDeclarations: [], primary: null, read: null, write: null, getter: null, setter: null,
-    bindings: emptyBindings() }, getter: null, setter: null, ...changes };
+    bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null, ...changes };
 }
 
 function emptySummary(binding, changes = {}) {
@@ -1762,7 +1762,7 @@ test("canonical member paths compare complete actual values rather than authored
       { kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" },
       { kind: "default", parameter: 1, initializer: body }, { kind: "omitted", parameter: 2, type: tyId(0) },
       { kind: "rest", parameter: 3, arguments: [1, 2], passing: "by-value" }],
-    completion: { signature: sigId(0), completion: tyId(0), yielded: null, sent: null }, result: tyId(0) },
+    completion: { signature: sigId(0), completion: tyId(0), yielded: null, sent: null }, result: tyId(0), activation: null },
   activation: { body, bindings: { kind: "parametric" } }, captures: [{ body, local: localId(0) }] };
   const base = selectedMember();
   const decisionChanges = [
@@ -1776,6 +1776,10 @@ test("canonical member paths compare complete actual values rather than authored
     { selectedDeclarations: [owner] }, { primary: owner }, { read: tyId(0) }, { write: tyId(0) },
     { getter: endpoint }, { setter: { ...endpoint, role: "api-body" } },
     { bindings: emptyBindings({ selfBindings: [{ kind: "bound", owner, type: tyId(0) }] }) },
+    { location: { kind: "accessor" } },
+    { location: { kind: "data", check: { kind: "none" }, receiver: "by-reference" } },
+    { location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" } },
+    { location: { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" } },
   ];
   const variants = [...decisionChanges.map(change => selectedMember({ decision: { ...base.decision, ...change } })),
     selectedMember({ getter: callee }), selectedMember({ setter: callee }),
@@ -1791,6 +1795,7 @@ test("canonical member paths compare complete actual values rather than authored
       { implementationBindings: emptyBindings({ selfBindings: [{ kind: "rigid", owner }] }) },
       { parameters: [{ kind: "argument", parameter: 0, argument: 0, component: 0, passing: "by-value" }] },
       { completion: { ...callee.decision.completion, sent: tyId(0) } }, { result: tyId(1) },
+      { activation: "at-creation" }, { activation: "when-first-driven" },
     ].map(change => ({ one: selectedMember({ getter: callee }),
       two: selectedMember({ getter: { ...callee, decision: { ...callee.decision, ...change } } }), different: true })),
     { one: selectedMember({ getter: callee }),

@@ -11,7 +11,7 @@ import type {
   HirCallableEndpoint
 } from "../ir-hir/contract.js";
 import type {
-  ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
+  AccessLocation, ApplicationDecision, LogicalCapture, CheckRequirement, ClosureDecision, CompletionEndpoint, ConstructionPartDecision, OperationExecution, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
@@ -29,6 +29,7 @@ export interface RuleDecisionsTextReads {
 }
 
 export interface RuleDecisionsTextModel {
+  readonly work_ClosureDecision: TirRecordCodec<ClosureDecision>;
   readonly work_OperationDecision: TirRecordCodec<OperationDecision>;
   readonly work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision>;
   readonly work_ProtocolStepDecision: TirRecordCodec<ProtocolStepDecision>;
@@ -59,12 +60,48 @@ export interface RuleDecisionsTextModel {
 }
 
 export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisionsTextReads): RuleDecisionsTextModel => {
-  const { defineRecord, bodyReader, definitionReader, numberReader, signatureReader, typeReader } = kernel;
+  const { defineRecord, bodyReader, booleanReader, definitionReader, numberReader, signatureReader, typeReader } = kernel;
+  const work_CheckRequirement_none: TirRecordCodec<CheckRequirement & { readonly kind: "none" }> = defineRecord<CheckRequirement & { readonly kind: "none" }>("CheckRequirement#none", "CheckRequirement", { field: "kind", value: "none" }, "none", null, null, fields => fields
+    .finish(() => ({ kind: "none" })));
+  const work_CheckRequirement_required: TirRecordCodec<CheckRequirement & { readonly kind: "required" }> = defineRecord<CheckRequirement & { readonly kind: "required" }>("CheckRequirement#required", "CheckRequirement", { field: "kind", value: "required" }, "required", null, null, fields => fields
+    .field("failure", "CheckFailure", value => scalarWork("CheckFailure", value.failure), literalReader<(CheckRequirement & { readonly kind: "required" })["failure"]>("CheckFailure", ["unwind","abort"]))
+    .finish((field_failure) => ({ kind: "required", failure: field_failure })));
+  const work_CheckRequirement: TirRecordCodec<CheckRequirement> = unionRecord<CheckRequirement>("CheckRequirement", (value: CheckRequirement): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "none": return work_CheckRequirement_none.write(value);
+      case "required": return work_CheckRequirement_required.write(value);
+    }
+  }, () => [work_CheckRequirement_none.reader, work_CheckRequirement_required.reader]);
+  const work_AccessLocation_data: TirRecordCodec<AccessLocation & { readonly kind: "data" }> = defineRecord<AccessLocation & { readonly kind: "data" }>("AccessLocation#data", "AccessLocation", { field: "kind", value: "data" }, "data", null, null, fields => fields
+    .field("check", "CheckRequirement", value => work_CheckRequirement.write(value.check), lazyReader(() => work_CheckRequirement.reader))
+    .field("receiver", "ReceiverAccess", value => scalarWork("ReceiverAccess", value.receiver), literalReader<(AccessLocation & { readonly kind: "data" })["receiver"]>("ReceiverAccess", ["in-place","by-reference"]))
+    .finish((field_check, field_receiver) => ({ kind: "data", check: field_check, receiver: field_receiver })));
+  const work_AccessLocation_accessor: TirRecordCodec<AccessLocation & { readonly kind: "accessor" }> = defineRecord<AccessLocation & { readonly kind: "accessor" }>("AccessLocation#accessor", "AccessLocation", { field: "kind", value: "accessor" }, "accessor", null, null, fields => fields
+    .finish(() => ({ kind: "accessor" })));
+  const work_AccessLocation: TirRecordCodec<AccessLocation> = unionRecord<AccessLocation>("AccessLocation", (value: AccessLocation): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "data": return work_AccessLocation_data.write(value);
+      case "accessor": return work_AccessLocation_accessor.write(value);
+    }
+  }, () => [work_AccessLocation_data.reader, work_AccessLocation_accessor.reader]);
+  const work_OperationExecution_pure: TirRecordCodec<OperationExecution & { readonly kind: "pure" }> = defineRecord<OperationExecution & { readonly kind: "pure" }>("OperationExecution#pure", "OperationExecution", { field: "kind", value: "pure" }, "pure", null, null, fields => fields
+    .finish(() => ({ kind: "pure" })));
+  const work_OperationExecution_invocation: TirRecordCodec<OperationExecution & { readonly kind: "invocation" }> = defineRecord<OperationExecution & { readonly kind: "invocation" }>("OperationExecution#invocation", "OperationExecution", { field: "kind", value: "invocation" }, "invocation", null, null, fields => fields
+    .field("writesStorage", "boolean", value => scalarWork("boolean", value.writesStorage), booleanReader)
+    .field("failure", "FailureKind", value => scalarWork("FailureKind", value.failure), literalReader<(OperationExecution & { readonly kind: "invocation" })["failure"]>("FailureKind", ["none","unwind","abort"]))
+    .finish((field_writesStorage, field_failure) => ({ kind: "invocation", writesStorage: field_writesStorage, failure: field_failure })));
+  const work_OperationExecution: TirRecordCodec<OperationExecution> = unionRecord<OperationExecution>("OperationExecution", (value: OperationExecution): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "pure": return work_OperationExecution_pure.write(value);
+      case "invocation": return work_OperationExecution_invocation.write(value);
+    }
+  }, () => [work_OperationExecution_pure.reader, work_OperationExecution_invocation.reader]);
   const work_OperationDecision: TirRecordCodec<OperationDecision> = defineRecord<OperationDecision>("OperationDecision", "OperationDecision", { field: "kind", value: "selected" }, "selected", null, null, fields => fields
     .field("operation", "OperationIdentity", value => read.work_OperationIdentity.write(value.operation), lazyReader(() => read.work_OperationIdentity.reader))
     .field("operands", "[t]", value => sequenceWork("[t]", value.operands, actual => referenceWork("t", actual)), sequenceReader("[t]", typeReader))
     .field("result", "t", value => referenceWork("t", value.result), typeReader)
-    .finish((field_operation, field_operands, field_result) => ({ kind: "selected", operation: field_operation, operands: field_operands, result: field_result })));
+    .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
+    .finish((field_operation, field_operands, field_result, field_execution) => ({ kind: "selected", operation: field_operation, operands: field_operands, result: field_result, execution: field_execution })));
   const work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision> = defineRecord<ConstructionPartDecision>("ConstructionPartDecision", "ConstructionPartDecision", null, "ConstructionPartDecision", null, value => ({ kind: "construction-part", value }), fields => fields
     .field("part", "number", value => scalarWork("number", value.part), numberReader)
     .field("source", "NodeRef", value => read.work_NodeRef.write(value.source), lazyReader(() => read.work_NodeRef.reader))
@@ -92,7 +129,8 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   const work_EmbeddingDecision_conversion: TirRecordCodec<EmbeddingDecision & { readonly kind: "conversion" }> = defineRecord<EmbeddingDecision & { readonly kind: "conversion" }>("EmbeddingDecision#conversion", "EmbeddingDecision", { field: "kind", value: "conversion" }, "conversion", null, null, fields => fields
     .field("conversion", "ConversionKind", value => scalarWork("ConversionKind", value.conversion), literalReader<(EmbeddingDecision & { readonly kind: "conversion" })["conversion"]>("ConversionKind", ["numeric","literal-fit","absence","union-injection","shape","callable","readonly"]))
     .field("proof", "EmbeddingProof", value => work_EmbeddingProof.write(value.proof), lazyReader(() => work_EmbeddingProof.reader))
-    .finish((field_conversion, field_proof) => ({ kind: "conversion", conversion: field_conversion, proof: field_proof })));
+    .field("check", "CheckRequirement", value => work_CheckRequirement.write(value.check), lazyReader(() => work_CheckRequirement.reader))
+    .finish((field_conversion, field_proof, field_check) => ({ kind: "conversion", conversion: field_conversion, proof: field_proof, check: field_check })));
   const work_EmbeddingDecision_refused: TirRecordCodec<EmbeddingDecision & { readonly kind: "refused" }> = defineRecord<EmbeddingDecision & { readonly kind: "refused" }>("EmbeddingDecision#refused", "EmbeddingDecision", { field: "kind", value: "refused" }, "refused", null, null, fields => fields
     .field("reason", "EmbeddingRefusal", value => scalarWork("EmbeddingRefusal", value.reason), literalReader<(EmbeddingDecision & { readonly kind: "refused" })["reason"]>("EmbeddingRefusal", ["incompatible-domain","lossy-numeric","missing-correspondence","passing-mode","rigid-parameter"]))
     .finish((field_reason) => ({ kind: "refused", reason: field_reason })));
@@ -107,7 +145,8 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("source", "t", value => referenceWork("t", value.source), typeReader)
     .field("result", "t", value => referenceWork("t", value.result), typeReader)
     .field("proof", "EmbeddingProof", value => work_EmbeddingProof.write(value.proof), lazyReader(() => work_EmbeddingProof.reader))
-    .finish((field_source, field_result, field_proof) => ({ kind: "narrowed", source: field_source, result: field_result, proof: field_proof })));
+    .field("failure", "CheckFailure", value => scalarWork("CheckFailure", value.failure), literalReader<(RefinementDecision & { readonly kind: "narrowed" })["failure"]>("CheckFailure", ["unwind","abort"]))
+    .finish((field_source, field_result, field_proof, field_failure) => ({ kind: "narrowed", source: field_source, result: field_result, proof: field_proof, failure: field_failure })));
   const work_MemberDecision: TirRecordCodec<MemberDecision> = defineRecord<MemberDecision>("MemberDecision", "MemberDecision", null, "MemberDecision", null, null, fields => fields
     .field("key", "MemberKey", value => read.work_MemberKey.write(value.key), lazyReader(() => read.work_MemberKey.reader))
     .field("origins", "[MemberOrigin]", value => sequenceWork("[MemberOrigin]", value.origins, actual => read.work_MemberOrigin.write(actual)), sequenceReader("[MemberOrigin]", lazyReader(() => read.work_MemberOrigin.reader)))
@@ -118,9 +157,11 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("getter", "?HirCallableEndpoint", value => nullableWork(value.getter, actual => read.work_HirCallableEndpoint.write(actual)), nullableReader(lazyReader(() => read.work_HirCallableEndpoint.reader)))
     .field("setter", "?HirCallableEndpoint", value => nullableWork(value.setter, actual => read.work_HirCallableEndpoint.write(actual)), nullableReader(lazyReader(() => read.work_HirCallableEndpoint.reader)))
     .field("bindings", "BindingVector", value => withBindingOwner(read.work_BindingVector.write(value.bindings), value.primary), lazyReader(() => read.work_BindingVector.reader))
-    .finish((field_key, field_origins, field_selectedDeclarations, field_primary, field_read, field_write, field_getter, field_setter, field_bindings) => ({
+    .field("location", "AccessLocation", value => work_AccessLocation.write(value.location), lazyReader(() => work_AccessLocation.reader))
+    .finish((field_key, field_origins, field_selectedDeclarations, field_primary, field_read, field_write, field_getter, field_setter, field_bindings, field_location) => ({
       key: field_key, origins: field_origins, selectedDeclarations: field_selectedDeclarations, primary: field_primary,
       read: field_read, write: field_write, getter: field_getter, setter: field_setter, bindings: field_bindings,
+      location: field_location,
     })));
   const work_ApplicationDecision: TirRecordCodec<ApplicationDecision> = defineRecord<ApplicationDecision>("ApplicationDecision", "ApplicationDecision", null, "ApplicationDecision", null, null, fields => fields
     .field("candidate", "number", value => scalarWork("number", value.candidate), numberReader)
@@ -131,10 +172,11 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("parameters", "[ParameterMapping]", value => sequenceWork("[ParameterMapping]", value.parameters, actual => work_ParameterMapping.write(actual)), sequenceReader("[ParameterMapping]", lazyReader(() => work_ParameterMapping.reader)))
     .field("completion", "CompletionEndpoint", value => work_CompletionEndpoint.write(value.completion), lazyReader(() => work_CompletionEndpoint.reader))
     .field("result", "t", value => referenceWork("t", value.result), typeReader)
-    .finish((field_candidate, field_advertised, field_api, field_bindings, field_implementationBindings, field_parameters, field_completion, field_result) => ({
+    .field("activation", "?HandleActivation", value => nullableWork(value.activation, actual => scalarWork("HandleActivation", actual)), nullableReader(literalReader<NonNullable<(ApplicationDecision)["activation"]>>("HandleActivation", ["at-creation","when-first-driven"])))
+    .finish((field_candidate, field_advertised, field_api, field_bindings, field_implementationBindings, field_parameters, field_completion, field_result, field_activation) => ({
       candidate: field_candidate, advertised: field_advertised, api: field_api, bindings: field_bindings,
       implementationBindings: field_implementationBindings, parameters: field_parameters, completion: field_completion,
-      result: field_result,
+      result: field_result, activation: field_activation,
     })));
   const work_ParameterMapping_argument: TirRecordCodec<ParameterMapping & { readonly kind: "argument" }> = defineRecord<ParameterMapping & { readonly kind: "argument" }>("ParameterMapping#argument", "ParameterMapping", { field: "kind", value: "argument" }, "argument", null, null, fields => fields
     .field("parameter", "number", value => scalarWork("number", value.parameter), numberReader)
@@ -174,6 +216,11 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
     .field("occurrence", "NodeRef", value => read.work_NodeRef.write(value.occurrence), lazyReader(() => read.work_NodeRef.reader))
     .field("value", "TypeEvidence", value => read.work_TypeEvidence.write(value.value), lazyReader(() => read.work_TypeEvidence.reader))
     .finish((field_occurrence, field_value) => ({ kind: "spread", occurrence: field_occurrence, value: field_value })));
+  const work_ClosureDecision: TirRecordCodec<ClosureDecision> = defineRecord<ClosureDecision>("ClosureDecision", "ClosureDecision", null, "ClosureDecision", null, null, fields => fields
+    .field("carrier", "t", value => referenceWork("t", value.carrier), typeReader)
+    .field("captures", "[LogicalCapture]", value => sequenceWork("[LogicalCapture]", value.captures, actual => scalarWork("LogicalCapture", actual)), sequenceReader("[LogicalCapture]", literalReader<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"])))
+    .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
+    .finish((field_carrier, field_captures, field_execution) => ({ carrier: field_carrier, captures: field_captures, execution: field_execution })));
   const work_ProtocolStepOperation: TirRecordCodec<ProtocolStepOperation> = unionRecord<ProtocolStepOperation>("ProtocolStepOperation", (value: ProtocolStepOperation): TirTypedRecordWork => {
     switch (value.kind) {
       case "call": return work_ProtocolStepOperation_call.write(value);
@@ -209,5 +256,5 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
       case "spread": return work_LiteralConstructionPart_spread.write(value);
     }
   }, () => [work_LiteralConstructionPart_element.reader, work_LiteralConstructionPart_property.reader, work_LiteralConstructionPart_spread.reader]);
-  return { work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
+  return { work_ClosureDecision, work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
 };

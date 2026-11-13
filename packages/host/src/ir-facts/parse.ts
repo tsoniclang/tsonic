@@ -10,7 +10,7 @@ import {
   tyId, valueContextId,
 } from "../ids/index.js";
 import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
+import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, MemberOrigin, SelfBinding,
@@ -376,7 +376,27 @@ const application: Decode<ApplicationDecision> = (state, input) => then(fields(s
     then(readField(state, values, "parameters", (state, input) => sequence(state, input, parameterMapping)), parametersValue =>
     then(readField(state, values, "completion", completion), completionValue =>
     then(readField(state, values, "result", typeIdentity), resultValue =>
-      finishRecord<ApplicationDecision>(state, values, { candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue }))))))))));
+    then(readField(state, values, "activation", (state, input) => nullable(state, input, (state, input) => literal(state, input, ["at-creation","when-first-driven"]))), activationValue =>
+      finishRecord<ApplicationDecision>(state, values, { activation: activationValue, candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue })))))))))));
+const checkRequirement: Decode<CheckRequirement> = (state, input) => then(label(input, ["none","required"]), kind => {
+  switch (kind) {
+    case "none": return then(fields(state, input, "none"), values =>
+      finishRecord<CheckRequirement>(state, values, { kind: "none" }));
+    case "required": return then(fields(state, input, "required"), values =>
+    then(readField(state, values, "failure", (state, input) => literal(state, input, ["unwind","abort"])), failureValue =>
+      finishRecord<CheckRequirement>(state, values, { kind: "required", failure: failureValue })));
+  }
+});
+const accessLocation: Decode<AccessLocation> = (state, input) => then(label(input, ["data","accessor"]), kind => {
+  switch (kind) {
+    case "data": return then(fields(state, input, "data"), values =>
+    then(readField(state, values, "check", checkRequirement), checkValue =>
+    then(readField(state, values, "receiver", (state, input) => literal(state, input, ["in-place","by-reference"])), receiverValue =>
+      finishRecord<AccessLocation>(state, values, { kind: "data", check: checkValue, receiver: receiverValue }))));
+    case "accessor": return then(fields(state, input, "accessor"), values =>
+      finishRecord<AccessLocation>(state, values, { kind: "accessor" }));
+  }
+});
 const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(state, input, "MemberDecision"), values =>
     then(readField(state, values, "key", memberKey), keyValue =>
     then(readField(state, values, "origins", (state, input) => sequence(state, input, memberOrigin)), originsValue =>
@@ -387,7 +407,8 @@ const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(sta
     then(readField(state, values, "getter", (state, input) => nullable(state, input, endpoint)), getterValue =>
     then(readField(state, values, "setter", (state, input) => nullable(state, input, endpoint)), setterValue =>
     then(readField(state, values, "bindings", bindings), bindingsValue =>
-      finishRecord<MemberDecision>(state, values, { key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue })))))))))));
+    then(readField(state, values, "location", accessLocation), locationValue =>
+      finishRecord<MemberDecision>(state, values, { location: locationValue, key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue }))))))))))));
 const resolved: Decode<ResolvedCallee> = (state, input) => then(fields(state, input, "ResolvedCallee"), values =>
     then(readField(state, values, "decision", application), decisionValue =>
     then(readField(state, values, "activation", (state, input) => nullable(state, input, bodyInstance)), activationValue =>

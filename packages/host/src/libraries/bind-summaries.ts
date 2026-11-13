@@ -61,9 +61,14 @@ function calleeData(callee: ResolvedCallee | null): KeyData {
         case "rest": return [parameter.kind, parameter.parameter, parameter.arguments, parameter.passing];
       }
     }), [decision.completion.signature, decision.completion.completion, decision.completion.yielded, decision.completion.sent],
-    decision.result, activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
+    decision.result, decision.activation, activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
       ? [activation.bindings.kind] : [activation.bindings.kind, bindingData(activation.bindings.bindings)]],
     callee.captures.map(capture => [capture.body, capture.local])];
+}
+
+function locationData(location: MemberSelection["decision"]["location"]): KeyData {
+  if (location.kind === "accessor") return [location.kind];
+  return [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
 }
 
 function memberData(member: MemberSelection): KeyData {
@@ -79,7 +84,7 @@ function memberData(member: MemberSelection): KeyData {
   }), decision.selectedDeclarations, decision.primary, decision.read, decision.write,
   decision.getter === null ? null : [decision.getter.declaration, decision.getter.role, decision.getter.signature, decision.getter.body],
   decision.setter === null ? null : [decision.setter.declaration, decision.setter.role, decision.setter.signature, decision.setter.body],
-  bindingData(decision.bindings), calleeData(member.getter), calleeData(member.setter)];
+  bindingData(decision.bindings), locationData(decision.location), calleeData(member.getter), calleeData(member.setter)];
 }
 
 function internValue(values: Map<string, number>, data: KeyData): number {

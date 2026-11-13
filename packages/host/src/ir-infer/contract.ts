@@ -24,7 +24,7 @@ export type FlowRole = "initialization" | "assignment" | "argument" | "return" |
 export type AccessRole = "read" | "write" | "call";
 export type ProtocolKind = "iterate" | "await" | "yield" | "delegate" | "dispose" | "spread" | "argument-passing" | "pointer";
 export type RuleIdentity = "embed" | "domain-fit" | "memory-equivalent" | "member" | "index"
-  | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core";
+  | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core" | "closure";
 
 export interface EqualityConstraint {
   readonly kind: "eq";
@@ -143,6 +143,15 @@ export interface RefinementConstraint {
   readonly result: TyId;
 }
 
+export interface ClosureConstraint {
+  readonly kind: "closure";
+  readonly occurrence: NodeRef;
+  readonly created: BodyId;
+  readonly captures: readonly TyId[];
+  readonly result: TyId;
+  readonly bindings: BindingVector;
+}
+
 export interface DischargeConstraint {
   readonly kind: "discharge";
   readonly occurrence: NodeRef;
@@ -162,7 +171,7 @@ export interface DefaultConstraint {
 
 export type Constraint = EqualityConstraint | FlowConstraint | LiteralConstraint | OperatorConstraint
   | MemberConstraint | IndexConstraint | CallConstraint | ConstructConstraint | LiteralConstructionConstraint
-  | ProtocolConstraint | RefinementConstraint | DischargeConstraint | DefaultConstraint;
+  | ProtocolConstraint | RefinementConstraint | DischargeConstraint | DefaultConstraint | ClosureConstraint;
 
 export interface ConstraintSet {
   readonly group: GroupId;
@@ -335,6 +344,42 @@ export interface CoreInput {
   readonly permissionScope: NodeRef | null;
 }
 
+export type CheckFailure = "unwind" | "abort";
+export type FailureKind = "none" | CheckFailure;
+
+export type CheckRequirement =
+  | { readonly kind: "none" }
+  | { readonly kind: "required"; readonly failure: CheckFailure };
+
+export type OperationExecution =
+  | { readonly kind: "pure" }
+  | { readonly kind: "invocation"; readonly writesStorage: boolean; readonly failure: FailureKind };
+
+export type ReceiverAccess = "in-place" | "by-reference";
+
+export type AccessLocation =
+  | { readonly kind: "data"; readonly check: CheckRequirement; readonly receiver: ReceiverAccess }
+  | { readonly kind: "accessor" };
+
+export type HandleActivation = "at-creation" | "when-first-driven";
+
+// The logical captured values and locations of a closure, one per captured local in order. A captured location preserves
+// its source location identity. Neither value selects a physical copy: Origins' and PointerBacking's facts and the native
+// compiler justify any later representation.
+export type LogicalCapture = "captured-value" | "captured-location";
+
+export interface ClosureDecision {
+  readonly carrier: TyId;
+  readonly captures: readonly LogicalCapture[];
+  readonly execution: OperationExecution;
+}
+
+export interface ClosureInput {
+  readonly context: RuleContext;
+  readonly callable: TypeEvidence;
+  readonly captures: readonly TypeEvidence[];
+}
+
 export type ConversionKind = "numeric" | "literal-fit" | "absence" | "union-injection" | "shape" | "callable" | "readonly";
 
 export interface CorrespondenceStep {
@@ -351,7 +396,7 @@ export interface EmbeddingProof {
 
 export type EmbeddingDecision =
   | { readonly kind: "identity" }
-  | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof }
+  | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof; readonly check: CheckRequirement }
   | { readonly kind: "refused"; readonly reason: "incompatible-domain" | "lossy-numeric" | "missing-correspondence" | "passing-mode" | "rigid-parameter" };
 
 export interface MemberDecision {
@@ -364,6 +409,7 @@ export interface MemberDecision {
   readonly getter: HirCallableEndpoint | null;
   readonly setter: HirCallableEndpoint | null;
   readonly bindings: BindingVector;
+  readonly location: AccessLocation;
 }
 
 export type ParameterMapping =
@@ -388,6 +434,7 @@ export interface ApplicationDecision {
   readonly parameters: readonly ParameterMapping[];
   readonly completion: CompletionEndpoint;
   readonly result: TyId;
+  readonly activation: HandleActivation | null;
 }
 
 export interface ConstructionPartDecision {
@@ -430,6 +477,7 @@ export interface OperationDecision {
   readonly operation: OperationIdentity;
   readonly operands: readonly TyId[];
   readonly result: TyId;
+  readonly execution: OperationExecution;
 }
 
 export type DeferredInvocation =
@@ -445,7 +493,8 @@ export type DeferredInvocation =
   | { readonly rule: "protocol"; readonly input: ProtocolInput }
   | { readonly rule: "refinement"; readonly input: RefinementInput }
   | { readonly rule: "library"; readonly input: LibraryInput }
-  | { readonly rule: "core"; readonly input: CoreInput };
+  | { readonly rule: "core"; readonly input: CoreInput }
+  | { readonly rule: "closure"; readonly input: ClosureInput };
 
 export interface DeferredDecision {
   readonly invocation: DeferredInvocation;
@@ -458,7 +507,7 @@ export type RuleOutcome<Decision> =
 
 export type RefinementDecision =
   | { readonly kind: "identity"; readonly type: TyId }
-  | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof };
+  | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof; readonly failure: CheckFailure };
 
 export interface FinalVariable {
   readonly variable: number;
@@ -524,6 +573,7 @@ export type ConstraintDecision =
   | { readonly kind: "refine"; readonly refinement: RefinementDecision }
   | { readonly kind: "discharge"; readonly proof: DischargeProof }
   | { readonly kind: "default"; readonly type: TyId }
+  | { readonly kind: "closure"; readonly closure: ClosureDecision }
   | { readonly kind: "deferred"; readonly deferred: DeferredDecision };
 
 export interface DischargeObligationProof {
@@ -585,6 +635,7 @@ export interface RuleTable {
   readonly refinement: (input: RefinementInput) => Result<RuleOutcome<RefinementDecision>>;
   readonly library: (input: LibraryInput) => Result<RuleOutcome<OperationDecision>>;
   readonly core: (input: CoreInput) => Result<RuleOutcome<OperationDecision>>;
+  readonly closure: (input: ClosureInput) => Result<RuleOutcome<ClosureDecision>>;
   readonly variables: VariableRules;
   readonly constraints: ConstraintSchemes;
 }
@@ -625,7 +676,8 @@ export type InferRule = "group-order" | "group-ownership" | "inferred-part-ident
   | "no-open-in-solution" | "check-recorded" | "decision-kind"
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
-  | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation";
+  | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation"
+  | "access-location" | "closure-capture-total";
 
 export type InferSite =
   | { readonly kind: "group"; readonly group: GroupId }

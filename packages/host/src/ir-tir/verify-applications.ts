@@ -270,6 +270,8 @@ export const verifyMemberDecision = (
     if (declared.size !== 0 && !declared.has(declaration)) origins = false;
   }
   if (!origins) emit("member-origin", node, "member selection does not retain a real member key and its actual declared origins");
+  if ((decision.location.kind === "accessor") !== (decision.getter !== null || decision.setter !== null))
+    emit("access-location", node, "member location is an accessor exactly when a getter or setter is selected");
   return actualOrigins;
 };
 

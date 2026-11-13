@@ -2,7 +2,7 @@ import type { TypedName, TypedPropertyKey, TypedDecorator, TypedIteration, Typed
 import type { TextWork } from "./text-values.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef, textLocalRef } from "./text-values.js";
 import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection } from "./text-tir.js";
-import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision } from "./text-inference.js";
+import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
 import { textDeclarationTarget, textImportTarget } from "./text-core.js";
 import { textTypedClass, textTypedCallable } from "./text-phase-declarations.js";
@@ -445,6 +445,7 @@ export function textTypedClosure(value: TypedClosure): TextWork {
       field("demand", textTirDemand(value.demand)),
       field("callable", textTypedCallable(value.callable)),
       field("captures", sequence(value.captures, entry0 => textLocalRef(entry0))),
+      field("closure", textRuleOutcome(value.closure, textClosureDecision)),
     ]);
   });
 }

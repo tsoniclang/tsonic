@@ -60,15 +60,15 @@ const endpointText = `HirCallableEndpoint(declaration=def:"D[M[P[p];m];run]", ro
 const apiEndpoint = { ...endpoint, role: "api-signature" };
 const apiText = endpointText.replace('role="advertised"', 'role="api-signature"');
 const application = { candidate: 0, advertised: endpoint, api: apiEndpoint, bindings: bindingVector,
-  implementationBindings: bindingVector, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 };
-const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[], completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=null, sent=null), result=t:0)`;
+  implementationBindings: bindingVector, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
+const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[], completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=null, sent=null), result=t:0, activation=null)`;
 const callee = { decision: application, activation: instance, captures: [{ body: bodyIdentity, local: 0 }] };
 const calleeText = `ResolvedCallee(decision=${applicationText}, activation=${instanceText}, captures=[LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0)])`;
 const member = { decision: { key: { kind: "text", value: "x" }, origins: [], selectedDeclarations: [], primary: null,
-  read: 0, write: 0, getter: null, setter: null, bindings: bindingVector }, getter: null, setter: null };
-const memberText = `MemberSelection(decision=MemberDecision(key=text(value="x"), origins=[], selectedDeclarations=[], primary=null, read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingText}), getter=null, setter=null)`;
-const operation = { decision: { kind: "selected", operation: { kind: "native-operator", operator: "+", carrier: "int32" }, operands: [0], result: 0 }, permissionScope: null };
-const operationText = 'TypedOperation(decision=selected(operation=native-operator(operator="+", carrier="int32"), operands=[t:0], result=t:0), permissionScope=null)';
+  read: 0, write: 0, getter: null, setter: null, bindings: bindingVector, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
+const memberText = `MemberSelection(decision=MemberDecision(key=text(value="x"), origins=[], selectedDeclarations=[], primary=null, read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingText}, location=data(check=none(), receiver="in-place")), getter=null, setter=null)`;
+const operation = { decision: { kind: "selected", operation: { kind: "native-operator", operator: "+", carrier: "int32" }, operands: [0], result: 0, execution: { kind: "pure" } }, permissionScope: null };
+const operationText = 'TypedOperation(decision=selected(operation=native-operator(operator="+", carrier="int32"), operands=[t:0], result=t:0, execution=pure()), permissionScope=null)';
 const placeOperand = { kind: "place", place: 0 };
 const constantOperand = { kind: "constant", constant: 0 };
 const operandText = "place(place=p:0)";
@@ -429,8 +429,8 @@ for (const [identity, text] of [
   [{ kind: "type-query" }, "type-query()"], [{ kind: "discard" }, "discard()"],
 ]) {
   test(`MIR nested selected operation ${identity.kind} is retained without target interpretation`, () => {
-    const selected = { decision: { kind: "selected", operation: identity, operands: [0, 1], result: 2 }, permissionScope: 0 };
-    const selectedText = `TypedOperation(decision=selected(operation=${text}, operands=[t:0, t:1], result=t:2), permissionScope=n:0)`;
+    const selected = { decision: { kind: "selected", operation: identity, operands: [0, 1], result: 2, execution: { kind: "pure" } }, permissionScope: 0 };
+    const selectedText = `TypedOperation(decision=selected(operation=${text}, operands=[t:0, t:1], result=t:2, execution=pure()), permissionScope=n:0)`;
     const terminator = { ...site, kind: "invoke", operation: selected, operands: [placeOperand, constantOperand], destination: 0, next: 1, unwind: { kind: "escape" } };
     const fullText = `invoke(${siteText}, operation=${selectedText}, operands=[${operandText}, ${constantOperandText}], destination=p:0, next=b:1, unwind=escape())`;
     roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] },
@@ -1147,7 +1147,7 @@ test("MIR assignment and selected-operation correlation are independent of stora
   ]);
   const constants = [{ id: identities.constId(0), type: identities.tyId(2), value: { kind: "literal", value: { kind: "string", value: "not a boolean" } } }];
   same(product.verifyMir({ ...body, constants }, context), [expectedViolation("assignment-type", { kind: "instruction", block: 0, statement: 1 })], "string into bool complete vector");
-  const selected = { decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [identities.tyId(1)], result: identities.tyId(1) }, permissionScope: null };
+  const selected = { decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [identities.tyId(1)], result: identities.tyId(1), execution: { kind: "pure" } }, permissionScope: null };
   const mismatched = { ...body, constants: [{ ...constants[0], type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } }],
     blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], { ...body.blocks[0].statements[1], value: { kind: "unary", operation: selected, operand: { kind: "constant", constant: identities.constId(0) } } }] }] };
   same(product.verifyMir(mismatched, context), [expectedViolation("operation-selected", { kind: "instruction", block: 0, statement: 1 })], "operation absent at exact source node complete vector");
@@ -1174,7 +1174,7 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
     result: identities.tyId(result) }, activation: null, captures: [] };
   const selection = { decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: propertyDefinition }],
     selectedDeclarations: [propertyDefinition], primary: propertyDefinition, read: identities.tyId(1), write: identities.tyId(1),
-    getter: getterEndpoint, setter: setterEndpoint, bindings: bindingVector }, getter: write ? null : activation, setter: write ? activation : null };
+    getter: getterEndpoint, setter: setterEndpoint, bindings: bindingVector, location: { kind: "accessor" } }, getter: write ? null : activation, setter: write ? activation : null };
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: base.blocks[0].origin,
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const value = type => ({ type: identities.tyId(type), convertedType: identities.tyId(type), conversion: { kind: "identity" },
@@ -1237,7 +1237,7 @@ test("MIR selected unary operation matches real TIR data, physical operands and 
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: base.blocks[0].origin,
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const selected = { decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" },
-    operands: [identities.tyId(1)], result: identities.tyId(1) }, permissionScope: null };
+    operands: [identities.tyId(1)], result: identities.tyId(1), execution: { kind: "pure" } }, permissionScope: null };
   const value = { type: identities.tyId(1), convertedType: identities.tyId(1), conversion: { kind: "identity" }, narrowing: null,
     evidenceIndex: null, demand: { kind: "always" } };
   const prefix = { ...header(2, 1), kind: "PrefixUnaryExpression", operator: "ExclamationToken",
@@ -1310,7 +1310,7 @@ test("MIR binary verifier uses both actual selected operands and its physical re
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: base.blocks[0].origin,
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const selected = { decision: { kind: "selected", operation: { kind: "native-operator", operator: "+", carrier: "int32" },
-    operands: [identities.tyId(3), identities.tyId(3)], result: identities.tyId(3) }, permissionScope: null };
+    operands: [identities.tyId(3), identities.tyId(3)], result: identities.tyId(3), execution: { kind: "pure" } }, permissionScope: null };
   const rational = { numerator: 1n, denominator: 1n, negativeZero: false };
   const typed = { type: identities.tyId(3), convertedType: identities.tyId(3), conversion: { kind: "identity" }, narrowing: null,
     evidenceIndex: null, demand: { kind: "always" } };
@@ -1357,7 +1357,7 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
         path: kind === "tuple" ? [{ kind: "tuple-element", index: 0 }] : [{ kind: "array-element" }] },
       member: null, embedding: { kind: "identity" } };
     const construction = { decision: { kind: "selected", operation: { kind: "array-construction", parts: [part] },
-      operands: [identities.tyId(1)], result: identities.tyId(5) }, permissionScope: null };
+      operands: [identities.tyId(1)], result: identities.tyId(5), execution: { kind: "pure" } }, permissionScope: null };
     const operand = { ...header(3, 2), kind: "TrueKeyword", tsonic: { role: "value", type: identities.tyId(1),
       convertedType: identities.tyId(1), conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } } };
     const expression = { ...header(2, 1), kind: "ArrayLiteralExpression", multiLine: false,
@@ -1460,13 +1460,13 @@ for (const kind of ["object", "record"]) test(`MIR ${kind} aggregate and object-
   const key = { kind: "text", value: "x" };
   const origin = { kind: "mapped", owner: { kind: "body", value: { body: base.body, node: identities.nodeId(2) } }, key };
   const decision = { key, origins: [origin], selectedDeclarations: [], primary: null, read: identities.tyId(1), write: identities.tyId(1),
-    getter: null, setter: null, bindings: bindingVector };
+    getter: null, setter: null, bindings: bindingVector, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } };
   const selected = { decision, getter: null, setter: null };
   const part = { part: 0, source: { body: base.body, node: identities.nodeId(5) },
     destination: { root: { kind: "body", value: { body: base.body, node: identities.nodeId(2) } }, path: [{ kind: "member", origin }] },
     member: decision, embedding: { kind: "identity" } };
   const construction = { decision: { kind: "selected", operation: { kind: "object-construction", parts: [part] },
-    operands: [identities.tyId(1)], result: identities.tyId(5) }, permissionScope: null };
+    operands: [identities.tyId(1)], result: identities.tyId(5), execution: { kind: "pure" } }, permissionScope: null };
   const value = { role: "value", type: identities.tyId(1), convertedType: identities.tyId(1), conversion: { kind: "identity" },
     narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
   const property = { ...header(3, 2), kind: "PropertyAssignment", modifiers: null, postfixToken: null, type: null,
@@ -1574,9 +1574,9 @@ test("MIR explicit int32-to-int64 conversion keeps original and converted TIR ca
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const from = { root: { kind: "body", value: { body: base.body, node: identities.nodeId(2) } }, path: [] };
   const to = { root: { kind: "body", value: { body: base.body, node: identities.nodeId(0) } }, path: [{ kind: "result", signature: identities.sigId(0) }] };
-  const embedding = { kind: "conversion", conversion: "numeric", proof: { steps: [{ from, to, rule: "numeric", premises: [] }], conclusion: 0 } };
+  const embedding = { kind: "conversion", conversion: "numeric", proof: { steps: [{ from, to, rule: "numeric", premises: [] }], conclusion: 0 }, check: { kind: "none" } };
   const selected = { decision: { kind: "selected", operation: { kind: "conversion", from: identities.tyId(3), to: identities.tyId(5), embedding },
-    operands: [identities.tyId(3)], result: identities.tyId(5) }, permissionScope: null };
+    operands: [identities.tyId(3)], result: identities.tyId(5), execution: { kind: "pure" } }, permissionScope: null };
   const rational = { numerator: 1n, denominator: 1n, negativeZero: false };
   const numeric = { ...header(2, 1), kind: "NumericLiteral", text: "1", tokenFlags: [], tsonic: { role: "value", value: rational,
     type: identities.tyId(3), convertedType: identities.tyId(5), conversion: { kind: "convert", role: "return", embedding, operation: selected },
@@ -1625,7 +1625,7 @@ test("MIR compound Boolean assignment retains its actual selected calculation", 
   const value = { type: identities.tyId(1), convertedType: identities.tyId(1), conversion: { kind: "identity" },
     narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
   const selected = { decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "&&" },
-    operands: [identities.tyId(1), identities.tyId(1)], result: identities.tyId(1) }, permissionScope: null };
+    operands: [identities.tyId(1), identities.tyId(1)], result: identities.tyId(1), execution: { kind: "pure" } }, permissionScope: null };
   const expression = { ...header(2, 1), kind: "BinaryExpression", modifiers: null, type: null,
     left: { ...header(3, 2), kind: "Identifier", text: "value", tsonic: { role: "assignment-target",
       resolution: { kind: "local", local: { body: base.body, local: identities.localId(0) } },
@@ -1674,7 +1674,7 @@ test("MIR using protocols retain every actual step operation and optional select
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: body.blocks[0].origin,
     parent: identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const operation = { decision: { kind: "selected", operation: { kind: "core", declaration: selected.decision.api.declaration,
-    bindings: bindingVector }, operands: [identities.tyId(1)], result: identities.tyId(0) }, permissionScope: null };
+    bindings: bindingVector }, operands: [identities.tyId(1)], result: identities.tyId(0), execution: { kind: "pure" } }, permissionScope: null };
   const protocol = { kind: "dispose", asynchronous: false, value: identities.tyId(1), completion: identities.tyId(0),
     sent: null, thrown: identities.tyId(4), steps: [
       { role: "acquire", operation, callee: null }, { role: "dispose", operation, callee: selected },
@@ -1729,7 +1729,7 @@ function callSetup(passing = "by-value", result = 0, receiver = null) {
   const api = { ...advertised, role: "api-signature" };
   const selected = { decision: { candidate: 0, advertised, api, bindings: bindingVector, implementationBindings: bindingVector,
     parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing }],
-    completion: { signature: identities.sigId(1), completion: identities.tyId(result), yielded: null, sent: null }, result: identities.tyId(result) }, activation: null, captures: [] };
+    completion: { signature: identities.sigId(1), completion: identities.tyId(result), yielded: null, sent: null }, result: identities.tyId(result), activation: null }, activation: null, captures: [] };
   const header = (id, parent) => ({ id: identities.nodeId(id), origin: base.blocks[0].origin,
     parent: parent === null ? null : identities.nodeId(parent), flags: [], loc: { pos: 0, end: 0 } });
   const value = type => ({ type: identities.tyId(type), convertedType: identities.tyId(type), conversion: { kind: "identity" },
@@ -1906,7 +1906,7 @@ test("MIR direct call and selected invoke admit metadata without duplicating Pro
     bindings: { kind: "parametric" } } }] };
   same(product.verifyMir(direct, context), [], "direct metadata argument has the exact selected API parameter type");
   const selected = { decision: { kind: "selected", operation: { kind: "core", declaration: context.source.owner, bindings: bindingVector },
-    operands: [identities.tyId(1)], result: identities.tyId(0) }, permissionScope: null };
+    operands: [identities.tyId(1)], result: identities.tyId(0), execution: { kind: "pure" } }, permissionScope: null };
   const statement = context.source.root.statements.nodes[0];
   const source = { ...context.source, root: { ...context.source.root, statements: { ...context.source.root.statements, nodes: [
     { ...statement, expression: { ...statement.expression, tsonic: { ...statement.expression.tsonic,
@@ -1927,7 +1927,7 @@ test("MIR address-of verifier retains the actual selected carrier and real place
   const pointer = { kind: "declared", definition: pointerDefinition, arguments: [], facet: "instance", extent: null };
   const types = { ...context.types, terms: [...context.types.terms, pointer] };
   const address = { decision: { kind: "selected", operation: { kind: "pointer-address" },
-    operands: [identities.tyId(1)], result: identities.tyId(6) }, permissionScope: null };
+    operands: [identities.tyId(1)], result: identities.tyId(6), execution: { kind: "pure" } }, permissionScope: null };
   const statement = context.source.root.statements.nodes[0];
   const source = { ...context.source, root: { ...context.source.root, statements: { ...context.source.root.statements, nodes: [
     { ...statement, expression: { ...statement.expression, tsonic: { ...statement.expression.tsonic,
@@ -2005,7 +2005,7 @@ for (const kind of ["library", "core", "protocol"]) test(`MIR selected ${kind} i
       { role: "completion", operation: { kind: "completion" }, operands: [], result: identities.tyId(0) },
     ], value: identities.tyId(1), completion: identities.tyId(0), yielded: identities.tyId(1), sent: identities.tyId(1), thrown: identities.tyId(4) }
     : { kind, declaration: definition, bindings: bindingVector };
-  const selected = { decision: { kind: "selected", operation: identity, operands: [identities.tyId(1)], result: identities.tyId(1) }, permissionScope: null };
+  const selected = { decision: { kind: "selected", operation: identity, operands: [identities.tyId(1)], result: identities.tyId(1), execution: { kind: "pure" } }, permissionScope: null };
   const expression = setup.context.source.root.statements.nodes[0].expression;
   const source = { ...setup.context.source, root: { ...setup.context.source.root, statements: {
     ...setup.context.source.root.statements, nodes: [{ ...setup.context.source.root.statements.nodes[0], expression: {
@@ -2210,7 +2210,8 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     body: nestedRoot,
     tsonic: { type: identities.tyId(5), convertedType: identities.tyId(5), conversion: { kind: "identity" }, narrowing: null,
       evidenceIndex: null, demand: { kind: "always" }, callable: { definition, parameters: [], signatures: [],
-        template: { body: nested, lexicalBindings: bindingVector, dependence: "parametric" }, attributes: [] }, captures: [captured] } };
+        template: { body: nested, lexicalBindings: bindingVector, dependence: "parametric" }, attributes: [] }, captures: [captured],
+      closure: { kind: "decided", decision: { carrier: identities.tyId(5), captures: ["captured-location"], execution: { kind: "pure" } } } } };
   const arrow = closureKind === "ArrowFunction"
     ? { ...callable, kind: closureKind, equalsGreaterThanToken: { ...header(7, 2), kind: "EqualsGreaterThanToken", tsonic: null } }
     : { ...callable, kind: closureKind, name: null };
@@ -2439,8 +2440,8 @@ test("MIR switch keys are unique and increasing while all target and constant id
 });
 
 function operationRoundtrip(identity, identityText, label) {
-  const selected = { decision: { kind: "selected", operation: identity, operands: [0], result: 0 }, permissionScope: null };
-  const selectedText = `TypedOperation(decision=selected(operation=${identityText}, operands=[t:0], result=t:0), permissionScope=null)`;
+  const selected = { decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution: { kind: "pure" } }, permissionScope: null };
+  const selectedText = `TypedOperation(decision=selected(operation=${identityText}, operands=[t:0], result=t:0, execution=pure()), permissionScope=null)`;
   const statement = { ...site, kind: "assign", place: 0, value: { kind: "unary", operation: selected, operand: placeOperand } };
   const terminator = { ...site, kind: "unreachable" };
   roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [statement], terminator }] },
@@ -2505,8 +2506,8 @@ for (const conversion of ["numeric", "literal-fit", "absence", "union-injection"
     const targetText = `TypeComponent(root=${itemReferenceText}, path=[])`;
     const steps = [{ from: emptyComponent, to: target, rule: "identity", premises: [] },
       { from: target, to: emptyComponent, rule: conversion, premises: [0] }];
-    const embedding = { kind: "conversion", conversion, proof: { steps, conclusion: 1 } };
-    const embeddingText = `conversion(conversion=${JSON.stringify(conversion)}, proof=EmbeddingProof(steps=[CorrespondenceStep(from=${emptyComponentText}, to=${targetText}, rule="identity", premises=[]), CorrespondenceStep(from=${targetText}, to=${emptyComponentText}, rule=${JSON.stringify(conversion)}, premises=[0])], conclusion=1))`;
+    const embedding = { kind: "conversion", conversion, proof: { steps, conclusion: 1 }, check: { kind: "none" } };
+    const embeddingText = `conversion(conversion=${JSON.stringify(conversion)}, proof=EmbeddingProof(steps=[CorrespondenceStep(from=${emptyComponentText}, to=${targetText}, rule="identity", premises=[]), CorrespondenceStep(from=${targetText}, to=${emptyComponentText}, rule=${JSON.stringify(conversion)}, premises=[0])], conclusion=1), check=none())`;
     operationRoundtrip({ kind: "conversion", from: 0, to: 1, embedding }, `conversion(from=t:0, to=t:1, embedding=${embeddingText})`, conversion);
   });
 }
@@ -2575,8 +2576,8 @@ test("MIR member keys, origins and accessor endpoints retain exact nested select
     const getter = { ...endpoint, role: "api-body", body: null };
     const getterText = 'HirCallableEndpoint(declaration=def:"D[M[P[p];m];run]", role="api-body", signature=sig:0, body=null)';
     const decision = { key, origins, selectedDeclarations: [endpoint.declaration], primary: endpoint.declaration,
-      read: null, write: 1, getter, setter: getter, bindings: bindingVector };
-    const decisionText = `MemberDecision(key=${keyText}, origins=[${originsText}], selectedDeclarations=[def:"D[M[P[p];m];run]"], primary=def:"D[M[P[p];m];run]", read=null, write=t:1, getter=${getterText}, setter=${getterText}, bindings=${bindingText})`;
+      read: null, write: 1, getter, setter: getter, bindings: bindingVector, location: { kind: "accessor" } };
+    const decisionText = `MemberDecision(key=${keyText}, origins=[${originsText}], selectedDeclarations=[def:"D[M[P[p];m];run]"], primary=def:"D[M[P[p];m];run]", read=null, write=t:1, getter=${getterText}, setter=${getterText}, bindings=${bindingText}, location=accessor())`;
     const selected = { decision, getter: callee, setter: callee };
     const selectedText = `MemberSelection(decision=${decisionText}, getter=${calleeText}, setter=${calleeText})`;
     const place = { id: 0, storage: 1, base: { kind: "place", place: 1, projection: { kind: "field", member: selected } }, origin };
@@ -2597,13 +2598,53 @@ test("MIR application parameter mappings preserve expanded, default, omitted and
   ];
   const text = `argument(parameter=0, argument=1, component=null, passing="by-value"), argument(parameter=1, argument=0, component=2, passing="borrow-mut"), default(parameter=2, initializer=body:${JSON.stringify(bodyIdentity)}), omitted(parameter=3, type=t:4), rest(parameter=4, arguments=[], passing="move"), rest(parameter=5, arguments=[1, 0], passing="byref-readonly")`;
   const decision = { ...application, parameters, completion: { signature: 0, completion: 1, yielded: 2, sent: 3 } };
-  const decisionText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[${text}], completion=CompletionEndpoint(signature=sig:0, completion=t:1, yielded=t:2, sent=t:3), result=t:0)`;
+  const decisionText = `ApplicationDecision(candidate=0, advertised=${endpointText}, api=${apiText}, bindings=${bindingText}, implementationBindings=${bindingText}, parameters=[${text}], completion=CompletionEndpoint(signature=sig:0, completion=t:1, yielded=t:2, sent=t:3), result=t:0, activation=null)`;
   const selected = { decision, activation: null, captures: [] };
   const selectedText = `ResolvedCallee(decision=${decisionText}, activation=null, captures=[])`;
   const terminator = { ...site, kind: "call", callee: { kind: "direct", resolution: selected }, receiver: null,
     arguments: [], destination: null, next: 0, unwind: { kind: "escape" } };
   roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator }] }, document("", "", "",
     `MirBlock(${siteText}, id=b:0, statements=[], terminator=call(${siteText}, callee=direct(resolution=${selectedText}), receiver=null, arguments=[], destination=null, next=b:0, unwind=escape()))`), "all physical mapping alternatives");
+});
+
+test("MIR decision check, location, execution and activation fields retain every value", () => {
+  const checks = [[{ kind: "none" }, "none()"], [{ kind: "required", failure: "unwind" }, 'required(failure="unwind")'],
+    [{ kind: "required", failure: "abort" }, 'required(failure="abort")']];
+  const step = { from: emptyComponent, to: emptyComponent, rule: "numeric", premises: [] };
+  const stepText = `CorrespondenceStep(from=${emptyComponentText}, to=${emptyComponentText}, rule="numeric", premises=[])`;
+  for (const [check, checkText] of checks) {
+    operationRoundtrip({ kind: "conversion", from: 0, to: 1, embedding: { kind: "conversion", conversion: "numeric", proof: { steps: [step], conclusion: 0 }, check } },
+      `conversion(from=t:0, to=t:1, embedding=conversion(conversion="numeric", proof=EmbeddingProof(steps=[${stepText}], conclusion=0), check=${checkText}))`,
+      `conversion check ${checkText}`);
+    for (const receiver of ["in-place", "by-reference"]) {
+      const decision = { key: { kind: "text", value: "x" }, origins: [], selectedDeclarations: [], primary: null, read: 1, write: 1,
+        getter: null, setter: null, bindings: bindingVector, location: { kind: "data", check, receiver } };
+      const decisionText = `MemberDecision(key=text(value="x"), origins=[], selectedDeclarations=[], primary=null, read=t:1, write=t:1, getter=null, setter=null, bindings=${bindingText}, location=data(check=${checkText}, receiver="${receiver}"))`;
+      const part = { part: 0, source: nodeRef, destination: emptyComponent, member: decision, embedding: { kind: "identity" } };
+      operationRoundtrip({ kind: "array-construction", parts: [part] },
+        `array-construction(parts=[ConstructionPartDecision(part=0, source=${nodeText}, destination=${emptyComponentText}, member=${decisionText}, embedding=identity())])`,
+        `data location ${checkText} ${receiver}`);
+    }
+  }
+  const terminator = { ...site, kind: "unreachable" };
+  for (const writesStorage of [false, true]) for (const failure of ["none", "unwind", "abort"]) {
+    const selected = { decision: { kind: "selected", operation: { kind: "discard" }, operands: [0], result: 0,
+      execution: { kind: "invocation", writesStorage, failure } }, permissionScope: null };
+    const selectedText = `TypedOperation(decision=selected(operation=discard(), operands=[t:0], result=t:0, execution=invocation(writesStorage=${writesStorage}, failure="${failure}")), permissionScope=null)`;
+    const statement = { ...site, kind: "assign", place: 0, value: { kind: "unary", operation: selected, operand: placeOperand } };
+    roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [statement], terminator }] },
+      document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[assign(${siteText}, place=p:0, value=unary(operation=${selectedText}, operand=${operandText}))], terminator=unreachable(${siteText}))`),
+      `invocation execution ${writesStorage} ${failure}`);
+  }
+  for (const activation of ["at-creation", "when-first-driven"]) {
+    const selected = { decision: { ...application, activation }, activation: null, captures: [] };
+    const selectedText = `ResolvedCallee(decision=${applicationText.replace("result=t:0, activation=null", `result=t:0, activation="${activation}"`)}, activation=null, captures=[])`;
+    const call = { ...site, kind: "call", callee: { kind: "direct", resolution: selected }, receiver: null,
+      arguments: [], destination: null, next: 0, unwind: { kind: "escape" } };
+    roundtrip({ ...emptyValue, blocks: [{ ...site, id: 0, statements: [], terminator: call }] }, document("", "", "",
+      `MirBlock(${siteText}, id=b:0, statements=[], terminator=call(${siteText}, callee=direct(resolution=${selectedText}), receiver=null, arguments=[], destination=null, next=b:0, unwind=escape()))`),
+      `handle activation ${activation}`);
+  }
 });
 
 test("MIR 100000-place parent chain prints, parses, type-checks and reaches its real terminal operand without recursion", () => {
@@ -2637,8 +2678,8 @@ test("MIR genuine sparse caller values and declared inline component cycles fail
   const component = { root: { kind: "body", value: { body: base.body, node: identities.nodeId(0) } }, path: [] };
   component.path.push({ kind: "sum-arm", family: { origin: "authored", component, parameters: [], roles: [] }, index: 0 });
   const conversion = { decision: { kind: "selected", operation: { kind: "conversion", from: identities.tyId(0), to: identities.tyId(0),
-    embedding: { kind: "conversion", conversion: "literal-fit", proof: { steps: [{ from: component, to: component, rule: "literal-fit", premises: [] }], conclusion: 0 } } },
-  operands: [identities.tyId(0)], result: identities.tyId(0) }, permissionScope: null };
+    embedding: { kind: "conversion", conversion: "literal-fit", proof: { steps: [{ from: component, to: component, rule: "literal-fit", premises: [] }], conclusion: 0 }, check: { kind: "none" } } },
+  operands: [identities.tyId(0)], result: identities.tyId(0), execution: { kind: "pure" } }, permissionScope: null };
   const cyclic = { ...base, blocks: [{ ...base.blocks[0], statements: [{ ...site, kind: "assign", place: identities.placeId(0),
     value: { kind: "convert", operation: conversion, operand: { kind: "constant", constant: identities.constId(0) }, to: identities.tyId(0) } }] }] };
   assert.throws(() => product.printMir(cyclic), { name: "TypeError",

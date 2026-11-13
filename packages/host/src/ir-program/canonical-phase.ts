@@ -11,7 +11,7 @@ import type {
 } from "../ir-tir/contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
 import { rewriteBindings, rewriteEndpoint, rewriteParameter } from "./canonical-types.js";
-import { rewriteApplication, rewriteConstructionPart, rewriteOutcome, rewriteRefinement } from "./canonical-inference.js";
+import { rewriteApplication, rewriteClosureDecision, rewriteConstructionPart, rewriteOutcome, rewriteRefinement } from "./canonical-inference.js";
 import {
   rewriteProtocol, rewriteSelection, rewriteTirApplication, rewriteTypedOperation, rewriteValue,
 } from "./canonical-tir.js";
@@ -203,7 +203,8 @@ export function rewriteCallable(rewrite: TypeRewrite, value: TypedCallable): Typ
 }
 
 export function rewriteClosure(rewrite: TypeRewrite, value: TypedClosure, at: string): TypedClosure {
-  return { ...rewriteValue(rewrite, value, at), callable: rewriteCallable(rewrite, value.callable), captures: value.captures };
+  return { ...rewriteValue(rewrite, value, at), callable: rewriteCallable(rewrite, value.callable), captures: value.captures,
+    closure: rewriteOutcome(rewrite, value.closure, decision => rewriteClosureDecision(rewrite, decision), `${at}.closure`) };
 }
 
 export function rewriteClass(rewrite: TypeRewrite, value: TypedClass): TypedClass {

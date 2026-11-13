@@ -209,6 +209,15 @@ export interface DefaultConstraintRecord {
   readonly type: TyId | null;
 }
 
+export interface ClosureConstraintRecord {
+  readonly kind: "closure";
+  readonly occurrence: NodeRef;
+  readonly created: BodyId;
+  readonly captures: readonly TyId[];
+  readonly result: TyId;
+  readonly bindings: BindingVector;
+}
+
 export interface ConstraintsSchemas {
   readonly constraintSetSchema: RecordSchema<ConstraintSet>;
   readonly inferenceGroupSchema: RecordSchema<InferenceGroup>;
@@ -228,7 +237,7 @@ export interface ConstraintsSchemas {
   readonly flowRoleSchema: Schema<"argument" | "assignment" | "initialization" | "member-write" | "receiver" | "return" | "yield">;
   readonly accessRoleSchema: Schema<"call" | "read" | "write">;
   readonly protocolKindSchema: Schema<"argument-passing" | "await" | "delegate" | "dispose" | "iterate" | "pointer" | "spread" | "yield">;
-  readonly ruleIdentitySchema: Schema<"candidate" | "construct-literal" | "core" | "domain-fit" | "embed" | "index" | "library" | "literal-fit" | "member" | "memory-equivalent" | "operator" | "protocol" | "refinement">;
+  readonly ruleIdentitySchema: Schema<"candidate" | "construct-literal" | "core" | "domain-fit" | "embed" | "index" | "library" | "literal-fit" | "member" | "memory-equivalent" | "operator" | "protocol" | "refinement" | "closure">;
   readonly constraintSchema: RecordSchema<Constraint>;
   readonly equalityConstraintSchema: RecordSchema<EqualityConstraintRecord>;
   readonly flowConstraintSchema: RecordSchema<FlowConstraintRecord>;
@@ -252,6 +261,7 @@ export interface ConstraintsSchemas {
   readonly refinementConstraintSchema: RecordSchema<RefinementConstraintRecord>;
   readonly dischargeConstraintSchema: RecordSchema<DischargeConstraintRecord>;
   readonly defaultConstraintSchema: RecordSchema<DefaultConstraintRecord>;
+  readonly closureConstraintSchema: RecordSchema<ClosureConstraintRecord>;
   readonly defaultRuleSchema: Schema<"binder-declared-default" | "literal-native-default" | "local-producers" | "refuse-unseeded" | "signature-producers">;
   readonly operatorSchema: Schema<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">;
 }
@@ -366,10 +376,10 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
 
   const protocolKindSchema = enumSchema("ProtocolKind", ["iterate","await","yield","delegate","dispose","spread","argument-passing","pointer"]);
 
-  const ruleIdentitySchema = enumSchema("RuleIdentity", ["embed","domain-fit","memory-equivalent","member","index","construct-literal","candidate","operator","literal-fit","protocol","refinement","library","core"]);
+  const ruleIdentitySchema = enumSchema("RuleIdentity", ["embed","domain-fit","memory-equivalent","member","index","construct-literal","candidate","operator","literal-fit","protocol","refinement","library","core","closure"]);
 
   const constraintSchema: RecordSchema<Constraint> = unionSchema<Constraint>("Constraint",
-    () => [equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, literalConstructionConstraintSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema], value => {
+    () => [equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, literalConstructionConstraintSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, closureConstraintSchema], value => {
     switch (value.kind) {
       case "eq": return equalityConstraintSchema.stage(value);
       case "flow": return flowConstraintSchema.stage(value);
@@ -384,6 +394,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
       case "refine": return refinementConstraintSchema.stage(value);
       case "discharge": return dischargeConstraintSchema.stage(value);
       case "default": return defaultConstraintSchema.stage(value);
+      case "closure": return closureConstraintSchema.stage(value);
     }
   });
 
@@ -561,8 +572,17 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
     return { fields: [occurrence, variable, rule, type], value: () => ({ kind: "default", occurrence: occurrence.value(), variable: variable.value(), rule: rule.value(), type: type.value() }) };
   });
 
+  const closureConstraintSchema = recordSchema<ClosureConstraintRecord>("ClosureConstraint", "closure", read => {
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    const created = read("created", () => bodySchema, value => value.created);
+    const captures = read("captures", () => arraySchema(tSchema), value => value.captures);
+    const result = read("result", () => tSchema, value => value.result);
+    const bindings = read("bindings", () => bindingVectorSchema, value => value.bindings);
+    return { fields: [occurrence, created, captures, result, bindings], value: () => ({ kind: "closure", occurrence: occurrence.value(), created: created.value(), captures: captures.value(), result: result.value(), bindings: bindings.value() }) };
+  });
+
   const defaultRuleSchema = enumSchema("DefaultRule", ["signature-producers","local-producers","binder-declared-default","literal-native-default","refuse-unseeded"]);
 
   const operatorSchema = enumSchema("Operator", ["+","-","!","~","typeof","void","delete","*","/","%","**","&","|","^","<<",">>",">>>","<","<=",">",">=","==","!=","===","!==","in","instanceof"]);
-  return { constraintSetSchema, inferenceGroupSchema, inferredSignaturePartSchema, inferredPartSchema, returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, inferenceVariableSchema, signatureVariableSchema, localVariableSchema, binderVariableSchema, literalVariableSchema, binderFamilySchema, flowRoleSchema, accessRoleSchema, protocolKindSchema, ruleIdentitySchema, constraintSchema, equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, applicationConstraintDataSchema, applicationArgumentSchema, valueArgumentSchema, spreadArgumentSchema, literalConstructionConstraintSchema, constructionKindSchema, literalPartSchema, elementPartSchema, propertyPartSchema, spreadPartSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, defaultRuleSchema, operatorSchema };
+  return { closureConstraintSchema, constraintSetSchema, inferenceGroupSchema, inferredSignaturePartSchema, inferredPartSchema, returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, inferenceVariableSchema, signatureVariableSchema, localVariableSchema, binderVariableSchema, literalVariableSchema, binderFamilySchema, flowRoleSchema, accessRoleSchema, protocolKindSchema, ruleIdentitySchema, constraintSchema, equalityConstraintSchema, flowConstraintSchema, literalConstraintSchema, operatorConstraintSchema, memberConstraintSchema, indexConstraintSchema, callConstraintSchema, constructConstraintSchema, applicationConstraintDataSchema, applicationArgumentSchema, valueArgumentSchema, spreadArgumentSchema, literalConstructionConstraintSchema, constructionKindSchema, literalPartSchema, elementPartSchema, propertyPartSchema, spreadPartSchema, protocolConstraintSchema, refinementConstraintSchema, dischargeConstraintSchema, defaultConstraintSchema, defaultRuleSchema, operatorSchema };
 }
