@@ -20,7 +20,7 @@ const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-fact
 const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
   ["ir-infer", [...first.slice(0, 4), "step"]], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
-  ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag"]],
+  ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag", "step"]],
   ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]], ["step", []],
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer", "step"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer", "step"]],
@@ -107,8 +107,8 @@ for (const [name, imports] of expectedImports) {
   });
 }
 
-test("step is the one pause carrier: only the pausing operations, their rule contracts and Pipeline import it", () => {
-  const importers = ["ir-infer", "decls", "infer", "elaborate", "evaluate", "metadata", "pipeline"];
+test("step is the one pause carrier: only Query, the pausing operations, their rule contracts and Pipeline import it", () => {
+  const importers = ["ir-infer", "query", "decls", "infer", "elaborate", "evaluate", "metadata", "pipeline"];
   assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("step")).map(module => module.name).sort(), [...importers].sort());
   const requestFree = hostCatalogue.filter(module => module.name.startsWith("analyses/") || module.name === "summaries");
   assert.equal(requestFree.length, 8);

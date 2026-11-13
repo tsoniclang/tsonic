@@ -42,6 +42,8 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedCallable: lazyRecord(() => phase_declarations.work_TypedCallable),
     work_TypedClosure: lazyRecord(() => phase_declarations.work_TypedClosure),
     work_TypedOperation: lazyRecord(() => phase_values.work_TypedOperation),
+    work_TypedOperation_conversion: lazyRecord(() => phase_values.work_TypedOperation_conversion),
+    work_TypedOperation_backed: lazyRecord(() => phase_values.work_TypedOperation_backed),
     work_TypedSourceFile: lazyRecord(() => phase_declarations.work_TypedSourceFile),
     work_TypedStaticBlock: lazyRecord(() => phase_declarations.work_TypedStaticBlock)
   });
@@ -60,6 +62,8 @@ export const createTirLayouts = (): TirLayouts => {
     work_O_TirProtocol_: lazyRecord(() => body.work_O_TirProtocol_),
     work_O_TypedOperation_: lazyRecord(() => body.work_O_TypedOperation_),
     work_OperationDecision: lazyRecord(() => rule_decisions.work_OperationDecision),
+    work_OperationDecision_conversion: lazyRecord(() => rule_decisions.work_OperationDecision_conversion),
+    work_OperationDecision_backed: lazyRecord(() => rule_decisions.work_OperationDecision_backed),
     work_RefinementDecision: lazyRecord(() => rule_decisions.work_RefinementDecision),
     work_TargetAccess: lazyRecord(() => body.work_TargetAccess),
     work_TirDemand: lazyRecord(() => body.work_TirDemand),
@@ -100,10 +104,14 @@ export const createTirLayouts = (): TirLayouts => {
     work_MemberOrigin: lazyRecord(() => type_values.work_MemberOrigin),
     work_NodeRef: lazyRecord(() => type_values.work_NodeRef),
     work_OperationIdentity: lazyRecord(() => rule_inputs.work_OperationIdentity),
+    work_OperationIdentity_conversion: lazyRecord(() => rule_inputs.work_OperationIdentity_conversion),
+    work_OperationIdentity_library: lazyRecord(() => rule_inputs.work_OperationIdentity_library),
+    work_OperationIdentity_core: lazyRecord(() => rule_inputs.work_OperationIdentity_core),
     work_TypeComponent: lazyRecord(() => type_values.work_TypeComponent),
     work_TypeEvidence: lazyRecord(() => type_values.work_TypeEvidence)
   });
   const rule_inputs = createRuleInputsText(kernel, {
+    work_LocalRef: lazyRecord(() => type_values.work_LocalRef),
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
     work_ConstructionPartDecision: lazyRecord(() => rule_decisions.work_ConstructionPartDecision),
     work_Diagnostic: lazyRecord(() => type_values.work_Diagnostic),

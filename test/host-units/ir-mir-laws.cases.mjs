@@ -854,6 +854,16 @@ test("a local of role receiver or parameter names the source local of its row", 
   assert.deepEqual(rule(withReceiver(4), context), [10]);
 });
 
+test("law 8: a captured location carries no storage marker", { todo: "waits for the capture rows of the typed body (the mode of each capture); until then the verifier does not refuse it" }, () => {
+  // The contract's text of law 8 includes a captured location. A local of role `capture` whose capture is a location
+  // is storage the body does not own: an end marker on it is a finding.
+  const ended = changed(body => {
+    body.locals.push(local(10, T.optInt32, { kind: "capture", index: 0 }, 2));
+    body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 10 });
+  });
+  assert.deepEqual(found(ended).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.site.statement), [1]);
+});
+
 test("check-place-single compares the views of one node kind by kind", () => {
   const viewAt = (id, projection) => place(id, { kind: "checked", place: 8, projection, tir: site("a[i]").tir }, T.int32);
   const constantIndex = constant => ({ kind: "index", operand: { kind: "constant", constant } });

@@ -231,7 +231,10 @@ export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<Node
       if ("operation" in payload && payload.operation !== null && payload.operation.kind === "decided") operation(payload.operation.decision);
       if ("calculation" in payload && payload.calculation !== null && payload.calculation.kind === "decided") operation(payload.calculation.decision);
       if ("construction" in payload && payload.construction.kind === "decided") operation(payload.construction.decision);
-      if ("conversion" in payload && payload.conversion.kind === "convert") operation(payload.conversion.operation);
+      // Both arms of a conversion carry the operation that performs it: the conversion identity, or the core or
+      // library operation that backs it.
+      if ("conversion" in payload && (payload.conversion.kind === "convert" || payload.conversion.kind === "backed-convert"))
+        operation(payload.conversion.operation);
       if ("application" in payload && payload.application !== null && payload.application.kind === "decided"
         && "callee" in payload.application.decision) callees.add(texts.callee(payload.application.decision.callee));
       if ("selection" in payload && payload.selection !== null && payload.selection.kind === "decided") {

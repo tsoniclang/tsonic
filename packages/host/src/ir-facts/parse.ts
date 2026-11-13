@@ -377,7 +377,7 @@ const application: Decode<ApplicationDecision> = (state, input) => then(fields(s
     then(readField(state, values, "completion", completion), completionValue =>
     then(readField(state, values, "result", typeIdentity), resultValue =>
     then(readField(state, values, "activation", (state, input) => nullable(state, input, (state, input) => literal(state, input, ["at-creation","when-first-driven"]))), activationValue =>
-      finishRecord<ApplicationDecision>(state, values, { activation: activationValue, candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue })))))))))));
+      finishRecord<ApplicationDecision>(state, values, { candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue, activation: activationValue })))))))))));
 const checkRequirement: Decode<CheckRequirement> = (state, input) => then(label(input, ["none","required"]), kind => {
   switch (kind) {
     case "none": return then(fields(state, input, "none"), values =>
@@ -408,7 +408,7 @@ const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(sta
     then(readField(state, values, "setter", (state, input) => nullable(state, input, endpoint)), setterValue =>
     then(readField(state, values, "bindings", bindings), bindingsValue =>
     then(readField(state, values, "location", accessLocation), locationValue =>
-      finishRecord<MemberDecision>(state, values, { location: locationValue, key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue }))))))))))));
+      finishRecord<MemberDecision>(state, values, { key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue, location: locationValue }))))))))))));
 const resolved: Decode<ResolvedCallee> = (state, input) => then(fields(state, input, "ResolvedCallee"), values =>
     then(readField(state, values, "decision", application), decisionValue =>
     then(readField(state, values, "activation", (state, input) => nullable(state, input, bodyInstance)), activationValue =>

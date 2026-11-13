@@ -164,7 +164,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   supplied.set(encodeContextKey(["tirOf", moduleId]), tirInput);
   const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
-  const analysisLimits = { maximumBlocksPerBody: 128, maximumPlacesPerBody: 128, maximumProjectionDepth: 128,
+  const analysisLimits = { maximumProjectionDepth: 128,
     maximumOriginAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
   return { index, module, context: contextFor({ index, context: { limits, analysisLimits, mirVerification: { maximumWork: 100000 } } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
 }

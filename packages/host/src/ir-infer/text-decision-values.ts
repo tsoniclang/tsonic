@@ -225,7 +225,7 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const setter = read("setter", () => nullableSchema(hirCallableEndpointSchema), value => value.setter);
     const bindings = read("bindings", () => bindingVectorSchema, value => value.bindings);
     const location = read("location", () => accessLocationSchema, value => value.location);
-    return { fields: [key, origins, selectedDeclarations, primary, readField, write, getter, setter, bindings, location], value: () => ({ location: location.value(), key: key.value(), origins: origins.value(), selectedDeclarations: selectedDeclarations.value(), primary: primary.value(), read: readField.value(), write: write.value(), getter: getter.value(), setter: setter.value(), bindings: bindings.value() }) };
+    return { fields: [key, origins, selectedDeclarations, primary, readField, write, getter, setter, bindings, location], value: () => ({ key: key.value(), origins: origins.value(), selectedDeclarations: selectedDeclarations.value(), primary: primary.value(), read: readField.value(), write: write.value(), getter: getter.value(), setter: setter.value(), bindings: bindings.value(), location: location.value() }) };
   });
 
   const applicationDecisionSchema = recordSchema<ApplicationDecision>("ApplicationDecision", "ApplicationDecision", read => {
@@ -238,7 +238,7 @@ export function createDecisionValuesSchemas(captureValues: CaptureValuesSchemas,
     const completion = read("completion", () => completionEndpointSchema, value => value.completion);
     const result = read("result", () => tSchema, value => value.result);
     const activation = read("activation", () => nullableSchema(handleActivationSchema), value => value.activation);
-    return { fields: [candidate, advertised, api, bindings, implementationBindings, parameters, completion, result, activation], value: () => ({ activation: activation.value(), candidate: candidate.value(), advertised: advertised.value(), api: api.value(), bindings: bindings.value(), implementationBindings: implementationBindings.value(), parameters: parameters.value(), completion: completion.value(), result: result.value() }) };
+    return { fields: [candidate, advertised, api, bindings, implementationBindings, parameters, completion, result, activation], value: () => ({ candidate: candidate.value(), advertised: advertised.value(), api: api.value(), bindings: bindings.value(), implementationBindings: implementationBindings.value(), parameters: parameters.value(), completion: completion.value(), result: result.value(), activation: activation.value() }) };
   });
 
   const parameterMappingSchema: RecordSchema<ParameterMapping> = unionSchema<ParameterMapping>("ParameterMapping",

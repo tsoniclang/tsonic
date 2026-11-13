@@ -1,6 +1,6 @@
 import type { AccessLocation, CheckRequirement, ClosureDecision, ClosureInput, OperationExecution, DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textOrigin, textDiagnostic } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textLocalRef, textOrigin, textDiagnostic } from "./text-values.js";
 import { textMemberKey, textMemberOrigin, textBindingVector, textTypeComponent, textTypeEvidence, textLiteralValue } from "./text-types.js";
 import { textHirCallableEndpoint, textHirCoreCapture } from "./text-core.js";
 
@@ -507,7 +507,11 @@ export function textClosureInput(value: ClosureInput): TextWork {
     return record("ClosureInput", [
       field("context", textRuleContext(value.context)),
       field("callable", textTypeEvidence(value.callable)),
-      field("captures", sequence(value.captures, entry0 => textTypeEvidence(entry0))),
+      field("captures", sequence(value.captures, entry0 => record("ClosureCaptureEvidence", [
+        field("local", textLocalRef(entry0.local)),
+        field("value", textTypeEvidence(entry0.value)),
+        field("reassignable", boolean(entry0.reassignable)),
+      ]))),
     ]);
   });
 }

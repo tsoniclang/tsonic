@@ -999,6 +999,33 @@ for (const [name, { index, text, offset, field, fields }] of fieldFaults) test(`
   completeTextFault(index, changed, offset, fields, text.startsWith("ProgramIndex("));
 });
 
+test("ir-program refuses an unknown value and a missing last field of each check, location, activation, execution and failure field at its own position", () => {
+  for (const [name, slot, unknown, values] of [
+    ["s2-11-conversion-check-required-abort", 'check=required(failure="abort")', "proved()", ["none", "required"]],
+    ["s2-11-member-data-required-unwind-by-reference", 'location=data(check=required(failure="unwind"), receiver="by-reference")', "proved()", ["data", "accessor"]],
+    ["s2-11-application-activation-when-first-driven", 'activation="when-first-driven"', '"proved"', ['"at-creation"', '"when-first-driven"']],
+    ["s2-11-operation-invocation-writes-abort", 'execution=invocation(writesStorage=true, failure="abort")', "proved()", ["pure", "invocation"]],
+    ["s2-11-narrowing-failure-abort", 'failure="abort"', '"proved"', ['"unwind"', '"abort"']],
+  ]) {
+    const input = decodeFixtureJson(readFileSync(resolve(repository, `test/host-cases/ir-program/function/${name}.input.json`), "utf8"));
+    const text = product.printModuleBodies(input.index, input.module);
+    const start = text.indexOf(slot);
+    assert.equal(start >= 0 && text.indexOf(slot, start + 1) === -1, true, `${name} states the field once`);
+    assert.equal(text.slice(start - 2, start) === ", " && text[start + slot.length] === ")", true, `${name}: the field is the last of its record`);
+    const value = start + slot.indexOf("=") + 1;
+    completeTextFault(input.index, text.slice(0, value) + unknown + text.slice(start + slot.length), value, values, false);
+    completeTextFault(input.index, text.slice(0, start - 2) + text.slice(start + slot.length), start - 2, [","], false);
+  }
+  const location = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/s2-11-member-data-required-unwind-by-reference.input.json"), "utf8"));
+  const text = product.printModuleBodies(location.index, location.module);
+  const data = 'data(check=required(failure="unwind"), receiver="by-reference")';
+  for (const [changed, at, expected] of [
+    ['data(receiver="by-reference", check=required(failure="unwind"))', "data(".length, ["check"]],
+    ['data(check=required(failure="none"), receiver="by-reference")', 'data(check=required(failure='.length, ['"unwind"', '"abort"']],
+    ['data(check=required(failure="unwind"), receiver="proved")', 'data(check=required(failure="unwind"), receiver='.length, ['"in-place"', '"by-reference"']],
+  ]) completeTextFault(location.index, text.replace(data, changed), text.indexOf(data) + at, expected, false);
+});
+
 test("ir-program all native source newline forms retain the same complete first-fault coordinates", () => {
   for (const newline of ["\n", "\r", "\r\n"]) {
     const text = `${newline}ProgramIndex(schema=@)`;

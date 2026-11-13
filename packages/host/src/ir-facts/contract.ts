@@ -10,8 +10,6 @@ import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 
 export interface AnalysisLimits {
-  readonly maximumBlocksPerBody: number;
-  readonly maximumPlacesPerBody: number;
   readonly maximumProjectionDepth: number;
   readonly maximumOriginAlternatives: number;
   readonly maximumRelationalRecordsPerBody: number;

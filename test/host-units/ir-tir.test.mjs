@@ -20,7 +20,7 @@ const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const productNames = ["index", "print", "parse", "text-layouts", "text-construction", "text-syntax-construction", "text-model", "text-body", "text-phase-values",
   "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-captures", "text-memory",
   "text-syntax-values", "text-syntax-statements", "text-syntax-types", "text-syntax-jsx", "text-syntax-docs",
-  "verify", "verify-occurrences", "verify-applications", "verify-instances", "syntax-compare", "syntax-compare-common",
+  "verify", "verify-occurrences", "verify-applications", "verify-instances", "selection-key", "syntax-compare", "syntax-compare-common",
   "syntax-compare-values", "syntax-compare-statements", "syntax-compare-types", "syntax-compare-jsx", "syntax-compare-docs"];
 const sourceFiles = ["contract", ...productNames].map(name => `packages/host/src/ir-tir/${name}.ts`);
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-tir/${name}.js`));
@@ -307,7 +307,7 @@ function memberScenario(holder, duplicatedPart = false) {
     const typedPhase = holder === "pattern" ? { role: "assignment-pattern", storage: 0, parts: [part] }
       : { ...typedValue(), role: "value", construction: selectedOperation({ kind: "object-construction", parts: [part] }) };
     if (duplicatedPart) {
-      typedPhase.conversion = { kind: "convert", role: "initialization", embedding: { kind: "identity" },
+      typedPhase.conversion = { kind: "convert", role: "initialization",
         operation: { permissionScope: null, decision: { kind: "selected",
           operation: { kind: "object-construction", parts: [part] }, operands: [0], result: 0, execution: { kind: "pure" } } } };
       selectedCount = 2;
@@ -1171,8 +1171,79 @@ for (const path of [...functionCases, ...verifierCases]) {
   });
 }
 
-test("exact four annotated runtime ports, no parallel printer or private metadata API", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["parseTir", "printTir", "verifyTir", "verifyTirModule"]);
+test("exact five annotated runtime ports, no parallel printer or private metadata API", () => {
+  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
+});
+
+test("the member selection key separates two selections that differ in any one field, and is total over lists with holes", () => {
+  const owner = "D[M[P[p];m];owner]";
+  const other = "D[M[P[p];m];other]";
+  const body = "B[D[M[P[p];m];owner];function;0]";
+  const endpoint = { declaration: owner, role: "advertised", signature: 0, body };
+  const rigid = { kind: "rigid", parameter: { owner, index: 0 } };
+  const vector = changes => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [], ...changes });
+  const callee = { decision: { candidate: 0, advertised: endpoint, api: { ...endpoint, role: "api-body" }, bindings: vector({}),
+    implementationBindings: vector({}), parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
+    completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
+  activation: null, captures: [{ body, local: 0 }] };
+  const base = { decision: { key: { kind: "text", value: "x" }, origins: [{ kind: "declared", declaration: owner }],
+    selectedDeclarations: [owner], primary: owner, read: 0, write: 0, getter: null, setter: null, bindings: vector({}),
+    location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: callee, setter: null };
+  const decisionChanges = [
+    { key: { kind: "text", value: "y" } }, { key: { kind: "symbol", declaration: owner } },
+    { key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } },
+    { key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } } },
+    { origins: [] }, { origins: [{ kind: "declared", declaration: other }] }, { origins: [{ kind: "class-prototype", owner }] },
+    { origins: [{ kind: "mapped", owner: { kind: "body", value: { body, node: 0 } }, key: { kind: "text", value: "x" } }] },
+    { origins: [{ kind: "mapped", owner: { kind: "item", value: { owner, node: 0 } }, key: { kind: "text", value: "x" } }] },
+    { selectedDeclarations: [] }, { selectedDeclarations: [other] }, { primary: null }, { read: null }, { read: 1 }, { write: null }, { write: 1 },
+    { getter: endpoint }, { setter: endpoint }, { bindings: vector({ classBindings: [rigid] }) }, { bindings: vector({ methodBindings: [rigid] }) },
+    { bindings: vector({ capturedBindings: [rigid] }) }, { bindings: vector({ selfBindings: [{ kind: "rigid", owner }] }) },
+    { location: { kind: "accessor" } }, { location: { kind: "data", check: { kind: "none" }, receiver: "by-reference" } },
+    { location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" } },
+    { location: { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" } },
+  ];
+  const calleeDecisionChanges = [
+    { candidate: 1 }, { advertised: { ...endpoint, signature: 1 } }, { advertised: { ...endpoint, declaration: other } },
+    { api: { ...endpoint, role: "api-signature" } }, { api: { ...endpoint, role: "api-body", body: null } },
+    { bindings: vector({ classBindings: [rigid] }) }, { implementationBindings: vector({ classBindings: [rigid] }) }, { parameters: [] },
+    { parameters: [{ kind: "argument", parameter: 0, argument: 0, component: 0, passing: "by-value" }] },
+    { parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "move" }] },
+    { parameters: [{ kind: "default", parameter: 0, initializer: body }] }, { parameters: [{ kind: "omitted", parameter: 0, type: 0 }] },
+    { parameters: [{ kind: "rest", parameter: 0, arguments: [0], passing: "by-value" }] },
+    { parameters: [{ kind: "rest", parameter: 0, arguments: [0, 1], passing: "by-value" }] },
+    { completion: { signature: 1, completion: 0, yielded: null, sent: null } }, { completion: { signature: 0, completion: 1, yielded: null, sent: null } },
+    { completion: { signature: 0, completion: 0, yielded: 0, sent: null } }, { completion: { signature: 0, completion: 0, yielded: null, sent: 0 } },
+    { result: 1 }, { activation: "at-creation" }, { activation: "when-first-driven" },
+  ];
+  const calleeChanges = [
+    { activation: { body, bindings: { kind: "parametric" } } }, { activation: { body, bindings: { kind: "instantiated", bindings: vector({}) } } },
+    { activation: { body, bindings: { kind: "instantiated", bindings: vector({ classBindings: [rigid] }) } } },
+    { captures: [] }, { captures: [{ body, local: 1 }] }, { captures: [{ body, local: 0 }, { body, local: 0 }] },
+  ];
+  const variants = [
+    ...decisionChanges.map(change => ({ ...base, decision: { ...base.decision, ...change } })),
+    ...calleeDecisionChanges.map(change => ({ ...base, getter: { ...callee, decision: { ...callee.decision, ...change } } })),
+    ...calleeChanges.map(change => ({ ...base, getter: { ...callee, ...change } })),
+    { ...base, getter: null }, { ...base, setter: callee }, { ...base, getter: null, setter: callee },
+  ];
+  const keys = [base, ...variants].map(member => JSON.stringify(product.memberSelectionKey(member),
+    (_name, value) => typeof value === "bigint" ? `${value}n` : value));
+  assert.equal(new Set(keys).size, keys.length, "every one-field change gives a different key");
+  assert.equal(keys.length, 1 + decisionChanges.length + calleeDecisionChanges.length + calleeChanges.length + 3);
+  assertCompleteValue(product.memberSelectionKey(structuredClone(base)), product.memberSelectionKey(base));
+  const holes = structuredClone(base);
+  holes.decision.origins = new Array(2);
+  holes.decision.selectedDeclarations = new Array(1);
+  holes.getter.captures = new Array(1);
+  holes.getter.decision.parameters = [undefined, { kind: "rest", parameter: 0, arguments: new Array(1), passing: "by-value" }];
+  holes.getter.decision.bindings = vector({ classBindings: new Array(1) });
+  const holed = product.memberSelectionKey(holes);
+  assertCompleteValue(holed[1], [null, null]);
+  assertCompleteValue(holed[2], [null]);
+  assertCompleteValue(holed[10][3], null);
+  assertCompleteValue(holed[10][5], [null, ["rest", 0, [null], "by-value"]]);
+  assertCompleteValue(holed[10][10], [null]);
 });
 
 test("native syntax comparison checks every declared ordinary field without discovering object properties", () => {
@@ -2317,15 +2388,47 @@ const selectedIdentityCases = [
       'value=t:0, completion=t:0, yielded=t:0, sent=t:0, thrown=t:0)'])),
 ];
 
+// One selected operation on a prefix unary expression: the carrier of the decision-field vectors and of their refusals.
+const decisionFieldCase = (identity, identityWire, execution, executionWire) => {
+  const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution } };
+  const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=${executionWire}), permissionScope=n:4)`;
+  return syntaxPayloadCase({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusToken", operand: codecName(5, 4),
+    tsonic: { ...typedValue(), role: "value", operation: { kind: "decided", decision: operation } } }, [
+    `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusToken", operand=n:5, ` +
+      `tsonic=TypedPrefix(${valueWire}, role="value", operation=decided(decision=${operationWire})))`, codecNameWire(5, 4),
+  ]);
+};
+
+test("the text reader refuses an unknown value and a missing last field of the location, activation and execution fields at the field's own position", () => {
+  // This codec names the schema of a value it cannot read and the field it misses; the position is the value's first character
+  // and the place where the missing field's separator would stand.
+  const refuse = (text, slot, unknown, schema, found) => {
+    const start = text.indexOf(slot);
+    assert.equal(start >= 0 && text.indexOf(slot, start + 1) === -1, true, `${slot} is stated once`);
+    assert.equal(text.slice(start - 2, start) === ", " && text[start + slot.length] === ")", true, `${slot} is the last field of its record`);
+    const value = start + slot.indexOf("=") + 1;
+    assertInvalidText(text.slice(0, value) + unknown + text.slice(start + slot.length), value, [schema], found);
+    assertInvalidText(text.slice(0, start - 2) + text.slice(start + slot.length), start - 2, [slot.slice(0, slot.indexOf("="))], ")");
+  };
+  refuse(decisionFieldCase({ kind: "discard" }, "discard()", { kind: "invocation", writesStorage: true, failure: "abort" },
+    'invocation(writesStorage=true, failure="abort")').expected, 'execution=invocation(writesStorage=true, failure="abort")', "proved()", "OperationExecution", "proved");
+  const location = 'location=data(check=required(failure="unwind"), receiver="by-reference")';
+  const memberWire = codecMemberDecisionWire.replace(`getter=${codecEndpointWire}, setter=${codecEndpointWire}`, "getter=null, setter=null").replace("location=accessor()", location);
+  refuse(decisionFieldCase({ kind: "array-construction", parts: [{ ...codecPart, member: { ...codecMemberDecision, getter: null, setter: null,
+    location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "by-reference" } } }] },
+  `array-construction(parts=[${codecPartWire.replace(codecMemberDecisionWire, memberWire)}])`, { kind: "pure" }, "pure()").expected, location, "proved()", "AccessLocation", "proved");
+  const applicationWire = codecApplicationDecisionWire.replace("result=t:0, activation=null", 'result=t:0, activation="when-first-driven"');
+  refuse(decisionFieldCase({ kind: "protocol", protocol: "iterate", asynchronous: false,
+    steps: [{ role: "acquire", operation: { kind: "call", application: { ...codecApplicationDecision, activation: "when-first-driven" } }, operands: [0], result: 0 }],
+    value: 0, completion: 0, yielded: 0, sent: 0, thrown: 0 },
+  `protocol(protocol="iterate", asynchronous=false, steps=[ProtocolStepDecision(role="acquire", operation=call(application=${applicationWire}), ` +
+    'operands=[t:0], result=t:0)], value=t:0, completion=t:0, yielded=t:0, sent=t:0, thrown=t:0)', { kind: "pure" }, "pure()").expected,
+  'activation="when-first-driven"', '"proved"', "?HandleActivation", '"proved"');
+});
+
 test("check, location, execution and activation fields of the decisions have a complete public codec vector for every value", () => {
   const roundTrip = (identity, identityWire, execution, executionWire, label) => {
-    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution } };
-    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=${executionWire}), permissionScope=n:4)`;
-    const fixture = syntaxPayloadCase({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusToken", operand: codecName(5, 4),
-      tsonic: { ...typedValue(), role: "value", operation: { kind: "decided", decision: operation } } }, [
-      `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusToken", operand=n:5, ` +
-        `tsonic=TypedPrefix(${valueWire}, role="value", operation=decided(decision=${operationWire})))`, codecNameWire(5, 4),
-    ]);
+    const fixture = decisionFieldCase(identity, identityWire, execution, executionWire);
     assertBodyRoundTrip(fixture.body, fixture.expected, label);
   };
   for (const writesStorage of [false, true]) for (const failure of ["none", "unwind", "abort"])
@@ -2355,8 +2458,14 @@ for (const [identity, identityWire] of selectedIdentityCases) {
   const suffix = [identity.carrier, identity.operator, identity.protocol, identity.asynchronous, identity.negated]
     .filter(value => value !== undefined).join("/");
   test(`the complete selected ${identity.kind}/${suffix} operation has an independently authored public codec vector`, () => {
-    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution: { kind: "pure" } } };
-    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=pure()), permissionScope=n:4)`;
+    // A pointer write is an invocation that writes storage; a library operation is an ordinary invocation. The other
+    // executions in this vector are fixture values that no rule has decided.
+    const [execution, executionWire] = identity.kind === "pointer-write"
+      ? [{ kind: "invocation", writesStorage: true, failure: "none" }, 'invocation(writesStorage=true, failure="none")']
+      : identity.kind === "library" ? [{ kind: "invocation", writesStorage: true, failure: "unwind" }, 'invocation(writesStorage=true, failure="unwind")']
+        : [{ kind: "pure" }, "pure()"];
+    const operation = { permissionScope: 4, decision: { kind: "selected", operation: identity, operands: [0], result: 0, execution } };
+    const operationWire = `TypedOperation(decision=selected(operation=${identityWire}, operands=[t:0], result=t:0, execution=${executionWire}), permissionScope=n:4)`;
     const fixture = syntaxPayloadCase({ ...header(4, 2), kind: "PrefixUnaryExpression", operator: "PlusToken", operand: codecName(5, 4),
       tsonic: { ...typedValue(), role: "value", operation: { kind: "decided", decision: operation } } }, [
       `PrefixUnaryExpression(${syntaxHeaderWire(4, 2)}, operator="PlusToken", operand=n:5, ` +
@@ -3188,15 +3297,36 @@ const codecProofComponent = { root: codecSource, path: [] };
 const codecProof = { steps: [{ from: codecProofComponent, to: codecProofComponent, rule: "identity", premises: [] }], conclusion: 0 };
 const codecProofWire = `EmbeddingProof(steps=[CorrespondenceStep(from=TypeComponent(root=${codecSourceWire}, path=[]), ` +
   `to=TypeComponent(root=${codecSourceWire}, path=[]), rule="identity", premises=[])], conclusion=0)`;
+// A conversion's embedding is stated once: by the conversion identity of its operation, or beside a core or library operation.
+const codecConversionOperation = (embedding, embeddingWire, execution = { kind: "pure" }, executionWire = "pure()") => [
+  { decision: { kind: "selected", operation: { kind: "conversion", from: 0, to: 0, embedding }, operands: [0], result: 0, execution }, permissionScope: 4 },
+  `TypedOperation(decision=selected(operation=conversion(from=t:0, to=t:0, embedding=${embeddingWire}), operands=[t:0], result=t:0, ` +
+    `execution=${executionWire}), permissionScope=n:4)`];
+const codecBackedOperation = (kind, execution = { kind: "invocation", writesStorage: false, failure: "unwind" },
+  executionWire = 'invocation(writesStorage=false, failure="unwind")') => [
+  { decision: { kind: "selected", operation: { kind, declaration: ownerId, bindings: emptyBindings() }, operands: [0], result: 0, execution }, permissionScope: 4 },
+  `TypedOperation(decision=selected(operation=${kind}(declaration=def:"${ownerId}", bindings=${codecBindingsWire}), operands=[t:0], result=t:0, ` +
+    `execution=${executionWire}), permissionScope=n:4)`];
 for (const role of ["initialization", "assignment", "argument", "return", "receiver", "yield", "member-write"]) {
   test(`the actual ${role} conversion retains the complete flow-role record rather than a syntax-token proxy`, () => {
-    const conversion = { kind: "convert", role, embedding: { kind: "identity" }, operation: codecTypedOperation };
-    const phaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=convert(role="${role}", embedding=identity(), ` +
-      `operation=${codecTypedOperationWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
+    const [operation, operationWire] = codecConversionOperation({ kind: "identity" }, "identity()");
+    const conversion = { kind: "convert", role, operation };
+    const phaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=convert(role="${role}", ` +
+      `operation=${operationWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
     assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
       tsonic: { ...typedValue(), conversion } }, [
       `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=${phaseWire})`, codecNameWire(5, 4),
     ], role);
+    for (const backing of ["core", "library"]) {
+      const [backed, backedWire] = codecBackedOperation(backing);
+      const backedConversion = { kind: "backed-convert", role, embedding: { kind: "identity" }, operation: backed };
+      const backedPhaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=backed-convert(role="${role}", embedding=identity(), ` +
+        `operation=${backedWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
+      assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
+        tsonic: { ...typedValue(), conversion: backedConversion } }, [
+        `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=${backedPhaseWire})`, codecNameWire(5, 4),
+      ], `${role} backed by ${backing}`);
+    }
   });
 }
 for (const [embedding, embeddingWire] of [
@@ -3213,15 +3343,52 @@ for (const [embedding, embeddingWire] of [
   ]),
 ]) {
   test(`a saved conversion preserves its exact ${embedding.conversion ?? embedding.reason} embedding decision`, () => {
-    const conversion = { kind: "convert", role: "return", embedding, operation: codecTypedOperation };
-    const phaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=convert(role="return", embedding=${embeddingWire}, ` +
-      `operation=${codecTypedOperationWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
+    const [operation, operationWire] = codecConversionOperation(embedding, embeddingWire);
+    const conversion = { kind: "convert", role: "return", operation };
+    const phaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=convert(role="return", ` +
+      `operation=${operationWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
     assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
       tsonic: { ...typedValue(), conversion } }, [
       `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=${phaseWire})`, codecNameWire(5, 4),
     ], embeddingWire);
+    const [backed, backedWire] = codecBackedOperation("core");
+    const backedPhaseWire = `TypedValue(type=t:0, convertedType=t:0, conversion=backed-convert(role="return", embedding=${embeddingWire}, ` +
+      `operation=${backedWire}), narrowing=identity(type=t:0), evidenceIndex=0, demand=always())`;
+    assertSyntaxPayload({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
+      tsonic: { ...typedValue(), conversion: { kind: "backed-convert", role: "return", embedding, operation: backed } } }, [
+      `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=${backedPhaseWire})`, codecNameWire(5, 4),
+    ], `${embeddingWire} beside a core operation`);
   });
 }
+
+test("the text of a conversion admits one statement of its embedding and only the operation of its arm", () => {
+  const [operation, operationWire] = codecConversionOperation({ kind: "identity" }, "identity()");
+  const [backed, backedWire] = codecBackedOperation("library");
+  const text = conversionWire => syntaxPayloadCase({ ...header(4, 2), kind: "ParenthesizedExpression", expression: codecName(5, 4),
+    tsonic: { ...typedValue(), conversion: { kind: "convert", role: "return", operation } } }, [
+    `ParenthesizedExpression(${syntaxHeaderWire(4, 2)}, expression=n:5, tsonic=TypedValue(type=t:0, convertedType=t:0, conversion=${conversionWire}, ` +
+      "narrowing=identity(type=t:0), evidenceIndex=0, demand=always()))", codecNameWire(5, 4),
+  ]).expected;
+  const valid = text(`convert(role="return", operation=${operationWire})`);
+  assert.equal(product.parseTir(valid).kind, "parsed");
+  // The earlier form: an embedding beside the identity conversion.
+  const earlier = text(`convert(role="return", embedding=identity(), operation=${operationWire})`);
+  assertInvalidText(earlier, earlier.indexOf("embedding=identity(), operation="), ["operation"], "embedding");
+  // A conversion carried out by an operation that is not the conversion identity.
+  for (const other of [codecTypedOperationWire, backedWire]) {
+    const wrong = text(`convert(role="return", operation=${other})`);
+    assertInvalidText(wrong, wrong.indexOf("selected(operation=") + "selected(operation=".length, ["OperationIdentity"], other === backedWire ? "library" : "discard");
+  }
+  // A backed conversion whose operation is not a core or library operation, and one without its embedding.
+  for (const [other, found] of [[operationWire, "conversion"], [codecTypedOperationWire, "discard"]]) {
+    const wrong = text(`backed-convert(role="return", embedding=identity(), operation=${other})`);
+    assertInvalidText(wrong, wrong.indexOf("selected(operation=") + "selected(operation=".length, ["OperationIdentity"], found);
+  }
+  const bare = text(`backed-convert(role="return", operation=${backedWire})`);
+  assertInvalidText(bare, bare.indexOf("operation=TypedOperation"), ["embedding"], "operation");
+  assert.equal(product.parseTir(text(`backed-convert(role="return", embedding=identity(), operation=${backedWire})`)).kind, "parsed");
+  assert.equal(backed.decision.operation.kind, "library");
+});
 
 test("an actual import-type retains the present attributes arm without guessing its qualifier", () => {
   assertSyntaxPayload({ ...header(4, 2), kind: "ImportType", typeArguments: null, isTypeOf: false, argument: codecType(5, 4),
@@ -3365,10 +3532,12 @@ test("a typed closure carries its decision: every capture mode, a creation that 
     execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } }),
   arrowWire('decided(decision=ClosureDecision(carrier=t:0, captures=["captured-value", "captured-location"], execution=invocation(writesStorage=false, failure="unwind")))'),
   "decided closure");
+  const savedCapture = reassignable => ({ local: { body: bodyId, local: 0 }, value: codecEvidence, reassignable });
+  const savedCaptureWire = reassignable => `ClosureCaptureEvidence(local=${localWire}, value=${codecEvidenceWire}, reassignable=${reassignable})`;
   assertSyntaxPayload(arrow({ kind: "deferred", deferred: { invocation: { rule: "closure", input: { context: codecContext,
-    callable: codecEvidence, captures: [codecEvidence, codecEvidence] } }, result: 0 } }),
+    callable: codecEvidence, captures: [savedCapture(true), savedCapture(false)] } }, result: 0 } }),
   arrowWire(`deferred(deferred=DeferredDecision(invocation=DeferredInvocation(rule="closure", input=ClosureInput(context=${codecContextWire}, ` +
-    `callable=${codecEvidenceWire}, captures=[${codecEvidenceWire}, ${codecEvidenceWire}])), result=t:0))`), "deferred closure");
+    `callable=${codecEvidenceWire}, captures=[${savedCaptureWire(true)}, ${savedCaptureWire(false)}])), result=t:0))`), "deferred closure");
 });
 
 for (const asterisk of [false, true]) {
@@ -3852,6 +4021,91 @@ test("a deferred closure decision is a saved invocation of its own occurrence, v
   body.root.tsonic.closure = decided;
   replaceScopeInventory(input, [fixture.scope, fixture.scope]);
   assertCompleteValue(product.verifyTir(input, body), []);
+});
+
+test("a closure's logical captures follow the declaration of each captured binding, in the order of its captured locals", () => {
+  // function make(p: int32) { let x = 0; let n = 0; const c = 5; const o = { count: 0 };
+  //   return () => { x += 1; o.count += 1; return x + n + c + p; }; }
+  const rows = [["x, a let the closure reassigns", "binding", true], ["n, a let never reassigned", "binding", true],
+    ["c, a const holding a primitive", "binding", false], ["o, a const holding an object reference whose referent is written", "binding", false],
+    ["p, a parameter", "parameter", true]];
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  const outerLocals = rows.map(([name, role, mutable], id) => ({ id, declaration: { kind: "body", value: { body: bodyId, node: 0 } },
+    name: name.slice(0, 1), role, checkerSlot: available(0), capturedFrom: null, mutable }));
+  const captures = rows.map((_row, local) => ({ body: bodyId, local }));
+  const logical = rows.map(([, , mutable]) => mutable ? "captured-location" : "captured-value");
+  const decided = modes => ({ kind: "decided", decision: { carrier: 4, captures: modes, execution: { kind: "pure" } } });
+  fixture.originalFunction.captures = captures;
+  fixture.checkedFunction.tsonic.captures = captures;
+  for (const published of [fixture.functionTemplate, ...fixture.instances]) {
+    published.captures = [...captures];
+    published.root.tsonic.captures = [...captures];
+    published.root.tsonic.closure = decided([...logical]);
+  }
+  const input = fixture.inputFor(body);
+  input.source.bodies.find(candidate => candidate.body === bodyId).locals = outerLocals;
+  const localExists = input.localExists;
+  input.localExists = reference => reference.body === bodyId ? outerLocals[reference.local] !== undefined : localExists(reference);
+  assertCompleteValue(product.verifyTir(input, body), []);
+  // A binding that can be reassigned is a captured location. For one that cannot, the local row alone forces neither value:
+  // such a binding may still alias by-reference storage (K-3271); the incoming passing mode and the enclosing capture row
+  // decide it.
+  const binding = nodeViolation("closure-capture-binding", 2, "a binding that can be reassigned is a captured location");
+  for (const [position, [name, , mutable]] of rows.entries()) {
+    body.root.tsonic.closure = decided(logical.map((capture, index) => index !== position ? capture
+      : capture === "captured-location" ? "captured-value" : "captured-location"));
+    assertCompleteValue(product.verifyTir(input, body), mutable ? [binding] : [], name);
+  }
+  body.root.tsonic.closure = decided(logical.map(() => "captured-value"));
+  assertCompleteValue(product.verifyTir(input, body), [binding]);
+  body.root.tsonic.closure = decided(logical.map(() => "captured-location"));
+  assertCompleteValue(product.verifyTir(input, body), []);
+  // A captured local with no row in its body, and a source body list with a hole: no evidence, so no finding from this rule.
+  const rowless = { body: bodyId, local: rows.length };
+  const withRowless = [...captures, rowless];
+  fixture.originalFunction.captures = withRowless;
+  fixture.checkedFunction.tsonic.captures = withRowless;
+  for (const published of [fixture.functionTemplate, ...fixture.instances]) {
+    published.captures = [...withRowless];
+    published.root.tsonic.captures = [...withRowless];
+  }
+  input.localExists = reference => reference.body === bodyId ? reference.local <= rows.length : localExists(reference);
+  body.root.tsonic.closure = decided([...logical, "captured-value"]);
+  assertCompleteValue(product.verifyTir(input, body), []);
+  input.source.bodies.length += 1;
+  assertCompleteValue(product.verifyTir(input, body), []);
+  input.source.bodies.length -= 1;
+  fixture.originalFunction.captures = captures;
+  fixture.checkedFunction.tsonic.captures = captures;
+  for (const published of [fixture.functionTemplate, ...fixture.instances]) {
+    published.captures = [...captures];
+    published.root.tsonic.captures = [...captures];
+  }
+  input.localExists = reference => reference.body === bodyId ? outerLocals[reference.local] !== undefined : localExists(reference);
+  const context = { occurrence: { body: body.body, node: 2 }, origin: origin(), bindings: body.root.tsonic.callable.template.lexicalBindings };
+  const evidence = (type, category) => ({ type, component: { kind: "body", value: context.occurrence },
+    category: { kind: "known", category }, numeric: null, sum: null, nominal: null, pointer: null });
+  const saved = captures.map((local, position) => ({ local, value: evidence(3, "number"), reassignable: rows[position][2] }));
+  const deferred = captured => ({ kind: "deferred", deferred: { result: 4, invocation: { rule: "closure", input: {
+    context, callable: evidence(4, "callable"), captures: captured } } } });
+  body.root.tsonic.closure = deferred(saved);
+  replaceScopeInventory(input, [fixture.scope, fixture.scope, fixture.scope]);
+  assertCompleteValue(product.verifyTir(input, body), []);
+  const savedBinding = nodeViolation("closure-capture-binding", 2,
+    "saved capture evidence does not name the captured locals in order with their binding evidence");
+  for (const changed of [
+    [saved[1], saved[0], ...saved.slice(2)],
+    saved.map((capture, index) => index === 2 ? { ...capture, local: { body: bodyId, local: 0 } } : capture),
+    saved.map((capture, index) => index === 3 ? { ...capture, reassignable: true } : capture),
+    saved.map((capture, index) => index === 0 ? { ...capture, reassignable: false } : capture),
+  ]) {
+    body.root.tsonic.closure = deferred(changed);
+    assertCompleteValue(product.verifyTir(input, body), [savedBinding]);
+  }
+  body.root.tsonic.closure = deferred(saved.slice(1));
+  assertCompleteValue(product.verifyTir(input, body), [nodeViolation("closure-capture-total", 2,
+    "closure decision does not state one logical capture per captured local, in order")]);
 });
 
 test("a shared vector is authenticated against each occurrence's actual declaration, never an object-wide owner union", () => {
@@ -4683,10 +4937,15 @@ for (const field of ["occurrence", "argument"]) {
 }
 
 test("a conversion's structural source is checked without replaying the embedding rule", () => {
-  const fixture = memberScenario("construction", true);
-  fixture.body.root.statements.nodes[0].expression.tsonic.conversion.operation.decision.operands = [1];
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-source", 2,
-    "conversion does not retain its value source endpoint")]);
+  const fixture = operationScenario();
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 },
+    operands: [1], result: 1, execution: { kind: "pure" } } };
+  fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  operation.decision.operands = [0];
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
+    nodeViolation("conversion-source", 2, "conversion does not retain its value source endpoint"),
+    nodeViolation("operation-type", 2, "conversion operation does not retain its explicit operand and result endpoints")]);
 });
 
 test("identity conversion preserves its actual source and destination without a relation solver", () => {
@@ -4700,8 +4959,11 @@ test("identity conversion preserves its actual source and destination without a 
 });
 
 test("a conversion's structural destination is checked without guessing a receiver or relation", () => {
-  const fixture = memberScenario("construction", true);
-  fixture.body.root.statements.nodes[0].expression.tsonic.convertedType = 1;
+  const fixture = operationScenario();
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 },
+    operands: [1], result: 1, execution: { kind: "pure" } } };
+  fixture.typed.tsonic.conversion = { kind: "convert", role: "initialization", operation };
+  fixture.typed.tsonic.convertedType = 0;
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-destination", 2,
     "conversion does not retain its destination endpoint")]);
 });
@@ -4837,7 +5099,8 @@ test("a protocol step retains its genuine bodyless API result without inventing 
   const spread = fixture.body.root.statements.nodes[0].expression.arguments.nodes[0];
   const callee = fixture.body.root.statements.nodes[0].expression.tsonic.application.decision.callee;
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "library",
-    declaration: callee.decision.api.declaration, bindings: emptyBindings() }, operands: [], result: 0, execution: { kind: "pure" } } };
+    declaration: callee.decision.api.declaration, bindings: emptyBindings() }, operands: [], result: 0,
+    execution: { kind: "invocation", writesStorage: true, failure: "unwind" } } };
   spread.tsonic.protocol.decision.steps = [{ role: "next", operation, callee }];
   replaceScopeInventory(fixture.input, Array.from({ length: 7 }, emptyScope));
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
@@ -5627,12 +5890,13 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
   }
 }
 
-test("two same-node/same-part tuple occurrences remain distinct even when the actual inline part is shared", () => {
+test("a conversion that carries a construction is refused, and its part and the node's own remain two distinct occurrences", () => {
   const fixture = memberScenario("construction", true);
   const expected = [0, 1].map(ordinal => ({ instance: { body: bodyId, bindings: { kind: "parametric" } },
     occurrence: { kind: "construction-part", node: 2, ordinal, source: { body: bodyId, node: 2 },
       destination: { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] }, part: 0 } }));
-  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("conversion-operation", 2,
+    "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation")]);
   assertCompleteValue(fixture.queries, expected);
 });
 
@@ -6021,12 +6285,57 @@ test("F4 nested inventory multiplicity retains genuine source order", () => {
   assertCompleteValue(product.verifyTir(fixture.inputFor(fixture.outer), fixture.outer), []);
 });
 
+test("a conversion states its embedding once; whether it requires a check and how its operation executes are separate events", () => {
+  const component = { root: { kind: "body", value: { body: bodyId, node: 2 } }, path: [] };
+  const proof = { steps: [{ from: component, to: component, rule: "numeric", premises: [] }], conclusion: 0 };
+  const embedding = check => ({ kind: "conversion", conversion: "numeric", proof, check });
+  const none = { kind: "none" };
+  const unwinding = { kind: "required", failure: "unwind" };
+  const pure = { kind: "pure" };
+  const failing = failure => ({ kind: "invocation", writesStorage: false, failure });
+  const identityConversion = (stated, execution) => ({ permissionScope: null, decision: { kind: "selected",
+    operation: { kind: "conversion", embedding: stated, from: 1, to: 1 }, operands: [1], result: 1, execution } });
+  const backing = (kind, execution) => ({ permissionScope: null, decision: { kind: "selected",
+    operation: { kind, declaration: ownerId, bindings: emptyBindings() }, operands: [1], result: 1, execution } });
+  const verified = (conversion, expected, label, scopes = 0) => {
+    const fixture = operationScenario();
+    fixture.typed.tsonic.conversion = conversion;
+    for (let added = 0; added < scopes; added += 1) bodyScopes(fixture.input, fixture.body).push(emptyScope());
+    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), expected, label);
+  };
+  const convert = (check, execution) => ({ kind: "convert", role: "return", operation: identityConversion(embedding(check), execution) });
+  // const narrow: int8 = wide          under a recoverable overflow fact: the range test, then a pure truncation
+  verified(convert(unwinding, pure), [], "an explicit precheck followed by a pure continuation");
+  // const boxed: int32 | string = n    with an allocating carrier: no test; the injection is one invocation that can end the process
+  verified(convert(none, failing("abort")), [], "one failing invocation with no check");
+  // const boxed: int8 | string = wide  both: the range test unwinds, then the allocating injection can end the process
+  verified(convert(unwinding, failing("abort")), [], "a precheck followed by a failing invocation");
+  verified(convert(unwinding, failing("unwind")), [], "a precheck and an invocation that fail the same way are still two events");
+  verified(convert({ kind: "required", failure: "abort" }, failing("none")), [], "a precheck followed by an invocation that cannot fail");
+  verified(convert(none, pure), [], "an unchecked pure conversion");
+  // A conversion carried out by a core or library operation: the embedding stands beside the operation, once.
+  for (const kind of ["core", "library"]) for (const check of [none, unwinding]) for (const execution of [pure, failing("unwind"), failing("abort")])
+    verified({ kind: "backed-convert", role: "return", embedding: embedding(check), operation: backing(kind, execution) }, [],
+      `a ${kind}-backed conversion, check ${check.kind}, execution ${execution.kind}`, 1);
+  // The arm decides which operation may carry the conversion out.
+  const refused = nodeViolation("conversion-operation", 2,
+    "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation");
+  verified({ kind: "convert", role: "return", operation: backing("core", pure) }, [refused], "a convert arm with a core operation", 1);
+  verified({ kind: "convert", role: "return", operation: backing("library", pure) }, [refused], "a convert arm with a library operation", 1);
+  verified({ kind: "backed-convert", role: "return", embedding: embedding(none), operation: identityConversion(embedding(none), pure) }, [refused],
+    "a backed arm whose operation is the conversion identity states the embedding twice");
+  const discarding = { permissionScope: null, decision: { kind: "selected", operation: { kind: "discard" }, operands: [1], result: 1, execution: pure } };
+  verified({ kind: "convert", role: "return", operation: discarding }, [refused], "a convert arm with an operation that converts nothing");
+  verified({ kind: "backed-convert", role: "return", embedding: embedding(none), operation: discarding }, [refused],
+    "a backed arm with an operation that is neither core nor library");
+});
+
 for (const endpoint of ["from", "to"]) {
   test(`F4 explicit conversion ${endpoint} retains both endpoint and operation cofindings`, () => {
     const fixture = operationScenario();
     const operation = { permissionScope: null, decision: { kind: "selected", operation: {
       kind: "conversion", embedding: { kind: "identity" }, from: 1, to: 1 }, operands: [1], result: 1, execution: { kind: "pure" } } };
-    fixture.typed.tsonic.conversion = { kind: "convert", role: "return", embedding: { kind: "identity" }, operation };
+    fixture.typed.tsonic.conversion = { kind: "convert", role: "return", operation };
     assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
     operation.decision.operation[endpoint] = 0;
     assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [
@@ -7062,7 +7371,7 @@ test("fresh strict whole-owner isolation includes every current executable TIR m
     interfaceSources, declarationSources: [...closure].sort(), outputDirectory: ".temp/ir-tir-isolation" });
   writeFileSync(resolve(repository, ".temp/ir-tir-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 5000));
-  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, 32);
+  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, 33);
   assert.equal(report.provenance.length > 0, true, "real dependency declarations were freshly produced from their actual source closure");
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
 });
@@ -7088,9 +7397,9 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 31, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.equal(result.length, 32, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 31);
+    assert.equal(report.files.filter(file => file.status === "covered").length, 32);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1);
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

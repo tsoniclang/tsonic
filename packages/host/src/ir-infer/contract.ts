@@ -143,11 +143,17 @@ export interface RefinementConstraint {
   readonly result: TyId;
 }
 
+export interface ClosureCapture {
+  readonly local: LocalRef;
+  readonly type: TyId;
+  readonly reassignable: boolean;
+}
+
 export interface ClosureConstraint {
   readonly kind: "closure";
   readonly occurrence: NodeRef;
   readonly created: BodyId;
-  readonly captures: readonly TyId[];
+  readonly captures: readonly ClosureCapture[];
   readonly result: TyId;
   readonly bindings: BindingVector;
 }
@@ -374,10 +380,19 @@ export interface ClosureDecision {
   readonly execution: OperationExecution;
 }
 
+// The ready evidence of one captured local, in the order of the closure's captured locals: its identity, its type, and
+// whether its binding can be reassigned by its declaration. The fact is about the binding, not about the object it holds,
+// and not about whether a reassignment occurs.
+export interface ClosureCaptureEvidence {
+  readonly local: LocalRef;
+  readonly value: TypeEvidence;
+  readonly reassignable: boolean;
+}
+
 export interface ClosureInput {
   readonly context: RuleContext;
   readonly callable: TypeEvidence;
-  readonly captures: readonly TypeEvidence[];
+  readonly captures: readonly ClosureCaptureEvidence[];
 }
 
 export type ConversionKind = "numeric" | "literal-fit" | "absence" | "union-injection" | "shape" | "callable" | "readonly";
@@ -677,7 +692,7 @@ export type InferRule = "group-order" | "group-ownership" | "inferred-part-ident
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
   | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation"
-  | "access-location" | "closure-capture-total";
+  | "access-location" | "closure-capture-total" | "closure-capture-binding";
 
 export type InferSite =
   | { readonly kind: "group"; readonly group: GroupId }

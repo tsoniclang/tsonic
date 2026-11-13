@@ -1661,7 +1661,7 @@ test("MIR explicit int32-to-int64 conversion keeps original and converted TIR ca
     operands: [identities.tyId(3)], result: identities.tyId(5), execution: { kind: "pure" } }, permissionScope: null };
   const rational = { numerator: 1n, denominator: 1n, negativeZero: false };
   const numeric = { ...header(2, 1), kind: "NumericLiteral", text: "1", tokenFlags: [], tsonic: { role: "value", value: rational,
-    type: identities.tyId(3), convertedType: identities.tyId(5), conversion: { kind: "convert", role: "return", embedding, operation: selected },
+    type: identities.tyId(3), convertedType: identities.tyId(5), conversion: { kind: "convert", role: "return", operation: selected },
     narrowing: null, evidenceIndex: null, demand: { kind: "always" } } };
   const source = { ...context.source, completion: identities.tyId(5), root: { ...context.source.root,
     statements: { loc: { pos: 0, end: 0 }, nodes: [{ ...header(1, 0), kind: "ReturnStatement", expression: numeric, tsonic: null }] } } };
@@ -1680,6 +1680,37 @@ test("MIR explicit int32-to-int64 conversion keeps original and converted TIR ca
     ...body.blocks[0].statements[1], value: { ...body.blocks[0].statements[1].value, to: identities.tyId(3) },
   }] }] };
   same(verified(wrong, input), [expectedViolation("operation-selected", { kind: "instruction", block: 0, statement: 1 })], "conversion result cannot be silently relabelled as its original carrier");
+  // A conversion that requires a check, in both arms of the conversion decision: `convert`, whose operation is the
+  // conversion identity, and `backed-convert`, whose operation is a library operation with the embedding beside it.
+  // In both the node selects the operation, its decision is an invocation that unwinds, and the record that executes
+  // it is held to the same three rules: it is an operation of its node, it is a control point, and it fails as its
+  // decision says.
+  const checkedEmbedding = { ...embedding, check: { kind: "required", failure: "unwind" } };
+  const checking = { decision: { ...selected.decision, operation: { ...selected.decision.operation, embedding: checkedEmbedding }, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } },
+    permissionScope: null };
+  const backing = { decision: { kind: "selected", operation: { kind: "library", declaration: context.source.owner, bindings: bindingVector },
+    operands: [identities.tyId(3)], result: identities.tyId(5), execution: { kind: "invocation", writesStorage: false, failure: "unwind" } }, permissionScope: null };
+  const converting = conversion => ({ ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements, nodes: [
+    { ...source.root.statements.nodes[0], expression: { ...numeric, tsonic: { ...numeric.tsonic, conversion } } }] } } } });
+  const atControl = { kind: "instruction", block: 0, statement: null };
+  for (const [arm, operation, given, other] of [
+    ["convert", checking, converting({ kind: "convert", role: "return", operation: checking }), backing],
+    ["backed-convert", backing, converting({ kind: "backed-convert", role: "return", embedding: checkedEmbedding, operation: backing }), checking],
+  ]) {
+    const invoked = (executed, unwind) => ({ ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0]], terminator: {
+      ...site, tir: { body: base.body, node: identities.nodeId(2) }, kind: "invoke", step: null, operation: executed,
+      operands: [{ kind: "constant", constant: constant.id }], destination: place.id, next: identities.blockId(1), unwind: { kind: unwind } } },
+    { ...body.blocks[0], id: identities.blockId(1), statements: [] }] });
+    same(verified(invoked(operation, "escape"), given), [], `${arm}: the checked conversion is a control point that unwinds`);
+    same(verified(invoked(operation, "none"), given), [expectedViolation("failure-kind-exact", atControl)],
+      `${arm}: the control point of a conversion that can fail has its failure arm`);
+    same(verified(invoked(other, "escape"), given), [expectedViolation("operation-selected", atControl)],
+      `${arm}: the operation of the other arm is not an operation of this node`);
+    const asStatement = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
+      ...body.blocks[0].statements[1], value: { ...body.blocks[0].statements[1].value, operation } }] }] };
+    same(verified(asStatement, given), [expectedViolation("statement-pure", { kind: "instruction", block: 0, statement: 1 })],
+      `${arm}: a conversion that can fail is not a statement`);
+  }
   const missingSelection = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
     ...body.blocks[0].statements[1], value: { ...body.blocks[0].statements[1].value,
       operation: { ...selected, decision: { ...selected.decision, operands: [] } } },

@@ -191,7 +191,12 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
     case "protocol": matches = value.kind === "protocol" && invocation.input.kind === value.protocol && invocation.input.asynchronous === value.asynchronous &&
       (invocation.input.subject === null) === (value.subject === null) && invocation.input.operands.length === value.operands.length; break;
     case "refinement": matches = value.kind === "refine"; break;
-    case "closure": matches = value.kind === "closure" && invocation.input.captures.length === value.captures.length; break;
+    case "closure": matches = value.kind === "closure" && invocation.input.captures.length === value.captures.length &&
+      invocation.input.captures.every((capture, index) => {
+        const original = value.captures[index];
+        return original !== undefined && capture.local.body === original.local.body && Object.is(capture.local.local, original.local.local) &&
+          capture.reassignable === original.reassignable;
+      }); break;
     case "library": case "core": {
       matches = true;
       if (invocation.rule === "core" && (value.kind === "call" || value.kind === "construct"))
@@ -241,8 +246,12 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
       for (const obligation of decision.proof.obligations) pending.push({ kind: "proof", value: obligation.evidence });
       break;
     case "closure":
-      if (constraint?.value.kind === "closure" && decision.closure.captures.length !== constraint.value.captures.length)
-        emit(output, "closure-capture-total", site, "captures");
+      if (constraint?.value.kind === "closure") {
+        const captures = constraint.value.captures;
+        if (decision.closure.captures.length !== captures.length) emit(output, "closure-capture-total", site, "captures");
+        else if (decision.closure.captures.some((capture, index) => capture === "captured-value" && captures[index]?.reassignable === true))
+          emit(output, "closure-capture-binding", site, "captures");
+      }
       break;
     case "deferred": deferredReferences(context, decision.deferred, constraint, site, output); break;
   }
@@ -482,7 +491,7 @@ export function visitBindings(input: InferVerificationInput,
           evidence(invocation.input.result); break;
         case "closure":
           evidence(invocation.input.callable);
-          for (const capture of invocation.input.captures) evidence(capture);
+          for (const capture of invocation.input.captures) evidence(capture.value);
           break;
       }
     }

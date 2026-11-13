@@ -645,10 +645,9 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   for (const violation of verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.instance }, bodySite, context)) violations.push(violation);
   const limits = context.limits;
   const usage = relationalUsage(facts.arena);
-  if (mir.blocks.length > limits.maximumBlocksPerBody || mir.places.length > limits.maximumPlacesPerBody ||
-    usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
+  if (usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
     usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody) {
-    report("analysis-limits-respected", bodySite, "Published blocks, places, projection depth, alternatives, relational rows and references respect the actual six producer limits.");
+    report("analysis-limits-respected", bodySite, "Published projection depth, alternatives, relational rows and references respect the actual four producer limits.");
   }
   return (violations);
 };

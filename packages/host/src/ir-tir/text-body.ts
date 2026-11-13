@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  ConversionDecision, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedPhase, TypedSourceFile, TypedStaticBlock
+  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, TypeEvidence
@@ -45,6 +45,8 @@ export interface BodyTextReads {
   readonly work_TypedCallable: TirRecordCodec<TypedCallable>;
   readonly work_TypedClosure: TirRecordCodec<TypedClosure>;
   readonly work_TypedOperation: TirRecordCodec<TypedOperation>;
+  readonly work_TypedOperation_conversion: TirRecordCodec<TypedOperationOf<ConversionIdentity>>;
+  readonly work_TypedOperation_backed: TirRecordCodec<TypedOperationOf<BackedConversionIdentity>>;
   readonly work_TypedSourceFile: TirRecordCodec<TypedSourceFile>;
   readonly work_TypedStaticBlock: TirRecordCodec<TypedStaticBlock>;
 }
@@ -275,9 +277,13 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .finish(() => ({ kind: "identity" })));
   const work_ConversionDecision_convert: TirRecordCodec<ConversionDecision & { readonly kind: "convert" }> = defineRecord<ConversionDecision & { readonly kind: "convert" }>("ConversionDecision#convert", "ConversionDecision", { field: "kind", value: "convert" }, "convert", null, null, fields => fields
     .field("role", "FlowRole", value => scalarWork("FlowRole", value.role), literalReader<(ConversionDecision & { readonly kind: "convert" })["role"]>("FlowRole", ["initialization","assignment","argument","return","receiver","yield","member-write"]))
+    .field("operation", "TypedOperation", value => read.work_TypedOperation_conversion.write(value.operation), lazyReader(() => read.work_TypedOperation_conversion.reader))
+    .finish((field_role, field_operation) => ({ kind: "convert", role: field_role, operation: field_operation })));
+  const work_ConversionDecision_backed_convert: TirRecordCodec<ConversionDecision & { readonly kind: "backed-convert" }> = defineRecord<ConversionDecision & { readonly kind: "backed-convert" }>("ConversionDecision#backed-convert", "ConversionDecision", { field: "kind", value: "backed-convert" }, "backed-convert", null, null, fields => fields
+    .field("role", "FlowRole", value => scalarWork("FlowRole", value.role), literalReader<(ConversionDecision & { readonly kind: "backed-convert" })["role"]>("FlowRole", ["initialization","assignment","argument","return","receiver","yield","member-write"]))
     .field("embedding", "EmbeddingDecision", value => read.work_EmbeddingDecision.write(value.embedding), lazyReader(() => read.work_EmbeddingDecision.reader))
-    .field("operation", "TypedOperation", value => read.work_TypedOperation.write(value.operation), lazyReader(() => read.work_TypedOperation.reader))
-    .finish((field_role, field_embedding, field_operation) => ({ kind: "convert", role: field_role, embedding: field_embedding, operation: field_operation })));
+    .field("operation", "TypedOperation", value => read.work_TypedOperation_backed.write(value.operation), lazyReader(() => read.work_TypedOperation_backed.reader))
+    .finish((field_role, field_embedding, field_operation) => ({ kind: "backed-convert", role: field_role, embedding: field_embedding, operation: field_operation })));
   const work_ConversionDecision_deferred: TirRecordCodec<ConversionDecision & { readonly kind: "deferred" }> = defineRecord<ConversionDecision & { readonly kind: "deferred" }>("ConversionDecision#deferred", "ConversionDecision", { field: "kind", value: "deferred" }, "deferred", null, null, fields => fields
     .field("deferred", "DeferredDecision", value => read.work_DeferredDecision.write(value.deferred), lazyReader(() => read.work_DeferredDecision.reader))
     .finish((field_deferred) => ({ kind: "deferred", deferred: field_deferred })));
@@ -501,9 +507,10 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     switch (value.kind) {
       case "identity": return work_ConversionDecision_identity.write(value);
       case "convert": return work_ConversionDecision_convert.write(value);
+      case "backed-convert": return work_ConversionDecision_backed_convert.write(value);
       case "deferred": return work_ConversionDecision_deferred.write(value);
     }
-  }, () => [work_ConversionDecision_identity.reader, work_ConversionDecision_convert.reader, work_ConversionDecision_deferred.reader]);
+  }, () => [work_ConversionDecision_identity.reader, work_ConversionDecision_convert.reader, work_ConversionDecision_backed_convert.reader, work_ConversionDecision_deferred.reader]);
   const work_TargetAccess: TirRecordCodec<TargetAccess> = unionRecord<TargetAccess>("TargetAccess", (value: TargetAccess): TirTypedRecordWork => {
     switch (value.kind) {
       case "write": return work_TargetAccess_write.write(value);

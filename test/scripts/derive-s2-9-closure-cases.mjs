@@ -3,14 +3,16 @@
 // Each derived case is an existing case with the closure decision of its arrow function replaced, in the input and in every
 // image of the expected result. The expected result of the codec case six-syntax-ArrowFunctionTrue is the identity image of
 // its input; the expected result of the instantiation case six-instantiate-syntax-ArrowFunctionTrue is its input body under
-// the empty substitution, which preserves every decision. Every type the replacement names is the arrow function's own
-// `type` in the same image, so the replacement follows the publication of that image; no expected value is taken from a
-// run of the compiler.
+// the empty substitution, which preserves every decision. Every type the replacement names is one the arrow function's own
+// payload names in the same image (its `type` for the callable, its `convertedType`, the string term of the case's table,
+// for a captured local), so the replacement follows the publication of that image; no expected value is taken from a run
+// of the compiler.
 //
 //   s2-9-closure-capture-value       the logical capture "captured-value"
 //   s2-9-closure-creation-can-fail   execution: invocation, writesStorage false, failure "unwind"
 //   s2-9-closure-deferred            the deferred arm: rule "closure" with its saved input (context of the arrow function's
-//                                    occurrence, the callable evidence, one evidence per captured local)
+//                                    occurrence, the callable evidence, and per captured local its identity, its
+//                                    evidence and that its binding can be reassigned)
 //   s2-9-instantiate-closure-deferred  the same deferred arm through instantiation
 //
 // Usage: node test/scripts/derive-s2-9-closure-cases.mjs   (from the repository root; rewrites the derived files)
@@ -26,7 +28,7 @@ const deferredClosure = node => {
     context: { occurrence: { body, node: node.id }, origin: node.origin,
       bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
     callable: evidence(type, body, node.id, "callable"),
-    captures: node.tsonic.captures.map(() => evidence(type, body, node.id, "number")),
+    captures: node.tsonic.captures.map(local => ({ local, value: evidence(node.tsonic.convertedType, body, node.id, "string"), reassignable: true })),
   } }, result: type } };
 };
 const codec = "six-syntax-ArrowFunctionTrue";

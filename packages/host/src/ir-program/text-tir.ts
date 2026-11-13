@@ -26,6 +26,11 @@ export function textConversionDecision(value: ConversionDecision): TextWork {
       case "convert":
         return record(value.kind, [
       field("role", text(value.role)),
+      field("operation", textTypedOperation(value.operation)),
+    ]);
+      case "backed-convert":
+        return record(value.kind, [
+      field("role", text(value.role)),
       field("embedding", textEmbeddingDecision(value.embedding)),
       field("operation", textTypedOperation(value.operation)),
     ]);

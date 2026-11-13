@@ -4,8 +4,9 @@ import {
 } from "../ids/index.js";
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
-import type { BindingVector, MemberKey, Signature } from "../ir-types/contract.js";
-import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
+import type { BindingVector, Signature } from "../ir-types/contract.js";
+import type { MemberSelection } from "../ir-tir/contract.js";
+import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
   BoundProducer, CaptureEffect, CaptureLocation, EscapeTarget, OpenBoundary, Origins, ParameterEffect, Producer,
   Projection, ProjectionPath, RetentionFact, Summary, SummaryWrite,
@@ -35,56 +36,6 @@ function effectPaths(paths: LibrarySummaryEffectPaths, remapped: ReadonlyMap<num
   const projected = [...distinct].sort((left, right) => left - right);
   return paths.kind === "complete" ? { kind: "complete", paths: projected }
     : { kind: "open", paths: projected, boundaries: boundaryIds(paths.boundaries) };
-}
-
-function memberKeyData(key: MemberKey): KeyData {
-  switch (key.kind) {
-    case "text": return [key.kind, key.value];
-    case "number": return [key.kind, key.value.numerator, key.value.denominator, key.value.negativeZero];
-    case "symbol": return [key.kind, key.declaration];
-  }
-}
-
-function calleeData(callee: ResolvedCallee | null): KeyData {
-  if (callee === null) return null;
-  const decision = callee.decision;
-  const advertised = decision.advertised;
-  const api = decision.api;
-  const activation = callee.activation;
-  return [decision.candidate, [advertised.declaration, advertised.role, advertised.signature, advertised.body],
-    [api.declaration, api.role, api.signature, api.body], bindingData(decision.bindings), bindingData(decision.implementationBindings),
-    decision.parameters.map((parameter): KeyData => {
-      switch (parameter.kind) {
-        case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
-        case "default": return [parameter.kind, parameter.parameter, parameter.initializer];
-        case "omitted": return [parameter.kind, parameter.parameter, parameter.type];
-        case "rest": return [parameter.kind, parameter.parameter, parameter.arguments, parameter.passing];
-      }
-    }), [decision.completion.signature, decision.completion.completion, decision.completion.yielded, decision.completion.sent],
-    decision.result, decision.activation, activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
-      ? [activation.bindings.kind] : [activation.bindings.kind, bindingData(activation.bindings.bindings)]],
-    callee.captures.map(capture => [capture.body, capture.local])];
-}
-
-function locationData(location: MemberSelection["decision"]["location"]): KeyData {
-  if (location.kind === "accessor") return [location.kind];
-  return [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
-}
-
-function memberData(member: MemberSelection): KeyData {
-  const decision = member.decision;
-  return [memberKeyData(decision.key), decision.origins.map((origin): KeyData => {
-    switch (origin.kind) {
-      case "declared": return [origin.kind, origin.declaration];
-      case "class-prototype": return [origin.kind, origin.owner];
-      case "mapped": return [origin.kind, origin.owner.kind,
-        origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
-        origin.owner.value.node, memberKeyData(origin.key)];
-    }
-  }), decision.selectedDeclarations, decision.primary, decision.read, decision.write,
-  decision.getter === null ? null : [decision.getter.declaration, decision.getter.role, decision.getter.signature, decision.getter.body],
-  decision.setter === null ? null : [decision.setter.declaration, decision.setter.role, decision.setter.signature, decision.setter.body],
-  bindingData(decision.bindings), locationData(decision.location), calleeData(member.getter), calleeData(member.setter)];
 }
 
 function internValue(values: Map<string, number>, data: KeyData): number {
@@ -406,7 +357,7 @@ export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly 
     const result = binding === null || (identity.memberId !== null) !== (binding.member !== null) ? null : {
       binding,
       environment: { value: binding.bindings, token: internValue(environmentValues, bindingData(binding.bindings)) },
-      member: binding.member === null ? null : { value: binding.member, token: internValue(memberValues, memberData(binding.member)) },
+      member: binding.member === null ? null : { value: binding.member, token: internValue(memberValues, memberSelectionKey(binding.member)) },
     };
     cache.set(key, result);
     return result;

@@ -146,7 +146,7 @@ export interface InvocationExecutionRecord {
 
 export interface OperationsSchemas {
   readonly closureDecisionSchema: RecordSchema<ClosureDecision>;
-  readonly captureModeSchema: Schema<LogicalCapture>;
+  readonly logicalCaptureSchema: Schema<LogicalCapture>;
   readonly operationExecutionSchema: RecordSchema<OperationExecution>;
   readonly pureExecutionSchema: RecordSchema<PureExecutionRecord>;
   readonly invocationExecutionSchema: RecordSchema<InvocationExecutionRecord>;
@@ -207,11 +207,11 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
     return { fields: [operation, operands, result, execution], value: () => ({ kind: "selected", operation: operation.value(), operands: operands.value(), result: result.value(), execution: execution.value() }) };
   });
 
-  const captureModeSchema = enumSchema<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"]);
+  const logicalCaptureSchema = enumSchema<LogicalCapture>("LogicalCapture", ["captured-value","captured-location"]);
 
   const closureDecisionSchema = recordSchema<ClosureDecision>("ClosureDecision", "ClosureDecision", read => {
     const carrier = read("carrier", () => tSchema, value => value.carrier);
-    const captures = read("captures", () => arraySchema(captureModeSchema), value => value.captures);
+    const captures = read("captures", () => arraySchema(logicalCaptureSchema), value => value.captures);
     const execution = read("execution", () => operationExecutionSchema, value => value.execution);
     return { fields: [carrier, captures, execution], value: () => ({ carrier: carrier.value(), captures: captures.value(), execution: execution.value() }) };
   });
@@ -405,5 +405,5 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   });
 
   const nativePrimitiveSchema = enumSchema("NativePrimitive", ["bool","char","int8","uint8","int16","uint16","int32","uint32","int64","uint64","int128","uint128","native-int","native-uint","float16","float32","float64","decimal"]);
-  return { closureDecisionSchema, captureModeSchema, operationExecutionSchema, pureExecutionSchema, invocationExecutionSchema, constructionPartDecisionSchema, operationDecisionSchema, operationIdentitySchema, nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, stringOperatorTokenSchema, booleanOperatorSchema, booleanOperatorTokenSchema, absenceTestSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema, protocolStepDecisionSchema, protocolStepRoleSchema, protocolStepOperationSchema, protocolCallSchema, protocolCoreSchema, protocolCompletionSchema, operationOutcomeSchema, decidedOperationSchema, deferredOperationSchema, nativePrimitiveSchema };
+  return { closureDecisionSchema, logicalCaptureSchema, operationExecutionSchema, pureExecutionSchema, invocationExecutionSchema, constructionPartDecisionSchema, operationDecisionSchema, operationIdentitySchema, nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, stringOperatorTokenSchema, booleanOperatorSchema, booleanOperatorTokenSchema, absenceTestSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema, protocolStepDecisionSchema, protocolStepRoleSchema, protocolStepOperationSchema, protocolCallSchema, protocolCoreSchema, protocolCompletionSchema, operationOutcomeSchema, decidedOperationSchema, deferredOperationSchema, nativePrimitiveSchema };
 }

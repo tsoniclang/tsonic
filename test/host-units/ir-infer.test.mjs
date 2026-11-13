@@ -813,8 +813,12 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
     ...["pointer-address", "pointer-read", "pointer-write", "pointer-offset", "type-query", "discard"].map(kind => [{ kind }, []]),
   ];
   const raw = { kind: "op", occurrence, operator: "+", operands: [0], result: 0, permissionScope: null };
+  // A pointer write is an invocation that writes storage; a library operation is an ordinary invocation. The other executions
+  // here are fixture values that no rule has decided.
+  const execution = kind => kind === "pointer-write" ? { kind: "invocation", writesStorage: true, failure: "none" }
+    : kind === "library" ? { kind: "invocation", writesStorage: true, failure: "unwind" } : { kind: "pure" };
   const solved = operation => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: { kind: "op",
-    operation: { kind: "selected", operation, operands: [0], result: 0, execution: { kind: "pure" } } } }] });
+    operation: { kind: "selected", operation, operands: [0], result: 0, execution: execution(operation.kind) } } }] });
   for (const [operation, bindingScopes] of rows)
     fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([raw])], bindingScopes, solution: solved(operation) })), [],
       `complete selected ${operation.kind} final record, without replaying semantic selection`);
@@ -842,6 +846,8 @@ test("selected operation and narrowed-proof traversal verifies every actual clos
     operation: { kind: "selected", operation: { kind: "object-construction", parts }, operands: [], result: 0, execution: { kind: "pure" } } } }] });
   const complete = { constraints: [constraintSet([construction])], bindingScopes: [emptyScope], solution: constructed([part]),
     nodes: [{ owner: source, ids: [0, 1] }] };
+  ruleCase("access-location", complete, { ...complete, solution: constructed([{ ...part, member: { ...member, location: { kind: "accessor" } } }]) },
+    [violation("access-location", constraintSite(0), "location")], "the member of a construction part obeys the location law");
   for (const changed of [{ ...part, part: -0 }, { ...part, source: { body, node: 1 } }])
     ruleCase("construction-part-total", complete, { ...complete, solution: constructed([changed]) },
       [violation("construction-part-total", constraintSite(0), "parts")], "actual construction part identity and source, not a positional guess");
@@ -1689,9 +1695,14 @@ function closureGolden(modes, execution = pureGolden) {
   return recordGolden("ClosureDecision", { carrier: typeGolden, captures: arrayGolden(modes.map(mode => scalarGolden(mode))), execution });
 }
 
-function closureConstraintGolden(captureCount) {
+function localGolden(local) {
+  return recordGolden("LocalRef", { body: bodyGolden, local: scalarGolden(local, "l") });
+}
+
+function closureConstraintGolden(reassignable) {
   return recordGolden("closure", { occurrence: nodeGolden, created: bodyGolden,
-    captures: arrayGolden(Array.from({ length: captureCount }, () => typeGolden)), result: typeGolden, bindings: bindingGolden }, "closure");
+    captures: arrayGolden(reassignable.map((value, local) => recordGolden("ClosureCapture",
+      { local: localGolden(local), type: typeGolden, reassignable: scalarGolden(value) }))), result: typeGolden, bindings: bindingGolden }, "closure");
 }
 
 function operationGolden(operation, execution = pureGolden) {
@@ -2129,7 +2140,8 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
     ...[false, true].flatMap(writesStorage => ["none", "unwind", "abort"].map(failure =>
       recordGolden("op", { operation: operationGolden(operations[0], invocationGolden(writesStorage, failure)) }, "op"))),
     recordGolden("construct", { application, operation: recordGolden("decided", { decision: operationGolden(operations[0]) }, "decided") }, "construct"),
-    ...operations.map(operation => recordGolden("op", { operation: operationGolden(operation) }, "op")),
+    ...operations.map(operation => recordGolden("op", { operation: operationGolden(operation, operation.value.kind === "pointer-write"
+      ? invocationGolden(true, "none") : operation.value.kind === "library" ? invocationGolden(true, "unwind") : pureGolden) }, "op")),
     recordGolden("construct-literal", { operation: operationGolden(operations[5]) }, "construct-literal"),
     recordGolden("protocol", { operation: operationGolden(operations[7]) }, "protocol"),
     recordGolden("closure", { closure: closureGolden([]) }, "closure"),
@@ -2176,7 +2188,8 @@ test("every saved rule invocation retains its actual closed input rather than on
     deferredGolden("core", recordGolden("CoreInput", { context: contextGolden, captured: captureGolden, declaration: definitionGolden,
       operands: arrayGolden([evidenceGolden]), result: evidenceGolden, permissionScope: nodeGolden })),
     deferredGolden("closure", recordGolden("ClosureInput", { context: contextGolden, callable: evidenceGolden,
-      captures: arrayGolden([evidenceGolden, evidenceGolden]) })),
+      captures: arrayGolden([true, false].map((reassignable, local) => recordGolden("ClosureCaptureEvidence",
+        { local: localGolden(local), value: evidenceGolden, reassignable: scalarGolden(reassignable) }))) })),
   ];
   const golden = solutionGolden(invocations.map(deferred => recordGolden("deferred", { deferred }, "deferred")));
   assertRoundTrip("Solution", golden.value, golden.text, "all fourteen rule input families and candidate/protocol subarms");
@@ -2933,10 +2946,26 @@ test("check, failure, execution, location and activation fields refuse an unknow
 });
 
 test("the closure constraint, its decision and its deferred form: codec vectors, refusals and the verifier's laws", () => {
-  for (const count of [0, 2]) {
-    const golden = constraintsGolden([closureConstraintGolden(count)]);
-    assertRoundTrip("Constraints", golden.value, golden.text, `closure constraint with ${count} captures`);
+  for (const reassignable of [[], [true, false]]) {
+    const golden = constraintsGolden([closureConstraintGolden(reassignable)]);
+    assertRoundTrip("Constraints", golden.value, golden.text, `closure constraint with ${reassignable.length} captures`);
   }
+  const constraints = constraintsGolden([closureConstraintGolden([true])]);
+  for (const [slot, replacement, expected, found] of [
+    ["reassignable=true", '"let"', ["boolean"], '"let"'],
+    ["local=LocalRef(", "t:0", ["LocalRef"], "t:0"],
+  ]) {
+    const start = constraints.text.indexOf(slot);
+    assert.equal(start >= 0 && constraints.text.indexOf(slot, start + 1) < 0, true, "the authored slot occurs exactly once");
+    const offset = start + slot.indexOf("=") + 1;
+    const end = slot.endsWith("(") ? constraints.text.indexOf(")", start) + 1 : start + slot.length;
+    fullEqual(product.parseConstraints(constraints.text.slice(0, offset) + replacement + constraints.text.slice(end)),
+      { kind: "invalid-text", offset, line: 1, column: offset + 1, expected, found }, `closure capture: ${replacement} at ${slot}`);
+  }
+  const withoutEvidence = constraints.text.replace(", reassignable=true", "");
+  const evidenceAt = constraints.text.indexOf(", reassignable=true");
+  fullEqual(product.parseConstraints(withoutEvidence), { kind: "invalid-text", offset: evidenceAt, line: 1, column: evidenceAt + 1,
+    expected: ["reassignable"], found: ")" }, "a captured local without its binding evidence is not accepted");
   const decided = solutionGolden([recordGolden("closure", { closure: closureGolden(["captured-value", "captured-location"]) }, "closure")]);
   for (const [slot, replacement, expected, found] of [
     ['captures=["captured-value", "captured-location"]', '["copied"]', ['"captured-value"', '"captured-location"'], '"copied"'],
@@ -2955,30 +2984,57 @@ test("the closure constraint, its decision and its deferred form: codec vectors,
     { kind: "invalid-text", offset: removedAt, line: 1, column: removedAt + 1, expected: ["execution"], found: ")" },
     "a closure decision without its execution is not accepted");
   const pure = { kind: "pure" };
-  const constraint = { kind: "closure", occurrence, created: body, captures: [0, 0], result: 0, bindings: emptyBindings };
+  // function make(p: int32) { let x = 0; let n = 0; const c = 5; const o = { count: 0 }; return () => { x += 1; o.count += 1; return x + n + c + p; }; }
+  const bindings = [
+    ["x, a let that the closure reassigns", true], ["n, a let that is never reassigned", true], ["c, a const holding a primitive", false],
+    ["o, a const holding an object reference whose referent is written", false], ["p, a parameter", true]];
+  const captures = bindings.map(([, reassignable], local) => ({ local: { body, local }, type: 0, reassignable }));
+  const logical = bindings.map(([, reassignable]) => reassignable ? "captured-location" : "captured-value");
+  const locals = [{ body, ids: bindings.map((_binding, local) => local) }];
+  const constraint = { kind: "closure", occurrence, created: body, captures, result: 0, bindings: emptyBindings };
   const solved = decision => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision }] });
   const closure = modes => ({ kind: "closure", closure: { carrier: 0, captures: modes, execution: pure } });
-  const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope], solution: solved(closure(["captured-location", "captured-value"])) };
-  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(["captured-location"])) },
-    [violation("closure-capture-total", constraintSite(0), "captures")], "one capture mode per captured local");
-  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(["captured-location", "captured-value", "captured-value"])) },
-    [violation("closure-capture-total", constraintSite(0), "captures")], "no capture mode without a captured local");
+  const input = { constraints: [constraintSet([constraint])], bindingScopes: [emptyScope], locals, solution: solved(closure(logical)) };
+  deepEqual(logical, ["captured-location", "captured-location", "captured-value", "captured-value", "captured-location"]);
+  // A binding that can be reassigned is a captured location. For one that cannot, this evidence alone forces neither value:
+  // a binding that is not reassignable may still alias by-reference storage (K-3271), which the incoming passing mode and
+  // the enclosing capture row decide.
+  for (const [position, [name, reassignable]] of bindings.entries()) {
+    const opposite = logical.map((capture, index) => index !== position ? capture
+      : capture === "captured-location" ? "captured-value" : "captured-location");
+    if (reassignable) ruleCase("closure-capture-binding", input, { ...input, solution: solved(closure(opposite)) },
+      [violation("closure-capture-binding", constraintSite(0), "captures")], `${name}: a reassignable binding is a captured location`);
+    else fullEqual(product.verifyInference(verificationInput({ ...input, solution: solved(closure(opposite)) })), [],
+      `${name}: not reassignable; a captured location is not refused on this evidence`);
+  }
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure(logical.slice(1))) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "one logical capture per captured local");
+  ruleCase("closure-capture-total", input, { ...input, solution: solved(closure([...logical, "captured-value"])) },
+    [violation("closure-capture-total", constraintSite(0), "captures")], "no logical capture without a captured local");
+  ruleCase("qualified-reference", input, { ...input, locals: [{ body, ids: [0, 1, 2, 3] }] },
+    [violation("qualified-reference", constraintSite(0), "locals")], "captured evidence names a real local");
   ruleCase("decision-kind", input, { ...input, solution: solved({ kind: "default", type: 0 }) },
     [violation("decision-kind", constraintSite(0), "decision")], "a closure constraint is not answered by another decision kind");
   const flow = { kind: "flow", occurrence, from: 0, to: 0, role: "initialization", bindings: emptyBindings };
   ruleCase("decision-kind", input, { ...input, constraints: [constraintSet([flow])] },
     [violation("decision-kind", constraintSite(0), "decision")], "a closure decision answers only a closure constraint");
-  const evidenceValue = evidence();
-  const deferred = captures => ({ kind: "deferred", deferred: { invocation: { rule: "closure", input: {
-    context: { occurrence, origin: originGolden.value, bindings: emptyBindings }, callable: evidenceValue, captures } }, result: 0 } });
   for (const role of [{ kind: "flow" }, { kind: "selection" }, { kind: "default" }]) {
     const key = { node: occurrence, candidate: null, role };
     ruleCase("contribution-role", input, { ...input, contributions: [{ key, reads: [], bounds: [], constraint: { body, index: 0 } }] },
       [violation("contribution-role", { kind: "contribution", key }, "role")], `a closure constraint has no ${role.kind} contribution`);
   }
-  const deferredInput = { ...input, bindingScopes: [emptyScope, emptyScope], solution: solved(deferred([evidenceValue, evidenceValue])) };
-  ruleCase("deferred-invocation", deferredInput, { ...deferredInput, solution: solved(deferred([evidenceValue])) },
-    [violation("deferred-invocation", constraintSite(0), "input")], "the saved closure input retains one evidence per captured local");
+  const evidenceValue = evidence();
+  const saved = captures.map(capture => ({ local: capture.local, value: evidenceValue, reassignable: capture.reassignable }));
+  const deferred = captured => ({ kind: "deferred", deferred: { invocation: { rule: "closure", input: {
+    context: { occurrence, origin: originGolden.value, bindings: emptyBindings }, callable: evidenceValue, captures: captured } }, result: 0 } });
+  const deferredInput = { ...input, bindingScopes: [emptyScope, emptyScope], solution: solved(deferred(saved)) };
+  for (const [changed, label] of [
+    [saved.slice(1), "one saved evidence per captured local"],
+    [[saved[1], saved[0], ...saved.slice(2)], "the saved evidence keeps the order of the captured locals"],
+    [saved.map((capture, index) => index === 2 ? { ...capture, local: { body, local: 0 } } : capture), "the saved evidence names the same local"],
+    [saved.map((capture, index) => index === 3 ? { ...capture, reassignable: true } : capture), "the saved evidence keeps the binding's reassignment fact"],
+  ]) ruleCase("deferred-invocation", deferredInput, { ...deferredInput, solution: solved(deferred(changed)) },
+    [violation("deferred-invocation", constraintSite(0), "input")], label);
   ruleCase("deferred-invocation", deferredInput, { ...deferredInput, constraints: [constraintSet([flow])] },
     [violation("deferred-invocation", constraintSite(0), "input")], "the closure rule is saved only for a closure constraint");
 });
@@ -3717,6 +3773,6 @@ test("the independent logic inventory includes every approved port and every nam
     "contribution-role", "contribution-reads-bounds-declared", "contribution-footprint-complete", "one-publication-per-variable", "solution-total", "solution-order",
     "no-open-in-solution", "check-recorded", "decision-kind", "binding-vector-complete", "parameter-mapping-total", "endpoint-agreement", "proof-reference",
     "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation",
-    "access-location", "closure-capture-total"].sort());
-  console.log("F.ir-infer logic ports9/9 input-outer-arms35/35 result-outer-arms56/56 rules34/34 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
+    "access-location", "closure-capture-total", "closure-capture-binding"].sort());
+  console.log("F.ir-infer logic ports9/9 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
 });

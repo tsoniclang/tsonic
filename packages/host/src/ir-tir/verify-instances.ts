@@ -261,8 +261,13 @@ export const verifyControlledContexts = (
 };
 
 export const verifyBindingSlots = (
-  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
+  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: readonly (HirBody | undefined)[],
+  emit: TirOccurrenceEmit,
 ): void => {
+  const reassignable = (reference: LocalRef): boolean | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
+    return null;
+  };
   const parameters = new Map(body.params.map(parameter => [parameter.declaration, parameter]));
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
     const local = body.locals[reference.local];
@@ -304,8 +309,26 @@ export const verifyBindingSlots = (
         if (!captures) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
       }
       const closure = node.tsonic.closure;
-      if (closure.kind === "decided" && closure.decision.captures.length !== node.tsonic.captures.length)
-        emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
+      const captured = node.tsonic.captures;
+      if (closure.kind === "decided") {
+        if (closure.decision.captures.length !== captured.length)
+          emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
+        else if (closure.decision.captures.some((capture, position) => {
+          const local = captured[position];
+          return capture === "captured-value" && local !== undefined && reassignable(local) === true;
+        }))
+          emit("closure-capture-binding", node, "a binding that can be reassigned is a captured location");
+      } else if (closure.deferred.invocation.rule === "closure") {
+        const saved = closure.deferred.invocation.input.captures;
+        if (saved.length !== captured.length)
+          emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
+        else if (saved.some((capture, position) => {
+          const local = captured[position];
+          if (local === undefined || !sameLocalReference(capture.local, local)) return true;
+          const evidence = reassignable(local);
+          return evidence !== null && capture.reassignable !== evidence;
+        })) emit("closure-capture-binding", node, "saved capture evidence does not name the captured locals in order with their binding evidence");
+      }
     }
   }
 };

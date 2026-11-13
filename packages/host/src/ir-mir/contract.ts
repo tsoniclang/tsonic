@@ -169,7 +169,9 @@ export interface MirStepRef {
 // the receiver, a capture) carries no begin marker. A local that is storage the body does not own carries no marker
 // at all, begin or end: the local of a parameter or of the receiver that is not passed by value or moved, and a
 // captured location. Such a local is the caller's storage; when the body's access to it ends is not a fact of this
-// record. The slot of a parameter passed by value or moved is the body's own and may end.
+// record. The slot of a parameter passed by value or moved is the body's own and may end. The verifier enforces this
+// for parameters and the receiver. For a captured location it needs the mode of the capture, which the typed body's
+// capture rows do not carry yet: until they do, a marker on a captured location is not refused.
 //
 // Storage liveness (`storage-live-before-use`): a record uses a local only where its storage is live on every path
 // from an entry. It is established by one forward fixed point over sets of live locals. A set is a tree of 32-local
@@ -178,7 +180,8 @@ export interface MirStepRef {
 // (`MirVerificationLimits.maximumWork`): one unit for each set node entered by a marker's change (the building of the
 // entry set from the locals present on entry included), by a meet of two different sets, and by the lookup of a use
 // that depends on its block's start (one lookup for each local in each block); one unit for each block of a sweep
-// after the first; one unit for each outgoing edge of a block that is read again.
+// after the first; one unit for each outgoing edge of a block that is read again. Not charged: the empty set of the
+// body's width, one node for each level (at most 27), made once before any charge.
 export type MirStatement = MirSite & (
   | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }

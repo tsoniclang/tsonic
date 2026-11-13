@@ -1,8 +1,8 @@
-import type { BodyId, DefId, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -71,9 +71,20 @@ export type TirDemand =
   | { readonly kind: "selected"; readonly control: NodeId; readonly when: "true" | "false" | "present" | "absent" }
   | { readonly kind: "never"; readonly control: NodeId };
 
+// A conversion states its embedding once. The identity conversion carries it in its operation identity, as a standalone
+// conversion operation does. A conversion carried out by a core or library operation has no such identity, and its embedding
+// stands beside the operation. Whether the embedding requires a check and how the operation executes are separate facts.
+export type ConversionIdentity = OperationIdentity & { readonly kind: "conversion" };
+export type BackedConversionIdentity = OperationIdentity & { readonly kind: "library" | "core" };
+
+export type TypedOperationOf<Identity extends OperationIdentity> =
+  TypedOperation & { readonly decision: OperationDecision & { readonly operation: Identity } };
+
 export type ConversionDecision =
   | { readonly kind: "identity" }
-  | { readonly kind: "convert"; readonly role: FlowRole; readonly embedding: EmbeddingDecision; readonly operation: TypedOperation }
+  | { readonly kind: "convert"; readonly role: FlowRole; readonly operation: TypedOperationOf<ConversionIdentity> }
+  | { readonly kind: "backed-convert"; readonly role: FlowRole; readonly embedding: EmbeddingDecision;
+      readonly operation: TypedOperationOf<BackedConversionIdentity> }
   | { readonly kind: "deferred"; readonly deferred: DeferredDecision };
 
 export interface TypedValue {
@@ -646,8 +657,8 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
-  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "operation-type"
-  | "conversion-source" | "conversion-destination" | "conversion-deferred" | "refinement-destination"
+  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type"
+  | "conversion-source" | "conversion-destination" | "conversion-deferred" | "conversion-operation" | "refinement-destination"
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"
   | "authored-node-ids-preserved" | "no-inserted-nodes" | "node-in-body-range"
@@ -664,6 +675,9 @@ export type TirSite =
   | { readonly kind: "body"; readonly body: BodyId }
   | TirNodeSite;
 
+// The structural key of a member selection: every field of its decision and of its selected getter and setter callees.
+// Equal key data are equal selections. Total over a record whose lists have holes: a hole is projected as null.
+export type MemberSelectionKey = (member: MemberSelection) => KeyData;
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];

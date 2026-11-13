@@ -171,7 +171,7 @@ function invocation(scan: ProjectionInventory, value: DeferredInvocation): Insta
       inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
       return inventoryRecord(scan, 6) ?? inventoryCoreCapture(scan, value.input.captured) ?? inventoryEvidence(scan, value.input.result);
     case "closure":
-      inventoryEach(scan, value.input.captures, capture => inventoryEvidence(scan, capture));
+      inventoryEach(scan, value.input.captures, capture => inventoryRecord(scan, 3) ?? inventoryEvidence(scan, capture.value));
       return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.callable);
   }
 }
@@ -239,7 +239,8 @@ export function inventoryProtocol(scan: ProjectionInventory, value: TirProtocol)
 function conversion(scan: ProjectionInventory, value: ConversionDecision): InstantiationStop | null {
   switch (value.kind) {
     case "identity": return inventoryFields(scan, 1);
-    case "convert": return inventoryRecord(scan, 4) ?? inventoryEmbedding(scan, value.embedding) ?? inventoryTypedOperation(scan, value.operation);
+    case "convert": return inventoryRecord(scan, 3) ?? inventoryTypedOperation(scan, value.operation);
+    case "backed-convert": return inventoryRecord(scan, 4) ?? inventoryEmbedding(scan, value.embedding) ?? inventoryTypedOperation(scan, value.operation);
     case "deferred": return inventoryRecord(scan, 2) ?? inventoryDeferred(scan, value.deferred);
   }
 }
