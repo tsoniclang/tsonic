@@ -153,3 +153,43 @@ export function withoutFailureKinds(mir) {
 }
 export const entriesOf = mir => mir[N.entries];
 export const invert = labels => new Map([...labels].map(([label, id]) => [id, label]));
+
+/** The declaration name of the Core or library operation an invoke executes, or null. */
+export const operationName = record => {
+  if (record.kind !== "invoke") return null;
+  const identity = record.operation.decision.operation;
+  return identity.kind === "core" || identity.kind === "library" ? identity.declaration : null;
+};
+/** True when `point` is a switch whose operand was produced by an invoke of the named operation. */
+export function branchesOn(mir, point, declaration) {
+  if (point.kind !== "switch" || point.record.operand.kind !== "place") return false;
+  return mir.blocks.some(block => operationName(block.terminator) === declaration && block.terminator.destination === point.record.operand.place);
+}
+/**
+ * Every path from an entry, taking each alternative of each switch the first time its block is reached. A block
+ * reached again takes an alternative other than its first one, so that every loop is left. Bounded by `limit` paths.
+ */
+export function allPaths(mir, { entry = 0, decide = () => "normal", limit = 256 } = {}) {
+  const results = [];
+  const explore = script => {
+    if (results.length >= limit) return;
+    let position = 0;
+    let undecided = null;
+    const first = new Map();
+    const path = walk(mir, { entry, decide: (point, body) => {
+      if (point.kind !== "switch") return decide(point, body);
+      const options = [...point.record.targets.map(target => constantValue(mir, target.constant)), "otherwise"];
+      if (first.has(point.block)) return options[first.get(point.block) === 0 ? options.length - 1 : 0];
+      let choice = 0;
+      if (position < script.length) choice = script[position];
+      else if (undecided === null) undecided = options.length;
+      position += 1;
+      first.set(point.block, choice);
+      return options[choice];
+    } });
+    if (undecided === null) { results.push(path); return; }
+    for (let option = 0; option < undecided; option += 1) explore([...script, option]);
+  };
+  explore([]);
+  return results;
+}

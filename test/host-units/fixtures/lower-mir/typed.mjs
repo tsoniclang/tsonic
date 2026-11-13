@@ -233,3 +233,17 @@ export function typedBody(name, { signature: signatureId, completion, params = [
     },
   };
 }
+
+// ---- selected Core and library operations used by several programs -------------------------
+export const core = (name, operands, result, execution) =>
+  selected({ kind: "core", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result, execution);
+export const library = (name, operands, result, execution) =>
+  selected({ kind: "library", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result, execution);
+/** The iteration protocol selected for a dense array of `element`: Core steps, with a `finish` step when `finish` is true. */
+export const arrayIteration = (subject, element, { finish = false } = {}) => protocol("iterate", [
+  step("acquire", core("iterate.acquire", [subject], T.unknown, invoking(N.failureNone, N.effectRead))),
+  step("next", core("iterate.next", [T.unknown], T.unknown, invoking(N.failureNone, N.effectWrite))),
+  step("done", core("iterate.done", [T.unknown], T.bool, invoking(N.failureNone, N.effectRead))),
+  step("value", core("iterate.value", [T.unknown], element, invoking(N.failureNone, N.effectRead))),
+  ...(finish ? [step("finish", core("iterate.finish", [T.unknown], T.void, invoking(N.failureNone, N.effectWrite)))] : []),
+], element);

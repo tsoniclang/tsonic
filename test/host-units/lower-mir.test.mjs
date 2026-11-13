@@ -8,12 +8,13 @@ import { N } from "./fixtures/lower-mir/names.mjs";
 import { T, TABLE, bodyId, def } from "./fixtures/lower-mir/typed.mjs";
 import {
   at, checkedPlace, checks, chainOf, controlPoints, effects, effectsOn, entriesOf, invert, localOf, nodesOn, placeOf,
-  rootLocalOf, walk, withoutFailureKinds, writesOf,
+  allPaths, branchesOn, operationName, rootLocalOf, walk, withoutFailureKinds, writesOf,
 } from "./fixtures/lower-mir/observe.mjs";
 import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
 import { wt4 } from "./fixtures/lower-mir/programs/wt4.mjs";
 import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
 import { s7 } from "./fixtures/lower-mir/programs/s7.mjs";
+import { s2, s3, s6 } from "./fixtures/lower-mir/programs/cleanup.mjs";
 
 let lowerToMir;
 let deps;
@@ -300,4 +301,121 @@ test("S-7: static initializer and static block run at the class declaration in m
   assert.deepEqual(steps.map(item => item.record.callee.instance.body), [programs.COUNT_INIT, programs.STATIC_BLOCK]);
   assert.deepEqual(placeOf(mir, steps[0].record.destination).base, { kind: "static", definition: def("Derived.count") });
   assert.equal(steps[1].record.destination, null);
+});
+
+// ---- S-2 ------------------------------------------------------------------------------------
+
+const ITERATION_DONE = def("iterate.done");
+const squash = items => items.filter((item, index) => index === 0 || item !== items[index - 1]);
+
+test("S-2 switch: clauses run in source order with fallthrough; default only when no case matches", () => {
+  const program = s2().program;
+  const mir = lower(program);
+  // S-2 oracle: `s2(1, …)` takes 3 from the switch (case 1 falls through into case 2, then `break`); `s2(2, [])` is 2;
+  // `s2(3, [])` is 9. Section 17: S-2 covers "`switch` and labels" for LowerMir ("fallthrough edges").
+  const clauses = new Set(["r+=1", "r+=2", "r=9"].map(label => program.at(label)));
+  const run = k => {
+    const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : branchesOn(mir, point, ITERATION_DONE) ? true : BigInt(k) });
+    assert.equal(path.end, "return");
+    return squash(labelled(program, statementsOn(path).filter(item => clauses.has(item.node)).map(item => item.node)));
+  };
+  assert.deepEqual(run(1), ["r+=1", "r+=2"]);
+  assert.deepEqual(run(2), ["r+=2"]);
+  assert.deepEqual(run(3), ["r=9"]);
+});
+
+test("S-2 labels: continue outer and break outer leave through each iteration cleanup they cross, once", () => {
+  const program = s2().program;
+  const mir = lower(program);
+  // S-2 oracle input `s2(1, [[1, -1, 5], [2, 0, 7]])`: v = 1 is added; v = -1 continues the outer loop; v = 2 is added;
+  // v = 0 breaks the outer loop. R6: "every … transfer passes through each enclosing cleanup once, in order": continue
+  // outer leaves the inner iteration only; break outer leaves the inner and then the outer iteration.
+  const answers = [false, false, false, false, false, true, false, false, false, false, false, false, true];
+  let first = true;
+  const path = walk(mir, { decide: point => {
+    if (point.kind !== "switch") return "normal";
+    if (first) { first = false; return 1n; }
+    return answers.shift();
+  } });
+  assert.equal(path.end, "return");
+  assert.deepEqual(answers, []);
+  const trace = path.events.map(item => item.statement === null && operationName(item.record) === def("iterate.next") ? "next"
+    : item.statement === null && operationName(item.record) === def("iterate.finish") ? "finish"
+    : item.statement !== null && item.node === program.at("r+=v") ? "add" : null).filter(item => item !== null);
+  assert.deepEqual(squash(trace.map((item, index) => item === "add" ? `add@${trace.slice(0, index).filter(other => other === "next").length}` : item))
+    .map(item => item.startsWith("add") ? "add" : item),
+    ["next", "next", "add", "next", "finish", "next", "next", "add", "next", "finish", "finish"]);
+});
+
+// ---- S-3 ------------------------------------------------------------------------------------
+
+for (const variant of ["unwind", "abort"]) {
+  test(`S-3 (${variant}): the call unwinds to the handler; the narrowed use is checked; the rethrow leaves the body`, () => {
+    const programs = s3(variant);
+    const program = programs.program;
+    const mir = lower(program);
+    // S-3, LowerMir: "the unwind edge from the call to the handler; the rethrow". R1: the failure kind of a call inside
+    // `try … catch` is "unwinds to a named handler".
+    const call = at(mir, program.at("risky(n)"), "call");
+    assert.equal(call.length, 1);
+    assert.equal(call[0].failure, "handler");
+    // `s3(4)` is 4: the normal path executes the call and returns.
+    const normal = walk(mir);
+    assert.deepEqual(labelled(program, nodesOn(normal)), ["risky(n)"]);
+    assert.equal(normal.end, "return");
+    // `s3(-2)` is -102: the call unwinds, `e instanceof Failure` is true, `e.code` is read through the narrowed `e`.
+    // R1: "every narrowed use carries its check" (WT-10), with the selected failure kind; it stands in the catch block,
+    // outside the protected region.
+    const caught = walk(mir, { decide: point => point.node === program.at("risky(n)") ? "unwind" : point.kind === "switch" ? true : "normal" });
+    assert.equal(caught.end, "return");
+    const narrowedUse = checks(mir, program.at("e#narrowed"));
+    assert.equal(narrowedUse.length, 1);
+    assert.equal(narrowedUse[0].failure, variant === "abort" ? "abort" : "escape");
+    assert.deepEqual(labelled(program, nodesOn(caught)), ["risky(n)", "e#narrowed"]);
+    // A caught value that is not a Failure is thrown again and leaves the body.
+    const rethrown = walk(mir, { decide: point => point.node === program.at("risky(n)") ? "unwind" : point.kind === "switch" ? false : "normal" });
+    assert.equal(rethrown.end, "unwind");
+    assert.deepEqual(labelled(program, nodesOn(rethrown)), ["risky(n)", "throw e"]);
+    assert.equal(at(mir, program.at("throw e"), "throw")[0].failure, "escape");
+  });
+}
+
+test("S-3 risky: the thrown value is constructed, then thrown out of the body", () => {
+  const program = s3("unwind").risky;
+  const mir = lower(program);
+  // Program text: `if (n < 0) throw new Failure(n); return n;`. R5: authored order.
+  const thrown = walk(mir, { decide: point => point.kind === "switch" ? true : "normal" });
+  assert.deepEqual(labelled(program, nodesOn(thrown)), ["new Failure(n)", "throw"]);
+  assert.equal(thrown.end, "unwind");
+  const returned = walk(mir, { decide: point => point.kind === "switch" ? false : "normal" });
+  assert.deepEqual(nodesOn(returned), []);
+  assert.equal(returned.end, "return");
+});
+
+// ---- S-6 ------------------------------------------------------------------------------------
+
+test("S-6 using: disposal runs once on every exit, after the result is read and before the handler", () => {
+  const { program, disposeDeclaration } = s6();
+  const mir = lower(program);
+  const isDispose = item => item.statement === null && item.kind === "call" && item.record.callee.kind !== N.bodyCallee &&
+    item.record.callee.resolution.decision.advertised.declaration === disposeDeclaration;
+  const readsLength = item => item.statement !== null && item.kind === "assign" && item.record.value.kind === "use" &&
+    item.record.value.operand.kind === "place" && fieldKey(chainOf(mir, item.record.value.operand.place).at(-1)) === "length";
+  // R5 and graph law 9: the dispose step is emitted once; R6: every exit of the scope passes through it once.
+  assert.equal(controlPoints(mir).filter(isDispose).length, 1);
+  // S-6 oracle: `s6([], false)` is 0 "with the log holding one entry afterwards (the result is read before disposal)".
+  const returned = walk(mir, { decide: point => point.kind === "switch" ? false : "normal" });
+  assert.equal(returned.end, "return");
+  assert.equal(returned.events.filter(isDispose).length, 1);
+  assert.ok(indexOfEvent(returned, readsLength) !== -1 && indexOfEvent(returned, readsLength) < indexOfEvent(returned, isDispose));
+  assert.equal(labelled(program, nodesOn(returned))[0], "new Res(log)");
+  // S-6 oracle: `s6([], true)` is 1 "(disposal runs on the unwinding exit before the handler)".
+  const thrown = walk(mir, { decide: point => point.kind === "switch" ? true : "normal" });
+  assert.equal(thrown.end, "return");
+  assert.equal(thrown.events.filter(isDispose).length, 1);
+  assert.ok(indexOfEvent(thrown, isDispose) < indexOfEvent(thrown, readsLength));
+  assert.deepEqual(labelled(program, nodesOn(thrown)).slice(0, 3), ["new Res(log)", "new Failure(0)", "throw"]);
+  // A failure of the construction itself happens before the resource exists: no disposal on that path.
+  const unbuilt = walk(mir, { decide: point => point.node === program.at("new Res(log)") ? "unwind" : "normal" });
+  assert.equal(unbuilt.events.filter(isDispose).length, 0);
 });
