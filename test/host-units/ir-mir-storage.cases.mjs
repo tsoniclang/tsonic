@@ -7,10 +7,13 @@
 // so that an expected list is the verifier's whole answer. The work a body costs is asserted on the pass itself with
 // an account of the case's own, because `verifyMir` adds the units of the other laws to the same account.
 //
-// Units, as the pass states them: one for each set node entered by a marker's change (also while the entry set is
-// built), by a meet of two different sets, and by the lookup of a use that depends on its block's start (one lookup
-// per local per block); one for each block of a sweep after the first; one for each outgoing edge of a block read
-// again. A body of at most 32 locals has sets of one node, so each change, meet and lookup is one unit.
+// Units, as the pass states them: one for each node of the empty set as it is made; one for each place visited when
+// the locals each place reaches are found; one for each set node entered by a change (a marker, the entry set, a
+// place's root local), a union, a meet of two different sets, an enumeration of an operand's locals at a use, and the
+// lookup of a use that depends on its block's start (one lookup per local per block); one for each local an
+// enumeration visits; one for each block of a sweep after the first; one for each outgoing edge of a block read
+// again. A body of at most 32 locals has sets of one node, so each change, union, meet, lookup and enumerated node is
+// one unit.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { PARAMETRIC, T, TABLE, bodyId, builders, def, signature, typedBody } from "./fixtures/lower-mir/typed.mjs";
@@ -188,48 +191,139 @@ test("storage: sets wider than one word keep each local apart", () => {
     [[live(100)], goto(1)]])), []);
 });
 
+// Every body made by `graph` with t temporaries has 2 + t locals, one place on each, so it costs, besides what each
+// case names: the empty set (1); the place pass, one visit and one root per place (2 + t, and 2 + t); and at each use,
+// 2 per operand that is a place (its one node and its one local); the prologue's write of `o` is one such operand (2).
+// That is 4 + 2t + 2 + 1 = 2t + 7 before the uses of the blocks, written below as "base".
 test("storage work: every set node entered is charged, and a body is refused at every limit below its need", () => {
-  // Three units in every body here: `p` and `o` enter the entry set (2), and the prologue's write of `o` is looked up (1).
-  exactly(graph(0, [[[], done()]]), 3, [], "no temporary");
-  // One marker (1); the use follows the marker in its block and needs no lookup.
-  exactly(graph(1, [[[live(2), use(2)], done()]]), 4, [], "begun and used in one block");
-  // The use depends on the start of block 0 (1).
-  exactly(graph(1, [[[use(2)], done()]]), 4, [finding(0, 0, 2)], "used without a marker");
-  // Two uses of one local in one block are one lookup; two locals are two.
-  exactly(graph(2, [[[use(2), use(2), use(3)], done()]]), 5, [finding(0, 0, 2), finding(0, 1, 2), finding(0, 2, 3)], "one lookup per local per block");
-  // A diamond whose arms bring different sets: markers 2, 3 (2), one meet at block 3 (1), the lookup of block 3 (1).
-  exactly(graph(2, [[[live(2)], either(1, 2)], [[live(3)], goto(3)], [[], goto(3)], [[use(2)], done()]]), 7, [], "a meet of two different sets");
-  // The same contents on both edges are the same object: the meet enters nothing. Markers 2, 3 and 3 again (3), lookup (1).
-  exactly(graph(2, [[[live(2)], either(1, 2)], [[live(3), dead(3)], goto(3)], [[], goto(3)], [[use(2)], done()]]), 6, [], "equal contents meet for nothing");
+  // Base 7; `p` and `o` enter the entry set (2); the prologue's write of `o` is looked up (1): 10.
+  exactly(graph(0, [[[], done()]]), 10, [], "no temporary");
+  // Base 9, entry 2, prologue lookup 1; one marker (1); the use `x = x` has two operands on local 2 (4) and follows the
+  // marker in its block, so no lookup: 17.
+  exactly(graph(1, [[[live(2), use(2)], done()]]), 17, [], "begun and used in one block");
+  // The same without the marker (-1), and the use depends on the start of block 0 (1): 17.
+  exactly(graph(1, [[[use(2)], done()]]), 17, [finding(0, 0, 2)], "used without a marker");
+  // Base 11, entry 2, prologue lookup 1; three uses of two operands each (12); two uses of one local in one block are
+  // one lookup, two locals are two (2): 28.
+  exactly(graph(2, [[[use(2), use(2), use(3)], done()]]), 28, [finding(0, 0, 2), finding(0, 1, 2), finding(0, 2, 3)], "one lookup per local per block");
+  // A diamond whose arms bring different sets: base 11, entry 2, prologue lookup 1; markers 2, 3 (2); one meet at block 3
+  // (1); the use in block 3 (4) and its lookup (1): 22.
+  exactly(graph(2, [[[live(2)], either(1, 2)], [[live(3)], goto(3)], [[], goto(3)], [[use(2)], done()]]), 22, [], "a meet of two different sets");
+  // The same contents on both edges are the same object: the meet enters nothing. Markers 2, 3 and 3 again (3), no
+  // meet: 21.
+  exactly(graph(2, [[[live(2)], either(1, 2)], [[live(3), dead(3)], goto(3)], [[], goto(3)], [[use(2)], done()]]), 21, [], "equal contents meet for nothing");
 });
 
 test("storage work: a lowered loop header costs a further sweep, and equal contents on a back edge cost none", () => {
   // Order of reading: prologue, 0, 1, 3, 2. First sweep: marker of block 0 (1), marker of block 2 (1), the meet at
   // block 1 that lowers it (1). Second sweep from block 1: three blocks (3); block 1 again has two edges (2) and meets
   // at blocks 2 and 3 (2); block 3 again has no edge; block 2 again has one edge (1) and its marker (1). Lookups: the
-  // use in block 1, the end marker in block 2, the prologue (3). With the entry set (2): 17.
-  exactly(graph(1, [[[live(2)], goto(1)], [[use(2)], either(2, 3)], [[dead(2)], goto(1)], [[], done()]]), 17,
+  // use in block 1, the end marker in block 2, the prologue (3). With the entry set (2): 17. Base 9 and the use in
+  // block 1 (4): 30.
+  exactly(graph(1, [[[live(2)], goto(1)], [[use(2)], either(2, 3)], [[dead(2)], goto(1)], [[], done()]]), 30,
     [finding(1, 0, 2), finding(2, 0, 2)], "a local ended on the back edge");
   // Ended in block 2 and begun again in block 4: the back edge brings the header's set, so there is one sweep.
   // Markers 2, 3 in block 0 (2), the end in block 2 (1), the begin in block 4 (1); lookups of 2 and 3 in block 1 (2),
-  // of 3 for the end marker in block 2 (1), the prologue (1). With the entry set (2): 10.
-  exactly(graph(2, [[[live(2), live(3)], goto(1)], [[use(2), use(3)], either(2, 3)], [[dead(3)], goto(4)], [[], done()], [[live(3)], goto(1)]]), 10,
+  // of 3 for the end marker in block 2 (1), the prologue (1). With the entry set (2): 10. Base 11 and the two uses in
+  // block 1 (8): 29.
+  exactly(graph(2, [[[live(2), live(3)], goto(1)], [[use(2), use(3)], either(2, 3)], [[dead(3)], goto(4)], [[], done()], [[live(3)], goto(1)]]), 29,
     [], "equal contents on the back edge");
 });
 
 test("storage work: a set of three levels costs three units for each change and lookup", () => {
-  // 100 temporaries: the entry set (2 × 3), one marker (3), the prologue's lookup (3).
-  exactly(graph(100, [[[live(40), use(40)], done()]]), 12, [], "one marker in a wide body");
-  // A meet of sets that differ in one word enters the root, the half and the word (3): markers 40, 100 (6), lookup (3).
-  exactly(graph(100, [[[live(40)], either(1, 2)], [[live(100)], goto(3)], [[], goto(3)], [[use(40)], done()]]), 21, [], "a meet in a wide body");
+  // 100 temporaries, 102 locals and places, sets of three levels. The empty set (3); the place pass: 102 visits and
+  // 102 roots of three units (306); each operand at a use enumerates three nodes and one local (4). Then: the entry
+  // set (2 × 3), one marker (3), the use `x = x` (8), the prologue's write (4) and lookup (3): 3 + 102 + 306 + 6 + 3 + 8
+  // + 4 + 3 = 435.
+  exactly(graph(100, [[[live(40), use(40)], done()]]), 435, [], "one marker in a wide body");
+  // A meet of sets that differ in one word enters the root, the half and the word (3): empty set, places, entry and
+  // prologue as above (3 + 408 + 6 + 4 + 3), markers 40, 100 (6), the meet (3), the use (8) and its lookup (3): 444.
+  exactly(graph(100, [[[live(40)], either(1, 2)], [[live(100)], goto(3)], [[], goto(3)], [[use(40)], done()]]), 444, [], "a meet in a wide body");
 });
 
 test("storage work: the verifier returns the refusal for a body whose storage pass runs out, and never a finding with it", () => {
-  // The body with a finding needs four units of this pass and none of the other laws.
+  // The body with a finding needs 17 units of this pass (above) and none of the other laws.
   const body = graph(1, [[[use(2)], done()]]);
-  for (const maximumWork of [0, 1, 2, 3])
+  for (let maximumWork = 0; maximumWork < 17; maximumWork += 1)
     assert.deepEqual(verifyMir(body, contextOf(maximumWork)), { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
-  assert.deepEqual(verifyMir(body, contextOf(4)), { kind: "complete", violations: [finding(0, 0, 2)] });
+  assert.deepEqual(verifyMir(body, contextOf(17)), { kind: "complete", violations: [finding(0, 0, 2)] });
+});
+
+// ---- the locals a place reaches (K-3293, K-3294) ----------------------------------------------------------------
+// Places on locals 0..N, then a chain c_1 = place 0[index place 1], c_i = c_{i-1}[index place i]: c_i reaches
+// locals 0..i. All locals are begun in block 0, so nothing is looked up and nothing is found.
+const placeUse = place => ({ ...AT, kind: "assign", place, value: { kind: "use", operand: { kind: "place", place } }, step: null });
+function chain(n, usedEach) {
+  const locals = Array.from({ length: n + 1 }, (_, id) => temporary(id));
+  const places = placesOf(locals);
+  for (let i = 1; i <= n; i += 1)
+    places.push({ id: n + i, storage: T.bool, origin: AT.origin,
+      base: { kind: "place", place: i === 1 ? 0 : n + i - 1, projection: { kind: "index", operand: { kind: "place", place: i } } } });
+  const uses = usedEach ? Array.from({ length: n }, (_, i) => placeUse(n + i + 1)) : [placeUse(2 * n)];
+  return { ...record(locals, [[[...locals.map(local => live(local.id)), ...uses], done()]]), places };
+}
+
+test("storage work: a chain of projections is linear in places when one place is used, and pays for each requirement when each is used", () => {
+  // Units: the empty set (1); the place pass: 2n + 1 visits, n + 1 roots, and one union per chain place (its base's
+  // set and its operand's set differ: one node each), n; the n + 1 markers; at each use `c = c`, two operands, each
+  // one node and the i + 1 locals of c_i. One place used: 1 + (2n + 1) + (n + 1) + n + (n + 1) + 2(n + 2) = 7n + 8.
+  // Every place used once: 5n + 4 + 2·Σ_{i=1..n}(i + 2) = n² + 10n + 4.
+  for (const n of [10, 20]) {
+    exactly(chain(n, false), 7 * n + 8, [], `chain of ${n}, last used`);
+    exactly(chain(n, true), n * n + 10 * n + 4, [], `chain of ${n}, each used`);
+  }
+  // The place pass alone for 20 against 10: 7·20 + 8 = 148 against 78, the work doubles with the places (plus the
+  // constant); with every place used it grows with the requirements recorded, 604 against 204.
+});
+
+test("storage work: a place visited first as an index operand, and a union of sets wider than one word, are charged and refused like every set operation", () => {
+  // Place 1 = place 0[index place 2]: the place pass enters place 2 from place 1. Locals 0, 1; places 0 and 2 on them.
+  // Units: empty set 1; visits 3; roots 2; one union ({0} and {1}) 1; markers 2; the use of place 1, two operands of one
+  // node and two locals each (6): 15.
+  const forwardOperand = { ...record([temporary(0), temporary(1)], [[[live(0), live(1), placeUse(1)], done()]]),
+    places: [{ id: 0, storage: T.bool, origin: AT.origin, base: { kind: "local", local: 0 } },
+      { id: 1, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 0, projection: { kind: "index", operand: { kind: "place", place: 2 } } } },
+      { id: 2, storage: T.bool, origin: AT.origin, base: { kind: "local", local: 1 } }] };
+  exactly(forwardOperand, 15, [], "an operand place entered from the place that indexes by it");
+  // 40 locals, sets of two levels. Place 40 = place 0[index place 33] reaches {0, 33}; place 41 = place 1[index place
+  // 34] reaches {1, 34}; place 42 = place 40[index place 41] reaches {0, 1, 33, 34}. Units: empty set 2; visits 43;
+  // roots 40 × 2; unions: places 40 and 41 enter only their roots (one side of each half is empty), 1 each; place 42
+  // enters the root and both words, 3; markers 4 × 2; the use of place 42, two operands of three nodes and four
+  // locals each (14): 2 + 43 + 80 + 5 + 8 + 14 = 152.
+  const locals = Array.from({ length: 40 }, (_, id) => temporary(id));
+  const index = (id, base, operand) => ({ id, storage: T.bool, origin: AT.origin, base: { kind: "place", place: base, projection: { kind: "index", operand: { kind: "place", place: operand } } } });
+  const wide = { ...record(locals, [[[live(0), live(1), live(33), live(34), placeUse(42)], done()]]),
+    places: [...placesOf(locals), index(40, 0, 33), index(41, 1, 34), index(42, 40, 41)] };
+  exactly(wide, 152, [], "a union of two-level sets that differ in both words");
+  const missing = { ...wide, blocks: [{ ...wide.blocks[0], statements: [live(0), live(1), live(33), placeUse(42)] }] };
+  assert.deepEqual(pass(missing).findings, [finding(0, 3, 34)], "local 34 through the second index operand");
+});
+
+test("storage: a use reaches the locals of every index operand on the way, through index operands of index operands, and through a cycle", () => {
+  // Place 3 = place 1[index place 2]; place 4 = place 0[index place 3]: a use of place 4 needs locals 0, 1 and 2.
+  const locals = [temporary(0), temporary(1), temporary(2)];
+  const nested = (begun) => ({ ...record(locals, [[[...begun.map(live), placeUse(4)], done()]]),
+    places: [...placesOf(locals),
+      { id: 3, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 1, projection: { kind: "index", operand: { kind: "place", place: 2 } } } },
+      { id: 4, storage: T.bool, origin: AT.origin, base: { kind: "checked", place: 0, projection: { kind: "index", operand: { kind: "place", place: 3 } }, tir: AT.tir } }] });
+  assert.deepEqual(pass(nested([0, 1, 2])).findings, []);
+  assert.deepEqual(pass(nested([0, 1])).findings, [finding(0, 2, 2)], "local 2 through the index operand of an index operand, once for the record");
+  // A malformed cycle: place 3 = place 0[index place 4], place 4 = place 1[index place 3]. Each reaches locals 0 and 1.
+  const cyclic = begun => ({ ...record([temporary(0), temporary(1)], [[[...begun.map(live), placeUse(3)], done()]]),
+    places: [...placesOf([temporary(0), temporary(1)]), { id: 2, storage: T.bool, origin: AT.origin, base: { kind: "static" } },
+      { id: 3, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 0, projection: { kind: "index", operand: { kind: "place", place: 4 } } } },
+      { id: 4, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 1, projection: { kind: "index", operand: { kind: "place", place: 3 } } } }] });
+  assert.deepEqual(pass(cyclic([0])).findings, [finding(0, 1, 1)]);
+  assert.deepEqual(pass(cyclic([0, 1])).findings, []);
+  // A place whose base comes after it has no location, and neither has a place that reaches it: their uses need nothing.
+  const forward = { ...record([temporary(0)], [[[placeUse(1), placeUse(2)], done()]]),
+    places: [...placesOf([temporary(0)]), { id: 1, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 2, projection: { kind: "field" } } },
+      { id: 2, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 0, projection: { kind: "index", operand: { kind: "place", place: 1 } } } }] };
+  assert.deepEqual(pass(forward).findings, []);
+  // An index operand outside the body's places: no location, nothing needed.
+  const outside = { ...record([temporary(0)], [[[placeUse(1)], done()]]),
+    places: [...placesOf([temporary(0)]), { id: 1, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 0, projection: { kind: "index", operand: { kind: "place", place: 7 } } } }] };
+  assert.deepEqual(pass(outside).findings, []);
 });
 
 // ---- the sets themselves: nothing is entered and nothing is made after the account is exhausted --------------

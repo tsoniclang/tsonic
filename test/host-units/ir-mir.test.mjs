@@ -345,7 +345,7 @@ test("MIR verification refuses a limit that is not a count as its caller's defec
   const context = sourceContext(body);
   for (const maximumWork of [NaN, Infinity, -1, 0.5, -0.5]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
     { name: "TypeError", message: "ir-mir: maximumWork must be a finite nonnegative integer" });
-  same(product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), { kind: "complete", violations: [] }, "zero is a count");
+  same([product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), product.verifyMir(body, { ...context, limits: { maximumWork: 1 } })], [{ kind: "resource-limit", body: body.body, dimension: "work", maximum: 0 }, { kind: "complete", violations: [] }], "zero is a count: the body's empty set costs one unit, so it is refused at 0 and complete at 1");
 });
 
 test("MIR storage statements preserve both closed arms and source/origin correlation", () => {
