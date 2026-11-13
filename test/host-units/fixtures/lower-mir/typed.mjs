@@ -41,6 +41,7 @@ term("optBoxV", { kind: "optional", value: T.boxV });
 term("holder", { kind: "shape", members: [member("x", T.optBoxV)], indexes: [], calls: [], constructs: [] });
 term("abRecord", { kind: "shape", members: [member("a", T.int32), member("b", T.int32, true)], indexes: [], calls: [], constructs: [] });
 export const signature = (name, parameters, result, receiver = null) => {
+  if (name in SIG) throw new Error(`Signature ${name} is declared twice; declare signatures at module level.`);
   SIG[name] = signatures.length;
   signatures.push({ id: SIG[name], declaration: def(name), owner: null, composition: null, kind: "call", typeParameters: [],
     receiver, parameters: parameters.map(([parameter, type, kind = "required", initializer = null, passing = "by-value"]) =>

@@ -122,10 +122,12 @@ export function wt10(policy) {
 // The Core laws are Rules' selections: the three address computations are pure; the store writes existing storage and
 // cannot fail; a raw access carries no check.
 const SIG_WRITE = signature("write", [], T.uint32);
+const CORE_SIGNATURES = Object.fromEntries([["unsafecontext", T.void], ["addressof", T.unknown], ["torawptr", T.unknown],
+  ["reinterpretrawptr", T.unknown], ["storeptr", T.void]].map(([name, result]) => [name, signature(name, [], result)]));
 export function wt11(policy) {
   const b = builders("write");
   const coreCall = (name, label, args, type, decision, mappings, argumentsOf) => ({ $: label, ...b.call(b.global(name, name, T.unknown), args, type,
-    at => ({ callee: { ...callee(name, signature(`${name}#${label}`, [], type), mappings, type), activation: null }, receiver: null, arguments: argumentsOf(at) }),
+    at => ({ callee: { ...callee(name, CORE_SIGNATURES[name], mappings, type), activation: null }, receiver: null, arguments: argumentsOf(at) }),
     { operation: operation(decision) }) });
   const provided = (...labels) => at => labels.map((label, parameter) => ({ kind: "provided", parameter, expression: at(label) }));
   const layout = label => ({ $: label, ...b.global("wordLayout", "wordLayout", T.unknown) });
@@ -177,6 +179,7 @@ export function wt8() {
 //   export function generic<T extends number>(value: T): int32 { return value; }   (template: a deferred conversion)
 //   export function independent(): int32 { return 7; }
 const SIG_INT32 = signature("returns-int32", [], T.int32);
+const SIG_GENERIC = signature("generic", [["value", T.unknown]], T.int32);
 export function wt5() {
   const e = builders("broken");
   const broken = typedBody("broken", { signature: SIG_INT32, completion: T.int32,
@@ -184,7 +187,7 @@ export function wt5() {
       tsonic: { ...value(T.int32), role: "value", resolution: { kind: "error", diagnostic: 0 } } })) });
   const d = builders("generic");
   const deferredConversion = { kind: "deferred", deferred: { invocation: { rule: "embed", input: null }, result: T.int32 } };
-  const deferred = typedBody("generic", { signature: signature("generic", [["value", T.unknown]], T.int32), completion: T.int32,
+  const deferred = typedBody("generic", { signature: SIG_GENERIC, completion: T.int32,
     locals: [["value", "parameter", T.unknown]], params: [[0, "required", T.unknown]],
     root: d.block(d.returns({ $: "value", ...d.id("value", 0, T.unknown, { value: { convertedType: T.int32, conversion: deferredConversion } }) })) });
   deferred.tir.dependence = "binding-dependent";
